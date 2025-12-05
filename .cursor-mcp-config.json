@@ -1,0 +1,81 @@
+{
+  "mcpServers": {
+    "supabase-mentorships": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_MENTORSHIPS_ACCESS_TOKEN}"
+      }
+    },
+    "stripe": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-stripe"
+      ],
+      "env": {
+        "STRIPE_API_KEY": "${STRIPE_API_KEY}"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem"
+      ],
+      "env": {
+        "ALLOWED_DIRECTORIES": "${PROJECT_ROOT}"
+      }
+    },
+    "brave-search": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+      }
+    },
+    "eslint": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@eslint/mcp@latest"
+      ],
+      "env": {}
+    },
+    "graphiti-memory": {
+      "url": "https://knowledge-graph-mcp-production-cdc6.up.railway.app/sse",
+      "env": {}
+    },
+    "vercel": {
+      "url": "https://mcp.vercel.com",
+      "env": {}
+    },
+    "clerk": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@clerk/agent-toolkit"
+      ],
+      "env": {
+        "CLERK_SECRET_KEY": "${CLERK_SECRET_KEY}"
+      }
+    }
+  }
+}
+

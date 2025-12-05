@@ -1,0 +1,319 @@
+# Cursor AI Rules - Mentorship Platform
+
+## MCP Verification at Workspace Startup - MANDATORY
+
+**CRITICAL: Always verify MCPs are enabled and working when starting work in this workspace**
+
+### At the Beginning of Each Session:
+1. **ALWAYS verify MCP servers are available**: Use `list_mcp_resources` to check which MCPs are responding
+2. **Report status clearly**: Inform the user which MCPs are active:
+   - ✅ **Working MCPs**: List each functioning MCP server (e.g., GitHub, Filesystem, Vercel, Graphiti, etc.)
+   - ⚠️ **Non-responsive MCPs**: List any configured but non-responsive servers
+   - ☁️ **Graphiti Status**: Confirm cloud connection (Railway: knowledge-graph-mcp-production-cdc6.up.railway.app)
+3. **Keep it concise**: Present the MCP status in a brief, scannable format
+
+### Example Status Report Format:
+```
+🔍 MCP Status Check:
+✅ GitHub MCP - Active
+✅ Filesystem MCP - Active  
+✅ Vercel MCP - Active
+✅ Supabase MCP - Active
+✅ Graphiti MCP - Active (Cloud: Railway)
+✅ Clerk MCP - Active (User Management)
+✅ Stripe MCP - Active (Payment Processing)
+
+All systems ready! Let me know which MCPs you'd like to disable for this session.
+```
+
+**Note**: 
+- Graphiti is deployed to Railway cloud - always available, no local Docker needed
+- Clerk MCP requires CLERK_SECRET_KEY environment variable
+- Stripe MCP requires STRIPE_API_KEY environment variable
+- The user may want to disable some MCPs during the session - that's expected and should be respected.
+
+---
+
+## MCP Usage During Work - MANDATORY
+
+**CRITICAL: Always prefer using available MCP tools over manual alternatives**
+
+### Before Executing Any Plan:
+1. **ALWAYS check which MCPs are currently enabled** (remember from startup check or ask user)
+2. **ALWAYS prefer MCP tools when available** for relevant operations:
+   - **GitHub MCP** → Use for all GitHub operations (repos, PRs, issues, branches, commits)
+   - **Clerk MCP** → Use for user/auth management (when enabled)
+   - **Supabase MCP** → Use for database operations (when enabled)
+   - **Stripe MCP** → Use for payment operations (when enabled)
+   - **Vercel MCP** → Use for deployments/env vars (when enabled)
+   - **Filesystem MCP** → Use for file operations (always prefer over terminal commands)
+   - **Graphiti MCP** → Use for remembering preferences/procedures
+   - **Brave Search MCP** → Use for web searches
+   - **Browser MCP** → Use for testing web UIs
+
+3. **NEVER use terminal commands** when an MCP tool exists for the same purpose
+4. **NEVER manually curl APIs** when an MCP provides the same functionality
+5. **ALWAYS ask user to enable relevant MCP** if it's disabled but would be useful for the task
+
+---
+
+## Workspace Detection for Graphiti Memory - MANDATORY
+
+**CRITICAL: Always detect workspace and use correct group_id for Graphiti operations**
+
+### Automatic Workspace → Group ID Mapping
+
+When using ANY Graphiti MCP tool (`add_memory`, `search_nodes`, `search_facts`, etc.), you MUST:
+
+1. **Detect the current workspace path** from the user's workspace information
+2. **Map to the correct group_id** using this table:
+
+| Workspace Path Contains | Group ID | Project |
+|------------------------|----------|---------|
+| `/mentorships-infra` | `mentorships-infra` | Mentorship Platform |
+| `/5head` | `5head` | Main 5head project |
+| `/cursor-agent-test` | `cursor-agent-test` | Cursor agent testing |
+| `/Discord Huckleberry Mentorship Bot` | `huckleberry-discord-bot` | Discord bot |
+| *(any other path)* | `default` | Unknown projects |
+
+3. **Always pass group_id** when calling Graphiti tools
+
+### Example Usage:
+
+```python
+# If workspace is /home/dlitorja/projects/mentorships-infra
+add_memory(
+    name="Payment Implementation Preference",
+    episode_body="User wants step-by-step hand-holding for Stripe/PayPal implementation",
+    group_id="mentorships-infra"  # ← Always include this!
+)
+```
+
+---
+
+## Type Safety - TOP PRIORITY
+
+**CRITICAL: Ensuring type safety throughout the system is a top priority**
+
+### Type Safety Requirements:
+1. **ALWAYS maintain strict type checking** - No `any` types without explicit justification
+2. **ALWAYS use proper type definitions** - Define types/interfaces for all data structures, API responses, and function parameters
+3. **ALWAYS verify TypeScript compilation** - Ensure `tsc --noEmit` passes with zero errors before committing
+4. **ALWAYS use type guards** - When type narrowing is needed, use proper type guards instead of type assertions
+5. **ALWAYS type function return values** - Explicitly type all function return values, especially async functions
+6. **ALWAYS validate API responses** - Use runtime validation (zod) to ensure API responses match expected types
+7. **NEVER use type assertions (`as`)** unless absolutely necessary - Prefer type guards and proper type narrowing
+8. **NEVER disable TypeScript errors** with `@ts-ignore` or `@ts-expect-error` without documenting why
+
+---
+
+## Payment Implementation - CRITICAL GUIDELINES
+
+**When implementing Stripe/PayPal payments:**
+
+1. **ALWAYS verify webhook signatures** before processing
+2. **ALWAYS implement idempotency** - Check if payment already processed
+3. **ALWAYS handle errors gracefully** - Never expose payment details in errors
+4. **ALWAYS log payment events** to Axiom for observability
+5. **ALWAYS test with test cards** before production
+6. **NEVER store card details** - Use provider-hosted checkout only
+7. **NEVER process payments without webhook confirmation**
+
+### Payment Flow Checklist:
+- [ ] Order created in database (status: pending)
+- [ ] Checkout session created with metadata (order_id, user_id, pack_id)
+- [ ] Webhook signature verified
+- [ ] Idempotency check (prevent duplicate processing)
+- [ ] Order updated to 'paid'
+- [ ] Payment record created
+- [ ] Session pack created
+- [ ] Seat reservation created
+- [ ] Notifications sent (Discord, email)
+
+---
+
+## Session Pack & Seat Management - CRITICAL
+
+**When working with session packs and seats:**
+
+1. **ALWAYS check seat availability** before creating pack
+2. **ALWAYS verify pack expiration** before allowing bookings
+3. **ALWAYS handle grace period** correctly (72 hours after session 4)
+4. **ALWAYS check remaining_sessions** before booking
+5. **ALWAYS allow scheduled sessions to complete** even if pack expires
+6. **NEVER create duplicate seat reservations**
+7. **NEVER allow bookings when remaining_sessions = 0**
+
+### Seat Release Conditions:
+- Pack expires AND all scheduled sessions completed
+- Grace period expires (all sessions used, no renewal)
+- Pack refunded
+
+---
+
+## Security & Error Handling Guidelines - MANDATORY
+
+### Error Handling Standards:
+1. **ALWAYS use structured error responses** with proper HTTP status codes (400, 401, 403, 404, 500, etc.)
+2. **NEVER log sensitive data**: No passwords, API keys, tokens, or PII in logs or error messages
+3. **ALWAYS implement fallbacks** for external services (APIs, databases, third-party integrations)
+4. **ALWAYS use proper error boundaries** in React components to prevent full app crashes
+5. **ALWAYS provide meaningful error messages** to users without exposing internal system details
+
+### Security Verification Steps:
+Before implementing or modifying authentication, authorization, or data handling:
+1. **Verify authentication** on all protected routes and API endpoints
+2. **Check authorization** - ensure users can only access/modify their own data
+3. **Validate all user inputs** - sanitize and validate before processing
+4. **Test error states** - verify error handling doesn't leak sensitive information
+5. **Confirm no sensitive data exposure** in error logs, responses, or client-side code
+
+---
+
+## Architecture & Performance Guidelines - MANDATORY
+
+When implementing features or making changes:
+1. **ALWAYS consider performance implications** of changes before implementing
+2. **ALWAYS implement pagination** for lists/tables that could grow beyond 50-100 items
+3. **ALWAYS follow rate limiting patterns** when adding new API routes or external service calls
+4. **ALWAYS use optimized queries** and proper database indexes for data operations
+5. **ALWAYS consider caching** for expensive operations or frequently accessed data
+
+### Performance Requirements:
+- Avoid N+1 queries - use proper joins or batch loading
+- Implement lazy loading for images and large content
+- Use debouncing/throttling for user input events
+- Monitor bundle sizes - keep initial load under reasonable limits
+- Use proper React patterns (memoization, lazy imports) to avoid unnecessary re-renders
+
+---
+
+## Git & GitHub Workflow - MANDATORY
+
+**CRITICAL: Always follow git and GitHub best practices when working with version control**
+
+### Commit Message Format
+
+**ALWAYS use Conventional Commits format (Enterprise Standard):**
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**Types (Enterprise Standard):**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style changes (formatting, missing semicolons, etc.)
+- `refactor`: Code refactoring
+- `perf`: Performance improvements
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks (dependencies, build config, etc.)
+- `ci`: CI/CD changes
+- `build`: Build system changes
+
+**Scope (Recommended for Monorepo):**
+- Use package/app name: `auth`, `payments`, `db`, `web`, `bot`
+- Helps Greptile and CodeRabbit understand context
+- Improves Vercel deployment tracking
+
+**Examples:**
+- `feat(auth): add Clerk authentication middleware`
+- `fix(payments): verify webhook signatures before processing`
+- `refactor(db): update schema to use Clerk user IDs`
+- `docs(readme): add setup instructions for Supabase`
+
+### Branch Naming Conventions
+
+**ALWAYS use descriptive branch names:**
+
+Format: `<type>/<short-description>`
+
+**Types:**
+- `feat/` - New features
+- `fix/` - Bug fixes
+- `refactor/` - Code refactoring
+- `docs/` - Documentation
+- `test/` - Tests
+- `chore/` - Maintenance
+
+**Examples:**
+- `feat/stripe-payment-integration`
+- `fix/user-sync-to-supabase`
+- `refactor/database-schema`
+- `docs/api-documentation`
+
+### GitHub Workflow
+
+1. **ALWAYS use GitHub MCP** for all GitHub operations:
+   - Creating branches
+   - Creating pull requests
+   - Managing issues
+   - Reviewing PRs
+   - Merging PRs
+
+2. **Pull Request Guidelines (Optimized for Greptile/CodeRabbit/Vercel):**
+   - **ALWAYS create PRs** for code changes (never push directly to main)
+   - **ALWAYS write descriptive PR titles** following Conventional Commits format
+   - **ALWAYS include comprehensive PR description** with:
+     - **What**: What changes were made
+     - **Why**: Why these changes were needed
+     - **How**: Brief explanation of implementation approach
+     - **Testing**: How to test the changes
+     - **Related**: Link to related issues or PRs
+   - **ALWAYS ensure TypeScript compiles** (`tsc --noEmit`) before creating PR
+   - **ALWAYS run linting** before creating PR (`pnpm check`)
+   - **ALWAYS link related issues** in PR description (helps Greptile/CodeRabbit context)
+   - **Include code examples** in PR description when relevant (helps CodeRabbit understand intent)
+
+3. **PR Review Process:**
+   - CodeRabbit will auto-review PRs (assertive profile enabled)
+   - CodeRabbit reviews draft PRs: **disabled** (only reviews when ready)
+   - Address all review comments before merging
+   - Ensure all checks pass before requesting review
+   - Use CodeRabbit commands in PR comments: `/review`, `/summarize`, `/explain`, `/fix`
+
+4. **Merge Strategy:**
+   - **ALWAYS use squash merge** for feature branches (clean history, better for Greptile indexing)
+   - Squash merge creates single commit with PR title as commit message
+   - **NEVER force push** to main/master branch
+   - Squash merge preserves PR context while keeping history clean
+
+5. **Before Committing:**
+   - Run `pnpm check` (lint + typecheck)
+   - Ensure all tests pass
+   - Verify no sensitive data in commits
+   - Check that migrations are included if schema changed
+
+### Git Best Practices
+
+1. **ALWAYS verify before committing:**
+   - Check `git status` to see what's being committed
+   - Review diffs before committing
+   - Ensure no `.env` files or secrets are included
+
+2. **Commit Frequency:**
+   - **Start with larger logical commits** - Group related changes together
+   - **Mix approach**: Larger commits for major features, smaller commits for incremental work
+   - Commit logical units of work (not every single file change)
+   - Don't commit broken code
+   - Don't commit commented-out code
+   - Push when feature branch is complete (before creating PR)
+   - **Note**: Squash merge will consolidate commits anyway, so focus on logical grouping
+
+3. **Branch Management:**
+   - Create feature branches from `main`
+   - Keep branches up to date with `main` (rebase or merge as needed)
+   - Delete branches after merging (squash merge preserves history)
+   - Use descriptive branch names matching PR scope
+
+---
+
+## Golden Rule
+
+**VERIFY, DON'T ASSUME. Every single time. No exceptions.**
+

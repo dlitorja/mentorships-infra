@@ -1,0 +1,107 @@
+version: 1
+name: mentorships-infra
+description: Mentorship platform with session packs, payments, and seat management
+
+# Project structure
+type: monorepo
+package_manager: pnpm
+
+# Frameworks and languages
+tech_stack:
+  - next.js
+  - react
+  - typescript
+  - tailwindcss
+  - drizzle-orm
+  - clerk
+  - supabase
+  - stripe
+  - paypal
+  - agora
+  - discord.js
+  - meilisearch
+  - upstash-redis
+  - axiom
+  - better-stack
+
+# Directories to prioritize for indexing
+focus_paths:
+  - apps/web/app              # Next.js App Router
+  - apps/web/components       # React components
+  - apps/bot                  # Discord bot
+  - packages/                 # Shared packages
+  - packages/db               # Database schema & migrations
+  - packages/payments         # Payment providers
+  - packages/messaging        # Notifications
+
+# Directories to ignore
+ignore_paths:
+  - node_modules
+  - .next
+  - .turbo
+  - dist
+  - build
+  - coverage
+  - test-results
+  - playwright-report
+  - .vercel
+
+# Custom semantic tags for better understanding
+semantic_tags:
+  authentication:
+    - packages/lib/auth
+    - apps/web/app/api/auth
+    - middleware.ts
+  database:
+    - packages/db
+    - packages/db/schema
+    - packages/db/migrations
+  payments:
+    - packages/payments
+    - apps/web/app/api/checkout
+    - apps/web/app/api/webhooks
+  sessions:
+    - apps/web/app/api/sessions
+    - packages/db/schema/sessions
+  seat_management:
+    - packages/db/schema/seat_reservations
+    - apps/web/app/api/seats
+  video:
+    - apps/video
+    - packages/video
+  calendar:
+    - packages/calendar
+  messaging:
+    - packages/messaging
+    - apps/bot
+
+# Integration settings
+integrations:
+  github:
+    repository: dlitorja/mentorships-infra
+    default_branch: main
+    sync_on_push: true
+  
+  coderabbit:
+    enabled: true
+    # Greptile can provide context to CodeRabbit reviews
+    
+  cursor:
+    enabled: true
+    # For Cursor IDE integration
+
+# Query optimization
+query_settings:
+  max_results: 20
+  include_tests: false  # Exclude test files from most queries
+  include_dependencies: false  # Exclude node_modules from results
+  
+# Auto-update settings
+auto_sync:
+  enabled: true
+  on_push: true
+  on_pr: true
+  branches:
+    - main
+    - develop
+

@@ -1,0 +1,157 @@
+# CodeRabbit Configuration
+# Optimized for Mentorship Platform: Next.js + TypeScript + Cursor IDE + GitHub workflow
+
+# Language & Framework Settings
+language: "en-US"
+
+# Review Configuration
+reviews:
+  # Review behavior
+  profile: "assertive" # More thorough reviews
+  request_changes_workflow: true
+  
+  # Auto-review PRs when opened/updated
+  auto_review:
+    enabled: true
+    drafts: false # Don't review draft PRs
+  
+  # Critical issues to always flag
+  high_level_summary: true
+  
+  # Post review status as comment
+  review_status: true
+    
+  # Prioritize these file patterns
+  path_filters:
+    - "apps/**/*.{ts,tsx,js,jsx}"
+    - "packages/**/*.{ts,tsx,js,jsx}"
+    - "middleware.ts"
+    - "*.config.{ts,js,mjs}"
+  
+  # Ignore patterns (less critical files)
+  path_ignore:
+    - "node_modules/**"
+    - "dist/**"
+    - "build/**"
+    - ".next/**"
+    - "coverage/**"
+    - "test-results/**"
+    - "*.lock"
+    - "pnpm-lock.yaml"
+    - "*.log"
+    - "*.tsbuildinfo"
+    - "**/*.md:Zone.Identifier"
+  
+  # Focus on these aspects
+  checks:
+    # Code Quality
+    - complexity # Flag overly complex functions
+    - maintainability
+    - readability
+    - best_practices
+    
+    # Security
+    - security # Security vulnerabilities
+    - secrets # Accidental secret exposure
+    
+    # Performance
+    - performance # Performance issues
+    - bundle_size # For Next.js bundle optimization
+    
+    # TypeScript/React Specific
+    - typescript # Type safety issues
+    - react_patterns # React best practices
+    - hooks # React hooks rules
+    
+    # Testing
+    - test_coverage # Flag missing tests
+    - test_quality
+    
+    # Next.js Specific
+    - nextjs_patterns # Next.js best practices
+    - seo # SEO issues in Next.js
+    - accessibility # a11y issues
+    
+    # Database/API
+    - sql_injection # For database queries
+    - api_design # REST/API patterns
+    
+    # Misc
+    - error_handling
+    - logging
+    - documentation
+
+# Knowledge Base Integration
+knowledge_base:
+  # Learn from your team's code patterns
+  learnings:
+    scope: "auto"
+    
+  # Integrate with existing documentation
+  docs:
+    - path: "docs/**/*.md"
+    - path: "*.md"
+    - path: "README.md"
+  
+  # Use your ESLint config as source of truth
+  lint_config:
+    - path: "eslint.config.mjs"
+  
+  # TypeScript configs for type checking context
+  type_config:
+    - path: "tsconfig.json"
+    - path: "tsconfig.base.json"
+  
+  # Core development principles (from user preferences)
+  principles:
+    - "Prioritize strong architecture and maintainable code over quick fixes"
+    - "Long-term solutions preferred over 'this will work for now' approaches"
+    - "Pre-implementation reviews to identify issues before coding"
+    - "Development environment: Cursor IDE on WSL2 Linux"
+    - "All projects in same GitHub repository with monorepo structure"
+    - "Session pack model: 4 sessions per pack, no subscriptions"
+    - "Seat reservations are critical - always check availability"
+    - "Payment webhooks must be idempotent"
+    - "Recording consent required before sessions"
+    - "24-hour minimum notice for rescheduling"
+  
+  # Mandatory patterns
+  mandatory_checks:
+    - "Implement pagination for lists/tables that could exceed 50-100 items"
+    - "Apply rate limiting patterns for ALL API routes"
+    - "Use optimized queries with proper database indexes"
+    - "Implement caching for expensive or frequently accessed operations"
+    - "Use structured error responses with proper HTTP status codes (400, 401, 403, 404, 500)"
+    - "NEVER log sensitive data (passwords, tokens, API keys, PII)"
+    - "Implement fallbacks for all external services"
+    - "Use proper error boundaries in React components"
+    - "Validate and sanitize ALL user inputs"
+    - "Test error scenarios, not just happy paths"
+    - "Verify seat availability before creating session pack"
+    - "Always validate webhook signatures"
+    - "Check pack expiration before allowing bookings"
+    - "Implement grace period logic for seat releases"
+    
+  # Performance requirements
+  performance_rules:
+    - "Avoid N+1 queries - use joins or batch loading"
+    - "Implement lazy loading for images and large content"
+    - "Use debouncing/throttling for user input events"
+    - "Monitor bundle sizes - keep initial load under reasonable limits"
+    - "Use React patterns (memoization, lazy imports) to prevent unnecessary re-renders"
+
+# Chat & Comments
+chat:
+  # Enable CodeRabbit to respond to comments
+  auto_reply: true
+    
+  # Commands you can use in PR comments
+  commands:
+    - "/review" # Trigger full review
+    - "/summarize" # Get summary
+    - "/explain" # Explain specific code
+    - "/fix" # Suggest fixes
+
+# Early Access Features
+early_access: true
+

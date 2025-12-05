@@ -1,0 +1,14 @@
+onlyBuiltDependencies:
+  - '@scarf/scarf'
+  - '@sentry/cli'
+  - '@vercel/speed-insights'
+  - core-js-pure
+  - esbuild
+  - sharp
+  - tree-sitter
+  - tree-sitter-json
+
+packages:
+  - "apps/*"
+  - "packages/*"
+
