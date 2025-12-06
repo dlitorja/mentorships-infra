@@ -32,11 +32,13 @@ const isPublicApiRoute = createRouteMatcher([
 const isPublicPage = createRouteMatcher([
   "/",
   "/mentors(.*)",
+  "/instructors(.*)",
   "/about(.*)",
   "/pricing(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/test(.*)", // Test page for verification
+  "/waitlist(.*)", // Waitlist page
 ]);
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {

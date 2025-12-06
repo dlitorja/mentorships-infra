@@ -8,11 +8,31 @@ import { Sparkles } from "lucide-react";
 
 export function MatchingSection(): JSX.Element {
   const [artGoals, setArtGoals] = useState("");
+  const [email, setEmail] = useState("");
 
-  const handleSubmit = (e: React.FormEvent): void => {
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     // TODO: Implement matching when backend is ready
     console.log("Art goals submitted");
+    
+    // If email is provided, add to contacts database
+    if (email) {
+      try {
+        await fetch("/api/contacts", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+            artGoals,
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to add email to contacts:", error);
+        // Don't show error to user - this is optional functionality
+      }
+    }
   };
 
   return (
@@ -55,6 +75,28 @@ export function MatchingSection(): JSX.Element {
                 <p className="text-center text-xs text-white/70">
                   Be as specific as possible about your goals, experience level, and interests
                 </p>
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="email"
+                  className="block text-center text-sm font-medium text-white"
+                >
+                  Email Address (Optional)
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20 text-white placeholder:text-white/50 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+                  placeholder="your@email.com"
+                />
+                {email && (
+                  <p className="text-center text-xs text-white/60">
+                    By providing your email, you opt in to receive communications from us about mentorship opportunities and updates.
+                  </p>
+                )}
               </div>
               
               <Button

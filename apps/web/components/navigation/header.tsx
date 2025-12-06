@@ -28,7 +28,7 @@ export function Header() {
             <Button asChild variant="ghost" size="sm">
               <Link href="/sign-in">Sign In</Link>
             </Button>
-            <Button asChild size="sm">
+            <Button asChild size="sm" className="vibrant-gradient-button transition-all">
               <Link href="/sign-up">Get Started</Link>
             </Button>
           </SignedOut>
