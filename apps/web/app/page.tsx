@@ -1,19 +1,23 @@
 import { HeroSection } from "@/components/landing/hero-section";
 import { InstructorCarousel } from "@/components/landing/instructor-carousel";
-import { AIMatchingSection } from "@/components/landing/ai-matching-section";
+import { MatchingSection } from "@/components/landing/matching-section";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { Testimonials } from "@/components/landing/testimonials";
 import { Footer } from "@/components/navigation/footer";
 
-export default function HomePage() {
+export default function HomePage(): JSX.Element {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <HeroSection />
-      <InstructorCarousel />
-      <AIMatchingSection />
-      <HowItWorks />
-      <Testimonials />
+    <>
+      <main className="min-h-screen textured-gradient text-foreground relative">
+        <div className="relative z-10">
+          <HeroSection />
+          <InstructorCarousel />
+          <MatchingSection />
+          <HowItWorks />
+          <Testimonials />
+        </div>
+      </main>
       <Footer />
-    </main>
+    </>
   );
 }
