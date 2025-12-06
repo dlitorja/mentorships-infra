@@ -155,7 +155,7 @@ export const mockInstructors: Instructor[] = [
     name: "Rakasa",
     slug: "rakasa",
     tagline: "Self-Taught Freelance Illustrator",
-    bio: "Rakasa is a self-taught freelance illustrator, and after exploring various fields, she decided in 2023 to pursue her passion for art full-time, focusing on creating stunning digital illustrations and character designs.",
+    bio: "Rakasa is a self-taught freelance illustrator who decided in 2023 to pursue her passion for art full-time, focusing on creating stunning digital illustrations and character designs. She has worked with top-tier clients including Clip Studio Paint, AFK Journey, and Infinity Nikki, bringing her unique artistic vision to major projects in the gaming and software industries.",
     specialties: ["Digital Illustration", "Character Design", "Self-Taught Journey"],
     background: ["Indie"],
     profileImage: "/instructors/rakasa/profile.jpg",
@@ -167,6 +167,7 @@ export const mockInstructors: Instructor[] = [
     ],
     pricing: {
       oneOnOne: 475,
+      group: 250,
     },
     socialLinks: {
       instagram: "https://www.instagram.com/rakasa_art",
@@ -321,24 +322,89 @@ export function getAvailableInstructors(): Instructor[] {
 }
 
 /**
- * Get next instructor in the list
+ * Get all available instructors in alphabetical order by name
+ * Used for profile page navigation to ensure consistent ordering
  */
-export function getNextInstructor(currentSlug: string): Instructor | undefined {
-  const available = getAvailableInstructors();
-  const currentIndex = available.findIndex((inst) => inst.slug === currentSlug);
-  if (currentIndex === -1) return undefined;
-  const nextIndex = (currentIndex + 1) % available.length;
-  return available[nextIndex];
+export function getAlphabeticalInstructors(): Instructor[] {
+  const instructors = [...mockInstructors];
+  return instructors.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
- * Get previous instructor in the list
+ * Get navigation info for an instructor
+ * Supports custom order (from session storage) or defaults to alphabetical
+ */
+export function getInstructorNavigation(
+  currentSlug: string,
+  customOrder?: string[]
+): {
+  next: Instructor | undefined;
+  previous: Instructor | undefined;
+  currentIndex: number;
+  totalCount: number;
+  order: Instructor[];
+  mode: 'custom' | 'alphabetical';
+} {
+  let order: Instructor[];
+  let mode: 'custom' | 'alphabetical';
+
+  if (customOrder && customOrder.length > 0) {
+    // Use custom order if provided
+    const customInstructors = customOrder
+      .map((slug) => mockInstructors.find((inst) => inst.slug === slug))
+      .filter((inst): inst is Instructor => inst !== undefined);
+    
+    if (customInstructors.length > 0) {
+      order = customInstructors;
+      mode = 'custom';
+    } else {
+      order = getAlphabeticalInstructors();
+      mode = 'alphabetical';
+    }
+  } else {
+    order = getAlphabeticalInstructors();
+    mode = 'alphabetical';
+  }
+
+  const currentIndex = order.findIndex((inst) => inst.slug === currentSlug);
+  
+  if (currentIndex === -1) {
+    return {
+      next: undefined,
+      previous: undefined,
+      currentIndex: -1,
+      totalCount: order.length,
+      order,
+      mode,
+    };
+  }
+
+  const nextIndex = (currentIndex + 1) % order.length;
+  const prevIndex = currentIndex === 0 ? order.length - 1 : currentIndex - 1;
+
+  return {
+    next: order[nextIndex],
+    previous: order[prevIndex],
+    currentIndex: currentIndex + 1, // 1-indexed for display
+    totalCount: order.length,
+    order,
+    mode,
+  };
+}
+
+/**
+ * Get next instructor in the list (alphabetical order for navigation)
+ * @deprecated Use getInstructorNavigation instead for better control
+ */
+export function getNextInstructor(currentSlug: string): Instructor | undefined {
+  return getInstructorNavigation(currentSlug).next;
+}
+
+/**
+ * Get previous instructor in the list (alphabetical order for navigation)
+ * @deprecated Use getInstructorNavigation instead for better control
  */
 export function getPreviousInstructor(currentSlug: string): Instructor | undefined {
-  const available = getAvailableInstructors();
-  const currentIndex = available.findIndex((inst) => inst.slug === currentSlug);
-  if (currentIndex === -1) return undefined;
-  const prevIndex = currentIndex === 0 ? available.length - 1 : currentIndex - 1;
-  return available[prevIndex];
+  return getInstructorNavigation(currentSlug).previous;
 }
 

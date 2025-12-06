@@ -108,18 +108,22 @@ export function InstructorCarousel(): JSX.Element {
                     delay: delays[index] || 0,
                     ease: "easeOut",
                   }}
+                  className="h-full"
                 >
-                  <Card className="h-full overflow-hidden transition-shadow hover:shadow-lg">
-                    <div className="relative aspect-[4/3] w-full overflow-hidden">
+                  <Card className="flex flex-col h-full overflow-hidden transition-shadow hover:shadow-lg">
+                    <Link 
+                      href={`/instructors/${instructor.slug}`}
+                      className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer block flex-shrink-0"
+                    >
                       <Image
                         src={instructor.profileImage}
                         alt={instructor.name}
                         fill
-                        className="object-cover"
+                        className="object-cover transition-transform hover:scale-105"
                         sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                       />
-                    </div>
-                    <CardContent className="p-6">
+                    </Link>
+                    <CardContent className="flex flex-col flex-1 p-6">
                       <h3 className="text-xl font-semibold">{instructor.name}</h3>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {instructor.tagline}
@@ -133,7 +137,7 @@ export function InstructorCarousel(): JSX.Element {
                         ))}
                       </div>
                       
-                      <div className="mt-6">
+                      <div className="mt-auto pt-6">
                         <Button asChild variant="outline" className="w-full">
                           <Link href={`/instructors/${instructor.slug}`}>
                             View Profile
