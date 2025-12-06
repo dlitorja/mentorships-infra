@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Header } from "@/components/navigation/header";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Mentorship Platform",
-  description: "Connect with mentors and grow your skills",
+  title: "Huckleberry Art Mentorships | 1-on-1 & Group Art Mentorship",
+  description:
+    "Connect with world-class art instructors from gaming, TV, film, and independent studios. Personalized 1-on-1 and group mentorship experiences to help you achieve your artistic goals.",
 };
 
 export default function RootLayout({
@@ -18,7 +20,10 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en">
-        <body className={inter.className}>{children}</body>
+        <body className={`${inter.className} antialiased`}>
+          <Header />
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );
