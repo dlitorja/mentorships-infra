@@ -34,6 +34,7 @@ export const mockInstructors: Instructor[] = [
       "/instructors/jordan-jardine/work-1.jpg",
       "/instructors/jordan-jardine/work-2.jpg",
       "/instructors/jordan-jardine/work-3.jpg",
+      "/instructors/jordan-jardine/work-4.jpg",
     ],
     pricing: {
       oneOnOne: 400,
@@ -51,6 +52,9 @@ export const mockInstructors: Instructor[] = [
     workImages: [
       "/instructors/cameron-nissen/work-1.jpg",
       "/instructors/cameron-nissen/work-2.jpg",
+      "/instructors/cameron-nissen/work-3.jpg",
+      "/instructors/cameron-nissen/work-4.jpg",
+      "/instructors/cameron-nissen/work-5.jpg",
     ],
     pricing: {
       oneOnOne: 375,
@@ -84,8 +88,9 @@ export const mockInstructors: Instructor[] = [
     background: ["Gaming", "Indie"],
     profileImage: "/instructors/oliver-titley/profile.png",
     workImages: [
-      "/instructors/oliver-titley/work-1.jpg",
+      "/instructors/oliver-titley/work-1.png",
       "/instructors/oliver-titley/work-2.jpg",
+      "/instructors/oliver-titley/work-3.png",
     ],
     pricing: {
       oneOnOne: 400,
@@ -121,6 +126,8 @@ export const mockInstructors: Instructor[] = [
     workImages: [
       "/instructors/rakasa/work-1.jpg",
       "/instructors/rakasa/work-2.jpg",
+      "/instructors/rakasa/work-3.jpg",
+      "/instructors/rakasa/work-4.jpg",
     ],
     pricing: {
       oneOnOne: 475,
@@ -138,7 +145,6 @@ export const mockInstructors: Instructor[] = [
     workImages: [
       "/instructors/amanda-kiefer/work-1.jpg",
       "/instructors/amanda-kiefer/work-2.jpg",
-      "/instructors/amanda-kiefer/work-3.jpg",
     ],
     pricing: {
       oneOnOne: 375,
@@ -174,6 +180,7 @@ export const mockInstructors: Instructor[] = [
       "/instructors/ash-kirk/work-1.jpg",
       "/instructors/ash-kirk/work-2.jpg",
       "/instructors/ash-kirk/work-3.jpg",
+      "/instructors/ash-kirk/work-4.jpg",
     ],
     pricing: {
       oneOnOne: 375,
