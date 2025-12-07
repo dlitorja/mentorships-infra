@@ -12,7 +12,7 @@ const steps = [
     icon: Calendar,
     title: "Book Your Sessions",
     description:
-      "Purchase a 4-session pack and schedule your mentorship sessions at times that work for you. Sessions are flexible and tailored to your learning goals.",
+      "Purchase a 4-session pack and select a recurring day of the week and time that works for you and your instructor. Sessions happen at the same day and time each week.*",
   },
   {
     icon: Users,
@@ -22,24 +22,26 @@ const steps = [
   },
 ];
 
-export function HowItWorks() {
+export function HowItWorks(): JSX.Element {
   return (
     <section className="py-20 px-4">
       <div className="mx-auto max-w-7xl">
         <div className="mb-12 text-center">
-          <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">
-            How It Works
-          </h2>
-          <p className="mt-4 text-lg text-muted-foreground">
-            Get started with mentorship in three simple steps
-          </p>
+          <div className="inline-block px-8 py-6 rounded-2xl bg-black/60 backdrop-blur-sm">
+            <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+              How It Works
+            </h2>
+            <p className="mt-4 text-lg text-white/90">
+              Get started with mentorship in three simple steps
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-8 md:grid-cols-3">
           {steps.map((step, index) => {
             const Icon = step.icon;
             return (
-              <Card key={index} className="border-2">
+              <Card key={step.title} className="border-2">
                 <CardHeader>
                   <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                     <Icon className="h-6 w-6 text-primary" />
@@ -59,6 +61,11 @@ export function HowItWorks() {
               </Card>
             );
           })}
+        </div>
+        <div className="mt-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            * Sessions can be rescheduled, but we encourage keeping them at the same day of the week and time for consistency.
+          </p>
         </div>
       </div>
     </section>

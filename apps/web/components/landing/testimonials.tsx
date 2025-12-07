@@ -22,17 +22,19 @@ const testimonials = [
   },
 ];
 
-export function Testimonials() {
+export function Testimonials(): JSX.Element {
   return (
     <section className="py-20 px-4 bg-muted/30">
       <div className="mx-auto max-w-7xl">
         <div className="mb-12 text-center">
-          <h2 className="text-4xl font-bold tracking-tight sm:text-5xl">
-            What Students Say
-          </h2>
-          <p className="mt-4 text-lg text-muted-foreground">
-            Hear from artists who've grown their skills with our instructors
-          </p>
+          <div className="inline-block px-8 py-6 rounded-2xl bg-black/60 backdrop-blur-sm">
+            <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+              What Students Say
+            </h2>
+            <p className="mt-4 text-lg text-white/90">
+              Hear from artists who've grown their skills with our instructors
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-8 md:grid-cols-3">

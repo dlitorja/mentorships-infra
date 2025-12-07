@@ -5,6 +5,8 @@ import { sessionPacks } from "./sessionPacks";
 
 export const seatStatusEnum = pgEnum("seat_status", ["active", "grace", "released"]);
 
+export type SeatStatus = "active" | "grace" | "released";
+
 export const seatReservations = pgTable("seat_reservations", {
   id: uuid("id")
     .primaryKey()

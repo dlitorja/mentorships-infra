@@ -11,6 +11,7 @@ const isProtectedRoute = createRouteMatcher([
   "/sessions(.*)",
   "/calendar(.*)",
   "/settings(.*)",
+  "/checkout-test(.*)",
   "/api/checkout(.*)",
   "/api/sessions(.*)",
   "/api/orders(.*)",
@@ -32,11 +33,13 @@ const isPublicApiRoute = createRouteMatcher([
 const isPublicPage = createRouteMatcher([
   "/",
   "/mentors(.*)",
+  "/instructors(.*)",
   "/about(.*)",
   "/pricing(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/test(.*)", // Test page for verification
+  "/waitlist(.*)", // Waitlist page
 ]);
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {

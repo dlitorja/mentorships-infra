@@ -17,6 +17,17 @@ export interface Instructor {
     oneOnOne: number; // Price for 1-on-1 mentorship pack
     group?: number; // Optional group pricing
   };
+  socialLinks?: {
+    twitter?: string;
+    instagram?: string;
+    artstation?: string;
+    website?: string;
+    youtube?: string;
+    patreon?: string;
+    bluesky?: string;
+    facebook?: string;
+    behance?: string;
+  };
 }
 
 // Mock instructor data based on the reference site
@@ -25,19 +36,25 @@ export const mockInstructors: Instructor[] = [
     id: "jordan-jardine",
     name: "Jordan Jardine",
     slug: "jordan-jardine",
-    tagline: "Lead Background Artist at Powerhouse Animation",
-    bio: "Jordan Jardine is a professional artist with diverse experience in Illustration and Animation Visual Development. Previously the Lead Background Artist at Powerhouse Animation for Tomb Raider: The Legend of Lara Croft.",
-    specialties: ["Background Art", "Visual Development", "Animation"],
-    background: ["TV", "Animation"],
+    tagline: "Toronto-based Freelance Artist Specializing in Digital Painting, Illustration and Concept Art",
+    bio: "Jordan Jardine is a Toronto-based freelance artist specializing in digital painting, illustration and concept art. He is currently working on projects focusing on character and environment development as well as 2D asset creation. Having trained traditionally, Jordan has a devout love for the beauty of physical media and seeks to incorporate it into his digital work.",
+    specialties: ["Digital Painting", "Illustration", "Concept Art", "Character Development", "Environment Development", "2D Asset Creation"],
+    background: ["Freelance", "Indie"],
     profileImage: "/instructors/jordan-jardine/profile.jpg",
     workImages: [
       "/instructors/jordan-jardine/work-1.jpg",
       "/instructors/jordan-jardine/work-2.jpg",
       "/instructors/jordan-jardine/work-3.jpg",
-      "/instructors/jordan-jardine/work-4.jpg",
     ],
     pricing: {
       oneOnOne: 400,
+    },
+    socialLinks: {
+      website: "https://www.jordanjardine.com",
+      instagram: "https://www.instagram.com/jordanjardine",
+      artstation: "https://www.artstation.com/jordanjardine",
+      facebook: "https://www.facebook.com/jordanjardine",
+      behance: "https://www.behance.net/jordanjardine",
     },
   },
   {
@@ -59,6 +76,9 @@ export const mockInstructors: Instructor[] = [
     pricing: {
       oneOnOne: 375,
     },
+    socialLinks: {
+      artstation: "https://www.artstation.com/cameronnissen",
+    },
   },
   {
     id: "nino-vecia",
@@ -70,12 +90,17 @@ export const mockInstructors: Instructor[] = [
     background: ["Gaming", "Indie"],
     profileImage: "/instructors/nino-vecia/profile.jpg",
     workImages: [
-      "/instructors/nino-vecia/work-1.jpg",
-      "/instructors/nino-vecia/work-2.jpg",
-      "/instructors/nino-vecia/work-3.jpg",
+      "/instructors/nino-vecia/work-1.png",
+      "/instructors/nino-vecia/work-2.png",
+      "/instructors/nino-vecia/work-3.png",
+      "/instructors/nino-vecia/work-4.png",
+      "/instructors/nino-vecia/work-5.png",
     ],
     pricing: {
       oneOnOne: 475,
+    },
+    socialLinks: {
+      website: "https://ninovecia.com",
     },
   },
   {
@@ -84,7 +109,7 @@ export const mockInstructors: Instructor[] = [
     slug: "oliver-titley",
     tagline: "Concept Artist, Filmmaker, and YouTuber",
     bio: "Ollie is a concept artist, filmmaker, and YouTuber, with over 6 years of games industry experience working at Paradox Interactive on the Age of Wonders series, and with a successful and rapidly growing YouTube channel.",
-    specialties: ["Concept Art", "Game Development", "Content Creation"],
+    specialties: ["Concept Art", "World-building", "Game Development", "Content Creation"],
     background: ["Gaming", "Indie"],
     profileImage: "/instructors/oliver-titley/profile.png",
     workImages: [
@@ -94,6 +119,11 @@ export const mockInstructors: Instructor[] = [
     ],
     pricing: {
       oneOnOne: 400,
+    },
+    socialLinks: {
+      artstation: "https://www.artstation.com/olliejoet",
+      patreon: "https://www.patreon.com/KappaTurtleWorld",
+      youtube: "https://www.youtube.com/@KappaTurtle",
     },
   },
   {
@@ -109,9 +139,15 @@ export const mockInstructors: Instructor[] = [
       "/instructors/malina-dowling/work-1.jpg",
       "/instructors/malina-dowling/work-2.jpg",
       "/instructors/malina-dowling/work-3.jpg",
+      "/instructors/malina-dowling/work-4.jpg",
+      "/instructors/malina-dowling/work-5.jpg",
+      "/instructors/malina-dowling/work-6.jpg",
     ],
     pricing: {
       oneOnOne: 375,
+    },
+    socialLinks: {
+      instagram: "https://www.instagram.com/malinadowling",
     },
   },
   {
@@ -119,7 +155,7 @@ export const mockInstructors: Instructor[] = [
     name: "Rakasa",
     slug: "rakasa",
     tagline: "Self-Taught Freelance Illustrator",
-    bio: "Rakasa is a self-taught freelance illustrator, and after exploring various fields, she decided in 2023 to pursue her passion for art full-time, focusing on creating stunning digital illustrations and character designs.",
+    bio: "Rakasa is a self-taught freelance illustrator who decided in 2023 to pursue her passion for art full-time, focusing on creating stunning digital illustrations and character designs. She has worked with top-tier clients including Clip Studio Paint, AFK Journey, and Infinity Nikki, bringing her unique artistic vision to major projects in the gaming and software industries.",
     specialties: ["Digital Illustration", "Character Design", "Self-Taught Journey"],
     background: ["Indie"],
     profileImage: "/instructors/rakasa/profile.jpg",
@@ -131,6 +167,10 @@ export const mockInstructors: Instructor[] = [
     ],
     pricing: {
       oneOnOne: 475,
+      group: 250,
+    },
+    socialLinks: {
+      instagram: "https://www.instagram.com/rakasa_art",
     },
   },
   {
@@ -149,6 +189,9 @@ export const mockInstructors: Instructor[] = [
     pricing: {
       oneOnOne: 375,
     },
+    socialLinks: {
+      artstation: "https://www.artstation.com/amandakiefer",
+    },
   },
   {
     id: "neil-gray",
@@ -162,9 +205,19 @@ export const mockInstructors: Instructor[] = [
     workImages: [
       "/instructors/neil-gray/work-1.jpg",
       "/instructors/neil-gray/work-2.jpg",
+      "/instructors/neil-gray/work-3.jpg",
+      "/instructors/neil-gray/work-4.jpg",
+      "/instructors/neil-gray/work-5.jpg",
+      "/instructors/neil-gray/work-6.jpg",
+      "/instructors/neil-gray/work-7.jpg",
+      "/instructors/neil-gray/work-8.jpg",
+      "/instructors/neil-gray/work-9.jpg",
     ],
     pricing: {
       oneOnOne: 460,
+    },
+    socialLinks: {
+      artstation: "https://www.artstation.com/neilgray",
     },
   },
   {
@@ -185,6 +238,10 @@ export const mockInstructors: Instructor[] = [
     pricing: {
       oneOnOne: 375,
     },
+    socialLinks: {
+      twitter: "https://twitter.com/anearbycat",
+      bluesky: "https://bsky.app/profile/anearbycat.bsky.social",
+    },
   },
   {
     id: "andrea-sipl",
@@ -196,11 +253,19 @@ export const mockInstructors: Instructor[] = [
     background: ["Gaming", "TV", "Indie"],
     profileImage: "/instructors/andrea-sipl/profile.png",
     workImages: [
-      "/instructors/andrea-sipl/work-1.jpg",
+      "/instructors/andrea-sipl/work-1.png",
       "/instructors/andrea-sipl/work-2.jpg",
+      "/instructors/andrea-sipl/work-3.png",
+      "/instructors/andrea-sipl/work-4.png",
+      "/instructors/andrea-sipl/work-5.jpg",
+      "/instructors/andrea-sipl/work-6.jpg",
+      "/instructors/andrea-sipl/work-7.jpg",
     ],
     pricing: {
       oneOnOne: 300,
+    },
+    socialLinks: {
+      website: "https://www.andreasipl.com",
     },
   },
 ];
@@ -224,5 +289,122 @@ export function getRandomizedInstructors(): Instructor[] {
  */
 export function getInstructorBySlug(slug: string): Instructor | undefined {
   return mockInstructors.find((instructor) => instructor.slug === slug);
+}
+
+/**
+ * Get all available instructors (excluding unavailable ones)
+ * Returns instructors in random order, but when live data is available,
+ * instructors with more available spots will be prioritized towards the top
+ */
+export function getAvailableInstructors(): Instructor[] {
+  const instructors = [...mockInstructors];
+  
+  // TODO: When live data is available, fetch available spots for each instructor
+  // Then sort by available spots (descending) - instructors with more spots first
+  // After sorting, randomize within groups of similar availability (e.g., 5+ spots, 3-4 spots, 1-2 spots)
+  // Example implementation:
+  // const instructorsWithAvailability = await Promise.all(
+  //   instructors.map(async (instructor) => ({
+  //     ...instructor,
+  //     availableSpots: await getAvailableSpots(instructor.id, 'one-on-one')
+  //   }))
+  // );
+  // instructorsWithAvailability.sort((a, b) => b.availableSpots - a.availableSpots);
+  // Then randomize within availability groups
+  
+  // For now, just randomize the order (Fisher-Yates shuffle)
+  for (let i = instructors.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [instructors[i], instructors[j]] = [instructors[j], instructors[i]];
+  }
+  
+  return instructors;
+}
+
+/**
+ * Get all available instructors in alphabetical order by name
+ * Used for profile page navigation to ensure consistent ordering
+ */
+export function getAlphabeticalInstructors(): Instructor[] {
+  const instructors = [...mockInstructors];
+  return instructors.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Get navigation info for an instructor
+ * Supports custom order (from session storage) or defaults to alphabetical
+ */
+export function getInstructorNavigation(
+  currentSlug: string,
+  customOrder?: string[]
+): {
+  next: Instructor | undefined;
+  previous: Instructor | undefined;
+  currentIndex: number;
+  totalCount: number;
+  order: Instructor[];
+  mode: 'custom' | 'alphabetical';
+} {
+  let order: Instructor[];
+  let mode: 'custom' | 'alphabetical';
+
+  if (customOrder && customOrder.length > 0) {
+    // Use custom order if provided
+    const customInstructors = customOrder
+      .map((slug) => mockInstructors.find((inst) => inst.slug === slug))
+      .filter((inst): inst is Instructor => inst !== undefined);
+    
+    if (customInstructors.length > 0) {
+      order = customInstructors;
+      mode = 'custom';
+    } else {
+      order = getAlphabeticalInstructors();
+      mode = 'alphabetical';
+    }
+  } else {
+    order = getAlphabeticalInstructors();
+    mode = 'alphabetical';
+  }
+
+  const currentIndex = order.findIndex((inst) => inst.slug === currentSlug);
+  
+  if (currentIndex === -1) {
+    return {
+      next: undefined,
+      previous: undefined,
+      currentIndex: -1,
+      totalCount: order.length,
+      order,
+      mode,
+    };
+  }
+
+  const nextIndex = (currentIndex + 1) % order.length;
+  const prevIndex = currentIndex === 0 ? order.length - 1 : currentIndex - 1;
+
+  return {
+    next: order[nextIndex],
+    previous: order[prevIndex],
+    currentIndex: currentIndex + 1, // 1-indexed for display
+    totalCount: order.length,
+    order,
+    mode,
+  };
+}
+
+/**
+ * Get next instructor in the list (alphabetical order for navigation)
+ * @deprecated Use getInstructorNavigation instead for better control
+ */
+export function getNextInstructor(currentSlug: string): Instructor | undefined {
+  return getInstructorNavigation(currentSlug).next;
+}
+
+/**
+ * Get previous instructor in the list (alphabetical order for navigation)
+ * @deprecated Use getInstructorNavigation instead for better control
+ */
+export function getPreviousInstructor(currentSlug: string): Instructor | undefined {
+  return getInstructorNavigation(currentSlug).previous;
 }
 

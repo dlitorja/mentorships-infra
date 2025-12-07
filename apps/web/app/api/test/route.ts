@@ -1,11 +1,25 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { db } from "@mentorships/db";
+import { sql } from "drizzle-orm";
 
 /**
  * Test endpoint to verify Clerk and Supabase configuration
  * GET /api/test - Check if environment variables are set correctly
  */
 export async function GET() {
+  // Test database connection
+  let dbConnectionTest = { status: "unknown", error: null as string | null };
+  try {
+    // Try a simple query
+    await db.execute(sql`SELECT 1 as test`);
+    dbConnectionTest.status = "connected";
+  } catch (error) {
+    dbConnectionTest.status = "failed";
+    dbConnectionTest.error = error instanceof Error 
+      ? `${error.message}${error.stack ? `\n${error.stack}` : ''}`
+      : String(error);
+  }
   const checks = {
     clerk: {
       publishableKey: !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
@@ -51,13 +65,19 @@ export async function GET() {
     checks.database.configured;
 
   return NextResponse.json({
-    status: allConfigured ? "ok" : "missing_config",
+    status: allConfigured && dbConnectionTest.status === "connected" ? "ok" : "missing_config_or_connection_failed",
     checks,
+    database: {
+      connection: dbConnectionTest.status,
+      error: dbConnectionTest.error,
+    },
     auth: {
       status: authStatus,
     },
-    message: allConfigured
-      ? "All environment variables are configured!"
+    message: allConfigured && dbConnectionTest.status === "connected"
+      ? "All environment variables are configured and database connection is working!"
+      : dbConnectionTest.status === "failed"
+      ? `Database connection failed: ${dbConnectionTest.error}`
       : "Some environment variables are missing. Check the 'checks' object for details.",
   });
 }

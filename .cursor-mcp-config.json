@@ -14,10 +14,11 @@
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/server-stripe"
+        "@stripe/mcp",
+        "--tools=all"
       ],
       "env": {
-        "STRIPE_API_KEY": "${STRIPE_API_KEY}"
+        "STRIPE_SECRET_KEY": "${STRIPE_SECRET_KEY}"
       }
     },
     "github": {
@@ -59,7 +60,7 @@
       "env": {}
     },
     "graphiti-memory": {
-      "url": "https://knowledge-graph-mcp-production-cdc6.up.railway.app/sse",
+      "url": "http://localhost:8000/sse",
       "env": {}
     },
     "vercel": {

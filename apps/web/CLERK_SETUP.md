@@ -85,6 +85,16 @@ In the Clerk Dashboard:
 
 Make sure `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is set in your `.env.local` file and restart your dev server.
 
+### 422 Error: "request failed" on sign-up
+
+If you see a console error like `[Clerk Debug] ERROR [fapiClient]: request failed {"method":"POST","path":"/client/sign_ups","status":422}`, this is typically a validation error. Common causes:
+
+1. **Email already exists**: The email you're using is already registered. Try signing in instead of signing up.
+2. **Invalid email format**: Ensure you're using a valid email address.
+3. **Missing required fields**: Make sure all required fields are filled in.
+
+**Note**: This console error is usually non-blocking. Clerk's UI component will display the actual error message to the user. If you can still complete sign-up/sign-in successfully, you can ignore this debug log.
+
 ### Users not syncing to Supabase
 
 1. Check that `DATABASE_URL` is set correctly
