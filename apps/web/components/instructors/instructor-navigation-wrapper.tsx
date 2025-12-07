@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
@@ -30,6 +30,7 @@ export function InstructorNavigationWrapper({
   } | null>(null);
 
   const router = useRouter();
+  const navInfoRef = useRef(navInfo);
 
   useEffect(() => {
     // Read custom order from session storage
@@ -45,6 +46,7 @@ export function InstructorNavigationWrapper({
 
     const navigation = getInstructorNavigation(currentSlug, customOrder);
     setNavInfo(navigation);
+    navInfoRef.current = navigation; // Keep ref in sync with state
 
     // Handle keyboard navigation
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -59,12 +61,13 @@ export function InstructorNavigationWrapper({
         return;
       }
 
-      if (e.key === "ArrowLeft" && navigation.previous) {
+      const currentNavigation = navInfoRef.current; // Use ref for latest state
+      if (e.key === "ArrowLeft" && currentNavigation?.previous) {
         e.preventDefault();
-        router.push(`/instructors/${navigation.previous.slug}`);
-      } else if (e.key === "ArrowRight" && navigation.next) {
+        router.push(`/instructors/${currentNavigation.previous.slug}`);
+      } else if (e.key === "ArrowRight" && currentNavigation?.next) {
         e.preventDefault();
-        router.push(`/instructors/${navigation.next.slug}`);
+        router.push(`/instructors/${currentNavigation.next.slug}`);
       }
     };
 
