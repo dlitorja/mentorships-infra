@@ -10,6 +10,8 @@ export const sessionPackStatusEnum = pgEnum("session_pack_status", [
   "refunded",
 ]);
 
+export type SessionPackStatus = "active" | "depleted" | "expired" | "refunded";
+
 export const sessionPacks = pgTable("session_packs", {
   id: uuid("id")
     .primaryKey()

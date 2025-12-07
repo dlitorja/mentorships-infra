@@ -11,6 +11,9 @@ export const orderStatusEnum = pgEnum("order_status", [
 
 export const paymentProviderEnum = pgEnum("payment_provider", ["stripe", "paypal"]);
 
+export type OrderStatus = "pending" | "paid" | "refunded" | "failed" | "canceled";
+export type PaymentProvider = "stripe" | "paypal";
+
 export const orders = pgTable("orders", {
   id: uuid("id")
     .primaryKey()

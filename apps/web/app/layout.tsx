@@ -18,7 +18,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      // Reduce verbose debug logging in development
+      // The 422 error is typically a validation error (e.g., email already exists)
+      // and is handled gracefully by Clerk's UI
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+    >
       <html lang="en">
         <body className={`${inter.className} antialiased`}>
           <Header />

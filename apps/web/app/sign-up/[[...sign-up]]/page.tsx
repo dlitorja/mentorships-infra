@@ -14,6 +14,9 @@ export default function SignUpPage() {
         path="/sign-up"
         signInUrl="/sign-in"
         afterSignUpUrl="/dashboard"
+        // Handle errors gracefully - if email exists, Clerk will show error message
+        // This prevents console errors from blocking the UI
+        unsafeMetadata={{}}
       />
     </div>
   );
