@@ -4,7 +4,6 @@ import { useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getAvailableInstructors } from "@/lib/instructors";
@@ -41,7 +40,7 @@ export default function InstructorsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
                   duration: 0.6,
-                  delay: delays[index] || 0,
+                  delay: delays[index],
                   ease: "easeOut",
                 }}
               >

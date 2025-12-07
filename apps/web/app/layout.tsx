@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Toaster } from "sonner";
 import { Header } from "@/components/navigation/header";
 import "./globals.css";
 
@@ -23,6 +24,7 @@ export default function RootLayout({
         <body className={`${inter.className} antialiased`}>
           <Header />
           {children}
+          <Toaster />
         </body>
       </html>
     </ClerkProvider>

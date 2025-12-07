@@ -2,23 +2,47 @@
 
 import { useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sparkles } from "lucide-react";
+import { validateEmail } from "@/lib/validation";
+import { toast } from "sonner";
+
+type SubmitStatus = "idle" | "submitting" | "success" | "error";
 
 export function MatchingSection(): JSX.Element {
   const [artGoals, setArtGoals] = useState("");
   const [email, setEmail] = useState("");
+  const [isEmailValid, setIsEmailValid] = useState(true);
+  const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
+
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const value = e.target.value;
+    setEmail(value);
+    if (value) {
+      setIsEmailValid(validateEmail(value) !== null);
+    } else {
+      setIsEmailValid(true); // Valid if empty (optional field)
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    // TODO: Implement matching when backend is ready
-    console.log("Art goals submitted");
-    
+    setSubmitStatus("submitting");
+
+    // Validate email if provided
+    if (email && !validateEmail(email)) {
+      setIsEmailValid(false);
+      setSubmitStatus("error");
+      toast.error("Please enter a valid email address");
+      return;
+    }
+
     // If email is provided, add to contacts database
     if (email) {
       try {
-        await fetch("/api/contacts", {
+        const response = await fetch("/api/contacts", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -28,10 +52,54 @@ export function MatchingSection(): JSX.Element {
             artGoals,
           }),
         });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.error ||
+              `Request failed with status ${response.status} ${response.statusText}`
+          );
+        }
+
+        setSubmitStatus("success");
+        toast.success("Thank you! We'll be in touch soon.");
+        setEmail("");
+        setArtGoals("");
       } catch (error) {
-        console.error("Failed to add email to contacts:", error);
-        // Don't show error to user - this is optional functionality
+        setSubmitStatus("error");
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to submit";
+        console.error("Failed to add email to contacts:", errorMessage);
+        
+        // Forward error to Better Stack via server-side API route
+        if (typeof window !== "undefined") {
+          fetch("/api/errors", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: errorMessage,
+              level: "error",
+              service: "mentorship-platform",
+              component: "matching-section",
+              error: {
+                name: error instanceof Error ? error.name : "UnknownError",
+                message: errorMessage,
+              },
+            }),
+          }).catch(() => {
+            // Silently fail if error tracking is unavailable
+          });
+        }
+        
+        toast.error("Something went wrong. Please try again later.");
       }
+    } else {
+      // No email provided, just mark as success for now
+      setSubmitStatus("success");
+      toast.success("Thank you! We'll be in touch soon.");
+      setArtGoals("");
     }
   };
 
@@ -84,17 +152,37 @@ export function MatchingSection(): JSX.Element {
                 >
                   Email Address (Optional)
                 </label>
-                <input
+                <Input
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-white/10 border border-white/20 text-white placeholder:text-white/50 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+                  onChange={handleEmailChange}
+                  className={`w-full bg-white/10 border ${
+                    !isEmailValid
+                      ? "border-red-500 text-white placeholder:text-white/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                      : "border-white/20 text-white placeholder:text-white/50 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+                  }`}
                   placeholder="your@email.com"
+                  aria-invalid={!isEmailValid}
+                  aria-describedby={
+                    !isEmailValid ? "email-error" : "email-description"
+                  }
                 />
-                {email && (
-                  <p className="text-center text-xs text-white/60">
-                    By providing your email, you opt in to receive communications from us about mentorship opportunities and updates.
+                {!isEmailValid && (
+                  <p
+                    id="email-error"
+                    className="text-center text-xs text-red-400"
+                  >
+                    Please enter a valid email address
+                  </p>
+                )}
+                {email && isEmailValid && (
+                  <p
+                    id="email-description"
+                    className="text-center text-xs text-white/60"
+                  >
+                    By providing your email, you opt in to receive communications
+                    from us about mentorship opportunities and updates.
                   </p>
                 )}
               </div>
@@ -103,9 +191,15 @@ export function MatchingSection(): JSX.Element {
                 type="submit"
                 size="lg"
                 className="w-full text-lg vibrant-gradient-button transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!artGoals.trim()}
+                disabled={
+                  !artGoals.trim() ||
+                  submitStatus === "submitting" ||
+                  (email && !isEmailValid)
+                }
               >
-                Find My Match
+                {submitStatus === "submitting"
+                  ? "Submitting..."
+                  : "Find My Match"}
                 <Sparkles className="ml-2 h-4 w-4" />
               </Button>
             </form>

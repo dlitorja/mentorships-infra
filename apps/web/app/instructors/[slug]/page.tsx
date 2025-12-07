@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, ExternalLink, Twitter, Instagram, Youtube } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
 import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
 import {
@@ -84,8 +83,10 @@ export default async function InstructorProfilePage({
   const socialLinks = instructor.socialLinks || {};
   
   // Dummy data for available spots (will be replaced with real data later)
-  const oneOnOneSpots = Math.floor(Math.random() * 6); // 0-5 spots
-  const groupSpots = instructor.pricing.group ? Math.floor(Math.random() * 6) : 0;
+  // Using a deterministic approach based on slug to ensure consistent results
+  const spotSeed = slug.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const oneOnOneSpots = spotSeed % 6; // 0-5 spots (deterministic)
+  const groupSpots = instructor.pricing.group ? (spotSeed * 2) % 6 : 0;
   
   const renderSpotsAvailable = (spots: number) => {
     if (spots === 0) {
