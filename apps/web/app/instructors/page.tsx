@@ -1,22 +1,38 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getAvailableInstructors } from "@/lib/instructors";
+import { getAvailableInstructors, type Instructor } from "@/lib/instructors";
 
 export default function InstructorsPage() {
-  const instructors = getAvailableInstructors();
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
+  
+  // Only randomize on client side to avoid hydration mismatch
+  // Use useMemo to ensure we only get the instructors once and they stay stable
+  const randomizedInstructors = useMemo(() => {
+    return getAvailableInstructors();
+  }, []);
+  
+  useEffect(() => {
+    setInstructors(randomizedInstructors);
+  }, [randomizedInstructors]);
+  
+  // Scroll to top when component mounts
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
   
   // Generate random delays for each instructor (0.1s to 0.8s) once on mount
   // Using useMemo to ensure delays are stable and only generated once
   const delays = useMemo(() => {
-    return instructors.map(() => Math.random() * 0.7 + 0.1);
-  }, [instructors.length]);
+    if (randomizedInstructors.length === 0) return [];
+    return randomizedInstructors.map(() => Math.random() * 0.7 + 0.1);
+  }, [randomizedInstructors.length]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -28,7 +44,7 @@ export default function InstructorsPage() {
               Our Instructors
             </h1>
             <p className="mt-4 text-lg text-muted-foreground">
-              Discover talented artists from gaming, TV, film, and independent studios
+              Talented artists from gaming, TV, film, and some who are freelancers or indies
             </p>
           </div>
 
@@ -44,15 +60,26 @@ export default function InstructorsPage() {
                   delay: delays[index] || 0,
                   ease: "easeOut",
                 }}
+                className="h-full"
               >
-                <Card className="flex flex-col overflow-hidden transition-shadow hover:shadow-lg">
-                  <Link href={`/instructors/${instructor.slug}`} className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer">
+                <Card className="flex flex-col h-full overflow-hidden transition-shadow hover:shadow-lg">
+                  <Link 
+                    href={`/instructors/${instructor.slug}`}
+                    onClick={() => {
+                      // Store the current random order in session storage for navigation
+                      const order = instructors.map(inst => inst.slug);
+                      sessionStorage.setItem('instructorOrder', JSON.stringify(order));
+                    }}
+                    className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0"
+                  >
                     <Image
+                      key={`${instructor.id}-${instructor.profileImage}`}
                       src={instructor.profileImage}
-                      alt={instructor.name}
+                      alt={`${instructor.name} profile picture`}
                       fill
                       className="object-cover transition-transform hover:scale-105"
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                      priority={index < 6}
                     />
                   </Link>
                   <CardContent className="flex flex-col flex-1 p-6">
@@ -76,7 +103,14 @@ export default function InstructorsPage() {
 
                     <div className="mt-auto pt-6">
                       <Button asChild variant="outline" className="w-full">
-                        <Link href={`/instructors/${instructor.slug}`}>
+                        <Link 
+                          href={`/instructors/${instructor.slug}`}
+                          onClick={() => {
+                            // Store the current random order in session storage for navigation
+                            const order = instructors.map(inst => inst.slug);
+                            sessionStorage.setItem('instructorOrder', JSON.stringify(order));
+                          }}
+                        >
                           View Profile
                         </Link>
                       </Button>

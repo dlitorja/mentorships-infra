@@ -9,6 +9,9 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "failed",
 ]);
 
+export type PaymentStatus = "pending" | "completed" | "refunded" | "failed";
+export type PaymentProvider = "stripe" | "paypal";
+
 export const payments = pgTable("payments", {
   id: uuid("id")
     .primaryKey()

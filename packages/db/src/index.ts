@@ -25,6 +25,11 @@ export { db } from "./lib/drizzle";
 
 // Export query helpers
 export * from "./lib/queries/users";
+export * from "./lib/queries/sessionPacks";
+export * from "./lib/queries/seatReservations";
+export * from "./lib/queries/products";
+export * from "./lib/queries/orders";
+export * from "./lib/queries/payments";
 
 // Export types
 export type { Database } from "./types/database.types";
