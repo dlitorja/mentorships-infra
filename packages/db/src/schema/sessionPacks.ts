@@ -10,6 +10,9 @@ export const sessionPackStatusEnum = pgEnum("session_pack_status", [
   "refunded",
 ]);
 
+// Derive type from enum to avoid drift
+export type SessionPackStatus = (typeof sessionPackStatusEnum.enumValues)[number];
+
 export const sessionPacks = pgTable("session_packs", {
   id: uuid("id")
     .primaryKey()
