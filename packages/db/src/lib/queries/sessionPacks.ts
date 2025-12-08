@@ -1,9 +1,13 @@
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and, gte } from "drizzle-orm";
 import { db } from "../drizzle";
-import { sessionPacks, seatReservations } from "../../schema";
+import { sessionPacks, seatReservations, mentors, users } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 
 type SessionPack = typeof sessionPacks.$inferSelect;
+type SessionPackWithMentor = SessionPack & {
+  mentor: typeof mentors.$inferSelect;
+  mentorUser: typeof users.$inferSelect;
+};
 
 /**
  * Get session pack by payment ID
@@ -119,5 +123,62 @@ export async function incrementRemainingSessions(
   }
 
   return updated;
+}
+
+/**
+ * Get user's active session packs with mentor information
+ */
+export async function getUserSessionPacksWithMentors(
+  userId: string
+): Promise<SessionPackWithMentor[]> {
+  const now = new Date();
+
+  const results = await db
+    .select({
+      sessionPack: sessionPacks,
+      mentor: mentors,
+      mentorUser: users,
+    })
+    .from(sessionPacks)
+    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(users, eq(mentors.userId, users.id))
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now)
+      )
+    )
+    .orderBy(desc(sessionPacks.createdAt));
+
+  return results.map((r) => ({
+    ...r.sessionPack,
+    mentor: r.mentor,
+    mentorUser: r.mentorUser,
+  }));
+}
+
+/**
+ * Get total remaining sessions across all active packs for a user
+ */
+export async function getUserTotalRemainingSessions(
+  userId: string
+): Promise<number> {
+  const now = new Date();
+
+  const result = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${sessionPacks.remainingSessions}), 0)`,
+    })
+    .from(sessionPacks)
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now)
+      )
+    );
+
+  return Number(result[0]?.total || 0);
 }
 
