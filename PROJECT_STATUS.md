@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: Current Session  
-**Status**: Foundation Complete, Ready for Core Features
+**Last Updated**: December 9, 2024  
+**Status**: Core Payment Infrastructure Complete, Instructor Dashboard Implemented, Ready for PayPal & Booking Features
 
 ---
 
@@ -44,81 +44,194 @@
 - ✅ Build readiness checklist
 - ✅ Cost breakdown analysis
 - ✅ Graphiti memory system configured
+- ✅ Testing documentation (`TESTING_CHECKOUT.md`)
+
+### 5. Instructor Session Management (CORE FEATURE)
+**Status**: ✅ **COMPLETED** - Full instructor dashboard and session management
+
+**Completed Tasks**:
+- [x] Database query functions for mentor session management:
+  - [x] `getMentorByUserId()` - Get mentor by Clerk user ID
+  - [x] `getMentorById()` - Get mentor by mentor UUID
+  - [x] `getMentorUpcomingSessions()` - Get scheduled sessions for a mentor
+  - [x] `getMentorPastSessions()` - Get completed/canceled sessions
+  - [x] `getMentorSessions()` - Get all sessions for a mentor
+- [x] Instructor Dashboard page (`/instructor/dashboard`):
+  - [x] Role-based access control (requires `mentor` role)
+  - [x] Stats overview: Active students, upcoming sessions, available seats
+  - [x] Upcoming sessions list with student information
+  - [x] Recent sessions list
+  - [x] Active students list with seat status and expiration dates
+- [x] Instructor Sessions page (`/instructor/sessions`):
+  - [x] View all sessions grouped by status (upcoming vs past)
+  - [x] Student information and session details
+  - [x] Session notes and recording links
+- [x] API route for session management:
+  - [x] `PATCH /api/instructor/sessions/[sessionId]` - Update session status
+  - [x] Support for status updates: `completed`, `canceled`, `no_show`, `scheduled`
+  - [x] Update session notes and recording URLs
+  - [x] Authorization: Verifies mentor owns the session
+  - [x] Automatic timestamp management (`completedAt`, `canceledAt`)
+- [x] Navigation and middleware updates:
+  - [x] ProtectedLayout adapts navigation based on user role
+  - [x] Mentors see: Instructor Dashboard, My Sessions, Settings
+  - [x] Students see: Dashboard, Sessions, Calendar, Settings
+  - [x] Middleware protects `/instructor/*` routes
+
+**Completed Components**:
+- ✅ Mentor query functions (`packages/db/src/lib/queries/mentors.ts`)
+- ✅ Extended session queries (`packages/db/src/lib/queries/sessions.ts`)
+- ✅ Instructor Dashboard page (`apps/web/app/instructor/dashboard/page.tsx`)
+- ✅ Instructor Sessions page (`apps/web/app/instructor/sessions/page.tsx`)
+- ✅ Session management API (`apps/web/app/api/instructor/sessions/[sessionId]/route.ts`)
+- ✅ Role-based navigation (`apps/web/components/navigation/protected-layout.tsx`)
+
+**Estimated Time**: 1 day (completed)
+
+**Reference**: PR #10 - `feat(instructor): add instructor session management dashboard and API`
+
+---
+
+### 6. Stripe Payment Integration (CORE FEATURE)
+**Status**: ✅ **COMPLETED** - Fully implemented with Inngest functions
+
+**Completed Tasks**:
+- [x] Stripe adapter package created (`packages/payments/src/stripe/`):
+  - [x] `client.ts` - Stripe client setup with environment validation
+  - [x] `checkout.ts` - Checkout session creation with metadata support
+  - [x] `webhooks.ts` - Webhook signature verification and parsing
+  - [x] `refunds.ts` - Refund processing with amount calculation
+  - [x] `types.ts` - TypeScript type definitions
+- [x] Checkout API endpoint:
+  - [x] `POST /api/checkout/stripe` - Create Stripe checkout session
+  - [x] `GET /api/checkout/verify` - Verify checkout session
+  - [x] Additional routes: success, cancel
+- [x] Webhook handler:
+  - [x] `POST /api/webhooks/stripe` - Handle Stripe webhooks with signature verification
+  - [x] `checkout.session.completed` - Processed via Inngest (creates pack, seat, payment)
+  - [x] `charge.refunded` - Processed via Inngest (releases seat, updates pack status)
+- [x] Idempotency checks implemented:
+  - [x] Order status check (prevents duplicate processing)
+  - [x] Payment existence check (prevents duplicate payment records)
+  - [x] Session pack existence check (prevents duplicate packs)
+  - [x] Seat reservation existence check (prevents duplicate reservations)
+- [x] Webhook signature verification (CRITICAL security feature)
+- [x] Error handling and logging:
+  - [x] Order cleanup on checkout failure
+  - [x] Comprehensive error messages
+  - [x] Inngest retry logic (3 retries with exponential backoff)
+- [x] Additional features:
+  - [x] Grandfathered pricing support
+  - [x] Promotion code support (customer-entered and auto-applied)
+  - [x] Discount tracking (original amount, discount amount, discount code)
+  - [x] Order metadata tracking (order_id, user_id, pack_id)
+
+**Completed Components**:
+- ✅ Stripe payments package (`packages/payments/`)
+- ✅ Checkout API route (`apps/web/app/api/checkout/stripe/route.ts`)
+- ✅ Webhook handler (`apps/web/app/api/webhooks/stripe/route.ts`)
+- ✅ Inngest payment processing functions (`apps/web/inngest/functions/payments.ts`):
+  - ✅ `processStripeCheckout` - Handles checkout.session.completed
+  - ✅ `processStripeRefund` - Handles charge.refunded
+- ✅ Event types and schemas (`apps/web/inngest/types.ts`)
+- ✅ Stripe client library (`apps/web/lib/stripe.ts`)
+
+**Estimated Time**: 3-4 days (completed)
+
+**Reference**: See `TECH_DECISIONS_FINAL.md` for implementation details, `TESTING_CHECKOUT.md` for testing guide
 
 ---
 
 ## 🚧 In Progress / Next Steps
 
-### Priority 2: Session Pack & Seat Logic (FOUNDATION)
-**Status**: Schema ready, business logic not implemented
-
-**Tasks**:
-- [ ] Create utility functions for session pack management:
-  - [ ] `createSessionPack()` - Create pack after payment
-  - [ ] `checkPackExpiration()` - Validate pack validity
-  - [ ] `getRemainingSessions()` - Calculate remaining sessions
-  - [ ] `canBookSession()` - Booking eligibility check
-- [ ] Create seat reservation logic:
-  - [ ] `reserveSeat()` - Create seat reservation
-  - [ ] `checkSeatAvailability()` - Verify mentor has available seats
-  - [ ] `releaseSeat()` - Release seat on expiration/refund
-  - [ ] `handleGracePeriod()` - Grace period management (72 hours)
-- [ ] Create API endpoints:
-  - [ ] `POST /api/session-packs` - Create pack (internal, called by webhook)
-  - [ ] `GET /api/session-packs/me` - Get user's active packs
-  - [ ] `GET /api/seats/availability/:mentorId` - Check seat availability
-
-**Estimated Time**: 2-3 days
+### Priority 1: Instructor Session Management
+**Status**: ✅ **COMPLETED** - See section 5 above
 
 ---
 
-### Priority 3: Stripe Payment Integration (CORE FEATURE)
-**Status**: Not started - Detailed plan available in `TECH_DECISIONS_FINAL.md`
+### Priority 2: Session Pack & Seat Logic (FOUNDATION)
+**Status**: ✅ **COMPLETED** - Implemented with Inngest functions and database helpers
 
 **Tasks**:
-- [ ] Set up Stripe account (test mode)
-- [ ] Install Stripe dependencies (`packages/payments`)
-- [ ] Create Stripe adapter package:
-  - [ ] `packages/payments/src/stripe/client.ts` - Stripe client setup
-  - [ ] `packages/payments/src/stripe/checkout.ts` - Checkout session creation
-  - [ ] `packages/payments/src/stripe/webhooks.ts` - Webhook verification
-  - [ ] `packages/payments/src/stripe/refunds.ts` - Refund processing
-- [ ] Create checkout API endpoint:
-  - [ ] `POST /api/checkout/stripe` - Create Stripe checkout session
-- [ ] Create webhook handler:
-  - [ ] `POST /api/webhooks/stripe` - Handle Stripe webhooks
-    - [ ] `checkout.session.completed` - Create pack, seat, payment
-    - [ ] `charge.refunded` - Release seat, update pack status
-- [ ] Add idempotency checks (prevent duplicate processing)
-- [ ] Add webhook signature verification
-- [ ] Test with Stripe test cards
-- [ ] Add error handling and logging
+- [x] Create utility functions for session pack management:
+  - [x] `createSessionPack()` - Create pack after payment
+  - [x] `checkPackExpiration()` - Validate pack validity
+  - [x] `getRemainingSessions()` - Calculate remaining sessions
+  - [x] `canBookSession()` - Booking eligibility check (via `validateBookingEligibility`)
+- [x] Create seat reservation logic:
+  - [x] `reserveSeat()` - Create seat reservation
+  - [x] `checkSeatAvailability()` - Verify mentor has available seats
+  - [x] `releaseSeat()` - Release seat on expiration/refund
+  - [x] `handleGracePeriod()` - Grace period management (72 hours)
+- [x] Create API endpoints:
+  - [x] `POST /api/session-packs` - Create pack (internal, called by webhook)
+  - [x] `GET /api/session-packs/me` - Get user's active packs
+  - [x] `GET /api/seats/availability/:mentorId` - Check seat availability
+- [x] Implement Inngest functions for session completion and seat expiration:
+  - [x] `handleSessionCompleted` - Process session completion and decrement remaining sessions
+  - [x] `checkSeatExpiration` - Hourly cron job for seat release management
+  - [x] `handleRenewalReminder` - Handle renewal notifications at session 3 and 4
+  - [x] `sendGracePeriodFinalWarning` - Send final warning before seat release
 
-**Estimated Time**: 3-4 days (as per plan)
+**Completed Components**:
+- ✅ Session completion handler (`apps/web/inngest/functions/sessions.ts`)
+- ✅ Seat expiration management (`apps/web/inngest/functions/sessions.ts`)
+- ✅ Session number tracking (`packages/db/src/lib/queries/sessions.ts`)
+- ✅ Database helper functions for session packs (`packages/db/src/lib/queries/sessionPacks.ts`)
+- ✅ Booking validation utility (`packages/db/src/lib/queries/bookingValidation.ts`)
+- ✅ Event types and schemas (`apps/web/inngest/types.ts`)
 
-**Reference**: See `TECH_DECISIONS_FINAL.md` for step-by-step guide
+**Estimated Time**: 2-3 days (completed)
+
+---
 
 ---
 
 ### Priority 4: PayPal Payment Integration (SECONDARY)
-**Status**: Not started - Similar pattern to Stripe
+**Status**: ✅ **COMPLETED** - Fully implemented with Inngest functions
 
-**Tasks**:
-- [ ] Set up PayPal Developer account
-- [ ] Create PayPal adapter package:
-  - [ ] `packages/payments/src/paypal/client.ts` - PayPal client setup
-  - [ ] `packages/payments/src/paypal/orders.ts` - Order creation & capture
-  - [ ] `packages/payments/src/paypal/webhooks.ts` - Webhook verification
-  - [ ] `packages/payments/src/paypal/refunds.ts` - Refund processing
-- [ ] Create checkout API endpoint:
-  - [ ] `POST /api/checkout/paypal` - Create PayPal order
-- [ ] Create webhook handler:
-  - [ ] `POST /api/webhooks/paypal` - Handle PayPal webhooks
-    - [ ] `PAYMENT.CAPTURE.COMPLETED` - Create pack, seat, payment
-    - [ ] `PAYMENT.CAPTURE.REFUNDED` - Release seat, update pack status
-- [ ] Test PayPal flow end-to-end
+**Completed Tasks**:
+- [x] PayPal SDK installed (`@paypal/paypal-server-sdk`)
+- [x] PayPal adapter package created (`packages/payments/src/paypal/`):
+  - [x] `client.ts` - PayPal client setup with environment validation
+  - [x] `orders.ts` - Order creation & capture
+  - [x] `webhooks.ts` - Webhook signature verification and parsing
+  - [x] `refunds.ts` - Refund processing with amount calculation
+  - [x] `types.ts` - TypeScript type definitions
+- [x] Checkout API endpoint:
+  - [x] `POST /api/checkout/paypal` - Create PayPal order
+  - [x] `POST /api/checkout/paypal/capture` - Capture PayPal order after approval
+- [x] Webhook handler:
+  - [x] `POST /api/webhooks/paypal` - Handle PayPal webhooks with signature verification
+  - [x] `PAYMENT.CAPTURE.COMPLETED` - Processed via Inngest (creates pack, seat, payment)
+  - [x] `PAYMENT.CAPTURE.REFUNDED` - Processed via Inngest (releases seat, updates pack status)
+- [x] Idempotency checks implemented:
+  - [x] Order status check (prevents duplicate processing)
+  - [x] Payment existence check (prevents duplicate payment records)
+  - [x] Session pack existence check (prevents duplicate packs)
+  - [x] Seat reservation existence check (prevents duplicate reservations)
+- [x] Webhook signature verification (CRITICAL security feature)
+- [x] Error handling and logging:
+  - [x] Order cleanup on checkout failure
+  - [x] Comprehensive error messages
+  - [x] Inngest retry logic (3 retries with exponential backoff)
+- [x] Metadata handling:
+  - [x] packId encoded in PayPal order custom_id (JSON format)
+  - [x] Order metadata extraction from webhook events
 
-**Estimated Time**: 2-3 days (after Stripe is working)
+**Completed Components**:
+- ✅ PayPal payments package (`packages/payments/src/paypal/`)
+- ✅ Checkout API route (`apps/web/app/api/checkout/paypal/route.ts`)
+- ✅ Capture API route (`apps/web/app/api/checkout/paypal/capture/route.ts`)
+- ✅ Webhook handler (`apps/web/app/api/webhooks/paypal/route.ts`)
+- ✅ Inngest payment processing functions (`apps/web/inngest/functions/payments.ts`):
+  - ✅ `processPayPalCheckout` - Handles PAYMENT.CAPTURE.COMPLETED
+  - ✅ `processPayPalRefund` - Handles PAYMENT.CAPTURE.REFUNDED
+- ✅ Event types and schemas (`apps/web/inngest/types.ts`)
+
+**Estimated Time**: 2-3 days (completed)
+
+**Note**: PayPal integration follows the same pattern as Stripe but uses PayPal's Orders API (two-step: create → capture). packId is encoded in the order's custom_id field since PayPal doesn't support metadata like Stripe.
 
 ---
 
@@ -207,22 +320,27 @@ Based on the plan in `mentorship-platform-plan.md`:
 
 1. ✅ **Database schema** - DONE
 2. ✅ **Database migrations** - DONE (applied to Supabase)
-3. 🔄 **Session pack + seat logic** - NEXT
-4. ⏳ **Stripe one-time checkout** - After #3
-5. ⏳ **PayPal one-time checkout** - After #4
-6. ⏳ **Webhooks** - Part of #4 and #5
-7. ⏳ **Booking rules** - After #3
-8. ⏳ **Discord automation** - After #6
-9. ⏳ **Google Calendar** - After #7
-10. ⏳ **Video access control** - After #7
+3. ✅ **Session pack + seat logic** - DONE (implemented with Inngest functions)
+4. ✅ **Stripe one-time checkout** - DONE (fully implemented with webhooks)
+5. ✅ **Stripe Webhooks** - DONE (integrated with Inngest)
+6. ✅ **Instructor Session Management** - DONE (dashboard, sessions page, API)
+7. ✅ **PayPal one-time checkout** - DONE (fully implemented with webhooks)
+8. ⏳ **Booking rules** - NEXT (can now be implemented after Stripe)
+9. ⏳ **Discord automation** - After #8
+10. ⏳ **Google Calendar** - After #8
+11. ⏳ **Video access control** - After #8
 
 ---
 
 ## 🎯 Immediate Next Steps
 
-1. **Implement session pack & seat logic** (foundation for everything else)
-2. **Start Stripe integration** (core revenue feature)
-3. **Enable Row Level Security (RLS)** on all tables before production
+1. **✅ Session pack & seat logic** (completed with Inngest functions)
+2. **✅ Stripe payment integration** (completed - core revenue feature)
+3. **✅ Instructor session management** (completed - dashboard, sessions page, API)
+4. **✅ PayPal integration** (secondary payment option) - COMPLETED
+5. **Enable Row Level Security (RLS)** on all tables before production
+6. **Implement notification system** (connect Discord bot and email services to Inngest events)
+7. **Complete booking system** (now possible after Stripe integration is done)
 
 ---
 
@@ -230,6 +348,7 @@ Based on the plan in `mentorship-platform-plan.md`:
 
 - `mentorship-platform-plan.md` - Overall architecture and business model
 - `TECH_DECISIONS_FINAL.md` - Step-by-step Stripe/PayPal implementation guide
+- `TESTING_CHECKOUT.md` - Stripe checkout testing guide
 - `KEY_DECISIONS.md` - Tech stack decisions
 - `BUILD_READINESS_CHECKLIST.md` - Pre-build checklist
 - `.cursorrules` - Development guidelines and preferences
@@ -255,5 +374,16 @@ ls apps/web/app/api
 
 ---
 
-**Priority 1 Complete! Ready to proceed with Priority 2: Session Pack & Seat Logic** 🚀
+**Priority 1-4 & 6 Complete! Ready to proceed with Priority 5: Booking System** 🚀
+
+---
+
+## 📊 Recent Progress Summary
+
+### December 2024
+- ✅ **Instructor Session Management** (PR #10)
+  - Complete instructor dashboard with stats and session lists
+  - Session management API with role-based authorization
+  - Role-adaptive navigation system
+  - Full type safety with Drizzle ORM and Zod validation
 

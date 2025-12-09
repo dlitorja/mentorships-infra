@@ -34,8 +34,14 @@ export const paypalPaymentCompletedEventSchema = z.object({
   data: z.object({
     orderId: z.string().uuid(),
     captureId: z.string(),
-    userId: z.string(),
     packId: z.string().uuid(),
+  }),
+});
+
+export const paypalPaymentRefundedEventSchema = z.object({
+  name: z.literal("paypal/payment.capture.refunded"),
+  data: z.object({
+    captureId: z.string(),
   }),
 });
 
@@ -112,6 +118,7 @@ export type PurchaseMentorshipEvent = z.infer<typeof purchaseMentorshipEventSche
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
 export type StripeChargeRefundedEvent = z.infer<typeof stripeChargeRefundedEventSchema>;
 export type PaypalPaymentCompletedEvent = z.infer<typeof paypalPaymentCompletedEventSchema>;
+export type PaypalPaymentRefundedEvent = z.infer<typeof paypalPaymentRefundedEventSchema>;
 export type ClerkUserCreatedEvent = z.infer<typeof clerkUserCreatedEventSchema>;
 export type UserDiscordConnectedEvent = z.infer<typeof userDiscordConnectedEventSchema>;
 export type SessionCompletedEvent = z.infer<typeof sessionCompletedEventSchema>;
@@ -125,6 +132,7 @@ export type InngestEvent =
   | StripeCheckoutCompletedEvent
   | StripeChargeRefundedEvent
   | PaypalPaymentCompletedEvent
+  | PaypalPaymentRefundedEvent
   | ClerkUserCreatedEvent
   | UserDiscordConnectedEvent
   | SessionCompletedEvent
