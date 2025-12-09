@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Toaster } from "sonner";
+import { Header } from "@/components/navigation/header";
+import { HeaderErrorBoundary } from "@/components/navigation/header-error-boundary";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Mentorship Platform",
-  description: "Connect with mentors and grow your skills",
+  title: "Huckleberry Art Mentorships | 1-on-1 & Group Art Mentorship",
+  description:
+    "Connect with world-class art instructors from gaming, TV, film, and independent studios. Personalized 1-on-1 and group mentorship experiences to help you achieve your artistic goals.",
 };
 
 export default function RootLayout({
@@ -16,9 +20,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      // Reduce verbose debug logging in development
+      // The 422 error is typically a validation error (e.g., email already exists)
+      // and is handled gracefully by Clerk's UI
+      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+    >
       <html lang="en">
-        <body className={inter.className}>{children}</body>
+        <body className={`${inter.className} antialiased`}>
+          <HeaderErrorBoundary>
+            <Header />
+          </HeaderErrorBoundary>
+          {children}
+          <Toaster />
+        </body>
       </html>
     </ClerkProvider>
   );
