@@ -56,6 +56,14 @@ export async function createPayPalOrder(
     customId = JSON.stringify({ packId: metadata.productId });
   }
 
+  const applicationContext: OrderApplicationContext = {
+    brandName: "Mentorship Platform",
+    landingPage: "BILLING",
+    userAction: OrderApplicationContextUserAction.PayNow,
+    returnUrl,
+    cancelUrl,
+  };
+
   const orderRequest: OrderRequest = {
     intent: CheckoutPaymentIntent.Capture,
     purchaseUnits: [
@@ -68,13 +76,7 @@ export async function createPayPalOrder(
         description: "Mentorship Session Pack",
       },
     ],
-    applicationContext: {
-      brandName: "Mentorship Platform",
-      landingPage: "BILLING",
-      userAction: OrderApplicationContextUserAction.PayNow,
-      returnUrl,
-      cancelUrl,
-    } as OrderApplicationContext,
+    applicationContext,
   };
 
   const ordersController = new OrdersController(client);
@@ -84,8 +86,10 @@ export async function createPayPalOrder(
   });
 
   if (response.statusCode !== 201 || !response.result) {
+    const debugId = (response.result as { debug_id?: string } | undefined)?.debug_id;
     throw new Error(
-      `Failed to create PayPal order: ${response.statusCode} ${JSON.stringify(response.result)}`
+      `Failed to create PayPal order: ${response.statusCode}` +
+      (debugId ? ` (debug_id=${debugId})` : "")
     );
   }
 
@@ -122,8 +126,10 @@ export async function capturePayPalOrder(orderId: string): Promise<Order> {
   });
 
   if (response.statusCode !== 201 || !response.result) {
+    const debugId = (response.result as { debug_id?: string } | undefined)?.debug_id;
     throw new Error(
-      `Failed to capture PayPal order: ${response.statusCode} ${JSON.stringify(response.result)}`
+      `Failed to capture PayPal order: ${response.statusCode}` +
+      (debugId ? ` (debug_id=${debugId})` : "")
     );
   }
 
@@ -145,8 +151,10 @@ export async function getPayPalOrder(orderId: string): Promise<Order> {
   });
 
   if (response.statusCode !== 200 || !response.result) {
+    const debugId = (response.result as { debug_id?: string } | undefined)?.debug_id;
     throw new Error(
-      `Failed to get PayPal order: ${response.statusCode} ${JSON.stringify(response.result)}`
+      `Failed to get PayPal order: ${response.statusCode}` +
+      (debugId ? ` (debug_id=${debugId})` : "")
     );
   }
 

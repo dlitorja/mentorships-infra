@@ -342,7 +342,7 @@ export const processPayPalCheckout = inngest.createFunction(
     }
 
     // Step 3: Extract currency from order
-    const currency = order.currency.toUpperCase() || "USD";
+    const currency = (order.currency ?? "USD").toUpperCase();
 
     // Step 4: Update order (idempotency handled by checking order status earlier)
     await step.run("update-order", async () => {

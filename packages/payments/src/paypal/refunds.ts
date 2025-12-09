@@ -42,8 +42,10 @@ export async function createRefund(
   });
 
   if (response.statusCode !== 201 || !response.result) {
+    const debugId = (response.result as { debug_id?: string } | undefined)?.debug_id;
     throw new Error(
-      `Failed to create PayPal refund: ${response.statusCode} ${JSON.stringify(response.result)}`
+      `Failed to create PayPal refund: ${response.statusCode}` +
+      (debugId ? ` (debug_id=${debugId})` : "")
     );
   }
 
@@ -69,12 +71,21 @@ export function calculateRefundAmount(
     return "0.00";
   }
 
+  if (totalSessions <= 0) {
+    return "0.00";
+  }
+
+  const parsed = parseFloat(totalAmount);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return "0.00";
+  }
+
   if (remainingSessions >= totalSessions) {
-    return parseFloat(totalAmount).toFixed(2); // Full refund
+    return parsed.toFixed(2); // Full refund
   }
 
   // Use integer math to avoid floating-point precision issues
-  const totalCents = Math.round(parseFloat(totalAmount) * 100);
+  const totalCents = Math.round(parsed * 100);
   const refundCents = Math.round((remainingSessions / totalSessions) * totalCents);
   return (refundCents / 100).toFixed(2);
 }

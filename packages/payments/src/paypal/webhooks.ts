@@ -116,7 +116,24 @@ export function parseWebhookEvent(event: {
   if (purchaseUnits && purchaseUnits.length > 0) {
     const customId = purchaseUnits[0].custom_id;
     if (typeof customId === "string") {
-      metadata.orderId = customId;
+      try {
+        const parsed = JSON.parse(customId);
+        if (parsed && typeof parsed === "object") {
+          const obj = parsed as { orderId?: string; packId?: string };
+          if (typeof obj.orderId === "string") {
+            metadata.orderId = obj.orderId;
+          }
+          if (typeof obj.packId === "string") {
+            metadata.packId = obj.packId;
+          }
+        } else {
+          // Fallback for legacy plain-string custom_id
+          metadata.orderId = customId;
+        }
+      } catch {
+        // Fallback if custom_id is not JSON
+        metadata.orderId = customId;
+      }
     }
   }
 

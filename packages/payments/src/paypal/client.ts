@@ -52,7 +52,15 @@ export function getPayPalClient(): Client {
 
   const clientId = getPayPalClientId();
   const clientSecret = getPayPalClientSecret();
-  const isLive = process.env.PAYPAL_MODE === "live";
+  
+  // Validate PAYPAL_MODE
+  const mode = (process.env.PAYPAL_MODE || "sandbox").toLowerCase();
+  if (mode !== "sandbox" && mode !== "live") {
+    throw new Error(
+      `Invalid PAYPAL_MODE: ${process.env.PAYPAL_MODE}. Must be "sandbox" or "live"`
+    );
+  }
+  const isLive = mode === "live";
 
   const config: Partial<Configuration> = {
     environment: isLive ? Environment.Production : Environment.Sandbox,

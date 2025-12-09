@@ -9,6 +9,11 @@ type SessionWithMentor = Session & {
   sessionPack: typeof sessionPacks.$inferSelect;
 };
 
+type SessionWithStudent = Session & {
+  student: typeof users.$inferSelect;
+  sessionPack: typeof sessionPacks.$inferSelect;
+};
+
 /**
  * Get user's upcoming sessions (scheduled, not completed/canceled)
  */
@@ -125,10 +130,7 @@ export async function getSessionById(
 export async function getMentorUpcomingSessions(
   mentorId: string,
   limit: number = 50
-): Promise<(typeof sessions.$inferSelect & {
-  student: typeof users.$inferSelect;
-  sessionPack: typeof sessionPacks.$inferSelect;
-})[]> {
+): Promise<SessionWithStudent[]> {
   const now = new Date();
 
   const results = await db
@@ -163,10 +165,7 @@ export async function getMentorUpcomingSessions(
 export async function getMentorPastSessions(
   mentorId: string,
   limit: number = 50
-): Promise<(typeof sessions.$inferSelect & {
-  student: typeof users.$inferSelect;
-  sessionPack: typeof sessionPacks.$inferSelect;
-})[]> {
+): Promise<SessionWithStudent[]> {
   const results = await db
     .select({
       session: sessions,
@@ -198,10 +197,7 @@ export async function getMentorPastSessions(
 export async function getMentorSessions(
   mentorId: string,
   limit: number = 100
-): Promise<(typeof sessions.$inferSelect & {
-  student: typeof users.$inferSelect;
-  sessionPack: typeof sessionPacks.$inferSelect;
-})[]> {
+): Promise<SessionWithStudent[]> {
   const results = await db
     .select({
       session: sessions,
