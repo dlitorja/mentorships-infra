@@ -18,10 +18,10 @@ import { checkSeatAvailability } from "@mentorships/db";
  */
 export async function GET(
   request: Request,
-  { params }: { params: { mentorId: string } }
+  { params }: { params: Promise<{ mentorId: string }> }
 ) {
   try {
-    const { mentorId } = params;
+    const { mentorId } = await params;
 
     if (!mentorId) {
       return NextResponse.json(
