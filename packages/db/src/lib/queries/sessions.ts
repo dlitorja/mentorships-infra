@@ -9,6 +9,11 @@ type SessionWithMentor = Session & {
   sessionPack: typeof sessionPacks.$inferSelect;
 };
 
+type SessionWithStudent = Session & {
+  student: typeof users.$inferSelect;
+  sessionPack: typeof sessionPacks.$inferSelect;
+};
+
 /**
  * Get user's upcoming sessions (scheduled, not completed/canceled)
  */
@@ -120,14 +125,6 @@ export async function getSessionById(
 }
 
 /**
- * Type for session with student information
- */
-type SessionWithStudent = Session & {
-  student: typeof users.$inferSelect;
-  sessionPack: typeof sessionPacks.$inferSelect;
-};
-
-/**
  * Get mentor's upcoming sessions (scheduled, not completed/canceled)
  */
 export async function getMentorUpcomingSessions(
@@ -163,7 +160,7 @@ export async function getMentorUpcomingSessions(
 }
 
 /**
- * Get mentor's past sessions (completed or canceled)
+ * Get mentor's past sessions (completed, canceled, or no_show)
  */
 export async function getMentorPastSessions(
   mentorId: string,

@@ -9,12 +9,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "stripe": "^17.4.0",
-    "@mentorships/db": "workspace:*"
+    "@mentorships/db": "workspace:*",
+    "@paypal/paypal-server-sdk": "^2.1.0",
+    "stripe": "^17.4.0"
   },
   "devDependencies": {
     "@types/node": "20.19.25",
     "typescript": "5.9.3"
   }
 }
-
