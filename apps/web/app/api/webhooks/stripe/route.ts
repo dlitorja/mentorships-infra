@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { inngest } from "@/inngest/client";
 import { stripe } from "@/lib/stripe";
 
@@ -105,4 +106,3 @@ export async function POST(req: NextRequest) {
 
 // Disable body parsing (Stripe needs raw body)
 export const runtime = "nodejs";
-

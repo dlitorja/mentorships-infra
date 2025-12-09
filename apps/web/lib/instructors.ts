@@ -109,7 +109,7 @@ export const mockInstructors: Instructor[] = [
     slug: "oliver-titley",
     tagline: "Concept Artist, Filmmaker, and YouTuber",
     bio: "Ollie is a concept artist, filmmaker, and YouTuber, with over 6 years of games industry experience working at Paradox Interactive on the Age of Wonders series, and with a successful and rapidly growing YouTube channel.",
-    specialties: ["Concept Art", "Game Development", "Content Creation"],
+    specialties: ["Concept Art", "World-building", "Game Development", "Content Creation"],
     background: ["Gaming", "Indie"],
     profileImage: "/instructors/oliver-titley/profile.png",
     workImages: [

@@ -228,6 +228,9 @@ importers:
       '@mentorships/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@mentorships/payments':
+        specifier: workspace:*
+        version: link:../../packages/payments
       '@supabase/ssr':
         specifier: ^0.7.0
         version: 0.7.0(@supabase/supabase-js@2.86.2)
@@ -299,6 +302,22 @@ importers:
       drizzle-kit:
         specifier: 0.31.7
         version: 0.31.7
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/payments:
+    dependencies:
+      '@mentorships/db':
+        specifier: workspace:*
+        version: link:../db
+      stripe:
+        specifier: ^17.4.0
+        version: 17.7.0
+    devDependencies:
+      '@types/node':
+        specifier: 20.19.25
+        version: 20.19.25
       typescript:
         specifier: 5.9.3
         version: 5.9.3

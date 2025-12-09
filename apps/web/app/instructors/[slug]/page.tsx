@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, ExternalLink, Twitter, Instagram, Youtube } from "lucide-react";
+import { ExternalLink, Twitter, Instagram, Youtube } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
 import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
+import { InstructorNavigationWrapper } from "@/components/instructors/instructor-navigation-wrapper";
 import {
   getInstructorBySlug,
   getNextInstructor,
@@ -95,7 +96,7 @@ export default async function InstructorProfilePage({
     if (spots === 0) {
       return (
         <p className="text-sm font-bold text-red-600 mt-1">
-          SOLD OUT - Please check later
+          SOLD OUT
         </p>
       );
     } else if (spots === 1) {
@@ -126,33 +127,12 @@ export default async function InstructorProfilePage({
     >
       <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 md:py-12">
-        {/* Navigation Header */}
-        <div className="mb-8 flex items-center justify-between">
-          <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow">
-            <Link href="/instructors" className="flex items-center gap-2">
-              ← View All Instructors
-            </Link>
-          </Button>
-          
-          <div className="flex items-center gap-3">
-            {previousInstructor && (
-              <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow min-w-[3rem]">
-                <Link href={`/instructors/${previousInstructor.slug}`} className="flex items-center justify-center">
-                  <ArrowLeft className="h-5 w-5" />
-                  <span className="sr-only">Previous instructor</span>
-                </Link>
-              </Button>
-            )}
-            {nextInstructor && (
-              <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow min-w-[3rem]">
-                <Link href={`/instructors/${nextInstructor.slug}`} className="flex items-center justify-center">
-                  <ArrowRight className="h-5 w-5" />
-                  <span className="sr-only">Next instructor</span>
-                </Link>
-              </Button>
-            )}
-          </div>
-        </div>
+        <InstructorNavigationWrapper
+          currentSlug={slug}
+          instructor={instructor}
+          defaultNext={nextInstructor}
+          defaultPrevious={previousInstructor}
+        />
 
         {/* Main Content */}
         <div className="mx-auto max-w-6xl">
@@ -249,7 +229,7 @@ export default async function InstructorProfilePage({
                   {instructor.pricing.group && (
                     <div className="mt-4 pt-4 border-t">
                       <p className="text-lg">
-                        <span className="font-semibold">Group Sessions:</span>{" "}
+                        <span className="font-semibold">Group Mentorships:</span>{" "}
                         ${instructor.pricing.group} for 4 sessions
                       </p>
                       {renderSpotsAvailable(groupSpots)}
@@ -304,7 +284,7 @@ export default async function InstructorProfilePage({
               {/* Social Links */}
               {Object.keys(socialLinks).length > 0 && (
                 <div>
-                  <h2 className="text-2xl font-semibold mb-3">Connect</h2>
+                  <h2 className="text-2xl font-semibold mb-3">Socials</h2>
                   <div className="flex flex-wrap gap-2">
                     {socialLinks.twitter && (
                       <SocialLink url={socialLinks.twitter} platform="twitter" />
@@ -349,34 +329,6 @@ export default async function InstructorProfilePage({
             </div>
           )}
 
-          {/* Navigation Footer */}
-          <div className="mt-12 flex items-center justify-between border-t pt-8 gap-4">
-            {previousInstructor ? (
-              <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow">
-                <Link href={`/instructors/${previousInstructor.slug}`} className="flex items-center gap-3">
-                  <ArrowLeft className="h-5 w-5 shrink-0" />
-                  <div className="font-semibold">{previousInstructor.name}</div>
-                </Link>
-              </Button>
-            ) : (
-              <div />
-            )}
-
-            <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow">
-              <Link href="/instructors">View All Instructors</Link>
-            </Button>
-
-            {nextInstructor ? (
-              <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow">
-                <Link href={`/instructors/${nextInstructor.slug}`} className="flex items-center gap-3">
-                  <div className="font-semibold">{nextInstructor.name}</div>
-                  <ArrowRight className="h-5 w-5 shrink-0" />
-                </Link>
-              </Button>
-            ) : (
-              <div />
-            )}
-          </div>
         </div>
       </div>
       </div>

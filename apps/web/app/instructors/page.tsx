@@ -40,7 +40,7 @@ export default function InstructorsPage() {
               Our Instructors
             </h1>
             <p className="mt-4 text-lg text-muted-foreground">
-              Discover talented artists from gaming, TV, film, and independent studios
+              Talented artists from gaming, TV, film, and some who are freelancers or indies
             </p>
           </div>
 
@@ -56,15 +56,26 @@ export default function InstructorsPage() {
                   delay: delays[index],
                   ease: "easeOut",
                 }}
+                className="h-full"
               >
-                <Card className="flex flex-col overflow-hidden transition-shadow hover:shadow-lg">
-                  <Link href={`/instructors/${instructor.slug}`} className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer">
+                <Card className="flex flex-col h-full overflow-hidden transition-shadow hover:shadow-lg">
+                  <Link 
+                    href={`/instructors/${instructor.slug}`}
+                    onClick={() => {
+                      // Store the current random order in session storage for navigation
+                      const order = instructors.map(inst => inst.slug);
+                      sessionStorage.setItem('instructorOrder', JSON.stringify(order));
+                    }}
+                    className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0"
+                  >
                     <Image
+                      key={`${instructor.id}-${instructor.profileImage}`}
                       src={instructor.profileImage}
-                      alt={instructor.name}
+                      alt={`${instructor.name} profile picture`}
                       fill
                       className="object-cover transition-transform hover:scale-105"
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                      priority={index < 6}
                     />
                   </Link>
                   <CardContent className="flex flex-col flex-1 p-6">
@@ -88,7 +99,14 @@ export default function InstructorsPage() {
 
                     <div className="mt-auto pt-6">
                       <Button asChild variant="outline" className="w-full">
-                        <Link href={`/instructors/${instructor.slug}`}>
+                        <Link 
+                          href={`/instructors/${instructor.slug}`}
+                          onClick={() => {
+                            // Store the current random order in session storage for navigation
+                            const order = instructors.map(inst => inst.slug);
+                            sessionStorage.setItem('instructorOrder', JSON.stringify(order));
+                          }}
+                        >
                           View Profile
                         </Link>
                       </Button>
@@ -113,4 +131,3 @@ export default function InstructorsPage() {
     </div>
   );
 }
-

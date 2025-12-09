@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
 import {
   requireAuth,
-  db,
-  orders,
   getProductById,
-  cancelOrder,
   updateOrderStatus,
   getGrandfatheredDiscount,
   getGrandfatheredConfig,
+  createOrder,
 } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
 
@@ -61,24 +58,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const discountCode = promotionCode || grandfatheredDiscount?.promotionCode;
     const couponId = !promotionCode ? grandfatheredDiscount?.couponId : undefined;
 
-    // Store original amount (before discount)
-    const originalAmount = pack.price;
-
     // Create order in database (status: pending)
-    // Note: discount_amount will be calculated after payment based on actual discount applied
-    // TODO: Add discount columns to database migration when ready
-    const [order] = await db
-      .insert(orders)
-      .values({
-        userId,
-        status: "pending",
-        provider: "stripe",
-        totalAmount: pack.price, // Will be updated after payment with actual discounted amount
-        currency: "usd",
-        // Note: discount fields (discountAmount, discountCode, originalAmount) 
-        // are defined in schema but not yet in database - will be added via migration
-      })
-      .returning();
+    const order = await createOrder(
+      userId,
+      "stripe",
+      pack.price,
+      "usd"
+    );
 
     orderId = order.id;
 
@@ -168,4 +154,3 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
-

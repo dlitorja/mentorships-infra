@@ -12,6 +12,7 @@
   "dependencies": {
     "@clerk/nextjs": "^6.35.5",
     "@mentorships/db": "workspace:*",
+    "@mentorships/payments": "workspace:*",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.81.1",
     "embla-carousel-react": "^8.6.0",

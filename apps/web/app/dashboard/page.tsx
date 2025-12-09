@@ -296,7 +296,7 @@ export default async function DashboardPage() {
       error instanceof Error &&
       error.message.includes("Unauthorized")
     ) {
-      redirect("/sign-in");
+    redirect("/sign-in");
     }
     // Log and re-throw other errors (DB, network, bugs)
     console.error("Dashboard error:", error);

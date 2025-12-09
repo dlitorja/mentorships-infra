@@ -44,4 +44,3 @@ export const sessionPacks = pgTable("session_packs", {
   // Index for payment lookups
   paymentIdIdx: index("session_packs_payment_id_idx").on(table.paymentId),
 }));
-
