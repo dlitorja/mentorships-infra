@@ -31,6 +31,7 @@ export * from "./lib/queries/sessionPacks";
 export * from "./lib/queries/sessions";
 export * from "./lib/queries/products";
 export * from "./lib/queries/discounts";
+export * from "./lib/queries/bookingValidation";
 
 // Export types
 export type { Database } from "./types/database.types";
