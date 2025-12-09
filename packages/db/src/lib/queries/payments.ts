@@ -1,8 +1,10 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "../drizzle";
 import { payments } from "../../schema";
 import type { PaymentStatus } from "../../schema/payments";
 import type { PaymentProvider } from "../../schema/orders";
+
+export type Payment = typeof payments.$inferSelect;
 
 /**
  * Create a payment record
@@ -22,20 +24,48 @@ export async function createPayment(
   amount: string,
   currency: string = "usd",
   status: PaymentStatus = "pending"
-) {
-  const [payment] = await db
-    .insert(payments)
-    .values({
-      orderId,
-      provider,
-      providerPaymentId,
-      amount,
-      currency,
-      status,
-    })
-    .returning();
+): Promise<Payment> {
+  // Idempotency check: query for existing payment by providerPaymentId
+  const existing = await getPaymentByProviderId(provider, providerPaymentId);
+  if (existing) {
+    return existing;
+  }
 
-  return payment;
+  // Create new payment
+  try {
+    const [payment] = await db
+      .insert(payments)
+      .values({
+        orderId,
+        provider,
+        providerPaymentId,
+        amount,
+        currency,
+        status,
+      })
+      .returning();
+
+    if (!payment) {
+      throw new Error("Failed to create payment");
+    }
+
+    return payment;
+  } catch (error: unknown) {
+    // Handle unique constraint violation (if DB has unique constraint on providerPaymentId)
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "23505" // PostgreSQL unique violation
+    ) {
+      // Return existing payment
+      const existing = await getPaymentByProviderId(provider, providerPaymentId);
+      if (existing) {
+        return existing;
+      }
+    }
+    throw error;
+  }
 }
 
 /**
@@ -44,7 +74,7 @@ export async function createPayment(
  * @param paymentId - UUID of the payment
  * @returns Payment or null if not found
  */
-export async function getPaymentById(paymentId: string) {
+export async function getPaymentById(paymentId: string): Promise<Payment | null> {
   const [payment] = await db
     .select()
     .from(payments)
@@ -64,12 +94,15 @@ export async function getPaymentById(paymentId: string) {
 export async function getPaymentByProviderId(
   provider: PaymentProvider,
   providerPaymentId: string
-) {
+): Promise<Payment | null> {
   const [payment] = await db
     .select()
     .from(payments)
     .where(
-      eq(payments.providerPaymentId, providerPaymentId)
+      and(
+        eq(payments.provider, provider),
+        eq(payments.providerPaymentId, providerPaymentId)
+      )
     )
     .limit(1);
 
@@ -88,7 +121,7 @@ export async function updatePaymentStatus(
   paymentId: string,
   status: PaymentStatus,
   refundedAmount?: string
-) {
+): Promise<Payment> {
   const updateData: {
     status: PaymentStatus;
     refundedAmount?: string;
@@ -102,17 +135,25 @@ export async function updatePaymentStatus(
     updateData.refundedAmount = refundedAmount;
   }
 
-  const [payment] = await db
+  const [updated] = await db
     .update(payments)
     .set(updateData)
     .where(eq(payments.id, paymentId))
     .returning();
 
-  if (!payment) {
+  if (!updated) {
     throw new Error(`Payment ${paymentId} not found`);
   }
 
-  return payment;
+  // Structured logging for observability
+  console.info("Payment status updated", {
+    paymentId,
+    status,
+    refundedAmount,
+    updatedAt: updated.updatedAt,
+  });
+
+  return updated;
 }
 
 /**
@@ -121,7 +162,7 @@ export async function updatePaymentStatus(
  * @param orderId - UUID of the order
  * @returns Array of payments
  */
-export async function getOrderPayments(orderId: string) {
+export async function getOrderPayments(orderId: string): Promise<Payment[]> {
   const orderPayments = await db
     .select()
     .from(payments)
@@ -129,4 +170,3 @@ export async function getOrderPayments(orderId: string) {
 
   return orderPayments;
 }
-

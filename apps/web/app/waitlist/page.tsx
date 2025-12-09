@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 
@@ -93,13 +94,12 @@ export default function WaitlistPage(): JSX.Element {
               <label htmlFor="email" className="text-sm font-medium">
                 Email Address
               </label>
-              <input
+              <Input
                 id="email"
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border rounded-md"
                 placeholder="your@email.com"
               />
             </div>

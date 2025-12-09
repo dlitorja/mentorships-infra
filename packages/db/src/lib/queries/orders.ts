@@ -1,7 +1,9 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db } from "../drizzle";
 import { orders } from "../../schema";
 import type { OrderStatus, PaymentProvider } from "../../schema/orders";
+
+type Order = typeof orders.$inferSelect;
 
 /**
  * Create a new order
@@ -17,7 +19,7 @@ export async function createOrder(
   provider: PaymentProvider,
   totalAmount: string,
   currency: string = "usd"
-) {
+): Promise<Order> {
   const [order] = await db
     .insert(orders)
     .values({
@@ -29,6 +31,10 @@ export async function createOrder(
     })
     .returning();
 
+  if (!order) {
+    throw new Error("Failed to create order");
+  }
+
   return order;
 }
 
@@ -38,7 +44,7 @@ export async function createOrder(
  * @param orderId - UUID of the order
  * @returns Order or null if not found
  */
-export async function getOrderById(orderId: string) {
+export async function getOrderById(orderId: string): Promise<Order | null> {
   const [order] = await db
     .select()
     .from(orders)
@@ -54,12 +60,12 @@ export async function getOrderById(orderId: string) {
  * @param userId - Clerk user ID
  * @returns Array of orders
  */
-export async function getUserOrders(userId: string) {
+export async function getUserOrders(userId: string): Promise<Order[]> {
   const userOrders = await db
     .select()
     .from(orders)
     .where(eq(orders.userId, userId))
-    .orderBy(orders.createdAt);
+    .orderBy(desc(orders.createdAt));
 
   return userOrders;
 }
@@ -74,7 +80,7 @@ export async function getUserOrders(userId: string) {
 export async function updateOrderStatus(
   orderId: string,
   status: OrderStatus
-) {
+): Promise<Order> {
   const [order] = await db
     .update(orders)
     .set({
@@ -92,12 +98,19 @@ export async function updateOrderStatus(
 }
 
 /**
+ * Cancel/delete order (for cleanup of orphaned orders)
+ */
+export async function cancelOrder(orderId: string): Promise<Order> {
+  return await updateOrderStatus(orderId, "canceled");
+}
+
+/**
  * Get pending orders for a user
  * 
  * @param userId - Clerk user ID
  * @returns Array of pending orders
  */
-export async function getUserPendingOrders(userId: string) {
+export async function getUserPendingOrders(userId: string): Promise<Order[]> {
   const pendingOrders = await db
     .select()
     .from(orders)
@@ -110,4 +123,3 @@ export async function getUserPendingOrders(userId: string) {
 
   return pendingOrders;
 }
-

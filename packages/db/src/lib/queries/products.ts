@@ -1,33 +1,48 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentorshipProducts } from "../../schema";
+import { mentorshipProducts, mentors } from "../../schema";
+
+type Product = typeof mentorshipProducts.$inferSelect;
+type ProductWithMentor = Product & { mentor: typeof mentors.$inferSelect };
 
 /**
- * Get mentorship product by ID
- * 
- * @param productId - UUID of the product
- * @returns Product or null if not found
+ * Get product by ID with mentor info
  */
-export async function getProductById(productId: string) {
+export async function getProductById(
+  productId: string
+): Promise<ProductWithMentor | null> {
+  // Validate UUID format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(productId)) {
+    throw new Error(`Invalid product ID format: ${productId}`);
+  }
+
   const [product] = await db
-    .select()
+    .select({
+      product: mentorshipProducts,
+      mentor: mentors,
+    })
     .from(mentorshipProducts)
+    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
     .where(eq(mentorshipProducts.id, productId))
     .limit(1);
 
-  return product || null;
+  return product ? { ...product.product, mentor: product.mentor } : null;
 }
 
 /**
- * Get active mentorship products for a mentor
- * 
- * @param mentorId - UUID of the mentor
- * @returns Array of active products
+ * Get active products by mentor ID
  */
-export async function getMentorActiveProducts(mentorId: string) {
+export async function getProductsByMentorId(
+  mentorId: string
+): Promise<ProductWithMentor[]> {
   const products = await db
-    .select()
+    .select({
+      product: mentorshipProducts,
+      mentor: mentors,
+    })
     .from(mentorshipProducts)
+    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
     .where(
       and(
         eq(mentorshipProducts.mentorId, mentorId),
@@ -35,21 +50,23 @@ export async function getMentorActiveProducts(mentorId: string) {
       )
     );
 
-  return products;
+  return products.map((p) => ({ ...p.product, mentor: p.mentor }));
 }
 
 /**
- * Get all active mentorship products
- * 
- * @returns Array of all active products
+ * Get all active products
  */
-export async function getAllActiveProducts() {
+export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
   const products = await db
-    .select()
+    .select({
+      product: mentorshipProducts,
+      mentor: mentors,
+    })
     .from(mentorshipProducts)
+    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
     .where(eq(mentorshipProducts.active, true));
 
-  return products;
+  return products.map((p) => ({ ...p.product, mentor: p.mentor }));
 }
 
 /**
@@ -72,7 +89,7 @@ export async function createProduct(
   sessionsPerPack: number = 4,
   validityDays: number = 30,
   active: boolean = true
-) {
+): Promise<Product> {
   const [product] = await db
     .insert(mentorshipProducts)
     .values({
@@ -86,6 +103,10 @@ export async function createProduct(
     })
     .returning();
 
+  if (!product) {
+    throw new Error("Failed to create product");
+  }
+
   return product;
 }
 
@@ -97,7 +118,7 @@ export async function createProduct(
  */
 export async function validateProductForPurchase(productId: string): Promise<{
   valid: boolean;
-  product: typeof mentorshipProducts.$inferSelect | null;
+  product: Product | null;
   reason?: string;
 }> {
   const product = await getProductById(productId);

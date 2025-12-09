@@ -1,27 +1,47 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
+import { randomUUID } from "crypto";
+
+const waitlistPostSchema = z.object({
+  instructorSlug: z.string().min(1, "Instructor slug is required"),
+  type: z.enum(["one-on-one", "group"], {
+    errorMap: () => ({ message: "Type must be 'one-on-one' or 'group'" }),
+  }),
+  email: z.string().email().optional(),
+});
+
+const waitlistGetSchema = z.object({
+  instructorSlug: z.string().optional(),
+});
+
+type WaitlistPostResponse =
+  | { success: true; message: string }
+  | { error: string; errorId: string };
+
+type WaitlistGetResponse =
+  | { onWaitlist: boolean; entries: unknown[] }
+  | { error: string; errorId: string };
 
 /**
  * POST /api/waitlist
  * Add user to waitlist for an instructor
  * Allows both authenticated and unauthenticated users (using email)
  */
-export async function POST(request: Request) {
+export async function POST(
+  request: Request
+): Promise<NextResponse<WaitlistPostResponse>> {
+  const errorId = randomUUID();
+
   try {
     const { userId } = await auth();
     const body = await request.json();
-    const { instructorSlug, type, email } = body;
-
-    if (!instructorSlug || !type) {
-      return NextResponse.json(
-        { error: "Instructor slug and type are required" },
-        { status: 400 }
-      );
-    }
+    const validated = waitlistPostSchema.parse(body);
+    const { instructorSlug, type, email } = validated;
 
     if (!email && !userId) {
       return NextResponse.json(
-        { error: "Email is required for unauthenticated users" },
+        { error: "Email is required for unauthenticated users", errorId },
         { status: 400 }
       );
     }
@@ -49,9 +69,21 @@ export async function POST(request: Request) {
       message: "Successfully added to waitlist",
     });
   } catch (error) {
-    console.error("Waitlist error:", error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        {
+          error: error.errors[0]?.message || "Invalid request data",
+          errorId,
+        },
+        { status: 400 }
+      );
+    }
+
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Waitlist error [${errorId}]: ${errorName} - ${errorMessage}`);
     return NextResponse.json(
-      { error: "Failed to join waitlist" },
+      { error: "Failed to join waitlist", errorId },
       { status: 500 }
     );
   }
@@ -62,19 +94,28 @@ export async function POST(request: Request) {
  * Get waitlist status for current user
  * Requires authentication
  */
-export async function GET(request: Request) {
+export async function GET(
+  request: Request
+): Promise<NextResponse<WaitlistGetResponse>> {
+  const errorId = randomUUID();
+
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json(
-        { error: "Authentication required" },
+        { error: "Authentication required", errorId },
         { status: 401 }
       );
     }
 
     const { searchParams } = new URL(request.url);
-    const instructorSlug = searchParams.get("instructorSlug");
+    const instructorSlugParam = searchParams.get("instructorSlug");
+
+    const validated = waitlistGetSchema.parse({
+      instructorSlug: instructorSlugParam || undefined,
+    });
+    const { instructorSlug } = validated;
 
     // TODO: Query waitlist table to check if user is on waitlist
     // Return waitlist entries for user (optionally filtered by instructor)
@@ -85,9 +126,23 @@ export async function GET(request: Request) {
       entries: [],
     });
   } catch (error) {
-    console.error("Waitlist query error:", error);
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        {
+          error: error.errors[0]?.message || "Invalid query parameters",
+          errorId,
+        },
+        { status: 400 }
+      );
+    }
+
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(
+      `Waitlist query error [${errorId}]: ${errorName} - ${errorMessage}`
+    );
     return NextResponse.json(
-      { error: "Failed to query waitlist" },
+      { error: "Failed to query waitlist", errorId },
       { status: 500 }
     );
   }

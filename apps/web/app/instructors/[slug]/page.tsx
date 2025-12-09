@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ExternalLink, Twitter, Instagram, Youtube } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
 import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
 import { InstructorNavigationWrapper } from "@/components/instructors/instructor-navigation-wrapper";
@@ -85,8 +84,13 @@ export default async function InstructorProfilePage({
   const socialLinks = instructor.socialLinks || {};
   
   // Dummy data for available spots (will be replaced with real data later)
-  const oneOnOneSpots = Math.floor(Math.random() * 6); // 0-5 spots
-  const groupSpots = instructor.pricing.group ? Math.floor(Math.random() * 5) + 1 : 0; // 1-5 spots for group
+  // Using a deterministic approach based on slug to ensure consistent results
+  const spotSeed = slug.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  // For Rakasa, randomize both 1-on-1 and group spots to demonstrate different states
+  const oneOnOneSpots = slug === "rakasa" ? Math.floor(Math.random() * 6) : spotSeed % 6; // 0-5 spots
+  const groupSpots = instructor.pricing.group 
+    ? (slug === "rakasa" ? Math.floor(Math.random() * 6) : (spotSeed * 2) % 6)
+    : 0;
   
   const renderSpotsAvailable = (spots: number) => {
     if (spots === 0) {
@@ -229,47 +233,49 @@ export default async function InstructorProfilePage({
                         ${instructor.pricing.group} for 4 sessions
                       </p>
                       {renderSpotsAvailable(groupSpots)}
-                      {instructor.slug === "rakasa" ? (
-                        <div className="mt-2 mb-4 space-y-2">
+                      {groupSpots > 0 && slug === "rakasa" && (
+                        <div className="mt-4 space-y-2">
                           <p className="text-sm text-muted-foreground">
-                            This cohort of group mentorships meets on the following dates at 6:00 PM EST (11:00 PM UTC):
+                            <span className="font-semibold">Current Cohort:</span> All 4 sessions start at{" "}
+                            <span className="font-medium">1:00 PM CST (7:00 PM UTC)</span>
                           </p>
-                          <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-                            <li>January 6, 2025</li>
-                            <li>January 13, 2025</li>
-                            <li>January 20, 2025</li>
-                            <li>January 27, 2025</li>
-                          </ul>
-                          <p className="text-sm text-muted-foreground mt-2">
-                            Please only sign up if you can attend all 4 sessions on these dates and times.
+                          <div className="text-sm text-muted-foreground">
+                            <p className="font-semibold mb-1">Session Dates:</p>
+                            <ul className="list-disc list-inside space-y-1 ml-2">
+                              <li>January 6, 2026</li>
+                              <li>January 13, 2026</li>
+                              <li>January 20, 2026</li>
+                              <li>January 27, 2026</li>
+                            </ul>
+                          </div>
+                          <p className="text-sm text-amber-600 dark:text-amber-500 mt-3 font-medium">
+                            ⚠️ Please only sign up if you can dedicate 1.5-2 hours on the given dates. Rescheduling will be unavailable.
                           </p>
                         </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground mt-2 mb-4">
-                          Group mentorships happen at a fixed day of the week and time of day. Please only sign up if you can attend all 4 sessions at that scheduled day and time once the mentorship starts.
-                        </p>
                       )}
-                      {groupSpots === 0 ? (
-                        <Button 
-                          asChild 
-                          size="lg" 
-                          className="vibrant-gradient-button transition-all"
-                        >
-                          <Link href={`/waitlist?instructor=${instructor.slug}&type=group`}>
-                            Sign up for waitlist
-                          </Link>
-                        </Button>
-                      ) : (
-                        <Button 
-                          asChild 
-                          size="lg" 
-                          className="vibrant-gradient-button transition-all"
-                        >
-                          <Link href={`/checkout?instructor=${instructor.slug}&type=group`}>
-                            Buy my group mentorship
-                          </Link>
-                        </Button>
-                      )}
+                      <div className="mt-4">
+                        {groupSpots === 0 ? (
+                          <Button 
+                            asChild 
+                            size="lg" 
+                            className="vibrant-gradient-button transition-all"
+                          >
+                            <Link href={`/waitlist?instructor=${instructor.slug}&type=group`}>
+                              Sign up for waitlist
+                            </Link>
+                          </Button>
+                        ) : (
+                          <Button 
+                            asChild 
+                            size="lg" 
+                            className="vibrant-gradient-button transition-all"
+                          >
+                            <Link href={`/checkout?instructor=${instructor.slug}&type=group`}>
+                              Buy my group mentorship
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

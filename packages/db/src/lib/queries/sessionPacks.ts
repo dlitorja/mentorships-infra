@@ -1,7 +1,13 @@
-import { eq, and, gt, sql } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte, gt } from "drizzle-orm";
 import { db } from "../drizzle";
-import { sessionPacks, seatReservations, sessions } from "../../schema";
+import { sessionPacks, seatReservations, sessions, mentors, users } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
+
+type SessionPack = typeof sessionPacks.$inferSelect;
+type SessionPackWithMentor = SessionPack & {
+  mentor: typeof mentors.$inferSelect;
+  mentorUser: typeof users.$inferSelect;
+};
 
 /**
  * Create a new session pack after payment
@@ -19,7 +25,7 @@ export async function createSessionPack(
   paymentId: string,
   expiresAt: Date,
   totalSessions: number = 4
-) {
+): Promise<SessionPack> {
   const [pack] = await db
     .insert(sessionPacks)
     .values({
@@ -33,6 +39,10 @@ export async function createSessionPack(
       purchasedAt: new Date(),
     })
     .returning();
+
+  if (!pack) {
+    throw new Error("Failed to create session pack");
+  }
 
   return pack;
 }
@@ -134,12 +144,26 @@ export async function canBookSession(packId: string): Promise<{
 }
 
 /**
- * Get a session pack by ID
- * 
- * @param packId - UUID of the session pack
- * @returns Session pack or null if not found
+ * Get session pack by payment ID
  */
-export async function getSessionPackById(packId: string) {
+export async function getSessionPackByPaymentId(
+  paymentId: string
+): Promise<SessionPack | null> {
+  const [pack] = await db
+    .select()
+    .from(sessionPacks)
+    .where(eq(sessionPacks.paymentId, paymentId))
+    .limit(1);
+
+  return pack || null;
+}
+
+/**
+ * Get session pack by ID
+ */
+export async function getSessionPackById(
+  packId: string
+): Promise<SessionPack | null> {
   const [pack] = await db
     .select()
     .from(sessionPacks)
@@ -150,14 +174,65 @@ export async function getSessionPackById(packId: string) {
 }
 
 /**
- * Get all active session packs for a user
- * 
- * @param userId - Clerk user ID
- * @returns Array of active session packs
+ * Update session pack status
  */
-export async function getUserActiveSessionPacks(userId: string) {
-  const packs = await db
-    .select()
+export async function updateSessionPackStatus(
+  packId: string,
+  status: SessionPackStatus,
+  remainingSessions?: number
+): Promise<SessionPack> {
+  const updatePayload: {
+    status: SessionPackStatus;
+    updatedAt: Date;
+    remainingSessions?: number;
+  } = {
+    status,
+    updatedAt: new Date(),
+  };
+
+  if (remainingSessions !== undefined) {
+    updatePayload.remainingSessions = remainingSessions;
+  }
+
+  const [updated] = await db
+    .update(sessionPacks)
+    .set(updatePayload)
+    .where(eq(sessionPacks.id, packId))
+    .returning();
+
+  if (!updated) {
+    throw new Error(`Session pack ${packId} not found`);
+  }
+
+  return updated;
+}
+
+/**
+ * Release seat by pack ID
+ */
+export async function releaseSeatByPackId(packId: string): Promise<void> {
+  await db
+    .update(seatReservations)
+    .set({
+      status: "released",
+      updatedAt: new Date(),
+    })
+    .where(eq(seatReservations.sessionPackId, packId));
+}
+
+/**
+ * Get user's active session packs with pagination
+ */
+export async function getUserActiveSessionPacks(
+  userId: string,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<{ items: SessionPack[]; total: number; page: number; pageSize: number }> {
+  const offset = (page - 1) * pageSize;
+
+  // Get total count (only active packs)
+  const totalResult = await db
+    .select({ count: sql<number>`count(*)` })
     .from(sessionPacks)
     .where(
       and(
@@ -166,101 +241,195 @@ export async function getUserActiveSessionPacks(userId: string) {
       )
     );
 
-  return packs;
+  const total = Number(totalResult[0]?.count || 0);
+
+  // Get paginated items ordered by createdAt DESC (newest first, only active)
+  const items = await db
+    .select()
+    .from(sessionPacks)
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active")
+      )
+    )
+    .orderBy(desc(sessionPacks.createdAt))
+    .limit(pageSize)
+    .offset(offset);
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+  };
 }
 
 /**
- * Decrement remaining sessions for a pack
- * 
- * @param packId - UUID of the session pack
- * @returns Updated session pack
+ * Increment remaining sessions and atomically update status if needed
  */
-export async function decrementRemainingSessions(packId: string) {
-  const [pack] = await db
-    .update(sessionPacks)
-    .set({
-      remainingSessions: sql`${sessionPacks.remainingSessions} - 1`,
-      updatedAt: new Date(),
-    })
-    .where(eq(sessionPacks.id, packId))
-    .returning();
-
-  if (!pack) {
-    throw new Error(`Session pack ${packId} not found`);
-  }
-
-  // Update status if depleted
-  if (pack.remainingSessions <= 0) {
-    await db
-      .update(sessionPacks)
-      .set({
-        status: "depleted",
-        updatedAt: new Date(),
-      })
-      .where(eq(sessionPacks.id, packId));
-  }
-
-  return pack;
-}
-
-/**
- * Increment remaining sessions for a pack (e.g., on cancellation)
- * 
- * @param packId - UUID of the session pack
- * @returns Updated session pack
- */
-export async function incrementRemainingSessions(packId: string) {
-  const [pack] = await db
+export async function incrementRemainingSessions(
+  packId: string
+): Promise<SessionPack> {
+  // Atomic update with status flip in SQL using CASE statement
+  const [updated] = await db
     .update(sessionPacks)
     .set({
       remainingSessions: sql`${sessionPacks.remainingSessions} + 1`,
+      status: sql`CASE 
+        WHEN ${sessionPacks.status} = 'depleted' AND (${sessionPacks.remainingSessions} + 1) > 0 
+        THEN 'active' 
+        ELSE ${sessionPacks.status} 
+      END`,
       updatedAt: new Date(),
     })
     .where(eq(sessionPacks.id, packId))
     .returning();
 
-  if (!pack) {
+  if (!updated) {
     throw new Error(`Session pack ${packId} not found`);
   }
 
-  // Update status back to active if it was depleted
-  if (pack.status === "depleted" && pack.remainingSessions > 0) {
-    await db
-      .update(sessionPacks)
-      .set({
-        status: "active",
-        updatedAt: new Date(),
-      })
-      .where(eq(sessionPacks.id, packId));
-  }
-
-  return pack;
+  return updated;
 }
 
 /**
- * Update session pack status
- * 
- * @param packId - UUID of the session pack
- * @param status - New status
- * @returns Updated session pack
+ * Get user's active session packs with mentor information
  */
-export async function updateSessionPackStatus(
-  packId: string,
-  status: SessionPackStatus
-) {
-  const [pack] = await db
+export async function getUserSessionPacksWithMentors(
+  userId: string,
+  limit: number = 100,
+  offset: number = 0
+): Promise<SessionPackWithMentor[]> {
+  const now = new Date();
+
+  const results = await db
+    .select({
+      sessionPack: sessionPacks,
+      mentor: mentors,
+      mentorUser: users,
+    })
+    .from(sessionPacks)
+    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(users, eq(mentors.userId, users.id))
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now)
+      )
+    )
+    .orderBy(desc(sessionPacks.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  return results.map((r) => ({
+    ...r.sessionPack,
+    mentor: r.mentor,
+    mentorUser: r.mentorUser,
+  }));
+}
+
+/**
+ * Get total remaining sessions across all active packs for a user
+ */
+export async function getUserTotalRemainingSessions(
+  userId: string
+): Promise<number> {
+  const now = new Date();
+
+  const result = await db
+    .select({
+      total: sql<number>`COALESCE(SUM(${sessionPacks.remainingSessions}), 0)`,
+    })
+    .from(sessionPacks)
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now)
+      )
+    );
+
+  return Number(result[0]?.total || 0);
+}
+
+/**
+ * Decrement remaining sessions atomically and update status if depleted
+ */
+export async function decrementRemainingSessions(
+  packId: string
+): Promise<SessionPack> {
+  // Atomic update with status flip in SQL using CASE statement
+  const [updated] = await db
     .update(sessionPacks)
     .set({
-      status,
+      remainingSessions: sql`GREATEST(${sessionPacks.remainingSessions} - 1, 0)`,
+      status: sql`CASE 
+        WHEN (${sessionPacks.remainingSessions} - 1) <= 0 
+        THEN 'depleted' 
+        ELSE ${sessionPacks.status} 
+      END`,
       updatedAt: new Date(),
     })
     .where(eq(sessionPacks.id, packId))
     .returning();
 
-  if (!pack) {
+  if (!updated) {
     throw new Error(`Session pack ${packId} not found`);
   }
 
-  return pack;
+  return updated;
 }
 
+/**
+ * Update seat reservation status and grace period
+ */
+export async function updateSeatReservationStatus(
+  packId: string,
+  status: "active" | "grace" | "released",
+  gracePeriodEndsAt?: Date
+): Promise<void> {
+  const updateData: {
+    status: "active" | "grace" | "released";
+    gracePeriodEndsAt?: Date;
+    updatedAt: Date;
+  } = {
+    status,
+    updatedAt: new Date(),
+  };
+
+  if (gracePeriodEndsAt) {
+    updateData.gracePeriodEndsAt = gracePeriodEndsAt;
+  }
+
+  await db
+    .update(seatReservations)
+    .set(updateData)
+    .where(eq(seatReservations.sessionPackId, packId));
+}
+
+/**
+ * Get expired session packs that need seat release
+ * Returns packs where:
+ * - Pack is expired AND all scheduled sessions are completed
+ * - OR grace period has expired
+ */
+export async function getExpiredPacksNeedingSeatRelease(): Promise<
+  SessionPack[]
+> {
+  const now = new Date();
+
+  // Get packs that are expired or depleted
+  const expiredPacks = await db
+    .select()
+    .from(sessionPacks)
+    .where(
+      and(
+        sql`${sessionPacks.status} IN ('expired', 'depleted')`,
+        lte(sessionPacks.expiresAt, now)
+      )
+    );
+
+  return expiredPacks;
+}

@@ -4,35 +4,31 @@ import { useMemo, useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getAvailableInstructors, type Instructor } from "@/lib/instructors";
+import { Card, CardContent } from "@/components/ui/card";
+import { getAvailableInstructors, mockInstructors } from "@/lib/instructors";
 
 export default function InstructorsPage() {
-  const [instructors, setInstructors] = useState<Instructor[]>([]);
-  
-  // Only randomize on client side to avoid hydration mismatch
-  // Use useMemo to ensure we only get the instructors once and they stay stable
-  const randomizedInstructors = useMemo(() => {
-    return getAvailableInstructors();
-  }, []);
-  
-  useEffect(() => {
-    setInstructors(randomizedInstructors);
-  }, [randomizedInstructors]);
-  
-  // Scroll to top when component mounts
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-  
-  // Generate random delays for each instructor (0.1s to 0.8s) once on mount
-  // Using useMemo to ensure delays are stable and only generated once
+  // Use deterministic order for SSR, then shuffle on client to avoid hydration mismatch
+  const [instructors, setInstructors] = useState(mockInstructors);
+  const [isClient, setIsClient] = useState(false);
+
+  // Generate ordered delays for each instructor based on index
+  // Only generate on client side to avoid hydration mismatch
   const delays = useMemo(() => {
-    if (randomizedInstructors.length === 0) return [];
-    return randomizedInstructors.map(() => Math.random() * 0.7 + 0.1);
-  }, [randomizedInstructors.length]);
+    if (!isClient) {
+      // Return zero delays during SSR to avoid mismatch
+      return instructors.map(() => 0);
+    }
+    return instructors.map((_, index) => index * 0.1);
+  }, [instructors, isClient]);
+
+  useEffect(() => {
+    // Only shuffle on client side after mount to avoid hydration mismatch
+    setIsClient(true);
+    setInstructors(getAvailableInstructors());
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -57,7 +53,7 @@ export default function InstructorsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
                   duration: 0.6,
-                  delay: delays[index] || 0,
+                  delay: delays[index],
                   ease: "easeOut",
                 }}
                 className="h-full"
@@ -135,4 +131,3 @@ export default function InstructorsPage() {
     </div>
   );
 }
-

@@ -270,18 +270,14 @@ export const mockInstructors: Instructor[] = [
   },
 ];
 
+import { shuffle } from "./utils/shuffle";
+
 /**
  * Get a randomized array of instructors
  * This ensures equal exposure on the landing page
  */
 export function getRandomizedInstructors(): Instructor[] {
-  const shuffled = [...mockInstructors];
-  // Fisher-Yates shuffle algorithm
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
+  return shuffle(mockInstructors);
 }
 
 /**
@@ -312,13 +308,8 @@ export function getAvailableInstructors(): Instructor[] {
   // instructorsWithAvailability.sort((a, b) => b.availableSpots - a.availableSpots);
   // Then randomize within availability groups
   
-  // For now, just randomize the order (Fisher-Yates shuffle)
-  for (let i = instructors.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [instructors[i], instructors[j]] = [instructors[j], instructors[i]];
-  }
-  
-  return instructors;
+  // For now, just randomize the order
+  return shuffle(instructors);
 }
 
 /**
