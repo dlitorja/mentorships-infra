@@ -71,7 +71,7 @@ export async function getUserRecentSessions(
         eq(sessions.status, "completed")
       )
     )
-    .orderBy(desc(sessions.scheduledAt))
+    .orderBy(desc(sessions.completedAt))
     .limit(limit);
 
   return results.map((r) => ({
@@ -118,4 +118,3 @@ export async function getSessionById(
 
   return session || null;
 }
-

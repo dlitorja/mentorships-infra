@@ -60,7 +60,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // Create order in database (status: pending)
     const order = await createOrder(
-      userId,
+        userId,
       "stripe",
       pack.price,
       "usd"
@@ -141,8 +141,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Cleanup: Mark order as failed if still pending (idempotent)
     if (orderId) {
       try {
-        await updateOrderStatus(orderId, "failed");
-        console.log(`Marked orphaned order ${orderId} as failed`);
+          await updateOrderStatus(orderId, "failed");
+          console.log(`Marked orphaned order ${orderId} as failed`);
       } catch (cleanupError) {
         console.error(`Failed to cleanup order ${orderId}:`, cleanupError);
       }

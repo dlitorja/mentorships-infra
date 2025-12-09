@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { inngest } from "@/inngest/client";
 import { stripe } from "@/lib/stripe";
 

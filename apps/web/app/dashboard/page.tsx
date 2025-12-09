@@ -37,13 +37,15 @@ export default async function DashboardPage() {
     const user = await requireDbUser();
 
     // Fetch all dashboard data in parallel
-    const [sessionPacks, totalSessions, upcomingSessions, recentSessions] =
+    const [sessionPacksResult, totalSessions, upcomingSessions, recentSessions] =
       await Promise.all([
         getUserSessionPacksWithMentors(user.id),
         getUserTotalRemainingSessions(user.id),
         getUserUpcomingSessions(user.id, 5),
         getUserRecentSessions(user.id, 3),
       ]);
+
+    const sessionPacks = sessionPacksResult.items;
 
     // Get unique instructors
     const instructors = Array.from(

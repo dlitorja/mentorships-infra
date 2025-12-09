@@ -5,7 +5,7 @@ export const purchaseMentorshipEventSchema = z.object({
   name: z.literal("purchase/mentorship"),
   data: z.object({
     orderId: z.string().uuid(),
-    userId: z.string(), // Clerk user ID
+    clerkId: z.string(), // Clerk user ID
     packId: z.string().uuid(),
     provider: z.enum(["stripe", "paypal"]),
   }),
