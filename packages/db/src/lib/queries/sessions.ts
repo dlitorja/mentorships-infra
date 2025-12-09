@@ -1,4 +1,4 @@
-import { eq, and, gte, desc, sql, asc } from "drizzle-orm";
+import { eq, and, gte, desc, sql, asc, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
 import { sessions, sessionPacks, mentors, users } from "../../schema";
 
@@ -117,4 +117,106 @@ export async function getSessionById(
     .limit(1);
 
   return session || null;
+}
+
+/**
+ * Type for session with student information
+ */
+type SessionWithStudent = Session & {
+  student: typeof users.$inferSelect;
+  sessionPack: typeof sessionPacks.$inferSelect;
+};
+
+/**
+ * Get mentor's upcoming sessions (scheduled, not completed/canceled)
+ */
+export async function getMentorUpcomingSessions(
+  mentorId: string,
+  limit: number = 50
+): Promise<SessionWithStudent[]> {
+  const now = new Date();
+
+  const results = await db
+    .select({
+      session: sessions,
+      student: users,
+      sessionPack: sessionPacks,
+    })
+    .from(sessions)
+    .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
+    .innerJoin(users, eq(sessions.studentId, users.id))
+    .where(
+      and(
+        eq(sessions.mentorId, mentorId),
+        eq(sessions.status, "scheduled"),
+        gte(sessions.scheduledAt, now)
+      )
+    )
+    .orderBy(asc(sessions.scheduledAt))
+    .limit(limit);
+
+  return results.map((r) => ({
+    ...r.session,
+    student: r.student,
+    sessionPack: r.sessionPack,
+  }));
+}
+
+/**
+ * Get mentor's past sessions (completed or canceled)
+ */
+export async function getMentorPastSessions(
+  mentorId: string,
+  limit: number = 50
+): Promise<SessionWithStudent[]> {
+  const results = await db
+    .select({
+      session: sessions,
+      student: users,
+      sessionPack: sessionPacks,
+    })
+    .from(sessions)
+    .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
+    .innerJoin(users, eq(sessions.studentId, users.id))
+    .where(
+      and(
+        eq(sessions.mentorId, mentorId),
+        inArray(sessions.status, ["completed", "canceled", "no_show"])
+      )
+    )
+    .orderBy(desc(sessions.scheduledAt))
+    .limit(limit);
+
+  return results.map((r) => ({
+    ...r.session,
+    student: r.student,
+    sessionPack: r.sessionPack,
+  }));
+}
+
+/**
+ * Get all mentor's sessions (all statuses)
+ */
+export async function getMentorSessions(
+  mentorId: string,
+  limit: number = 100
+): Promise<SessionWithStudent[]> {
+  const results = await db
+    .select({
+      session: sessions,
+      student: users,
+      sessionPack: sessionPacks,
+    })
+    .from(sessions)
+    .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
+    .innerJoin(users, eq(sessions.studentId, users.id))
+    .where(eq(sessions.mentorId, mentorId))
+    .orderBy(desc(sessions.scheduledAt))
+    .limit(limit);
+
+  return results.map((r) => ({
+    ...r.session,
+    student: r.student,
+    sessionPack: r.sessionPack,
+  }));
 }

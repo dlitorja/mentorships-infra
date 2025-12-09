@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireDbUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { getMentorByUserId } from "@mentorships/db";
 
 interface ProtectedLayoutProps {
   children: React.ReactNode;
@@ -10,13 +11,23 @@ interface ProtectedLayoutProps {
 
 export async function ProtectedLayout({ children, currentPath }: ProtectedLayoutProps) {
   const user = await requireDbUser();
+  const mentor = await getMentorByUserId(user.id);
 
-  const navItems = [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/sessions", label: "Sessions" },
-    { href: "/calendar", label: "Calendar" },
-    { href: "/settings", label: "Settings" },
-  ];
+  // Determine navigation items based on user role
+  const navItems = mentor
+    ? [
+        // Instructor navigation
+        { href: "/instructor/dashboard", label: "Instructor Dashboard" },
+        { href: "/instructor/sessions", label: "My Sessions" },
+        { href: "/settings", label: "Settings" },
+      ]
+    : [
+        // Student navigation
+        { href: "/dashboard", label: "Dashboard" },
+        { href: "/sessions", label: "Sessions" },
+        { href: "/calendar", label: "Calendar" },
+        { href: "/settings", label: "Settings" },
+      ];
 
   return (
     <div className="min-h-screen bg-background">
