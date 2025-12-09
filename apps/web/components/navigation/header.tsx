@@ -2,70 +2,53 @@
 
 import Link from "next/link";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { Button } from "@/components/ui/button";
 
 export function Header(): JSX.Element {
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-16 items-center justify-between">
-        {/* Logo */}
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/85">
+      <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link href="/" className="flex items-center space-x-2">
-          <span className="text-xl font-bold">Huckleberry Art Mentorships</span>
+          <span className="text-xl font-bold text-foreground drop-shadow-sm">Huckleberry Art Mentorships</span>
         </Link>
-
-        {/* Navigation */}
-        <nav className="hidden md:flex items-center space-x-6">
+        
+        <nav className="flex items-center gap-6">
           <Link
             href="/mentors"
-            className="text-sm font-medium transition-colors hover:text-primary"
+            className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
           >
             Mentors
           </Link>
           <Link
             href="/pricing"
-            className="text-sm font-medium transition-colors hover:text-primary"
+            className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
           >
             Pricing
           </Link>
           <Link
             href="/about"
-            className="text-sm font-medium transition-colors hover:text-primary"
+            className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
           >
             About
           </Link>
-        </nav>
-
-        {/* Auth Section */}
-        <div className="flex items-center space-x-4">
-          <SignedIn>
-            <div className="flex items-center space-x-4">
-              <Link
-                href="/dashboard"
-                className="text-sm font-medium transition-colors hover:text-primary"
-              >
-                Dashboard
-              </Link>
-              <UserButton afterSignOutUrl="/" />
-            </div>
-          </SignedIn>
+          
           <SignedOut>
-            <div className="flex items-center space-x-2">
-              <Link
-                href="/sign-in"
-                className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors"
-              >
-                Sign In
-              </Link>
-              <Link
-                href="/sign-up"
-                className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-              >
-                Sign Up
-              </Link>
-            </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/sign-in">Sign In</Link>
+            </Button>
+            <Button asChild size="sm" className="vibrant-gradient-button transition-all">
+              <Link href="/sign-up">Get Started</Link>
+            </Button>
           </SignedOut>
-        </div>
+          
+          <SignedIn>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard">Dashboard</Link>
+            </Button>
+            <UserButton afterSignOutUrl="/" />
+          </SignedIn>
+        </nav>
       </div>
     </header>
   );
 }
-
