@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "@/packages/db/src/lib/clerk";
-import { db } from "@/packages/db";
-import { orders } from "@/packages/db/src/schema";
-import { getProductById } from "@/packages/db/src/lib/queries/products";
-import { cancelOrder, updateOrderStatus } from "@/packages/db/src/lib/queries/orders";
+import {
+  requireAuth,
+  db,
+  orders,
+  getProductById,
+  cancelOrder,
+  updateOrderStatus,
+  getGrandfatheredDiscount,
+  getGrandfatheredConfig,
+} from "@mentorships/db";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2024-12-18.acacia",
@@ -14,6 +19,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
+  promotionCode: z.string().optional(), // Optional promotion code from customer input
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -32,7 +38,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     
-    const { packId } = validationResult.data;
+    const { packId, promotionCode } = validationResult.data;
 
     // Get pack details from database
     const pack = await getProductById(packId);
@@ -48,15 +54,33 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // Check for grandfathered pricing
+    const grandfatheredConfig = getGrandfatheredConfig();
+    const grandfatheredDiscount = await getGrandfatheredDiscount(
+      userId,
+      grandfatheredConfig
+    );
+
+    // Determine which discount to use (customer-entered code takes precedence)
+    const discountCode = promotionCode || grandfatheredDiscount?.promotionCode;
+    const couponId = !promotionCode ? grandfatheredDiscount?.couponId : undefined;
+
+    // Store original amount (before discount)
+    const originalAmount = pack.price;
+
     // Create order in database (status: pending)
+    // Note: discount_amount will be calculated after payment based on actual discount applied
+    // TODO: Add discount columns to database migration when ready
     const [order] = await db
       .insert(orders)
       .values({
         userId,
         status: "pending",
         provider: "stripe",
-        totalAmount: pack.price,
+        totalAmount: pack.price, // Will be updated after payment with actual discounted amount
         currency: "usd",
+        // Note: discount fields (discountAmount, discountCode, originalAmount) 
+        // are defined in schema but not yet in database - will be added via migration
       })
       .returning();
 
@@ -78,10 +102,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // Build discounts array for Stripe Checkout
+    const discounts: Array<{ coupon?: string; promotion_code?: string }> = [];
+    
+    if (couponId) {
+      // Auto-apply coupon for grandfathered users
+      discounts.push({ coupon: couponId });
+    } else if (discountCode) {
+      // Use promotion code (either customer-entered or grandfathered)
+      discounts.push({ promotion_code: discountCode });
+    }
+
     // Create Stripe Checkout Session with error handling
     let session: Stripe.Checkout.Session;
     try {
-      session = await stripe.checkout.sessions.create({
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
         mode: "payment", // One-time payment (NOT subscription!)
         line_items: [
           {
@@ -96,7 +131,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           user_id: userId,
           pack_id: packId,
         },
-      });
+        // Enable promotion codes if no auto-apply discount (allows customers to enter codes)
+        allow_promotion_codes: discounts.length === 0,
+      };
+
+      // Add discounts if we have any (auto-apply)
+      if (discounts.length > 0) {
+        sessionParams.discounts = discounts;
+      }
+
+      session = await stripe.checkout.sessions.create(sessionParams);
     } catch (stripeError) {
       // Mark order as failed if Stripe session creation fails
       if (orderId) {
