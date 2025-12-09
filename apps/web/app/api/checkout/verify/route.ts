@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAuth } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
 
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
+    // Require authentication
+    const userId = await requireAuth();
+
     const sessionId = req.nextUrl.searchParams.get("session_id");
 
     if (!sessionId) {
@@ -12,6 +16,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Retrieve Stripe session
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
     if (!session) {
@@ -20,6 +25,18 @@ export async function GET(req: NextRequest) {
         { status: 404 }
       );
     }
+
+    // Authorize: verify user owns this session
+    const sessionUserId = session.metadata?.user_id;
+    if (sessionUserId && sessionUserId !== userId) {
+      return NextResponse.json(
+        { error: "Unauthorized access to this session" },
+        { status: 403 }
+      );
+    }
+
+    // Note: Idempotency checks should be implemented downstream
+    // when processing payments to prevent duplicate operations
 
     return NextResponse.json({
       verified: session.payment_status === "paid",

@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
       .values({
         mentorId: finalMentorId,
         title: product.name || "Mentorship Session Pack",
-        price: (price.unit_amount / 100).toString(), // Convert cents to dollars
+        price: (price.unit_amount! / 100).toString(), // Convert cents to dollars
         sessionsPerPack: sessions,
         validityDays: 30, // Default
         stripePriceId: price.id,

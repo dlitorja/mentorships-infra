@@ -300,9 +300,37 @@ export async function getUserSessionPacksWithMentors(
   userId: string,
   limit: number = 100,
   offset: number = 0
-): Promise<SessionPackWithMentor[]> {
+): Promise<{
+  items: SessionPackWithMentor[];
+  total: number;
+  limit: number;
+  offset: number;
+}> {
+  // Validate and clamp limit
+  const validatedLimit = Math.min(Math.max(1, limit), 100);
+  const validatedOffset = Math.max(0, offset);
+
   const now = new Date();
 
+  // Get total count
+  const totalResult = await db
+    .select({
+      count: sql<number>`count(*)`,
+    })
+    .from(sessionPacks)
+    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(users, eq(mentors.userId, users.id))
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now)
+      )
+    );
+
+  const total = Number(totalResult[0]?.count || 0);
+
+  // Get paginated results
   const results = await db
     .select({
       sessionPack: sessionPacks,
@@ -320,14 +348,19 @@ export async function getUserSessionPacksWithMentors(
       )
     )
     .orderBy(desc(sessionPacks.createdAt))
-    .limit(limit)
-    .offset(offset);
+    .limit(validatedLimit)
+    .offset(validatedOffset);
 
-  return results.map((r) => ({
-    ...r.sessionPack,
-    mentor: r.mentor,
-    mentorUser: r.mentorUser,
-  }));
+  return {
+    items: results.map((r) => ({
+      ...r.sessionPack,
+      mentor: r.mentor,
+      mentorUser: r.mentorUser,
+    })),
+    total,
+    limit: validatedLimit,
+    offset: validatedOffset,
+  };
 }
 
 /**

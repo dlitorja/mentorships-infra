@@ -229,7 +229,7 @@ export const processStripeCheckout = inngest.createFunction(
         name: "purchase/mentorship",
         data: {
           orderId: order.id,
-          userId: userId, // Clerk user ID
+          clerkId: userId, // Clerk user ID
           packId: product.id,
           provider: "stripe",
         },
