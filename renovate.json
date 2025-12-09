@@ -1,0 +1,164 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(deps)",
+    ":separatePatchReleases"
+  ],
+  
+  "description": "Mend Renovate configuration for Mentorship Platform",
+  
+  "enabledManagers": [
+    "npm",
+    "pnpm",
+    "github-actions",
+    "dockerfile",
+    "docker-compose"
+  ],
+  
+  "packageRules": [
+    {
+      "description": "Group all non-major updates together",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch"
+    },
+    {
+      "description": "Group major updates for Next.js and React",
+      "matchPackageNames": ["next", "react", "react-dom"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "Next.js and React major updates",
+      "groupSlug": "nextjs-react-major"
+    },
+    {
+      "description": "Group TypeScript and related type packages",
+      "matchPackageNames": ["typescript", "@types/node", "@types/react", "@types/react-dom"],
+      "groupName": "TypeScript and types",
+      "groupSlug": "typescript-types"
+    },
+    {
+      "description": "Group testing dependencies",
+      "matchPackageNames": ["vitest", "@vitest/ui", "playwright", "@playwright/test"],
+      "groupName": "Testing dependencies",
+      "groupSlug": "testing-deps"
+    },
+    {
+      "description": "Group database and ORM dependencies",
+      "matchPackageNames": ["drizzle-orm", "drizzle-kit", "@supabase/supabase-js", "@supabase/ssr"],
+      "groupName": "Database dependencies",
+      "groupSlug": "database-deps"
+    },
+    {
+      "description": "Group payment dependencies",
+      "matchPackageNames": ["stripe"],
+      "groupName": "Payment dependencies",
+      "groupSlug": "payment-deps"
+    },
+    {
+      "description": "Group authentication dependencies",
+      "matchPackageNames": ["@clerk/nextjs"],
+      "groupName": "Authentication dependencies",
+      "groupSlug": "auth-deps"
+    },
+    {
+      "description": "Group UI dependencies",
+      "matchPackageNames": ["@radix-ui/*", "tailwindcss", "lucide-react"],
+      "groupName": "UI dependencies",
+      "groupSlug": "ui-deps"
+    },
+    {
+      "description": "Auto-merge patch updates for dev dependencies",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Auto-merge patch updates for non-critical dependencies",
+      "matchPackageNames": ["@types/*", "eslint*", "prettier*"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Require manual review for major updates to critical dependencies",
+      "matchPackageNames": [
+        "next",
+        "react",
+        "react-dom",
+        "@clerk/nextjs",
+        "stripe",
+        "drizzle-orm",
+        "@supabase/supabase-js"
+      ],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "requiredStatusChecks": ["lint-and-typecheck", "unit-tests", "build"]
+    },
+    {
+      "description": "Pin GitHub Actions to commit SHA",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    }
+  ],
+  
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  
+  "schedule": [
+    "before 10am on monday"
+  ],
+  
+  "timezone": "America/New_York",
+  
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
+  
+  "commitMessagePrefix": "chore(deps):",
+  "commitMessageAction": "update",
+  "commitMessageTopic": "{{depName}}",
+  "commitMessageExtra": "to {{newVersion}}",
+  
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "🔄 Dependency Updates",
+  "dependencyDashboardLabels": ["dependencies", "renovate"],
+  
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "dependencies"],
+    "assignees": []
+  },
+  
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 10am on the first day of the month"]
+  },
+  
+  "pnpm": {
+    "fileMatch": ["(^|/)pnpm-lock\\.yaml$"]
+  },
+  
+  "ignoreDeps": [
+    "node"
+  ],
+  
+  "ignorePresets": [
+    ":prImmediately"
+  ],
+  
+  "platform": "github",
+  "repositories": [
+    "dlitorja/mentorships-infra"
+  ]
+}
+

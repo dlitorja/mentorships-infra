@@ -56,6 +56,46 @@ All key decisions and considerations have been stored in Graphiti memory with gr
     - Squash merge strategy
     - Mix commit frequency (starting with larger logical commits)
 
+14. **Greptile CLI Usage**
+    - Installation: `npm install -g greptile && greptile addPath`
+    - Authentication: `greptile auth` (GitHub)
+    - Add repos: `greptile add [repo link or owner/repo]` (up to 10 per session)
+    - Start session: `greptile start` (interactive shell for asking questions)
+    - Other commands: `greptile list`, `greptile remove <repo>`, `greptile help`
+    - Workflow: Install → Auth → Add repos → Start → Ask questions with full codebase context
+
+15. **White-Label SaaS Pricing Strategy - Overview**
+    - Platform being considered for sale as white-label SaaS to artists
+    - Subscription-based pricing with per-instructor-seat billing
+    - Comprehensive solution (payments, video, scheduling, automation, dashboards)
+
+16. **Pricing Strategy - Competitive Landscape**
+    - Art of Education: $43-53/month, Digital Art Academy: $22/month
+    - Platform positioned above basic but below premium solutions
+
+17. **Pricing Strategy - Recommended Tiered Pricing Model**
+    - Starter: $29/month (10 students), Professional: $49/month (25 students)
+    - Enterprise: $99/month (unlimited), 17% annual discount
+    - Alternative: $35/month value-based pricing recommended
+
+18. **Pricing Strategy - Additional Considerations**
+    - Transaction fees: Include in base price (Option A) recommended
+    - Setup fees: $99-199 one-time for Professional/Enterprise
+    - Free trial: 14-30 days recommended
+
+19. **Pricing Strategy - Key Discussion Questions**
+    - Target market, competitive positioning, revenue model
+    - Feature gating, student limits, annual vs monthly, multi-instructor orgs
+
+20. **Pricing Strategy - Implementation Requirements**
+    - Technical: Stripe Billing, usage tracking, feature flagging
+    - Business: ToS, SLAs, support tiers, onboarding docs
+    - Go-to-Market: Pricing page, sales materials, customer success
+
+21. **Pricing Strategy - Platform Value Proposition**
+    - Complete mentorship business platform (not just course delivery)
+    - Full payment processing, video conferencing, scheduling, automation
+
 ## How to Use
 
 ### Search for Decisions
@@ -96,6 +136,6 @@ mcp_graphiti-memory_search_nodes(
 
 ---
 
-**Last Updated**: Added Git & GitHub preferences
-**Total Memories Stored**: 13 key decision categories
+**Last Updated**: Added pricing strategy for white-label SaaS offering
+**Total Memories Stored**: 21 key decision categories
 

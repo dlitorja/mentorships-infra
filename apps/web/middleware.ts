@@ -11,8 +11,11 @@ const isProtectedRoute = createRouteMatcher([
   "/sessions(.*)",
   "/calendar(.*)",
   "/settings(.*)",
+  "/instructor(.*)",
+  "/checkout-test(.*)",
   "/api/checkout(.*)",
   "/api/sessions(.*)",
+  "/api/instructor(.*)",
   "/api/orders(.*)",
   "/api/payments(.*)",
 ]);
@@ -32,11 +35,14 @@ const isPublicApiRoute = createRouteMatcher([
 const isPublicPage = createRouteMatcher([
   "/",
   "/mentors(.*)",
+  "/instructors(.*)",
   "/about(.*)",
   "/pricing(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/test(.*)", // Test page for verification
+  "/waitlist(.*)", // Waitlist page
+  "/admin(.*)", // Admin pages (will be protected by requireAuth in the page itself)
 ]);
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {

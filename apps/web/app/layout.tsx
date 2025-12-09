@@ -3,7 +3,6 @@ import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "sonner";
 import { Header } from "@/components/navigation/header";
-import { HeaderErrorBoundary } from "@/components/navigation/header-error-boundary";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -28,9 +27,7 @@ export default function RootLayout({
     >
       <html lang="en">
         <body className={`${inter.className} antialiased`}>
-          <HeaderErrorBoundary>
-            <Header />
-          </HeaderErrorBoundary>
+          <Header />
           {children}
           <Toaster />
         </body>

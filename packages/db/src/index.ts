@@ -25,7 +25,15 @@ export { db } from "./lib/drizzle";
 
 // Export query helpers
 export * from "./lib/queries/users";
+export * from "./lib/queries/orders";
+export * from "./lib/queries/payments";
+export * from "./lib/queries/sessionPacks";
+export * from "./lib/queries/sessions";
+export * from "./lib/queries/products";
+export * from "./lib/queries/discounts";
+export * from "./lib/queries/bookingValidation";
+export * from "./lib/queries/seatReservations";
+export * from "./lib/queries/mentors";
 
 // Export types
 export type { Database } from "./types/database.types";
-
