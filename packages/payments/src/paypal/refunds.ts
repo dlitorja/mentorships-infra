@@ -1,4 +1,4 @@
-import { RefundRequest, PaymentsController } from "@paypal/paypal-server-sdk";
+import { RefundRequest, PaymentsController, Refund } from "@paypal/paypal-server-sdk";
 import { getPayPalClient } from "./client";
 
 /**
@@ -15,14 +15,18 @@ export async function createRefund(
   amount: string | null = null,
   currency: string = "USD",
   note?: string
-) {
+): Promise<Refund> {
   const client = getPayPalClient();
 
   const refundRequest: RefundRequest = {};
 
   if (amount !== null) {
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount < 0) {
+      throw new Error(`Invalid refund amount: ${amount}`);
+    }
     refundRequest.amount = {
-      value: parseFloat(amount).toFixed(2),
+      value: parsedAmount.toFixed(2),
       currencyCode: currency.toUpperCase(),
     };
   }
@@ -69,9 +73,9 @@ export function calculateRefundAmount(
     return parseFloat(totalAmount).toFixed(2); // Full refund
   }
 
-  const refundableSessions = remainingSessions;
-  const refundAmount = (refundableSessions / totalSessions) * parseFloat(totalAmount);
-
-  return refundAmount.toFixed(2);
+  // Use integer math to avoid floating-point precision issues
+  const totalCents = Math.round(parseFloat(totalAmount) * 100);
+  const refundCents = Math.round((remainingSessions / totalSessions) * totalCents);
+  return (refundCents / 100).toFixed(2);
 }
 

@@ -42,6 +42,7 @@ export const paypalPaymentRefundedEventSchema = z.object({
   name: z.literal("paypal/payment.capture.refunded"),
   data: z.object({
     captureId: z.string(),
+    refundId: z.string(),
   }),
 });
 

@@ -1,4 +1,3 @@
-import { getPayPalClient } from "./client";
 import type { ParsedPayPalEvent, PayPalWebhookEventType } from "./types";
 
 /**
@@ -30,11 +29,16 @@ export async function verifyWebhookSignature(
   // 4. PAYPAL-TRANSMISSION-SIG header
   // 5. PAYPAL-TRANSMISSION-TIME header
 
-  const authAlgo = headers["paypal-auth-algo"];
-  const certUrl = headers["paypal-cert-url"];
-  const transmissionId = headers["paypal-transmission-id"];
-  const transmissionSig = headers["paypal-transmission-sig"];
-  const transmissionTime = headers["paypal-transmission-time"];
+  // Normalize headers to lowercase for case-insensitive access
+  const normalizedHeaders = Object.fromEntries(
+    Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v])
+  );
+
+  const authAlgo = normalizedHeaders["paypal-auth-algo"];
+  const certUrl = normalizedHeaders["paypal-cert-url"];
+  const transmissionId = normalizedHeaders["paypal-transmission-id"];
+  const transmissionSig = normalizedHeaders["paypal-transmission-sig"];
+  const transmissionTime = normalizedHeaders["paypal-transmission-time"];
 
   if (!authAlgo || !certUrl || !transmissionId || !transmissionSig || !transmissionTime) {
     throw new Error("Missing required PayPal webhook headers");
@@ -139,7 +143,7 @@ export function parseWebhookEvent(event: {
  */
 export function isPaymentCaptureCompletedEvent(
   event: { event_type: string }
-): boolean {
+): event is { event_type: "PAYMENT.CAPTURE.COMPLETED" } {
   return event.event_type === "PAYMENT.CAPTURE.COMPLETED";
 }
 
@@ -148,7 +152,7 @@ export function isPaymentCaptureCompletedEvent(
  */
 export function isPaymentCaptureRefundedEvent(
   event: { event_type: string }
-): boolean {
+): event is { event_type: "PAYMENT.CAPTURE.REFUNDED" } {
   return event.event_type === "PAYMENT.CAPTURE.REFUNDED";
 }
 

@@ -1,5 +1,7 @@
 import { Client, Configuration, Environment } from "@paypal/paypal-server-sdk";
 
+let cachedClient: Client | null = null;
+
 /**
  * Get PayPal client ID from environment
  * 
@@ -39,11 +41,15 @@ export function getPayPalClientSecret(): string {
 }
 
 /**
- * Get or create PayPal client instance
+ * Get or create PayPal client instance (cached)
  * 
  * @returns Configured PayPal client
  */
 export function getPayPalClient(): Client {
+  if (cachedClient) {
+    return cachedClient;
+  }
+
   const clientId = getPayPalClientId();
   const clientSecret = getPayPalClientSecret();
   const isLive = process.env.PAYPAL_MODE === "live";
@@ -56,6 +62,7 @@ export function getPayPalClient(): Client {
     },
   };
 
-  return new Client(config);
+  cachedClient = new Client(config);
+  return cachedClient;
 }
 

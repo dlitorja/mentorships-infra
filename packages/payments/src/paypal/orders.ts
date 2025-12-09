@@ -4,6 +4,7 @@ import {
   OrderApplicationContextUserAction,
   CheckoutPaymentIntent,
   OrdersController,
+  Order,
 } from "@paypal/paypal-server-sdk";
 import { getPayPalClient } from "./client";
 import type { PayPalOrderMetadata, PayPalOrderResult } from "./types";
@@ -27,8 +28,33 @@ export async function createPayPalOrder(
 ): Promise<PayPalOrderResult> {
   const client = getPayPalClient();
 
-  // Convert amount to PayPal format (string with 2 decimal places)
-  const amountValue = parseFloat(amount).toFixed(2);
+  // Validate and convert amount to PayPal format (string with 2 decimal places)
+  const parsedAmount = parseFloat(amount);
+  if (isNaN(parsedAmount) || parsedAmount < 0) {
+    throw new Error(`Invalid amount: ${amount}`);
+  }
+  const amountValue = parsedAmount.toFixed(2);
+
+  // Encode orderId and packId in customId as JSON (PayPal doesn't support metadata like Stripe)
+  // If orderId is already JSON-encoded (from checkout route), use it directly
+  // Otherwise, encode it with productId if available
+  let customId: string | undefined;
+  if (metadata.orderId) {
+    // Check if it's already JSON-encoded
+    try {
+      JSON.parse(metadata.orderId);
+      customId = metadata.orderId; // Already JSON, use as-is
+    } catch {
+      // Not JSON, encode with productId
+      customId = JSON.stringify({
+        orderId: metadata.orderId,
+        packId: metadata.productId || "",
+      });
+    }
+  } else if (metadata.productId) {
+    // Only productId available, encode it
+    customId = JSON.stringify({ packId: metadata.productId });
+  }
 
   const orderRequest: OrderRequest = {
     intent: CheckoutPaymentIntent.Capture,
@@ -38,7 +64,7 @@ export async function createPayPalOrder(
           currencyCode: currency.toUpperCase(),
           value: amountValue,
         },
-        customId: metadata.orderId || undefined,
+        customId,
         description: "Mentorship Session Pack",
       },
     ],
@@ -70,8 +96,12 @@ export async function createPayPalOrder(
     throw new Error("Failed to get approval URL from PayPal order");
   }
 
+  if (!order.id) {
+    throw new Error("PayPal order response missing order ID");
+  }
+
   return {
-    orderId: order.id!,
+    orderId: order.id,
     approvalUrl,
   };
 }
@@ -82,7 +112,7 @@ export async function createPayPalOrder(
  * @param orderId - PayPal order ID
  * @returns Captured order with payment details
  */
-export async function capturePayPalOrder(orderId: string) {
+export async function capturePayPalOrder(orderId: string): Promise<Order> {
   const client = getPayPalClient();
   const ordersController = new OrdersController(client);
 
@@ -106,7 +136,7 @@ export async function capturePayPalOrder(orderId: string) {
  * @param orderId - PayPal order ID
  * @returns Order details
  */
-export async function getPayPalOrder(orderId: string) {
+export async function getPayPalOrder(orderId: string): Promise<Order> {
   const client = getPayPalClient();
   const ordersController = new OrdersController(client);
 

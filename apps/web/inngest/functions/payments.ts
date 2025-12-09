@@ -341,8 +341,7 @@ export const processPayPalCheckout = inngest.createFunction(
       return { message: "Order already processed", orderId, alreadyProcessed: true };
     }
 
-    // Step 3: Extract amount from order (already stored in database)
-    const amount = parseFloat(order.totalAmount);
+    // Step 3: Extract currency from order
     const currency = order.currency.toUpperCase() || "USD";
 
     // Step 4: Update order (idempotency handled by checking order status earlier)
@@ -468,7 +467,7 @@ export const processPayPalRefund = inngest.createFunction(
   },
   { event: "paypal/payment.capture.refunded" },
   async ({ event, step }) => {
-    const { captureId } = event.data;
+    const { captureId, refundId } = event.data;
 
     // Find payment by capture_id
     const payment = await step.run("get-payment", async () => {
@@ -477,6 +476,15 @@ export const processPayPalRefund = inngest.createFunction(
 
     if (!payment) {
       throw new Error(`Payment not found for capture: ${captureId}`);
+    }
+
+    // Idempotency check: skip if already refunded
+    if (payment.status === "refunded") {
+      return {
+        message: "Payment already refunded",
+        paymentId: payment.id,
+        alreadyProcessed: true,
+      };
     }
 
     // Find session pack

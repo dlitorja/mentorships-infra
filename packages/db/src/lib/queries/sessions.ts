@@ -120,20 +120,15 @@ export async function getSessionById(
 }
 
 /**
- * Type for session with student information
- */
-type SessionWithStudent = Session & {
-  student: typeof users.$inferSelect;
-  sessionPack: typeof sessionPacks.$inferSelect;
-};
-
-/**
  * Get mentor's upcoming sessions (scheduled, not completed/canceled)
  */
 export async function getMentorUpcomingSessions(
   mentorId: string,
   limit: number = 50
-): Promise<SessionWithStudent[]> {
+): Promise<(typeof sessions.$inferSelect & {
+  student: typeof users.$inferSelect;
+  sessionPack: typeof sessionPacks.$inferSelect;
+})[]> {
   const now = new Date();
 
   const results = await db
@@ -163,12 +158,15 @@ export async function getMentorUpcomingSessions(
 }
 
 /**
- * Get mentor's past sessions (completed or canceled)
+ * Get mentor's past sessions (completed, canceled, or no_show)
  */
 export async function getMentorPastSessions(
   mentorId: string,
   limit: number = 50
-): Promise<SessionWithStudent[]> {
+): Promise<(typeof sessions.$inferSelect & {
+  student: typeof users.$inferSelect;
+  sessionPack: typeof sessionPacks.$inferSelect;
+})[]> {
   const results = await db
     .select({
       session: sessions,
@@ -200,7 +198,10 @@ export async function getMentorPastSessions(
 export async function getMentorSessions(
   mentorId: string,
   limit: number = 100
-): Promise<SessionWithStudent[]> {
+): Promise<(typeof sessions.$inferSelect & {
+  student: typeof users.$inferSelect;
+  sessionPack: typeof sessionPacks.$inferSelect;
+})[]> {
   const results = await db
     .select({
       session: sessions,

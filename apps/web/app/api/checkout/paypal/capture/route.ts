@@ -30,6 +30,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Capture the PayPal order
     const capturedOrder = await capturePayPalOrder(orderId);
 
+    console.log(`PayPal order captured: ${capturedOrder.id}, status: ${capturedOrder.status}`);
+
     // The webhook will handle the rest (creating payment, pack, seat)
     // But we return success so the frontend knows the capture succeeded
     

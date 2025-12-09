@@ -29,7 +29,7 @@ export type PayPalWebhookEventType =
  */
 export interface ParsedPayPalEvent {
   id: string;
-  eventType: string;
+  eventType: PayPalWebhookEventType | string;
   resourceType: string;
   summary: string;
   resource: Record<string, unknown>;

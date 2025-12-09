@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRole } from "@/lib/auth-helpers";
-import { db } from "@mentorships/db";
-import { sessions } from "@mentorships/db";
-import { eq, and } from "drizzle-orm";
+import { requireDbUser } from "@/lib/auth";
+import { db, sessions, eq } from "@mentorships/db";
 import { getMentorByUserId, getSessionById } from "@mentorships/db";
 import { z } from "zod";
 
@@ -14,10 +12,18 @@ const updateSessionSchema = z.object({
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { sessionId: string } }
-) {
+  { params }: { params: Promise<{ sessionId: string }> }
+): Promise<NextResponse> {
   try {
-    const user = await requireRole("mentor");
+    // Require authentication and check role
+    const user = await requireDbUser();
+    if (user.role !== "mentor") {
+      return NextResponse.json(
+        { error: "Forbidden: Mentor role required" },
+        { status: 403 }
+      );
+    }
+
     const mentor = await getMentorByUserId(user.id);
 
     if (!mentor) {
@@ -27,7 +33,7 @@ export async function PATCH(
       );
     }
 
-    const sessionId = params.sessionId;
+    const { sessionId } = await params;
     const session = await getSessionById(sessionId);
 
     if (!session) {
@@ -48,9 +54,9 @@ export async function PATCH(
     const body = await request.json();
     const validatedData = updateSessionSchema.parse(body);
 
-    // Prepare update object
+    // Prepare update object with proper types
     const updateData: {
-      status?: string;
+      status?: "scheduled" | "completed" | "canceled" | "no_show";
       notes?: string;
       recordingUrl?: string;
       completedAt?: Date | null;
@@ -71,6 +77,11 @@ export async function PATCH(
       } else if (validatedData.status === "canceled") {
         updateData.canceledAt = new Date();
         updateData.completedAt = null;
+      } else if (validatedData.status === "no_show") {
+        // No-show is similar to completed - session happened but student didn't attend
+        // Set completedAt to mark the session as finished, clear canceledAt
+        updateData.completedAt = new Date();
+        updateData.canceledAt = null;
       } else if (validatedData.status === "scheduled") {
         // Reset timestamps when rescheduling
         updateData.completedAt = null;
@@ -98,14 +109,34 @@ export async function PATCH(
       session: updatedSession,
     });
   } catch (error) {
+    // Handle Zod validation errors
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid request data", details: error.errors },
+        { error: "Invalid request data", details: error.issues },
         { status: 400 }
       );
     }
 
-    console.error("Error updating session:", error);
+    // Handle authentication errors
+    if (error instanceof Error && error.message.includes("Unauthorized")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Rethrow Next.js redirect errors (shouldn't happen here, but just in case)
+    if (
+      error instanceof Error &&
+      (error.message.includes("NEXT_REDIRECT") ||
+        error.constructor.name === "RedirectError")
+    ) {
+      throw error;
+    }
+
+    // Log error without exposing sensitive data
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("Error updating session:", errorMessage);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

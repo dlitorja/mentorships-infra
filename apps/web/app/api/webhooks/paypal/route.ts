@@ -4,8 +4,8 @@ import {
   verifyPayPalWebhookSignature,
   getPayPalWebhookId,
   parsePayPalWebhookEvent,
+  getPayPalOrder,
 } from "@mentorships/payments";
-import { getOrderById } from "@mentorships/db";
 
 /**
  * Webhook handler that verifies PayPal signatures and sends events to Inngest
@@ -45,25 +45,58 @@ export async function POST(req: NextRequest) {
       case "PAYMENT.CAPTURE.COMPLETED": {
         const resource = parsedEvent.resource as Record<string, unknown>;
         const captureId = resource.id as string;
-        const purchaseUnits = resource.purchase_units as Array<Record<string, unknown>> | undefined;
         
-        // Extract order_id and packId from custom_id in purchase_units
-        // custom_id is JSON-encoded: { orderId, packId }
+        // PayPal capture resource doesn't include purchase_units, so we need to fetch the parent order
+        // The capture has a link to the parent order in resource.links
+        const links = resource.links as Array<{ rel?: string; href?: string }> | undefined;
+        const orderLink = links?.find((link) => link.rel === "up");
+        
+        if (!orderLink?.href) {
+          console.error("Missing order link in PayPal capture event");
+          return NextResponse.json(
+            { error: "Missing order link" },
+            { status: 400 }
+          );
+        }
+
+        // Extract PayPal order ID from the href (format: https://api.paypal.com/v2/checkout/orders/{ORDER_ID})
+        const orderIdMatch = orderLink.href.match(/\/orders\/([^\/]+)/);
+        if (!orderIdMatch) {
+          console.error("Failed to extract order ID from PayPal order link");
+          return NextResponse.json(
+            { error: "Invalid order link format" },
+            { status: 400 }
+          );
+        }
+        const paypalOrderId = orderIdMatch[1];
+
+        // Fetch the parent order to get custom_id from purchase_units
         let orderId: string | undefined;
         let packId: string | undefined;
         
-        if (purchaseUnits && purchaseUnits.length > 0) {
-          const customId = purchaseUnits[0].custom_id;
-          if (typeof customId === "string") {
-            try {
-              const decoded = JSON.parse(customId);
-              orderId = decoded.orderId;
-              packId = decoded.packId;
-            } catch {
-              // Fallback: if not JSON, assume it's just orderId (legacy)
-              orderId = customId;
+        try {
+          const paypalOrder = await getPayPalOrder(paypalOrderId);
+          const purchaseUnits = paypalOrder.purchaseUnits;
+          
+          if (purchaseUnits && purchaseUnits.length > 0) {
+            const customId = purchaseUnits[0].customId;
+            if (typeof customId === "string") {
+              try {
+                const decoded = JSON.parse(customId);
+                orderId = decoded.orderId;
+                packId = decoded.packId;
+              } catch {
+                // Fallback: if not JSON, assume it's just orderId (legacy)
+                orderId = customId;
+              }
             }
           }
+        } catch (error) {
+          console.error("Failed to fetch PayPal order:", error);
+          return NextResponse.json(
+            { error: "Failed to fetch order details" },
+            { status: 500 }
+          );
         }
 
         if (!orderId) {
@@ -98,13 +131,38 @@ export async function POST(req: NextRequest) {
 
       case "PAYMENT.CAPTURE.REFUNDED": {
         const resource = parsedEvent.resource as Record<string, unknown>;
-        const captureId = resource.id as string;
+        const refundId = resource.id as string;
+        
+        // For PAYMENT.CAPTURE.REFUNDED, resource.id is the refund ID, not the capture ID
+        // The capture ID is in resource.links where rel="up"
+        const links = resource.links as Array<{ rel?: string; href?: string }> | undefined;
+        const captureLink = links?.find((link) => link.rel === "up");
+        
+        if (!captureLink?.href) {
+          console.error("Missing capture link in PayPal refund event");
+          return NextResponse.json(
+            { error: "Missing capture link" },
+            { status: 400 }
+          );
+        }
+
+        // Extract capture ID from the href (format: https://api.paypal.com/v2/payments/captures/{CAPTURE_ID})
+        const captureIdMatch = captureLink.href.match(/\/captures\/([^\/]+)/);
+        if (!captureIdMatch) {
+          console.error("Failed to extract capture ID from PayPal capture link");
+          return NextResponse.json(
+            { error: "Invalid capture link format" },
+            { status: 400 }
+          );
+        }
+        const captureId = captureIdMatch[1];
 
         // Send event to Inngest for processing
         await inngest.send({
           name: "paypal/payment.capture.refunded",
           data: {
             captureId,
+            refundId,
           },
         });
 
