@@ -18,7 +18,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: ["./tests/unit/setup.ts"],
+    setupFiles: [path.resolve(__dirname, "./tests/unit/setup.ts")],
     include: ["**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
     exclude: ["node_modules", "dist", ".next", ".turbo"],
     coverage: {
