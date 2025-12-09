@@ -6,7 +6,7 @@ import { randomUUID } from "crypto";
 const waitlistPostSchema = z.object({
   instructorSlug: z.string().min(1, "Instructor slug is required"),
   type: z.enum(["one-on-one", "group"], {
-    errorMap: () => ({ message: "Type must be 'one-on-one' or 'group'" }),
+    message: "Type must be 'one-on-one' or 'group'",
   }),
   email: z.string().email().optional(),
 });
@@ -72,7 +72,7 @@ export async function POST(
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
-          error: error.errors[0]?.message || "Invalid request data",
+          error: error.issues[0]?.message || "Invalid request data",
           errorId,
         },
         { status: 400 }
@@ -129,7 +129,7 @@ export async function GET(
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
-          error: error.errors[0]?.message || "Invalid query parameters",
+          error: error.issues[0]?.message || "Invalid query parameters",
           errorId,
         },
         { status: 400 }
