@@ -1,4 +1,4 @@
-import { eq, and, gte, desc } from "drizzle-orm";
+import { eq, and, gte, desc, sql, asc } from "drizzle-orm";
 import { db } from "../drizzle";
 import { sessions, sessionPacks, mentors, users } from "../../schema";
 
@@ -36,7 +36,7 @@ export async function getUserUpcomingSessions(
         gte(sessions.scheduledAt, now)
       )
     )
-    .orderBy(desc(sessions.scheduledAt))
+    .orderBy(asc(sessions.scheduledAt))
     .limit(limit);
 
   return results.map((r) => ({
@@ -71,7 +71,7 @@ export async function getUserRecentSessions(
         eq(sessions.status, "completed")
       )
     )
-    .orderBy(desc(sessions.completedAt))
+    .orderBy(desc(sessions.scheduledAt))
     .limit(limit);
 
   return results.map((r) => ({
@@ -80,5 +80,42 @@ export async function getUserRecentSessions(
     mentorUser: r.mentorUser,
     sessionPack: r.sessionPack,
   }));
+}
+
+/**
+ * Count completed sessions for a session pack
+ * This is used to determine session number (1-4) for renewal reminders
+ */
+export async function getCompletedSessionCount(
+  sessionPackId: string
+): Promise<number> {
+  const result = await db
+    .select({
+      count: sql<number>`count(*)`,
+    })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.sessionPackId, sessionPackId),
+        eq(sessions.status, "completed")
+      )
+    );
+
+  return Number(result[0]?.count || 0);
+}
+
+/**
+ * Get session by ID
+ */
+export async function getSessionById(
+  sessionId: string
+): Promise<Session | null> {
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1);
+
+  return session || null;
 }
 

@@ -37,25 +37,9 @@ export async function validateBookingEligibility(
   userId: string
 ): Promise<BookingValidationResult> {
   // Get session pack with seat reservation
-  const packResult = await db
-    .select({
-      pack: sessionPacks,
-      seat: seatReservations,
-    })
-    .from(sessionPacks)
-    .leftJoin(
-      seatReservations,
-      eq(seatReservations.sessionPackId, sessionPacks.id)
-    )
-    .where(
-      and(
-        eq(sessionPacks.id, packId),
-        eq(sessionPacks.userId, userId)
-      )
-    )
-    .limit(1);
+  const { pack, seat } = await getPackWithSeat(packId, userId);
 
-  if (packResult.length === 0 || !packResult[0]?.pack) {
+  if (!pack) {
     return {
       valid: false,
       error: "Session pack not found or you don't have access to it",
@@ -63,8 +47,16 @@ export async function validateBookingEligibility(
     };
   }
 
-  const pack = packResult[0].pack;
-  const seat = packResult[0].seat;
+  const now = new Date();
+
+  // Check if pack is expired (before status check to prevent race conditions)
+  if (pack.expiresAt < now) {
+    return {
+      valid: false,
+      error: "Session pack has expired. Bookings are no longer allowed.",
+      errorCode: "PACK_EXPIRED",
+    };
+  }
 
   // Check pack status
   if (pack.status !== "active") {
@@ -75,31 +67,12 @@ export async function validateBookingEligibility(
     };
   }
 
-  // Check if pack is expired
-  const now = new Date();
-  if (pack.expiresAt < now) {
-    return {
-      valid: false,
-      error: "Session pack has expired. Bookings are no longer allowed.",
-      errorCode: "PACK_EXPIRED",
-    };
-  }
-
   // Check remaining sessions
   if (pack.remainingSessions <= 0) {
     return {
       valid: false,
       error: "No remaining sessions available. Please renew your pack.",
       errorCode: "NO_REMAINING_SESSIONS",
-    };
-  }
-
-  // Check if pack is depleted (status check already done, but double-check)
-  if (pack.status === "depleted") {
-    return {
-      valid: false,
-      error: "Session pack is depleted. Please renew to continue booking.",
-      errorCode: "PACK_DEPLETED",
     };
   }
 

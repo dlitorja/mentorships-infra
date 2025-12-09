@@ -1,14 +1,9 @@
-import { redirect } from "next/navigation";
-import { requireAuth } from "@mentorships/db";
+import { requireRole } from "@/lib/auth-helpers";
 import { CreateProductForm } from "./create-product-form";
 
 export default async function CreateProductPage() {
-  // Require authentication
-  try {
-    await requireAuth();
-  } catch {
-    redirect("/sign-in?redirect_url=/admin/products/create");
-  }
-
+  // requireRole handles auth errors internally by redirecting
+  // If it returns, user is authenticated and has admin role
+  await requireRole("admin");
   return <CreateProductForm />;
 }

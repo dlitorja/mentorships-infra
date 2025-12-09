@@ -3,8 +3,8 @@ import { db } from "../drizzle";
 import { payments } from "../../schema";
 import type { paymentProviderEnum } from "../../schema/orders";
 
-type PaymentProvider = "stripe" | "paypal";
-type Payment = typeof payments.$inferSelect;
+export type PaymentProvider = "stripe" | "paypal";
+export type Payment = typeof payments.$inferSelect;
 
 /**
  * Get payment by provider and provider payment ID
@@ -39,7 +39,7 @@ export async function updatePaymentStatus(
     .update(payments)
     .set({
       status,
-      refundedAmount: refundedAmount ? refundedAmount : undefined,
+      refundedAmount,
       updatedAt: new Date(),
     })
     .where(eq(payments.id, paymentId))
@@ -48,6 +48,14 @@ export async function updatePaymentStatus(
   if (!updated) {
     throw new Error(`Payment ${paymentId} not found`);
   }
+
+  // Structured logging for observability
+  console.info("Payment status updated", {
+    paymentId,
+    status,
+    refundedAmount,
+    updatedAt: updated.updatedAt,
+  });
 
   return updated;
 }

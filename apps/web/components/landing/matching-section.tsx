@@ -72,26 +72,24 @@ export function MatchingSection(): JSX.Element {
         console.error("Failed to add email to contacts:", errorMessage);
         
         // Forward error to Better Stack via server-side API route
-        if (typeof window !== "undefined") {
-          fetch("/api/errors", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
+        fetch("/api/errors", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: errorMessage,
+            level: "error",
+            service: "mentorship-platform",
+            component: "matching-section",
+            error: {
+              name: error instanceof Error ? error.name : "UnknownError",
               message: errorMessage,
-              level: "error",
-              service: "mentorship-platform",
-              component: "matching-section",
-              error: {
-                name: error instanceof Error ? error.name : "UnknownError",
-                message: errorMessage,
-              },
-            }),
-          }).catch(() => {
-            // Silently fail if error tracking is unavailable
-          });
-        }
+            },
+          }),
+        }).catch(() => {
+          // Silently fail if error tracking is unavailable
+        });
         
         toast.error("Something went wrong. Please try again later.");
       }

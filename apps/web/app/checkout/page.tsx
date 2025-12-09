@@ -19,7 +19,6 @@ export default function CheckoutPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const instructorSlug = searchParams.get("instructor");
-  const type = searchParams.get("type");
   const packIdParam = searchParams.get("packId");
 
   const [packId, setPackId] = useState(packIdParam || "");

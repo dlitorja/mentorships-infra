@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import {
   db,
   mentorshipProducts,
@@ -7,10 +6,7 @@ import {
   requireAuth,
 } from "@mentorships/db";
 import { eq } from "drizzle-orm";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-12-18.acacia",
-});
+import { stripe } from "@/lib/stripe";
 
 /**
  * Create a database product from a Stripe Product ID or Price ID
@@ -107,13 +103,21 @@ export async function POST(req: NextRequest) {
       ? parseInt(product.metadata.sessions, 10) 
       : 4;
 
+    // Validate price has unit_amount (required for fixed pricing)
+    if (!price.unit_amount) {
+      return NextResponse.json(
+        { error: "This price has no unit amount (custom pricing or free products not supported)" },
+        { status: 400 }
+      );
+    }
+
     // Create database product
     const [newProduct] = await db
       .insert(mentorshipProducts)
       .values({
         mentorId: finalMentorId,
         title: product.name || "Mentorship Session Pack",
-        price: (price.unit_amount! / 100).toString(), // Convert cents to dollars
+        price: (price.unit_amount / 100).toString(), // Convert cents to dollars
         sessionsPerPack: sessions,
         validityDays: 30, // Default
         stripePriceId: price.id,

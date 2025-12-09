@@ -1,4 +1,4 @@
-import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte } from "drizzle-orm";
 import { db } from "../drizzle";
 import { sessionPacks, seatReservations, mentors, users } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
@@ -32,13 +32,22 @@ export async function updateSessionPackStatus(
   status: SessionPackStatus,
   remainingSessions?: number
 ): Promise<SessionPack> {
+  const updatePayload: {
+    status: SessionPackStatus;
+    updatedAt: Date;
+    remainingSessions?: number;
+  } = {
+    status,
+    updatedAt: new Date(),
+  };
+
+  if (remainingSessions !== undefined) {
+    updatePayload.remainingSessions = remainingSessions;
+  }
+
   const [updated] = await db
     .update(sessionPacks)
-    .set({
-      status,
-      remainingSessions: remainingSessions !== undefined ? remainingSessions : undefined,
-      updatedAt: new Date(),
-    })
+    .set(updatePayload)
     .where(eq(sessionPacks.id, packId))
     .returning();
 
@@ -72,19 +81,29 @@ export async function getUserActiveSessionPacks(
 ): Promise<{ items: SessionPack[]; total: number; page: number; pageSize: number }> {
   const offset = (page - 1) * pageSize;
 
-  // Get total count
+  // Get total count (only active packs)
   const totalResult = await db
     .select({ count: sql<number>`count(*)` })
     .from(sessionPacks)
-    .where(eq(sessionPacks.userId, userId));
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active")
+      )
+    );
 
   const total = Number(totalResult[0]?.count || 0);
 
-  // Get paginated items ordered by createdAt DESC (newest first)
+  // Get paginated items ordered by createdAt DESC (newest first, only active)
   const items = await db
     .select()
     .from(sessionPacks)
-    .where(eq(sessionPacks.userId, userId))
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active")
+      )
+    )
     .orderBy(desc(sessionPacks.createdAt))
     .limit(pageSize)
     .offset(offset);
@@ -129,7 +148,9 @@ export async function incrementRemainingSessions(
  * Get user's active session packs with mentor information
  */
 export async function getUserSessionPacksWithMentors(
-  userId: string
+  userId: string,
+  limit: number = 100,
+  offset: number = 0
 ): Promise<SessionPackWithMentor[]> {
   const now = new Date();
 
@@ -149,7 +170,9 @@ export async function getUserSessionPacksWithMentors(
         gte(sessionPacks.expiresAt, now)
       )
     )
-    .orderBy(desc(sessionPacks.createdAt));
+    .orderBy(desc(sessionPacks.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   return results.map((r) => ({
     ...r.sessionPack,
@@ -180,5 +203,100 @@ export async function getUserTotalRemainingSessions(
     );
 
   return Number(result[0]?.total || 0);
+}
+
+/**
+ * Decrement remaining sessions atomically and update status if depleted
+ */
+export async function decrementRemainingSessions(
+  packId: string
+): Promise<SessionPack> {
+  // Atomic update with status flip in SQL using CASE statement
+  const [updated] = await db
+    .update(sessionPacks)
+    .set({
+      remainingSessions: sql`GREATEST(${sessionPacks.remainingSessions} - 1, 0)`,
+      status: sql`CASE 
+        WHEN (${sessionPacks.remainingSessions} - 1) <= 0 
+        THEN 'depleted' 
+        ELSE ${sessionPacks.status} 
+      END`,
+      updatedAt: new Date(),
+    })
+    .where(eq(sessionPacks.id, packId))
+    .returning();
+
+  if (!updated) {
+    throw new Error(`Session pack ${packId} not found`);
+  }
+
+  return updated;
+}
+
+/**
+ * Get session pack by ID
+ */
+export async function getSessionPackById(
+  packId: string
+): Promise<SessionPack | null> {
+  const [pack] = await db
+    .select()
+    .from(sessionPacks)
+    .where(eq(sessionPacks.id, packId))
+    .limit(1);
+
+  return pack || null;
+}
+
+/**
+ * Update seat reservation status and grace period
+ */
+export async function updateSeatReservationStatus(
+  packId: string,
+  status: "active" | "grace" | "released",
+  gracePeriodEndsAt?: Date
+): Promise<void> {
+  const updateData: {
+    status: "active" | "grace" | "released";
+    gracePeriodEndsAt?: Date;
+    updatedAt: Date;
+  } = {
+    status,
+    updatedAt: new Date(),
+  };
+
+  if (gracePeriodEndsAt) {
+    updateData.gracePeriodEndsAt = gracePeriodEndsAt;
+  }
+
+  await db
+    .update(seatReservations)
+    .set(updateData)
+    .where(eq(seatReservations.sessionPackId, packId));
+}
+
+/**
+ * Get expired session packs that need seat release
+ * Returns packs where:
+ * - Pack is expired AND all scheduled sessions are completed
+ * - OR grace period has expired
+ */
+export async function getExpiredPacksNeedingSeatRelease(): Promise<
+  SessionPack[]
+> {
+  const now = new Date();
+
+  // Get packs that are expired or depleted
+  const expiredPacks = await db
+    .select()
+    .from(sessionPacks)
+    .where(
+      and(
+        sql`${sessionPacks.status} IN ('expired', 'depleted')`,
+        lte(sessionPacks.expiresAt, now)
+      )
+    );
+
+  return expiredPacks;
 }
 

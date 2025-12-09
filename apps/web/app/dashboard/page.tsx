@@ -4,8 +4,9 @@ import { redirect } from "next/navigation";
 import {
   getUserSessionPacksWithMentors,
   getUserTotalRemainingSessions,
+  getUserUpcomingSessions,
+  getUserRecentSessions,
 } from "@mentorships/db";
-import { getUserUpcomingSessions, getUserRecentSessions } from "@mentorships/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, User, BookOpen, CheckCircle2 } from "lucide-react";
@@ -290,7 +291,15 @@ export default async function DashboardPage() {
       </div>
     );
   } catch (error) {
-    // If not authenticated, redirect to sign-in
-    redirect("/sign-in");
+    // Only redirect on authentication errors from requireDbUser
+    if (
+      error instanceof Error &&
+      error.message.includes("Unauthorized")
+    ) {
+      redirect("/sign-in");
+    }
+    // Log and re-throw other errors (DB, network, bugs)
+    console.error("Dashboard error:", error);
+    throw error;
   }
 }

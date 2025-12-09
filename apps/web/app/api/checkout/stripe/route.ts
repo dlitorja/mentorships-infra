@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import {
@@ -12,10 +11,7 @@ import {
   getGrandfatheredDiscount,
   getGrandfatheredConfig,
 } from "@mentorships/db";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-12-18.acacia",
-});
+import { stripe } from "@/lib/stripe";
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
@@ -86,20 +82,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     orderId = order.id;
 
-    // Determine base URL
+    // Determine base URL - only use environment variables for security
     let baseUrl: string;
     if (process.env.NEXT_PUBLIC_URL) {
       baseUrl = process.env.NEXT_PUBLIC_URL;
     } else if (process.env.VERCEL_URL) {
       baseUrl = `https://${process.env.VERCEL_URL}`;
     } else {
-      const origin = req.headers.get("origin");
-      if (origin) {
-        baseUrl = origin;
-      } else {
-        const host = req.headers.get("host") || "localhost:3000";
-        baseUrl = `http://${host}`;
+      // Development fallback - throw error in production
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("NEXT_PUBLIC_URL or VERCEL_URL must be set in production");
       }
+      baseUrl = "http://localhost:3000";
     }
 
     // Build discounts array for Stripe Checkout
@@ -158,19 +152,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch (error) {
     console.error("Stripe checkout error:", error);
 
-    // Cleanup: Mark order as failed if still pending
+    // Cleanup: Mark order as failed if still pending (idempotent)
     if (orderId) {
       try {
-        const order = await db
-          .select()
-          .from(orders)
-          .where(eq(orders.id, orderId))
-          .limit(1);
-        
-        if (order[0] && order[0].status === "pending") {
-          await updateOrderStatus(orderId, "failed");
-          console.log(`Marked orphaned order ${orderId} as failed`);
-        }
+        await updateOrderStatus(orderId, "failed");
+        console.log(`Marked orphaned order ${orderId} as failed`);
       } catch (cleanupError) {
         console.error(`Failed to cleanup order ${orderId}:`, cleanupError);
       }

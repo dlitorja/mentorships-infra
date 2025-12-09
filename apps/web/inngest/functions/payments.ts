@@ -18,7 +18,20 @@ import {
 import { eq } from "drizzle-orm";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+// Validate Stripe secret key
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeSecretKey) {
+  throw new Error(
+    "STRIPE_SECRET_KEY is not set. Please configure it in your environment variables."
+  );
+}
+if (!stripeSecretKey.startsWith("sk_test_") && !stripeSecretKey.startsWith("sk_live_")) {
+  throw new Error(
+    "STRIPE_SECRET_KEY appears to be invalid. It should start with 'sk_test_' or 'sk_live_'."
+  );
+}
+
+const stripe = new Stripe(stripeSecretKey, {
   apiVersion: "2024-12-18.acacia",
 });
 
@@ -101,13 +114,18 @@ export const processStripeCheckout = inngest.createFunction(
         discountCode?: string | null;
       } = {
         status: "paid",
-        totalAmount: (fullSession.amount_total! / 100).toString(),
+        totalAmount:
+          fullSession.amount_total && typeof fullSession.amount_total === "number"
+            ? (fullSession.amount_total / 100).toString()
+            : "0",
         updatedAt: new Date(),
       };
 
       // Only include discount fields if they have values
       if (originalAmount) {
-        updateData.originalAmount = originalAmount || order.totalAmount;
+        updateData.originalAmount = originalAmount;
+      } else {
+        updateData.originalAmount = order.totalAmount;
       }
       if (discountAmount) {
         updateData.discountAmount = discountAmount;
@@ -211,7 +229,7 @@ export const processStripeCheckout = inngest.createFunction(
         name: "purchase/mentorship",
         data: {
           orderId: order.id,
-          clerkId: userId, // Clerk user ID
+          userId: userId, // Clerk user ID
           packId: product.id,
           provider: "stripe",
         },

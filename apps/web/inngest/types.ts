@@ -5,7 +5,7 @@ export const purchaseMentorshipEventSchema = z.object({
   name: z.literal("purchase/mentorship"),
   data: z.object({
     orderId: z.string().uuid(),
-    clerkId: z.string(), // Clerk user ID
+    userId: z.string(), // Clerk user ID
     packId: z.string().uuid(),
     provider: z.enum(["stripe", "paypal"]),
   }),
@@ -80,6 +80,33 @@ export const packExpirationCheckEventSchema = z.object({
   }),
 });
 
+export const sessionRenewalReminderEventSchema = z.object({
+  name: z.literal("session/renewal-reminder"),
+  data: z.object({
+    sessionPackId: z.string().uuid(),
+    userId: z.string(),
+    sessionNumber: z.number().int().min(1).max(4),
+    remainingSessions: z.number().int().min(0),
+    gracePeriodEndsAt: z.coerce.date().optional(),
+  }),
+});
+
+export const notificationSendEventSchema = z.object({
+  name: z.literal("notification/send"),
+  data: z.object({
+    type: z.enum([
+      "renewal_reminder",
+      "final_renewal_reminder",
+      "grace_period_final_warning",
+    ]),
+    userId: z.string(),
+    sessionPackId: z.string().uuid(),
+    message: z.string(),
+    sessionNumber: z.number().int().min(1).max(4).optional(),
+    gracePeriodEndsAt: z.coerce.date().optional(),
+  }),
+});
+
 // Type exports
 export type PurchaseMentorshipEvent = z.infer<typeof purchaseMentorshipEventSchema>;
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
@@ -90,6 +117,8 @@ export type UserDiscordConnectedEvent = z.infer<typeof userDiscordConnectedEvent
 export type SessionCompletedEvent = z.infer<typeof sessionCompletedEventSchema>;
 export type SessionScheduledEvent = z.infer<typeof sessionScheduledEventSchema>;
 export type PackExpirationCheckEvent = z.infer<typeof packExpirationCheckEventSchema>;
+export type SessionRenewalReminderEvent = z.infer<typeof sessionRenewalReminderEventSchema>;
+export type NotificationSendEvent = z.infer<typeof notificationSendEventSchema>;
 
 export type InngestEvent =
   | PurchaseMentorshipEvent
@@ -100,5 +129,7 @@ export type InngestEvent =
   | UserDiscordConnectedEvent
   | SessionCompletedEvent
   | SessionScheduledEvent
-  | PackExpirationCheckEvent;
+  | PackExpirationCheckEvent
+  | SessionRenewalReminderEvent
+  | NotificationSendEvent;
 

@@ -39,6 +39,7 @@ const isPublicPage = createRouteMatcher([
   "/sign-up(.*)",
   "/test(.*)", // Test page for verification
   "/waitlist(.*)", // Waitlist page
+  "/admin(.*)", // Admin pages (will be protected by requireAuth in the page itself)
 ]);
 
 export default clerkMiddleware(async (auth, req: NextRequest) => {
