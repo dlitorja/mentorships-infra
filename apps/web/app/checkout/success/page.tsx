@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,7 +13,7 @@ import {
 import { CheckCircle2, Loader2 } from "lucide-react";
 import Link from "next/link";
 
-export default function CheckoutSuccessPage() {
+function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
   const [loading, setLoading] = useState(true);
@@ -96,6 +96,26 @@ export default function CheckoutSuccessPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function CheckoutSuccessPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center px-4">
+          <Card className="max-w-md w-full">
+            <CardHeader className="text-center">
+              <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
+              <CardTitle>Loading...</CardTitle>
+              <CardDescription>Processing your request</CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      }
+    >
+      <CheckoutSuccessContent />
+    </Suspense>
   );
 }
 
