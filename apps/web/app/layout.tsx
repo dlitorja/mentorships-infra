@@ -28,7 +28,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className} antialiased`}>
         <HeaderErrorBoundary>
-          <Header />
+          <Header hasClerk={hasValidClerkKey} />
         </HeaderErrorBoundary>
         {children}
         <Toaster />
