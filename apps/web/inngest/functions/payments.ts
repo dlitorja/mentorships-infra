@@ -92,10 +92,11 @@ export const processStripeCheckout = inngest.createFunction(
     ) {
       const discount = fullSession.total_details.breakdown.discounts[0];
       if (discount.discount?.promotion_code) {
+        const promotionCode = discount.discount.promotion_code;
         discountCode =
-          discount.discount.promotion_code.code ||
-          discount.discount.promotion_code.id ||
-          null;
+          (typeof promotionCode === "string"
+            ? promotionCode
+            : promotionCode.code || promotionCode.id) || null;
       } else if (discount.discount?.coupon) {
         discountCode =
           discount.discount.coupon.id || discount.discount.coupon.name || null;

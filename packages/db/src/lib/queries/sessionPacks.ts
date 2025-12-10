@@ -207,18 +207,6 @@ export async function updateSessionPackStatus(
   return updated;
 }
 
-/**
- * Release seat by pack ID
- */
-export async function releaseSeatByPackId(packId: string): Promise<void> {
-  await db
-    .update(seatReservations)
-    .set({
-      status: "released",
-      updatedAt: new Date(),
-    })
-    .where(eq(seatReservations.sessionPackId, packId));
-}
 
 /**
  * Get user's active session packs with pagination
