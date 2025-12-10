@@ -18,12 +18,28 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  
+  // If Clerk key is not available, render without ClerkProvider
+  // This can happen during build if env vars aren't set
+  if (!clerkKey) {
+    return (
+      <html lang="en">
+        <body className={`${inter.className} antialiased`}>
+          <Header />
+          {children}
+          <Toaster />
+        </body>
+      </html>
+    );
+  }
+
   return (
     <ClerkProvider
       // Reduce verbose debug logging in development
       // The 422 error is typically a validation error (e.g., email already exists)
       // and is handled gracefully by Clerk's UI
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      publishableKey={clerkKey}
     >
       <html lang="en">
         <body className={`${inter.className} antialiased`}>
