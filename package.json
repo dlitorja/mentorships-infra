@@ -8,8 +8,8 @@
     "dev:no-turbo": "pnpm --filter @mentorships/web dev:no-turbo",
     "build": "pnpm --filter @mentorships/web build",
     "start": "pnpm --filter @mentorships/web start",
-    "lint": "eslint",
-    "lint:fix": "eslint --fix",
+    "lint": "pnpm --filter @mentorships/web lint",
+    "lint:fix": "pnpm --filter @mentorships/web lint --fix",
     "typecheck": "tsc --noEmit --skipLibCheck",
     "check": "pnpm run lint && pnpm run typecheck",
     "check:ci": "pnpm run lint && pnpm run typecheck && pnpm run build",
@@ -74,6 +74,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.3",
     "@playwright/test": "1.57.0",
     "@tailwindcss/postcss": "4.1.17",
     "@testing-library/jest-dom": "6.9.1",
@@ -111,4 +112,3 @@
     ]
   }
 }
-

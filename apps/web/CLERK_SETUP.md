@@ -85,6 +85,15 @@ In the Clerk Dashboard:
 
 Make sure `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is set in your `.env.local` file and restart your dev server.
 
+### ERR_NAME_NOT_RESOLVED Errors (Deployment Issues)
+
+If you're seeing errors like `Failed to load resource: net::ERR_NAME_NOT_RESOLVED` for Clerk domains, this is a deployment configuration issue. See `CLERK_DEPLOYMENT.md` for detailed instructions.
+
+**Quick fixes**:
+1. Check that environment variables are set in Vercel
+2. Verify Frontend API URL in Clerk Dashboard matches your deployment URL
+3. Redeploy after making changes
+
 ### 422 Error: "request failed" on sign-up
 
 If you see a console error like `[Clerk Debug] ERROR [fapiClient]: request failed {"method":"POST","path":"/client/sign_ups","status":422}`, this is typically a validation error. Common causes:

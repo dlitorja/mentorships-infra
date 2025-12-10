@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +15,10 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
-export default function CheckoutPage() {
+// Force dynamic rendering to prevent static generation issues with useSearchParams
+export const dynamic = "force-dynamic";
+
+function CheckoutContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
   const instructorSlug = searchParams.get("instructor");
@@ -226,6 +229,25 @@ export default function CheckoutPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function CheckoutPage(): React.JSX.Element {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center px-4">
+          <Card className="max-w-2xl w-full">
+            <CardHeader>
+              <CardTitle>Loading...</CardTitle>
+              <CardDescription>Please wait</CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      }
+    >
+      <CheckoutContent />
+    </Suspense>
   );
 }
 

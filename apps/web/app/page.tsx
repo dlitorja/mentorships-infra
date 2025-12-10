@@ -5,7 +5,7 @@ import { HowItWorks } from "@/components/landing/how-it-works";
 import { Testimonials } from "@/components/landing/testimonials";
 import { Footer } from "@/components/navigation/footer";
 
-export default function HomePage(): JSX.Element {
+export default function HomePage(): React.JSX.Element {
   return (
     <>
       <main className="min-h-screen textured-gradient text-foreground relative">
