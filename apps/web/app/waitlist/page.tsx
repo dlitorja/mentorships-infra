@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 
-export default function WaitlistPage() {
+export default function WaitlistPage(): React.JSX.Element {
   const searchParams = useSearchParams();
   const instructorSlug = searchParams.get("instructor");
   const type = searchParams.get("type") || "one-on-one";

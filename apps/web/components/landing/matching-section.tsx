@@ -11,7 +11,7 @@ import { toast } from "sonner";
 
 type SubmitStatus = "idle" | "submitting" | "success" | "error";
 
-export function MatchingSection() {
+export function MatchingSection(): React.JSX.Element {
   const [artGoals, setArtGoals] = useState("");
   const [email, setEmail] = useState("");
   const [isEmailValid, setIsEmailValid] = useState(true);

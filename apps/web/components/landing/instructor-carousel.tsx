@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import type { Instructor } from "@/lib/instructors";
 import { getRandomizedInstructors } from "@/lib/instructors";
 
-export function InstructorCarousel() {
+export function InstructorCarousel(): React.JSX.Element | null {
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);

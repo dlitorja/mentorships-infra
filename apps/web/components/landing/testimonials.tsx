@@ -22,7 +22,7 @@ const testimonials = [
   },
 ];
 
-export function Testimonials() {
+export function Testimonials(): React.JSX.Element {
   return (
     <section className="py-20 px-4 bg-muted/30">
       <div className="mx-auto max-w-7xl">
