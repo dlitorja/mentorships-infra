@@ -13,6 +13,9 @@ import {
 import { CheckCircle2, Loader2 } from "lucide-react";
 import Link from "next/link";
 
+// Force dynamic rendering to prevent static generation issues with useSearchParams
+export const dynamic = "force-dynamic";
+
 function CheckoutSuccessContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
