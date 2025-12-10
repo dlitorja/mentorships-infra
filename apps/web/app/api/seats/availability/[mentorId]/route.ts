@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { checkSeatAvailability } from "@mentorships/db";
 
 /**
@@ -17,7 +17,7 @@ import { checkSeatAvailability } from "@mentorships/db";
  * }
  */
 export async function GET(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ mentorId: string }> }
 ) {
   try {
