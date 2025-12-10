@@ -39,7 +39,15 @@ const isPublicPage = createRouteMatcher([
   "/test(.*)", // Test page for verification
 ]);
 
-export default clerkMiddleware(async (auth, req: NextRequest) => {
+// Check if Clerk is configured
+const hasClerkKey = Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY !== "pk_test_placeholder_for_build_time_only" &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_")
+);
+
+// Create middleware function that handles both cases
+async function middlewareHandler(auth: any, req: NextRequest) {
   const { userId, sessionId } = await auth();
 
   // Allow public API routes (webhooks, health checks, etc.)
@@ -74,7 +82,17 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   }
 
   return NextResponse.next();
-});
+}
+
+// If Clerk is not configured, use a simple middleware that allows all routes
+// Otherwise, use clerkMiddleware
+export default hasClerkKey
+  ? clerkMiddleware(middlewareHandler)
+  : async function middleware(req: NextRequest) {
+      // When Clerk is not configured, allow all routes
+      // This allows the app to work even without Clerk setup
+      return NextResponse.next();
+    };
 
 /**
  * Configure which routes the middleware should run on
