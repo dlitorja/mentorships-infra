@@ -19,12 +19,19 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Use environment variable or fallback for build-time static generation
+  // The fallback allows the build to complete even if env var is not set during build
+  // In production, the env var should always be set in Vercel environment variables
+  const clerkPublishableKey = 
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 
+    "pk_test_placeholder_for_build_time_only";
+
   return (
     <ClerkProvider
       // Reduce verbose debug logging in development
       // The 422 error is typically a validation error (e.g., email already exists)
       // and is handled gracefully by Clerk's UI
-      publishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      publishableKey={clerkPublishableKey}
     >
       <html lang="en">
         <body className={`${inter.className} antialiased`}>
