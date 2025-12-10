@@ -22,7 +22,7 @@ const steps = [
   },
 ];
 
-export function HowItWorks(): JSX.Element {
+export function HowItWorks() {
   return (
     <section className="py-20 px-4">
       <div className="mx-auto max-w-7xl">
