@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 
-export default function WaitlistPage() {
+function WaitlistContent() {
   const searchParams = useSearchParams();
   const instructorSlug = searchParams.get("instructor");
   const type = searchParams.get("type") || "one-on-one";
@@ -129,6 +129,30 @@ export default function WaitlistPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function WaitlistPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center px-4">
+          <Card className="max-w-md w-full">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Join Waitlist</CardTitle>
+              <CardDescription>Loading...</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8 text-muted-foreground">
+                Loading waitlist form...
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <WaitlistContent />
+    </Suspense>
   );
 }
 
