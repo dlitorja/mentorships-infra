@@ -1,7 +1,5 @@
 import { requireDbUser } from "@/lib/auth";
-import { db } from "@mentorships/db";
-import { sessions, sessionPacks, mentors } from "@mentorships/db";
-import { eq, desc } from "drizzle-orm";
+import { db, sessions, sessionPacks, mentors, users, eq, desc } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,13 +17,14 @@ export default async function SessionsPage() {
       status: sessions.status,
       recordingUrl: sessions.recordingUrl,
       notes: sessions.notes,
-      mentorName: mentors.name,
+      mentorEmail: users.email,
       packId: sessions.sessionPackId,
       remainingSessions: sessionPacks.remainingSessions,
     })
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
     .innerJoin(mentors, eq(sessions.mentorId, mentors.id))
+    .innerJoin(users, eq(mentors.userId, users.id))
     .where(eq(sessions.studentId, user.id))
     .orderBy(desc(sessions.scheduledAt))
     .limit(50);
@@ -70,7 +69,7 @@ export default async function SessionsPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-xl">{session.mentorName}</CardTitle>
+                      <CardTitle className="text-xl">{session.mentorEmail}</CardTitle>
                       <CardDescription>
                         {new Date(session.scheduledAt).toLocaleString("en-US", {
                           weekday: "long",

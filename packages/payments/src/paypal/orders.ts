@@ -58,7 +58,6 @@ export async function createPayPalOrder(
 
   const applicationContext: OrderApplicationContext = {
     brandName: "Mentorship Platform",
-    landingPage: "BILLING",
     userAction: OrderApplicationContextUserAction.PayNow,
     returnUrl,
     cancelUrl,

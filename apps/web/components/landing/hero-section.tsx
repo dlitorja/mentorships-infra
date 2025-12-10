@@ -27,7 +27,7 @@ const itemVariants = {
   },
 };
 
-export function HeroSection(): JSX.Element {
+export function HeroSection() {
   return (
     <section className="relative flex min-h-[90vh] flex-col items-center justify-center px-4 py-20 text-center">
       <div className="absolute inset-0 flex items-center justify-center">

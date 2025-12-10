@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import {
   db,
   mentorshipProducts,
   mentors,
   requireAuth,
+  eq,
 } from "@mentorships/db";
-import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 
 /**

@@ -10,8 +10,11 @@ import {
   decrementRemainingSessions,
   updateSeatReservationStatus,
   updateSessionPackStatus,
+  eq,
+  and,
+  lte,
+  sql,
 } from "@mentorships/db";
-import { eq, and, lte, sql } from "drizzle-orm";
 
 /**
  * Handle session completion

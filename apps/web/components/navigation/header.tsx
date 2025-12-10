@@ -1,8 +1,55 @@
-import Link from "next/link";
-import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
-import { Button } from "@/components/ui/button";
+"use client";
 
-export function Header() {
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Suspense, lazy } from "react";
+
+interface HeaderProps {
+  hasClerk?: boolean;
+}
+
+// Dynamically import Clerk components only when needed
+const ClerkAuthButtons = lazy(() =>
+  import("@clerk/nextjs").then((clerk) => ({
+    default: function ClerkAuthButtons() {
+      const { SignedIn, SignedOut, UserButton } = clerk;
+      return (
+        <>
+          <SignedOut>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/sign-in">Sign In</Link>
+            </Button>
+            <Button asChild size="sm" className="vibrant-gradient-button transition-all">
+              <Link href="/sign-up">Get Started</Link>
+            </Button>
+          </SignedOut>
+          
+          <SignedIn>
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/dashboard">Dashboard</Link>
+            </Button>
+            <UserButton afterSignOutUrl="/" />
+          </SignedIn>
+        </>
+      );
+    },
+  }))
+);
+
+function FallbackAuthButtons() {
+  return (
+    <>
+      <Button asChild variant="ghost" size="sm">
+        <Link href="/sign-in">Sign In</Link>
+      </Button>
+      <Button asChild size="sm" className="vibrant-gradient-button transition-all">
+        <Link href="/sign-up">Get Started</Link>
+      </Button>
+    </>
+  );
+}
+
+export function Header({ hasClerk = true }: HeaderProps) {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/85">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -24,21 +71,13 @@ export function Header() {
             Find Match
           </Link>
           
-          <SignedOut>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button asChild size="sm" className="vibrant-gradient-button transition-all">
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-          </SignedOut>
-          
-          <SignedIn>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <UserButton afterSignOutUrl="/" />
-          </SignedIn>
+          {hasClerk ? (
+            <Suspense fallback={<FallbackAuthButtons />}>
+              <ClerkAuthButtons />
+            </Suspense>
+          ) : (
+            <FallbackAuthButtons />
+          )}
         </nav>
       </div>
     </header>

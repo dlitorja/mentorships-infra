@@ -52,78 +52,11 @@ export async function syncClerkUserToSupabase(
   role: "student" | "mentor" | "admin" = "student"
 ) {
   // Check if user exists
-  let existingUser;
-  try {
-    existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, clerkUserId))
-      .limit(1);
-  } catch (error: unknown) {
-    // Extract all error information
-    const errorObj = error as Error & { 
-      cause?: Error | unknown; 
-      query?: string; 
-      params?: unknown;
-      code?: string;
-      detail?: string;
-      hint?: string;
-    };
-    
-    const errorMessage = errorObj?.message || String(error);
-    const errorStack = errorObj?.stack;
-    
-    // Extract underlying cause error (this is where the real postgres error is)
-    let underlyingError: Error | null = null;
-    if (errorObj?.cause) {
-      if (errorObj.cause instanceof Error) {
-        underlyingError = errorObj.cause;
-      } else if (typeof errorObj.cause === 'object') {
-        const causeObj = errorObj.cause as Record<string, unknown>;
-        underlyingError = {
-          name: String(causeObj.name || 'Error'),
-          message: String(causeObj.message || causeObj),
-        } as Error;
-      }
-    }
-    
-    // Log complete error details including underlying cause
-    console.error("[Database] Query failed - Full details:", {
-      message: errorMessage,
-      code: errorObj?.code,
-      detail: errorObj?.detail,
-      hint: errorObj?.hint,
-      query: errorObj?.query,
-      params: errorObj?.params,
-      cause: errorObj?.cause,
-      underlyingError: underlyingError ? {
-        name: underlyingError.name,
-        message: underlyingError.message,
-        stack: underlyingError.stack,
-        code: (underlyingError as { code?: string }).code,
-      } : null,
-      stack: errorStack,
-      clerkUserId,
-      errorType: error?.constructor?.name,
-      allProperties: error ? Object.getOwnPropertyNames(error) : [],
-    });
-    
-    // Use underlying error message if available (this is the real postgres error)
-    const actualError = underlyingError || errorObj;
-    const actualCode = (actualError as { code?: string })?.code || errorObj?.code;
-    const actualDetail = (actualError as { detail?: string })?.detail || errorObj?.detail;
-    const actualHint = (actualError as { hint?: string })?.hint || errorObj?.hint;
-    
-    // Re-throw with more context
-    const fullErrorMessage = [
-      `Database query failed: ${actualError.message || errorMessage}`,
-      actualCode ? `Error code: ${actualCode}` : null,
-      actualDetail ? `Detail: ${actualDetail}` : null,
-      actualHint ? `Hint: ${actualHint}` : null,
-    ].filter(Boolean).join('\n');
-    
-    throw new Error(fullErrorMessage);
-  }
+  const existingUser = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, clerkUserId))
+    .limit(1);
 
   if (existingUser.length > 0) {
     // Update existing user

@@ -17,7 +17,6 @@
     "test:ui": "playwright test --ui --config apps/web/playwright.config.mts",
     "test:unit": "vitest --config vitest.config.mjs",
     "test:unit:ui": "vitest --ui --config vitest.config.mjs",
-    "test:stripe": "tsx scripts/test-stripe-integration.ts",
     "db:generate": "cd packages/db && drizzle-kit generate",
     "db:migrate": "cd packages/db && drizzle-kit migrate",
     "db:studio": "cd packages/db && drizzle-kit studio"
@@ -75,7 +74,6 @@
   },
   "devDependencies": {
     "@playwright/test": "1.57.0",
-    "@tailwindcss/postcss": "4.1.17",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.0",
     "@testing-library/user-event": "14.6.1",
@@ -91,7 +89,7 @@
     "husky": "9.1.7",
     "jsdom": "27.2.0",
     "lint-staged": "16.2.7",
-    "tailwindcss": "4.1.17",
+    "tailwindcss": "^3.4.18",
     "typescript": "5.9.3",
     "vitest": "2.1.9"
   },
@@ -111,4 +109,3 @@
     ]
   }
 }
-
