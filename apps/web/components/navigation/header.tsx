@@ -1,8 +1,13 @@
+"use client";
+
 import Link from "next/link";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 
 export function Header() {
+  const hasClerkKey = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && 
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY !== "pk_test_placeholder_for_build_time_only";
+
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/85">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -24,21 +29,34 @@ export function Header() {
             Find Match
           </Link>
           
-          <SignedOut>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button asChild size="sm" className="vibrant-gradient-button transition-all">
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-          </SignedOut>
-          
-          <SignedIn>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <UserButton afterSignOutUrl="/" />
-          </SignedIn>
+          {hasClerkKey ? (
+            <>
+              <SignedOut>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/sign-in">Sign In</Link>
+                </Button>
+                <Button asChild size="sm" className="vibrant-gradient-button transition-all">
+                  <Link href="/sign-up">Get Started</Link>
+                </Button>
+              </SignedOut>
+              
+              <SignedIn>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/dashboard">Dashboard</Link>
+                </Button>
+                <UserButton afterSignOutUrl="/" />
+              </SignedIn>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/sign-in">Sign In</Link>
+              </Button>
+              <Button asChild size="sm" className="vibrant-gradient-button transition-all">
+                <Link href="/sign-up">Get Started</Link>
+              </Button>
+            </>
+          )}
         </nav>
       </div>
     </header>

@@ -19,12 +19,28 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Use environment variable or fallback for build-time static generation
-  // The fallback allows the build to complete even if env var is not set during build
-  // In production, the env var should always be set in Vercel environment variables
-  const clerkPublishableKey = 
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 
-    "pk_test_placeholder_for_build_time_only";
+  const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const hasValidClerkKey = clerkPublishableKey && 
+    clerkPublishableKey !== "pk_test_placeholder_for_build_time_only" &&
+    clerkPublishableKey.startsWith("pk_");
+
+  const layoutContent = (
+    <html lang="en">
+      <body className={`${inter.className} antialiased`}>
+        <HeaderErrorBoundary>
+          <Header />
+        </HeaderErrorBoundary>
+        {children}
+        <Toaster />
+      </body>
+    </html>
+  );
+
+  // Only wrap with ClerkProvider if we have a valid key
+  // This allows builds to complete even if the env var is not set
+  if (!hasValidClerkKey) {
+    return layoutContent;
+  }
 
   return (
     <ClerkProvider
@@ -33,15 +49,7 @@ export default function RootLayout({
       // and is handled gracefully by Clerk's UI
       publishableKey={clerkPublishableKey}
     >
-      <html lang="en">
-        <body className={`${inter.className} antialiased`}>
-          <HeaderErrorBoundary>
-            <Header />
-          </HeaderErrorBoundary>
-          {children}
-          <Toaster />
-        </body>
-      </html>
+      {layoutContent}
     </ClerkProvider>
   );
 }
