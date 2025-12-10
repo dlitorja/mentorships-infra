@@ -19,10 +19,18 @@
     "postgres": "^3.4.5",
     "zod": "^4.1.13"
   },
+  "peerDependencies": {
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
   "devDependencies": {
     "drizzle-kit": "0.31.7",
     "@types/node": "20.19.25",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "next": "^16.0.7",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   }
 }
 
