@@ -10,7 +10,7 @@ import Link from "next/link";
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
-function WaitlistContent() {
+function WaitlistContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const instructorSlug = searchParams.get("instructor");
   const type = searchParams.get("type") || "one-on-one";

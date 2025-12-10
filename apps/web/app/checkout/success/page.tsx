@@ -16,7 +16,7 @@ import Link from "next/link";
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
-function CheckoutSuccessContent() {
+function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
   const [loading, setLoading] = useState(true);
@@ -100,7 +100,7 @@ function CheckoutSuccessContent() {
   );
 }
 
-export default function CheckoutSuccessPage() {
+export default function CheckoutSuccessPage(): React.JSX.Element {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <Suspense
