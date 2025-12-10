@@ -16,24 +16,7 @@ import {
   getProductById,
 } from "@mentorships/db";
 import { eq } from "drizzle-orm";
-import Stripe from "stripe";
-
-// Validate Stripe secret key
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-if (!stripeSecretKey) {
-  throw new Error(
-    "STRIPE_SECRET_KEY is not set. Please configure it in your environment variables."
-  );
-}
-if (!stripeSecretKey.startsWith("sk_test_") && !stripeSecretKey.startsWith("sk_live_")) {
-  throw new Error(
-    "STRIPE_SECRET_KEY appears to be invalid. It should start with 'sk_test_' or 'sk_live_'."
-  );
-}
-
-const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2025-02-24.acacia",
-});
+import { stripe } from "../../lib/stripe";
 
 // Process Stripe checkout completion
 export const processStripeCheckout = inngest.createFunction(

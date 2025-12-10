@@ -6,7 +6,7 @@ import { Database } from "../../types/database.types";
  * Creates a Supabase client for server-side operations
  * Uses Next.js cookies for session management
  * 
- * @returns Supabase client instance
+ * @returns Promise resolving to Supabase client instance
  */
 export async function createClient() {
   const cookieStore = await cookies();

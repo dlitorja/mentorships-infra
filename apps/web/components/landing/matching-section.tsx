@@ -192,7 +192,7 @@ export function MatchingSection(): React.JSX.Element {
                 disabled={
                   !artGoals.trim() ||
                   submitStatus === "submitting" ||
-                  Boolean(email && !isEmailValid)
+                  (email && !isEmailValid)
                 }
               >
                 {submitStatus === "submitting"
