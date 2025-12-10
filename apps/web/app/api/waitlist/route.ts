@@ -5,13 +5,8 @@ import { randomUUID } from "crypto";
 
 const waitlistPostSchema = z.object({
   instructorSlug: z.string().min(1, "Instructor slug is required"),
-  type: z.enum(["one-on-one", "group"]).superRefine((val, ctx) => {
-    if (!["one-on-one", "group"].includes(val)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.invalid_enum_value,
-        message: "Type must be 'one-on-one' or 'group'",
-      });
-    }
+  type: z.enum(["one-on-one", "group"], {
+    errorMap: () => ({ message: "Type must be 'one-on-one' or 'group'" }),
   }),
   email: z.string().email().optional(),
 });
