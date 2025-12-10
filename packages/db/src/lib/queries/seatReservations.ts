@@ -146,8 +146,10 @@ export async function releaseSeat(seatId: string) {
  * 
  * @param sessionPackId - UUID of the session pack
  * @returns Updated seat reservation
+ * 
+ * @deprecated Use releaseSeatByPackId from sessionPacks instead
  */
-export async function releaseSeatByPackId(sessionPackId: string) {
+async function releaseSeatByPackIdInternal(sessionPackId: string) {
   const [seat] = await db
     .update(seatReservations)
     .set({

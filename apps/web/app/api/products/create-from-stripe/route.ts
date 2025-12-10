@@ -5,8 +5,8 @@ import {
   mentorshipProducts,
   mentors,
   requireAuth,
+  eq,
 } from "@mentorships/db";
-import { eq } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
 
 /**

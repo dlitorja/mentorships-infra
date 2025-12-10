@@ -12,11 +12,8 @@
   "dependencies": {
     "@clerk/nextjs": "^6.35.5",
     "@mentorships/db": "workspace:*",
-    "@mentorships/payments": "workspace:*",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.81.1",
-    "embla-carousel-react": "^8.6.0",
-    "inngest": "^3.47.0",
     "next": "^16.0.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
@@ -25,9 +22,7 @@
     "@types/node": "^20.19.25",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "autoprefixer": "^10.4.22",
-    "postcss": "^8.5.6",
-    "tailwindcss": "^3.4.18",
     "typescript": "^5.9.3"
   }
 }
+

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { mentors } from "./mentors";
 import { payments } from "./payments";
@@ -10,8 +10,8 @@ export const sessionPackStatusEnum = pgEnum("session_pack_status", [
   "refunded",
 ]);
 
-// Derive type from enum to avoid drift
-export type SessionPackStatus = (typeof sessionPackStatusEnum.enumValues)[number];
+// Export type for use in queries
+export type SessionPackStatus = "active" | "depleted" | "expired" | "refunded";
 
 export const sessionPacks = pgTable("session_packs", {
   id: uuid("id")
@@ -34,13 +34,5 @@ export const sessionPacks = pgTable("session_packs", {
     .references(() => payments.id, { onDelete: "restrict" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  // Index for querying user's active packs
-  userIdStatusIdx: index("session_packs_user_id_status_idx").on(table.userId, table.status),
-  // Index for expiration checks
-  expiresAtIdx: index("session_packs_expires_at_idx").on(table.expiresAt),
-  // Index for status filtering
-  statusIdx: index("session_packs_status_idx").on(table.status),
-  // Index for payment lookups
-  paymentIdIdx: index("session_packs_payment_id_idx").on(table.paymentId),
-}));
+});
+

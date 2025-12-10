@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, pgEnum, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, pgEnum, boolean } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { mentors } from "./mentors";
 import { sessionPacks } from "./sessionPacks";
@@ -38,14 +38,5 @@ export const sessions = pgTable("sessions", {
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-}, (table) => ({
-  // Index for counting completed sessions per pack
-  packIdStatusIdx: index("sessions_pack_id_status_idx").on(table.sessionPackId, table.status),
-  // Index for querying user's sessions
-  studentIdStatusIdx: index("sessions_student_id_status_idx").on(table.studentId, table.status),
-  // Index for upcoming sessions queries
-  scheduledAtIdx: index("sessions_scheduled_at_idx").on(table.scheduledAt),
-  // Index for mentor's sessions
-  mentorIdStatusIdx: index("sessions_mentor_id_status_idx").on(table.mentorId, table.status),
-}));
+});
 
