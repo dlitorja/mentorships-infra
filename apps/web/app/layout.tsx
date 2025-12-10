@@ -20,9 +20,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-  const hasValidClerkKey = clerkPublishableKey && 
+  const hasValidClerkKey = Boolean(
+    clerkPublishableKey && 
     clerkPublishableKey !== "pk_test_placeholder_for_build_time_only" &&
-    clerkPublishableKey.startsWith("pk_");
+    clerkPublishableKey.startsWith("pk_")
+  );
 
   const layoutContent = (
     <html lang="en">
