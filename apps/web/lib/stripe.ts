@@ -24,6 +24,6 @@ function getStripeSecretKey(): string {
  * Initialized once and reused across the application
  */
 export const stripe = new Stripe(getStripeSecretKey(), {
-  apiVersion: "2024-12-18.acacia",
+  apiVersion: "2025-02-24.acacia",
 });
 
