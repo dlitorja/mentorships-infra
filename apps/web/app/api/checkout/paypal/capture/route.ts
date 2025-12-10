@@ -20,7 +20,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const validationResult = captureSchema.safeParse(body);
     if (!validationResult.success) {
       return NextResponse.json(
-        { error: "Invalid request", details: validationResult.error.errors },
+        { error: "Invalid request", details: validationResult.error.issues },
         { status: 400 }
       );
     }
