@@ -192,7 +192,7 @@ export function MatchingSection() {
                 disabled={
                   !artGoals.trim() ||
                   submitStatus === "submitting" ||
-                  (email && !isEmailValid)
+                  Boolean(email && !isEmailValid)
                 }
               >
                 {submitStatus === "submitting"
