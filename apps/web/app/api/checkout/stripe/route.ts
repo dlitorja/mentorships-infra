@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import type Stripe from "stripe";
 import {
   requireAuth,
   getProductById,
