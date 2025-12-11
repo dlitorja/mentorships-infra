@@ -4,6 +4,15 @@ import { users } from "../schema";
 import { eq } from "drizzle-orm";
 
 /**
+ * Type guard to check if an error has a 'cause' property
+ */
+type ErrorWithCause = Error & { cause?: unknown };
+
+function hasCause(error: unknown): error is ErrorWithCause {
+  return typeof error === "object" && error !== null && "cause" in error;
+}
+
+/**
  * Gets the current Clerk user ID from the session
  * 
  * @returns Clerk user ID or null if not authenticated
@@ -69,19 +78,13 @@ export async function syncClerkUserToSupabase(
       errorMessage = error.message;
       
       // DrizzleQueryError has a 'cause' property with the underlying error
-      if ('cause' in error) {
+      if (hasCause(error) && error.cause) {
         underlyingError = error.cause;
         if (underlyingError instanceof Error) {
           errorDetails = underlyingError.message;
         } else {
           errorDetails = String(underlyingError);
         }
-      }
-      
-      // Also check for any other error properties
-      const errorObj = error as unknown as Record<string, unknown>;
-      if (errorObj.cause && !errorDetails) {
-        errorDetails = String(errorObj.cause);
       }
     } else {
       errorMessage = String(error);
