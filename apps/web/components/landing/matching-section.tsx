@@ -157,12 +157,7 @@ export function MatchingSection(): React.JSX.Element {
                 )}
               </form.Field>
 
-              <form.Field
-                name="email"
-                validators={{
-                  onChange: matchingFormSchema.shape.email,
-                }}
-              >
+              <form.Field name="email">
                 {(field) => (
                   <div className="space-y-2">
                     <label
