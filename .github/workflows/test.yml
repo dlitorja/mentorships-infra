@@ -35,7 +35,8 @@ jobs:
 
   unit-tests:
     name: Unit Tests
-    runs-on: buildjet
+    runs-on: buildjet-4vcpu-ubuntu-2204
+    environment: Preview
     steps:
       - uses: actions/checkout@v4
       
@@ -116,6 +117,7 @@ jobs:
     name: Build
     runs-on: buildjet-4vcpu-ubuntu-2204
     needs: [lint-and-typecheck, unit-tests]
+    environment: Preview
     steps:
       - uses: actions/checkout@v4
       
