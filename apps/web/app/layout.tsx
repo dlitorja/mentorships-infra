@@ -43,15 +43,15 @@ export default function RootLayout({
     </html>
   );
 
-  // Only wrap with ClerkProvider if we have a valid key
-  // This allows builds to complete even if the env var is not set
-  if (!hasValidClerkKey) {
-    return layoutContent;
-  }
-
+  // Always wrap with ClerkProvider to ensure Clerk context is available
+  // This is required for Clerk components like SignIn to work properly
+  // If no key is set, we still wrap (Clerk will show errors, but context will be available)
+  // This prevents "useSession can only be used within ClerkProvider" errors
+  const publishableKey = clerkPublishableKey || "pk_test_placeholder";
+  
   return (
     <ClerkProvider
-      publishableKey={clerkPublishableKey}
+      publishableKey={publishableKey}
       {...(domainUrl && { domainUrl })}
       // Reduce verbose debug logging in development
       // The 422 error is typically a validation error (e.g., email already exists)
