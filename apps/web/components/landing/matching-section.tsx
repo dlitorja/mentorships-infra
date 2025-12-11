@@ -198,8 +198,7 @@ export function MatchingSection(): React.JSX.Element {
                 className="w-full text-lg vibrant-gradient-button transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={
                   !form.state.values.artGoals.trim() ||
-                  form.state.isSubmitting ||
-                  form.state.meta.errors.length > 0
+                  form.state.isSubmitting
                 }
               >
                 {form.state.isSubmitting ? "Submitting..." : "Find My Match"}
