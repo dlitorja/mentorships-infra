@@ -264,7 +264,10 @@ export const processStripeRefund = inngest.createFunction(
 
     // Release the seat
     await step.run("release-seat", async () => {
-      await releaseSeatByPackId(sessionPack.id);
+      const releasedSeat = await releaseSeatByPackId(sessionPack.id);
+      if (!releasedSeat) {
+        throw new Error(`Seat reservation not found for pack ${sessionPack.id}`);
+      }
     });
 
     // Mark pack as refunded
@@ -486,7 +489,10 @@ export const processPayPalRefund = inngest.createFunction(
 
     // Release the seat
     await step.run("release-seat", async () => {
-      await releaseSeatByPackId(sessionPack.id);
+      const releasedSeat = await releaseSeatByPackId(sessionPack.id);
+      if (!releasedSeat) {
+        throw new Error(`Seat reservation not found for pack ${sessionPack.id}`);
+      }
     });
 
     // Mark pack as refunded
