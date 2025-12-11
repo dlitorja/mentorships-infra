@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import { useForm } from "@tanstack/react-form";
+import { zodValidator } from "@tanstack/zod-form-adapter";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,11 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
+import { productFormSchema } from "@/lib/validation-schemas";
 
 export function CreateProductForm() {
-  const [stripeProductId, setStripeProductId] = useState("");
-  const [stripePriceId, setStripePriceId] = useState("");
-  const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     success: boolean;
     message: string;
@@ -29,47 +29,49 @@ export function CreateProductForm() {
     };
   } | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    setResult(null);
+  const form = useForm({
+    defaultValues: {
+      stripeProductId: "",
+      stripePriceId: "",
+    },
+    validatorAdapter: zodValidator(),
+    onSubmit: async ({ value }) => {
+      setResult(null);
 
-    try {
-      const response = await fetch("/api/products/create-from-stripe", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          productId: stripeProductId || undefined,
-          priceId: stripePriceId || undefined,
-        }),
-      });
+      try {
+        const response = await fetch("/api/products/create-from-stripe", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            productId: value.stripeProductId || undefined,
+            priceId: value.stripePriceId || undefined,
+          }),
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to create product");
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to create product");
+        }
+
+        setResult({
+          success: true,
+          message: data.message || "Product created successfully",
+          product: data.product,
+        });
+
+        // Clear form on success
+        form.reset();
+      } catch (error) {
+        setResult({
+          success: false,
+          message: error instanceof Error ? error.message : "Failed to create product",
+        });
       }
-
-      setResult({
-        success: true,
-        message: data.message || "Product created successfully",
-        product: data.product,
-      });
-
-      // Clear form on success
-      setStripeProductId("");
-      setStripePriceId("");
-    } catch (error) {
-      setResult({
-        success: false,
-        message: error instanceof Error ? error.message : "Failed to create product",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+  });
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
@@ -81,34 +83,72 @@ export function CreateProductForm() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="productId">Stripe Product ID (optional)</Label>
-              <Input
-                id="productId"
-                value={stripeProductId}
-                onChange={(e) => setStripeProductId(e.target.value)}
-                placeholder="prod_..."
-                disabled={loading}
-              />
-              <p className="text-sm text-muted-foreground">
-                Enter a Stripe Product ID (e.g., prod_TYUOiS4yHJjj42). The default price will be used.
-              </p>
-            </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              form.handleSubmit();
+            }}
+            className="space-y-6"
+          >
+            <form.Field name="stripeProductId">
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>Stripe Product ID (optional)</Label>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="prod_..."
+                    disabled={form.state.isSubmitting}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Enter a Stripe Product ID (e.g., prod_TYUOiS4yHJjj42). The default price will be used.
+                  </p>
+                </div>
+              )}
+            </form.Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="priceId">Stripe Price ID (optional)</Label>
-              <Input
-                id="priceId"
-                value={stripePriceId}
-                onChange={(e) => setStripePriceId(e.target.value)}
-                placeholder="price_..."
-                disabled={loading}
-              />
-              <p className="text-sm text-muted-foreground">
-                Or enter a Stripe Price ID directly (e.g., price_...). One of Product ID or Price ID is required.
-              </p>
-            </div>
+            <form.Field
+              name="stripePriceId"
+              validators={{
+                onChange: zodValidator(productFormSchema),
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>Stripe Price ID (optional)</Label>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="price_..."
+                    disabled={form.state.isSubmitting}
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    aria-describedby={
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Or enter a Stripe Price ID directly (e.g., price_...). One of Product ID or Price ID is required.
+                  </p>
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
 
             {result && (
               <div
@@ -177,8 +217,14 @@ export function CreateProductForm() {
             )}
 
             <div className="flex gap-2">
-              <Button type="submit" disabled={loading || (!stripeProductId && !stripePriceId)}>
-                {loading ? (
+              <Button
+                type="submit"
+                disabled={
+                  form.state.isSubmitting ||
+                  (!form.state.values.stripeProductId && !form.state.values.stripePriceId)
+                }
+              >
+                {form.state.isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Creating...

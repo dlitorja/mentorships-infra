@@ -1,105 +1,81 @@
 "use client";
 
-import { useState } from "react";
+import { useForm } from "@tanstack/react-form";
+import { zodValidator } from "@tanstack/zod-form-adapter";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sparkles } from "lucide-react";
-import { validateEmail } from "@/lib/validation";
 import { toast } from "sonner";
-
-type SubmitStatus = "idle" | "submitting" | "success" | "error";
+import { matchingFormSchema } from "@/lib/validation-schemas";
 
 export function MatchingSection(): React.JSX.Element {
-  const [artGoals, setArtGoals] = useState("");
-  const [email, setEmail] = useState("");
-  const [isEmailValid, setIsEmailValid] = useState(true);
-  const [submitStatus, setSubmitStatus] = useState<SubmitStatus>("idle");
-
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
-    const value = e.target.value;
-    setEmail(value);
-    if (value) {
-      setIsEmailValid(validateEmail(value) !== null);
-    } else {
-      setIsEmailValid(true); // Valid if empty (optional field)
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault();
-    setSubmitStatus("submitting");
-
-    // Validate email if provided
-    if (email && !validateEmail(email)) {
-      setIsEmailValid(false);
-      setSubmitStatus("error");
-      toast.error("Please enter a valid email address");
-      return;
-    }
-
-    // If email is provided, add to contacts database
-    if (email) {
-      try {
-        const response = await fetch("/api/contacts", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email,
-            artGoals,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            errorData.error ||
-              `Request failed with status ${response.status} ${response.statusText}`
-          );
-        }
-
-        setSubmitStatus("success");
-        toast.success("Thank you! We'll be in touch soon.");
-        setEmail("");
-        setArtGoals("");
-      } catch (error) {
-        setSubmitStatus("error");
-        const errorMessage =
-          error instanceof Error ? error.message : "Failed to submit";
-        console.error("Failed to add email to contacts:", errorMessage);
-        
-        // Forward error to Better Stack via server-side API route
-        fetch("/api/errors", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            message: errorMessage,
-            level: "error",
-            service: "mentorship-platform",
-            component: "matching-section",
-            error: {
-              name: error instanceof Error ? error.name : "UnknownError",
-              message: errorMessage,
+  const form = useForm({
+    defaultValues: {
+      artGoals: "",
+      email: "",
+    },
+    validatorAdapter: zodValidator(),
+    onSubmit: async ({ value }) => {
+      // If email is provided, add to contacts database
+      if (value.email) {
+        try {
+          const response = await fetch("/api/contacts", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
             },
-          }),
-        }).catch(() => {
-          // Silently fail if error tracking is unavailable
-        });
-        
-        toast.error("Something went wrong. Please try again later.");
+            body: JSON.stringify({
+              email: value.email,
+              artGoals: value.artGoals,
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(
+              errorData.error ||
+                `Request failed with status ${response.status} ${response.statusText}`
+            );
+          }
+
+          toast.success("Thank you! We'll be in touch soon.");
+          form.reset();
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : "Failed to submit";
+          console.error("Failed to add email to contacts:", errorMessage);
+          
+          // Forward error to Better Stack via server-side API route
+          fetch("/api/errors", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              message: errorMessage,
+              level: "error",
+              service: "mentorship-platform",
+              component: "matching-section",
+              error: {
+                name: error instanceof Error ? error.name : "UnknownError",
+                message: errorMessage,
+              },
+            }),
+          }).catch(() => {
+            // Silently fail if error tracking is unavailable
+          });
+          
+          toast.error("Something went wrong. Please try again later.");
+        }
+      } else {
+        // No email provided, just mark as success for now
+        toast.success("Thank you! We'll be in touch soon.");
+        form.reset();
       }
-    } else {
-      // No email provided, just mark as success for now
-      setSubmitStatus("success");
-      toast.success("Thank you! We'll be in touch soon.");
-      setArtGoals("");
-    }
-  };
+    },
+  });
 
   return (
     <section id="find-match" className="py-20 px-4 bg-muted/30">
@@ -123,81 +99,126 @@ export function MatchingSection(): React.JSX.Element {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-4">
-                <label
-                  htmlFor="art-goals"
-                  className="block text-center text-xl font-semibold text-white peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
-                  What are your art goals?
-                </label>
-                <Textarea
-                  id="art-goals"
-                  placeholder="e.g., I want to improve my character design skills and build a portfolio for game studios. I'm particularly interested in fantasy art and have been working digitally for about 2 years..."
-                  value={artGoals}
-                  onChange={(e) => setArtGoals(e.target.value)}
-                  className="min-h-[120px] resize-none bg-white/10 border-white/20 text-white placeholder:text-white/50 focus:border-white/40"
-                />
-                <p className="text-center text-xs text-white/70">
-                  Be as specific as possible about your goals, experience level, and interests
-                </p>
-              </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                form.handleSubmit();
+              }}
+              className="space-y-6"
+            >
+              <form.Field
+                name="artGoals"
+                validators={{
+                  onChange: zodValidator(matchingFormSchema.shape.artGoals),
+                }}
+              >
+                {(field) => (
+                  <div className="space-y-4">
+                    <label
+                      htmlFor={field.name}
+                      className="block text-center text-xl font-semibold text-white peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      What are your art goals?
+                    </label>
+                    <Textarea
+                      id={field.name}
+                      name={field.name}
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      placeholder="e.g., I want to improve my character design skills and build a portfolio for game studios. I'm particularly interested in fantasy art and have been working digitally for about 2 years..."
+                      className="min-h-[120px] resize-none bg-white/10 border-white/20 text-white placeholder:text-white/50 focus:border-white/40"
+                      aria-invalid={field.state.meta.errors.length > 0}
+                      aria-describedby={
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                    />
+                    <p className="text-center text-xs text-white/70">
+                      Be as specific as possible about your goals, experience level, and interests
+                    </p>
+                    {field.state.meta.errors.length > 0 && (
+                      <p
+                        id={`${field.name}-error`}
+                        className="text-center text-xs text-red-400"
+                      >
+                        {field.state.meta.errors[0]}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </form.Field>
 
-              <div className="space-y-2">
-                <label
-                  htmlFor="email"
-                  className="block text-center text-sm font-medium text-white"
-                >
-                  Email Address (Optional)
-                </label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={handleEmailChange}
-                  className={`w-full bg-white/10 border ${
-                    !isEmailValid
-                      ? "border-red-500 text-white placeholder:text-white/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
-                      : "border-white/20 text-white placeholder:text-white/50 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
-                  }`}
-                  placeholder="your@email.com"
-                  aria-invalid={!isEmailValid}
-                  aria-describedby={
-                    !isEmailValid ? "email-error" : "email-description"
-                  }
-                />
-                {!isEmailValid && (
-                  <p
-                    id="email-error"
-                    className="text-center text-xs text-red-400"
-                  >
-                    Please enter a valid email address
-                  </p>
+              <form.Field
+                name="email"
+                validators={{
+                  onChange: zodValidator(matchingFormSchema.shape.email),
+                }}
+              >
+                {(field) => (
+                  <div className="space-y-2">
+                    <label
+                      htmlFor={field.name}
+                      className="block text-center text-sm font-medium text-white"
+                    >
+                      Email Address (Optional)
+                    </label>
+                    <Input
+                      id={field.name}
+                      name={field.name}
+                      type="email"
+                      value={field.state.value || ""}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      className={`w-full bg-white/10 border ${
+                        field.state.meta.errors.length > 0
+                          ? "border-red-500 text-white placeholder:text-white/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                          : "border-white/20 text-white placeholder:text-white/50 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
+                      }`}
+                      placeholder="your@email.com"
+                      aria-invalid={field.state.meta.errors.length > 0}
+                      aria-describedby={
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : field.state.value
+                            ? `${field.name}-description`
+                            : undefined
+                      }
+                    />
+                    {field.state.meta.errors.length > 0 && (
+                      <p
+                        id={`${field.name}-error`}
+                        className="text-center text-xs text-red-400"
+                      >
+                        {field.state.meta.errors[0]}
+                      </p>
+                    )}
+                    {field.state.value && field.state.meta.errors.length === 0 && (
+                      <p
+                        id={`${field.name}-description`}
+                        className="text-center text-xs text-white/60"
+                      >
+                        By providing your email, you opt in to receive communications
+                        from us about mentorship opportunities and updates.
+                      </p>
+                    )}
+                  </div>
                 )}
-                {email && isEmailValid && (
-                  <p
-                    id="email-description"
-                    className="text-center text-xs text-white/60"
-                  >
-                    By providing your email, you opt in to receive communications
-                    from us about mentorship opportunities and updates.
-                  </p>
-                )}
-              </div>
+              </form.Field>
               
               <Button
                 type="submit"
                 size="lg"
                 className="w-full text-lg vibrant-gradient-button transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={Boolean(
-                  !artGoals.trim() ||
-                  submitStatus === "submitting" ||
-                  (email && !isEmailValid)
-                )}
+                disabled={
+                  !form.state.values.artGoals.trim() ||
+                  form.state.isSubmitting ||
+                  form.state.meta.errors.length > 0
+                }
               >
-                {submitStatus === "submitting"
-                  ? "Submitting..."
-                  : "Find My Match"}
+                {form.state.isSubmitting ? "Submitting..." : "Find My Match"}
                 <Sparkles className="ml-2 h-4 w-4" />
               </Button>
             </form>

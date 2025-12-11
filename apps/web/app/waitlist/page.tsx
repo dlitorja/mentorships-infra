@@ -2,10 +2,13 @@
 
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useForm } from "@tanstack/react-form";
+import { zodValidator } from "@tanstack/zod-form-adapter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
+import { waitlistFormSchema } from "@/lib/validation-schemas";
 
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
@@ -15,42 +18,43 @@ function WaitlistContent(): React.JSX.Element {
   const instructorSlug = searchParams.get("instructor");
   const type = searchParams.get("type") || "one-on-one";
   
-  const [email, setEmail] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setError(null);
+  const form = useForm({
+    defaultValues: {
+      email: "",
+    },
+    validatorAdapter: zodValidator(),
+    onSubmit: async ({ value }) => {
+      setError(null);
 
-    try {
-      const response = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          instructorSlug,
-          type,
-          email,
-        }),
-      });
+      try {
+        const response = await fetch("/api/waitlist", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            instructorSlug,
+            type,
+            email: value.email,
+          }),
+        });
 
-      const data = await response.json();
+        const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to join waitlist");
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to join waitlist");
+        }
+
+        setIsSuccess(true);
+        form.reset();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "An error occurred");
       }
-
-      setIsSuccess(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    },
+  });
 
   if (isSuccess) {
     return (
@@ -92,23 +96,54 @@ function WaitlistContent(): React.JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium">
-                Email Address
-              </label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-              />
-            </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              form.handleSubmit();
+            }}
+            className="space-y-4"
+          >
+            <form.Field
+              name="email"
+              validators={{
+                onChange: zodValidator(waitlistFormSchema.shape.email),
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <label htmlFor={field.name} className="text-sm font-medium">
+                    Email Address
+                  </label>
+                  <Input
+                    id={field.name}
+                    type="email"
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="your@email.com"
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    aria-describedby={
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                  />
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
 
             {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+              <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400 rounded-md">
                 {error}
               </div>
             )}
@@ -118,9 +153,9 @@ function WaitlistContent(): React.JSX.Element {
                 type="submit"
                 size="lg"
                 className="w-full vibrant-gradient-button transition-all"
-                disabled={isSubmitting}
+                disabled={form.state.isSubmitting}
               >
-                {isSubmitting ? "Joining Waitlist..." : "Join Waitlist"}
+                {form.state.isSubmitting ? "Joining Waitlist..." : "Join Waitlist"}
               </Button>
               <Button asChild variant="outline" className="w-full">
                 <Link href={instructorSlug ? `/instructors/${instructorSlug}` : "/instructors"}>
