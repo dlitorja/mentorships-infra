@@ -173,30 +173,13 @@ export function MatchingSection(): React.JSX.Element {
                       value={field.state.value || ""}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
-                      className={`w-full bg-white/10 border ${
-                        field.state.meta.errors.length > 0
-                          ? "border-red-500 text-white placeholder:text-white/50 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
-                          : "border-white/20 text-white placeholder:text-white/50 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
-                      }`}
+                      className="w-full bg-white/10 border border-white/20 text-white placeholder:text-white/50 focus:border-white/40 focus:outline-none focus:ring-2 focus:ring-white/20"
                       placeholder="your@email.com"
-                      aria-invalid={field.state.meta.errors.length > 0}
                       aria-describedby={
-                        field.state.meta.errors.length > 0
-                          ? `${field.name}-error`
-                          : field.state.value
-                            ? `${field.name}-description`
-                            : undefined
+                        field.state.value ? `${field.name}-description` : undefined
                       }
                     />
-                    {field.state.meta.errors.length > 0 && (
-                      <p
-                        id={`${field.name}-error`}
-                        className="text-center text-xs text-red-400"
-                      >
-                        {field.state.meta.errors[0]?.message}
-                      </p>
-                    )}
-                    {field.state.value && field.state.meta.errors.length === 0 && (
+                    {field.state.value && (
                       <p
                         id={`${field.name}-description`}
                         className="text-center text-xs text-white/60"
