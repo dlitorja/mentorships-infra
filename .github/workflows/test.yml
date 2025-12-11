@@ -72,6 +72,7 @@ jobs:
   e2e-tests:
     name: E2E Tests
     runs-on: buildjet-4vcpu-ubuntu-2204
+    environment: Preview
     steps:
       - uses: actions/checkout@v4
       
