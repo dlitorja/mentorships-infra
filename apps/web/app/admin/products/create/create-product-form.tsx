@@ -131,12 +131,6 @@ export function CreateProductForm() {
                     onBlur={field.handleBlur}
                     placeholder="price_..."
                     disabled={form.state.isSubmitting}
-                    aria-invalid={field.state.meta.errors.length > 0}
-                    aria-describedby={
-                      field.state.meta.errors.length > 0
-                        ? `${field.name}-error`
-                        : undefined
-                    }
                   />
                   <p className="text-sm text-muted-foreground">
                     Or enter a Stripe Price ID directly (e.g., price_...). One of Product ID or Price ID is required.
