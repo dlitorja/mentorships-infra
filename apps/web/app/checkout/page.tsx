@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +18,7 @@ import Link from "next/link";
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
-function CheckoutContent(): JSX.Element {
+function CheckoutContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
   const instructorSlug = searchParams.get("instructor");
@@ -232,7 +232,7 @@ function CheckoutContent(): JSX.Element {
   );
 }
 
-export default function CheckoutPage(): JSX.Element {
+export default function CheckoutPage(): React.JSX.Element {
   return (
     <Suspense
       fallback={
