@@ -15,12 +15,17 @@ export function MatchingSection(): React.JSX.Element {
       artGoals: "",
       email: "",
     },
-    validators: {
-      onChange: matchingFormSchema,
-    },
     onSubmit: async ({ value }) => {
+      // Validate form data
+      const validationResult = matchingFormSchema.safeParse(value);
+      if (!validationResult.success) {
+        const firstError = validationResult.error.issues[0];
+        toast.error(firstError?.message || "Please check your input");
+        return;
+      }
+
       // If email is provided, add to contacts database
-      if (value.email) {
+      if (value.email?.trim()) {
         try {
           const response = await fetch("/api/contacts", {
             method: "POST",
