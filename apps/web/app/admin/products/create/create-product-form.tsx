@@ -33,10 +33,17 @@ export function CreateProductForm() {
       stripeProductId: "",
       stripePriceId: "",
     },
-    validators: {
-      onChange: productFormSchema,
-    },
     onSubmit: async ({ value }) => {
+      // Validate that at least one field is provided
+      const validationResult = productFormSchema.safeParse(value);
+      if (!validationResult.success) {
+        setResult({
+          success: false,
+          message: validationResult.error.errors[0]?.message || "Either Stripe Product ID or Price ID is required",
+        });
+        return;
+      }
+
       setResult(null);
 
       try {
