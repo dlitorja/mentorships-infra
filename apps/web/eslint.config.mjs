@@ -52,8 +52,6 @@ export default [
           varsIgnorePattern: "^_",
         },
       ],
-      "react-hooks/exhaustive-deps": "warn", // Allow some React hooks issues
-      "react-hooks/rules-of-hooks": "error", // Keep this as error (critical)
       "react-hooks/purity": "off", // Disable purity checks (too strict)
       "@next/next/no-html-link-for-pages": "warn", // Allow <a> tags in some cases
       "no-unused-vars": "off", // Use TypeScript version instead

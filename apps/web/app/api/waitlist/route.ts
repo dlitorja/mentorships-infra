@@ -37,6 +37,7 @@ export async function POST(
     const { userId } = await auth();
     const body = await request.json();
     const validated = waitlistPostSchema.parse(body);
+    // Validated but not yet used - will be used when TODO below is implemented
     const { instructorSlug: _instructorSlug, type: _type, email } = validated;
 
     if (!email && !userId) {
