@@ -19,6 +19,7 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
         // Instructor navigation
         { href: "/instructor/dashboard", label: "Instructor Dashboard" },
         { href: "/instructor/sessions", label: "My Sessions" },
+        { href: "/instructor/settings", label: "Instructor Settings" },
         { href: "/settings", label: "Settings" },
       ]
     : [

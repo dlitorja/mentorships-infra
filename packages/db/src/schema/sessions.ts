@@ -33,7 +33,7 @@ export const sessions = pgTable("sessions", {
   recordingUrl: text("recording_url"),
   recordingExpiresAt: timestamp("recording_expires_at"),
   // Google Calendar integration
-  googleCalendarEventId: text("google_calendar_event_id"),
+  googleCalendarEventId: text("google_calendar_event_id").unique(),
   // Notes
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
