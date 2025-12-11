@@ -79,7 +79,7 @@ export async function syncClerkUserToSupabase(
       }
       
       // Also check for any other error properties
-      const errorObj = error as Record<string, unknown>;
+      const errorObj = error as unknown as Record<string, unknown>;
       if (errorObj.cause && !errorDetails) {
         errorDetails = String(errorObj.cause);
       }
