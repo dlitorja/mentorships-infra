@@ -89,7 +89,7 @@ export function MatchingSection() {
                         id={`${field.name}-error`}
                         className="text-center text-xs text-red-400"
                       >
-                        {field.state.meta.errors[0]}
+                        {field.state.meta.errors[0]?.message}
                       </p>
                     )}
                   </div>

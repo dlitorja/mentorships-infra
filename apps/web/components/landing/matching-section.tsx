@@ -145,7 +145,7 @@ export function MatchingSection(): React.JSX.Element {
                         id={`${field.name}-error`}
                         className="text-center text-xs text-red-400"
                       >
-                        {field.state.meta.errors[0]}
+                        {field.state.meta.errors[0]?.message}
                       </p>
                     )}
                   </div>
@@ -193,7 +193,7 @@ export function MatchingSection(): React.JSX.Element {
                         id={`${field.name}-error`}
                         className="text-center text-xs text-red-400"
                       >
-                        {field.state.meta.errors[0]}
+                        {field.state.meta.errors[0]?.message}
                       </p>
                     )}
                     {field.state.value && field.state.meta.errors.length === 0 && (

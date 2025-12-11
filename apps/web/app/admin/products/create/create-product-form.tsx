@@ -146,7 +146,7 @@ export function CreateProductForm() {
                       id={`${field.name}-error`}
                       className="text-sm text-red-600 dark:text-red-400"
                     >
-                      {field.state.meta.errors[0]}
+                      {field.state.meta.errors[0]?.message}
                     </p>
                   )}
                 </div>
