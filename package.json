@@ -108,7 +108,8 @@
   },
   "pnpm": {
     "overrides": {
-      "esbuild": ">=0.25.0"
+      "esbuild": ">=0.25.0",
+      "parse5": "^7.1.2"
     }
   },
   "lint-staged": {
