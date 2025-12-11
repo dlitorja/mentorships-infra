@@ -431,6 +431,29 @@ export async function updateSeatReservationStatus(
 }
 
 /**
+ * Release seat by session pack ID
+ * 
+ * @param sessionPackId - UUID of the session pack
+ * @returns Updated seat reservation
+ */
+export async function releaseSeatByPackId(sessionPackId: string) {
+  const [seat] = await db
+    .update(seatReservations)
+    .set({
+      status: "released",
+      updatedAt: new Date(),
+    })
+    .where(eq(seatReservations.sessionPackId, sessionPackId))
+    .returning();
+
+  if (!seat) {
+    throw new Error(`Seat reservation for pack ${sessionPackId} not found`);
+  }
+
+  return seat;
+}
+
+/**
  * Get expired session packs that need seat release
  * Returns packs where:
  * - Pack is expired AND all scheduled sessions are completed
