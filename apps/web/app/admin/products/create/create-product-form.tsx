@@ -39,7 +39,7 @@ export function CreateProductForm() {
       if (!validationResult.success) {
         setResult({
           success: false,
-          message: validationResult.error.errors[0]?.message || "Either Stripe Product ID or Price ID is required",
+          message: validationResult.error.issues[0]?.message || "Either Stripe Product ID or Price ID is required",
         });
         return;
       }
