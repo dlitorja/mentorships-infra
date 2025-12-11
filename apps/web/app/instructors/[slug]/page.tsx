@@ -1,0 +1,338 @@
+import { notFound } from "next/navigation";
+import Image from "next/image";
+import Link from "next/link";
+import { ExternalLink, Twitter, Instagram, Youtube } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
+import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
+import { InstructorNavigationWrapper } from "@/components/instructors/instructor-navigation-wrapper";
+import {
+  getInstructorBySlug,
+  getNextInstructor,
+  getPreviousInstructor,
+  getAvailableInstructors,
+} from "@/lib/instructors";
+import type { Instructor } from "@/lib/instructors";
+
+interface InstructorProfilePageProps {
+  params: Promise<{ slug: string }>;
+}
+
+function SocialIcon({ platform }: { platform: string }) {
+  switch (platform) {
+    case "twitter":
+      return <Twitter className="h-4 w-4" />;
+    case "instagram":
+      return <Instagram className="h-4 w-4" />;
+    case "youtube":
+      return <Youtube className="h-4 w-4" />;
+    case "artstation":
+    case "patreon":
+    case "bluesky":
+    case "website":
+    default:
+      return <ExternalLink className="h-4 w-4" />;
+  }
+}
+
+function SocialLink({ url, platform }: { url: string; platform: string }) {
+  const platformNames: Record<string, string> = {
+    twitter: "Twitter",
+    instagram: "Instagram",
+    artstation: "ArtStation",
+    website: "Website",
+    youtube: "YouTube",
+    patreon: "Patreon",
+    bluesky: "Bluesky",
+    facebook: "Facebook",
+    behance: "Behance",
+  };
+
+  return (
+    <Button
+      asChild
+      variant="default"
+      size="lg"
+      className="gap-2 shadow-md hover:shadow-lg transition-shadow"
+    >
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center"
+      >
+        <SocialIcon platform={platform} />
+        {platformNames[platform] || platform}
+      </a>
+    </Button>
+  );
+}
+
+export default async function InstructorProfilePage({
+  params,
+}: InstructorProfilePageProps) {
+  const { slug } = await params;
+  const instructor = getInstructorBySlug(slug);
+
+  if (!instructor) {
+    notFound();
+  }
+
+  const nextInstructor = getNextInstructor(slug);
+  const previousInstructor = getPreviousInstructor(slug);
+  const socialLinks = instructor.socialLinks || {};
+  
+  // Dummy data for available spots (will be replaced with real data later)
+  // Using a deterministic approach based on slug to ensure consistent results
+  const spotSeed = slug.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  // For Rakasa, randomize both 1-on-1 and group spots to demonstrate different states
+  const oneOnOneSpots = slug === "rakasa" ? Math.floor(Math.random() * 6) : spotSeed % 6; // 0-5 spots
+  const groupSpots = instructor.pricing.group 
+    ? (slug === "rakasa" ? Math.floor(Math.random() * 6) : (spotSeed * 2) % 6)
+    : 0;
+  
+  const renderSpotsAvailable = (spots: number) => {
+    if (spots === 0) {
+      return (
+        <p className="text-sm font-bold text-red-600 mt-1">
+          SOLD OUT
+        </p>
+      );
+    } else if (spots === 1) {
+      return (
+        <p className="text-sm font-bold text-red-600 mt-1">
+          ONLY 1 SPOT LEFT
+        </p>
+      );
+    } else if (spots === 2) {
+      return (
+        <p className="text-sm font-bold text-red-600 mt-1">
+          ONLY 2 SPOTS LEFT
+        </p>
+      );
+    } else {
+      return (
+        <p className="text-sm text-muted-foreground mt-1">
+          {spots} spots available
+        </p>
+      );
+    }
+  };
+
+  return (
+    <InstructorNavigation
+      previousSlug={previousInstructor?.slug || null}
+      nextSlug={nextInstructor?.slug || null}
+    >
+      <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8 md:py-12">
+        <InstructorNavigationWrapper
+          currentSlug={slug}
+          instructor={instructor}
+          defaultNext={nextInstructor}
+          defaultPrevious={previousInstructor}
+        />
+
+        {/* Main Content */}
+        <div className="mx-auto max-w-6xl">
+          <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
+            {/* Profile Image */}
+            <div className="relative aspect-square w-full overflow-hidden rounded-lg">
+              <Image
+                src={instructor.profileImage}
+                alt={instructor.name}
+                fill
+                className="object-cover"
+                sizes="(max-width: 768px) 100vw, 50vw"
+                priority
+              />
+            </div>
+
+            {/* Profile Info */}
+            <div className="flex flex-col space-y-6">
+              <div>
+                <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+                  {instructor.name}
+                </h1>
+                <p className="mt-2 text-xl text-muted-foreground">
+                  {instructor.tagline}
+                </p>
+              </div>
+
+              {/* Bio */}
+              <div>
+                <h2 className="text-2xl font-semibold mb-3">About</h2>
+                <p className="text-muted-foreground leading-relaxed">
+                  {instructor.bio}
+                </p>
+              </div>
+
+              {/* Specialties */}
+              <div>
+                <h2 className="text-2xl font-semibold mb-3">Specialties</h2>
+                <div className="flex flex-wrap gap-2">
+                  {instructor.specialties.map((specialty) => (
+                    <Badge key={specialty} variant="secondary" className="text-sm">
+                      {specialty}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* Background */}
+              <div>
+                <h2 className="text-2xl font-semibold mb-3">Background</h2>
+                <div className="flex flex-wrap gap-2">
+                  {instructor.background.map((bg) => (
+                    <Badge key={bg} variant="outline" className="text-sm">
+                      {bg}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* Pricing */}
+              <div>
+                <h2 className="text-2xl font-semibold mb-3">Pricing</h2>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-lg">
+                      <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
+                      ${instructor.pricing.oneOnOne} for 4 sessions
+                    </p>
+                    {renderSpotsAvailable(oneOnOneSpots)}
+                    <div className="mt-4">
+                      {oneOnOneSpots === 0 ? (
+                        <Button 
+                          asChild 
+                          size="lg" 
+                          className="vibrant-gradient-button transition-all"
+                        >
+                          <Link href={`/waitlist?instructor=${instructor.slug}&type=one-on-one`}>
+                            Sign up for waitlist
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button 
+                          asChild 
+                          size="lg" 
+                          className="vibrant-gradient-button transition-all"
+                        >
+                          <Link href={`/checkout?instructor=${instructor.slug}&type=one-on-one`}>
+                            Buy my 1-on-1 mentorship
+                          </Link>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                  {instructor.pricing.group && (
+                    <div className="mt-4 pt-4 border-t">
+                      <p className="text-lg">
+                        <span className="font-semibold">Group Mentorships:</span>{" "}
+                        ${instructor.pricing.group} for 4 sessions
+                      </p>
+                      {renderSpotsAvailable(groupSpots)}
+                      {groupSpots > 0 && slug === "rakasa" && (
+                        <div className="mt-4 space-y-2">
+                          <p className="text-sm text-muted-foreground">
+                            <span className="font-semibold">Current Cohort:</span> All 4 sessions start at{" "}
+                            <span className="font-medium">1:00 PM CST (7:00 PM UTC)</span>
+                          </p>
+                          <div className="text-sm text-muted-foreground">
+                            <p className="font-semibold mb-1">Session Dates:</p>
+                            <ul className="list-disc list-inside space-y-1 ml-2">
+                              <li>January 6, 2026</li>
+                              <li>January 13, 2026</li>
+                              <li>January 20, 2026</li>
+                              <li>January 27, 2026</li>
+                            </ul>
+                          </div>
+                          <p className="text-sm text-amber-600 dark:text-amber-500 mt-3 font-medium">
+                            ⚠️ Please only sign up if you can dedicate 1.5-2 hours on the given dates. Rescheduling will be unavailable.
+                          </p>
+                        </div>
+                      )}
+                      <div className="mt-4">
+                        {groupSpots === 0 ? (
+                          <Button 
+                            asChild 
+                            size="lg" 
+                            className="vibrant-gradient-button transition-all"
+                          >
+                            <Link href={`/waitlist?instructor=${instructor.slug}&type=group`}>
+                              Sign up for waitlist
+                            </Link>
+                          </Button>
+                        ) : (
+                          <Button 
+                            asChild 
+                            size="lg" 
+                            className="vibrant-gradient-button transition-all"
+                          >
+                            <Link href={`/checkout?instructor=${instructor.slug}&type=group`}>
+                              Buy my group mentorship
+                            </Link>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Social Links */}
+              {Object.keys(socialLinks).length > 0 && (
+                <div>
+                  <h2 className="text-2xl font-semibold mb-3">Socials</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {socialLinks.twitter && (
+                      <SocialLink url={socialLinks.twitter} platform="twitter" />
+                    )}
+                    {socialLinks.instagram && (
+                      <SocialLink url={socialLinks.instagram} platform="instagram" />
+                    )}
+                    {socialLinks.artstation && (
+                      <SocialLink url={socialLinks.artstation} platform="artstation" />
+                    )}
+                    {socialLinks.website && (
+                      <SocialLink url={socialLinks.website} platform="website" />
+                    )}
+                    {socialLinks.youtube && (
+                      <SocialLink url={socialLinks.youtube} platform="youtube" />
+                    )}
+                    {socialLinks.patreon && (
+                      <SocialLink url={socialLinks.patreon} platform="patreon" />
+                    )}
+                    {socialLinks.bluesky && (
+                      <SocialLink url={socialLinks.bluesky} platform="bluesky" />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Portfolio Work */}
+          {instructor.workImages.length > 0 && (
+            <div className="mt-12">
+              <div className="mb-6 flex items-center gap-3">
+                <h2 className="text-3xl font-bold">Portfolio</h2>
+                <p className="text-sm text-muted-foreground">
+                  Click any image to view in full size
+                </p>
+              </div>
+              <PortfolioGallery
+                images={instructor.workImages}
+                instructorName={instructor.name}
+              />
+            </div>
+          )}
+
+        </div>
+      </div>
+      </div>
+    </InstructorNavigation>
+  );
+}
+

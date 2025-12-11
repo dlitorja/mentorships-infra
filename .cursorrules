@@ -311,6 +311,43 @@ Format: `<type>/<short-description>`
    - Delete branches after merging (squash merge preserves history)
    - Use descriptive branch names matching PR scope
 
+4. **Branch Synchronization & Conflict Prevention - CRITICAL:**
+   - **ALWAYS update feature branch with latest base branch BEFORE creating PR:**
+     ```bash
+     git fetch origin
+     git checkout <feature-branch>
+     git merge origin/<base-branch>  # or git rebase for cleaner history
+     # Resolve any conflicts locally
+     git push
+     ```
+   - **ALWAYS check for conflicts proactively:**
+     - Merge/rebase base branch into feature branch locally before creating PR
+     - Resolve conflicts in development environment, not during PR review
+     - Test after resolving conflicts to ensure nothing broke
+   - **ALWAYS monitor base branch activity:**
+     - Watch for other PRs being merged into base branch
+     - Update feature branch immediately after base branch updates
+     - Don't let feature branches become stale (merge within days, not weeks)
+   - **ALWAYS use GitHub's "Update branch" button carefully:**
+     - Only use if conflicts are simple
+     - Prefer local merge/rebase for complex conflicts
+     - Always test after updating
+   - **Best Practice Workflow:**
+     1. Create feature branch from latest base branch
+     2. Make changes and commit
+     3. **Before creating PR**: `git fetch && git merge origin/<base-branch>`
+     4. Resolve any conflicts locally
+     5. Test thoroughly
+     6. Push updated branch
+     7. Create PR (should have no conflicts)
+     8. Monitor for new base branch updates during PR review
+     9. Update branch if base branch changes during review
+   - **Why this matters:**
+     - Prevents merge conflicts from accumulating
+     - Makes PR reviews smoother (reviewers focus on code quality, not conflict resolution)
+     - Reduces risk of breaking changes from stale branches
+     - Keeps git history clean and maintainable
+
 ---
 
 ## Golden Rule

@@ -3,26 +3,33 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbo",
-    "dev:no-turbo": "next dev",
+    "dev": "next dev",
+    "dev:turbo": "next dev --turbo",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint . --ext .ts,.tsx,.js,.jsx"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.35.5",
     "@mentorships/db": "workspace:*",
+    "@mentorships/payments": "workspace:*",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.81.1",
+    "embla-carousel-react": "^8.6.0",
+    "inngest": "^3.47.0",
     "next": "^16.0.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.3",
     "@types/node": "^20.19.25",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.22",
+    "eslint": "9.39.1",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.18",
     "typescript": "^5.9.3"
   }
 }
-

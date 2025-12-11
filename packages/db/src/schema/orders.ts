@@ -11,6 +11,9 @@ export const orderStatusEnum = pgEnum("order_status", [
 
 export const paymentProviderEnum = pgEnum("payment_provider", ["stripe", "paypal"]);
 
+export type OrderStatus = "pending" | "paid" | "refunded" | "failed" | "canceled";
+export type PaymentProvider = "stripe" | "paypal";
+
 export const orders = pgTable("orders", {
   id: uuid("id")
     .primaryKey()
@@ -23,6 +26,10 @@ export const orders = pgTable("orders", {
   provider: paymentProviderEnum("provider").notNull(),
   totalAmount: numeric("total_amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("usd"),
+  // Discount/coupon fields
+  discountAmount: numeric("discount_amount", { precision: 10, scale: 2 }),
+  discountCode: text("discount_code"), // Promotion code or coupon ID used
+  originalAmount: numeric("original_amount", { precision: 10, scale: 2 }), // Amount before discount
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

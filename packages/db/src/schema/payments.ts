@@ -1,6 +1,5 @@
 import { pgTable, uuid, text, numeric, timestamp, pgEnum } from "drizzle-orm/pg-core";
-import { orders } from "./orders";
-import { paymentProviderEnum } from "./orders";
+import { orders, paymentProviderEnum, type PaymentProvider } from "./orders";
 
 export const paymentStatusEnum = pgEnum("payment_status", [
   "pending",
@@ -8,6 +7,8 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "refunded",
   "failed",
 ]);
+
+export type PaymentStatus = "pending" | "completed" | "refunded" | "failed";
 
 export const payments = pgTable("payments", {
   id: uuid("id")
