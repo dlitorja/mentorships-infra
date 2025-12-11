@@ -4,6 +4,7 @@ import { sessionPacks, seatReservations, sessions, mentors, users } from "../../
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 
 type SessionPack = typeof sessionPacks.$inferSelect;
+type SeatReservation = typeof seatReservations.$inferSelect;
 type SessionPackWithMentor = SessionPack & {
   mentor: typeof mentors.$inferSelect;
   mentorUser: typeof users.$inferSelect;
@@ -434,9 +435,13 @@ export async function updateSeatReservationStatus(
  * Release seat by session pack ID
  * 
  * @param sessionPackId - UUID of the session pack
- * @returns Updated seat reservation
+ * @returns Updated seat reservation, or null if not found
+ * @note This function returns null when no seat is found, consistent with updateSeatReservationStatus behavior.
+ *       Callers should check for null and handle accordingly.
  */
-export async function releaseSeatByPackId(sessionPackId: string) {
+export async function releaseSeatByPackId(
+  sessionPackId: string
+): Promise<SeatReservation | null> {
   const [seat] = await db
     .update(seatReservations)
     .set({
@@ -446,11 +451,7 @@ export async function releaseSeatByPackId(sessionPackId: string) {
     .where(eq(seatReservations.sessionPackId, sessionPackId))
     .returning();
 
-  if (!seat) {
-    throw new Error(`Seat reservation for pack ${sessionPackId} not found`);
-  }
-
-  return seat;
+  return seat || null;
 }
 
 /**
