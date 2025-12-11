@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     name: Deploy to Vercel
-    runs-on: buildjet
+    runs-on: buildjet-4vcpu-ubuntu-2204
     steps:
       - uses: actions/checkout@v4
       

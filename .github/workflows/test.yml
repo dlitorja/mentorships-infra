@@ -9,7 +9,7 @@ on:
 jobs:
   lint-and-typecheck:
     name: Lint & Type Check
-    runs-on: buildjet
+    runs-on: buildjet-4vcpu-ubuntu-2204
     steps:
       - uses: actions/checkout@v4
       
@@ -70,7 +70,7 @@ jobs:
 
   e2e-tests:
     name: E2E Tests
-    runs-on: buildjet
+    runs-on: buildjet-4vcpu-ubuntu-2204
     steps:
       - uses: actions/checkout@v4
       
@@ -110,7 +110,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: buildjet
+    runs-on: buildjet-4vcpu-ubuntu-2204
     needs: [lint-and-typecheck, unit-tests]
     steps:
       - uses: actions/checkout@v4
