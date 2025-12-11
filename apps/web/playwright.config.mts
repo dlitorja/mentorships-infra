@@ -64,14 +64,32 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
     env: {
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || "",
-      CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY || "",
-      NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-      DATABASE_URL: process.env.DATABASE_URL || "",
-      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || "",
-      STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "",
+      // Only pass environment variables that are actually set
+      // This prevents empty strings from overriding Next.js defaults
+      ...(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && {
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+      }),
+      ...(process.env.CLERK_SECRET_KEY && {
+        CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+      }),
+      ...(process.env.NEXT_PUBLIC_SUPABASE_URL && {
+        NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      }),
+      ...(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && {
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      }),
+      ...(process.env.DATABASE_URL && {
+        DATABASE_URL: process.env.DATABASE_URL,
+      }),
+      ...(process.env.STRIPE_SECRET_KEY && {
+        STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+      }),
+      ...(process.env.STRIPE_WEBHOOK_SECRET && {
+        STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+      }),
+      ...(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY && {
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+      }),
     },
   },
 });
