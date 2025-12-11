@@ -19,16 +19,21 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: [path.resolve(__dirname, "./tests/unit/setup.ts")],
-    include: ["**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}"],
+    include: [
+      // Only include test files in source directories, not node_modules
+      "apps/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}",
+      "packages/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}",
+      "tests/unit/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}",
+    ],
     exclude: [
-      "node_modules",
+      // Build outputs
       "**/node_modules/**",
-      "dist",
-      ".next",
-      ".turbo",
-      "**/packages/**/node_modules/**",
+      "**/dist/**",
+      "**/.next/**",
+      "**/.turbo/**",
+      // E2E tests (run separately with Playwright)
+      "**/tests/e2e/**",
       "**/e2e/**",
-      "**/*.spec.ts", // Exclude Playwright spec files
     ],
     coverage: {
       provider: "v8",
