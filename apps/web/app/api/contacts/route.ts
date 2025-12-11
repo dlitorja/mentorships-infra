@@ -31,7 +31,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     // Sanitize artGoals
-    const sanitizedArtGoals = sanitizeArtGoals(artGoals);
+    const _sanitizedArtGoals = sanitizeArtGoals(artGoals);
 
     // TODO: Implement contacts database logic
     // 1. Check if email already exists in contacts table

@@ -1,4 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * Playwright E2E Test Configuration
@@ -9,7 +14,7 @@ import { defineConfig, devices } from "@playwright/test";
  *   pnpm test --project=chromium  # Run specific browser
  */
 export default defineConfig({
-  testDir: "./tests/e2e",
+  testDir: path.resolve(__dirname, "../../tests/e2e"),
   
   /* Run tests in files in parallel */
   fullyParallel: true,
@@ -63,6 +68,34 @@ export default defineConfig({
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
+    env: {
+      // Only pass environment variables that are actually set
+      // This prevents empty strings from overriding Next.js defaults
+      ...(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && {
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+      }),
+      ...(process.env.CLERK_SECRET_KEY && {
+        CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
+      }),
+      ...(process.env.NEXT_PUBLIC_SUPABASE_URL && {
+        NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      }),
+      ...(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && {
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      }),
+      ...(process.env.DATABASE_URL && {
+        DATABASE_URL: process.env.DATABASE_URL,
+      }),
+      ...(process.env.STRIPE_SECRET_KEY && {
+        STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+      }),
+      ...(process.env.STRIPE_WEBHOOK_SECRET && {
+        STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+      }),
+      ...(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY && {
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+      }),
+    },
   },
 });
 
