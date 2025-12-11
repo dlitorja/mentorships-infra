@@ -189,11 +189,11 @@ export function MatchingSection(): React.JSX.Element {
                 type="submit"
                 size="lg"
                 className="w-full text-lg vibrant-gradient-button transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={
+                disabled={Boolean(
                   !artGoals.trim() ||
                   submitStatus === "submitting" ||
-                  (email ? !isEmailValid : false)
-                }
+                  (email && !isEmailValid)
+                )}
               >
                 {submitStatus === "submitting"
                   ? "Submitting..."

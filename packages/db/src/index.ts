@@ -6,6 +6,9 @@ export { drizzle } from "drizzle-orm/postgres-js";
 export { migrate } from "drizzle-orm/postgres-js/migrator";
 export type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
+// Export Drizzle ORM operators and functions
+export { eq, and, or, not, ne, gt, gte, lt, lte, like, ilike, inArray, isNull, isNotNull, sql, desc, asc } from "drizzle-orm";
+
 // Export Supabase clients
 export { createClient as createSupabaseClient } from "./lib/supabase/server";
 export { createClient as createSupabaseBrowserClient } from "./lib/supabase/client";
@@ -25,15 +28,16 @@ export { db } from "./lib/drizzle";
 
 // Export query helpers
 export * from "./lib/queries/users";
+export * from "./lib/queries/sessions";
+export * from "./lib/queries/sessionPacks";
+export * from "./lib/queries/mentors";
 export * from "./lib/queries/orders";
 export * from "./lib/queries/payments";
-export * from "./lib/queries/sessionPacks";
-export * from "./lib/queries/sessions";
 export * from "./lib/queries/products";
-export * from "./lib/queries/discounts";
-export * from "./lib/queries/bookingValidation";
 export * from "./lib/queries/seatReservations";
-export * from "./lib/queries/mentors";
+export * from "./lib/queries/bookingValidation";
+export * from "./lib/queries/discounts";
 
 // Export types
 export type { Database } from "./types/database.types";
+

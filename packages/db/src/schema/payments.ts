@@ -8,6 +8,7 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "failed",
 ]);
 
+// Export type for use in queries
 export type PaymentStatus = "pending" | "completed" | "refunded" | "failed";
 
 export const payments = pgTable("payments", {

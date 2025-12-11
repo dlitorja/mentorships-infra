@@ -28,6 +28,9 @@
       ],
       "@mentorships/db": [
         "../../packages/db/src"
+      ],
+      "@mentorships/payments": [
+        "../../packages/payments/src"
       ]
     }
   },

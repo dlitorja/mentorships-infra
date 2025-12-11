@@ -11,11 +11,8 @@ const isProtectedRoute = createRouteMatcher([
   "/sessions(.*)",
   "/calendar(.*)",
   "/settings(.*)",
-  "/instructor(.*)",
-  "/checkout-test(.*)",
   "/api/checkout(.*)",
   "/api/sessions(.*)",
-  "/api/instructor(.*)",
   "/api/orders(.*)",
   "/api/payments(.*)",
 ]);
@@ -35,17 +32,22 @@ const isPublicApiRoute = createRouteMatcher([
 const isPublicPage = createRouteMatcher([
   "/",
   "/mentors(.*)",
-  "/instructors(.*)",
   "/about(.*)",
   "/pricing(.*)",
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/test(.*)", // Test page for verification
-  "/waitlist(.*)", // Waitlist page
-  "/admin(.*)", // Admin pages (will be protected by requireAuth in the page itself)
 ]);
 
-export default clerkMiddleware(async (auth, req: NextRequest) => {
+// Check if Clerk is configured
+const hasClerkKey = Boolean(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY !== "pk_test_placeholder_for_build_time_only" &&
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.startsWith("pk_")
+);
+
+// Create middleware function that handles both cases
+async function middlewareHandler(auth: any, req: NextRequest) {
   const { userId, sessionId } = await auth();
 
   // Allow public API routes (webhooks, health checks, etc.)
@@ -80,7 +82,17 @@ export default clerkMiddleware(async (auth, req: NextRequest) => {
   }
 
   return NextResponse.next();
-});
+}
+
+// If Clerk is not configured, use a simple middleware that allows all routes
+// Otherwise, use clerkMiddleware
+export default hasClerkKey
+  ? clerkMiddleware(middlewareHandler)
+  : async function middleware(req: NextRequest) {
+      // When Clerk is not configured, allow all routes
+      // This allows the app to work even without Clerk setup
+      return NextResponse.next();
+    };
 
 /**
  * Configure which routes the middleware should run on

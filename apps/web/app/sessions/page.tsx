@@ -1,7 +1,5 @@
 import { requireDbUser } from "@/lib/auth";
-import { db } from "@mentorships/db";
-import { sessions, sessionPacks, mentors, users } from "@mentorships/db";
-import { eq, desc } from "drizzle-orm";
+import { db, sessions, sessionPacks, mentors, users, eq, desc } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";

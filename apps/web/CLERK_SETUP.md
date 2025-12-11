@@ -94,6 +94,50 @@ If you're seeing errors like `Failed to load resource: net::ERR_NAME_NOT_RESOLVE
 2. Verify Frontend API URL in Clerk Dashboard matches your deployment URL
 3. Redeploy after making changes
 
+### Network Error: "network error" on session tokens
+
+If you see a console error like `[Clerk Debug] ERROR [fapiClient]: network error {"error":{},"url":"https://...clerk.accounts.dev/v1/client/sessions/.../tokens","method":"POST"}`, this indicates a network connectivity issue when Clerk tries to fetch session tokens.
+
+**Common causes and solutions:**
+
+1. **Temporary network issue**: 
+   - Clerk will automatically retry the request
+   - This is usually non-blocking and authentication will work once the network request succeeds
+   - Try refreshing the page
+
+2. **Firewall or network blocking**:
+   - Check if your network/firewall is blocking requests to `*.clerk.accounts.dev`
+   - Try from a different network (e.g., mobile hotspot) to verify
+   - Whitelist Clerk domains if using corporate firewall
+
+3. **Turbopack compatibility (Next.js 16)** ⚠️ **CONFIRMED ISSUE**:
+   - **Next.js 16 uses Turbopack by default, which has known compatibility issues with Clerk**
+   - There are documented GitHub issues:
+     - [Clerk Issue #1257](https://github.com/clerk/javascript/issues/1257): "Error when using Next.js turbo" - `Cannot find module '#crypto'` errors
+     - [Next.js Issue #70424](https://github.com/vercel/next.js/issues/70424): Turbopack + Clerk + HMR causes module instantiation problems
+   - **Solution**: Run without Turbopack: `pnpm dev:no-turbo` instead of `pnpm dev`
+   - **Permanent fix**: Update your `package.json` dev script to use webpack:
+     ```json
+     "dev": "next dev",
+     "dev:turbo": "next dev --turbo"
+     ```
+   - This is a known limitation and many developers are disabling Turbopack when using Clerk
+
+4. **Environment variables**:
+   - Verify `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is set correctly
+   - Restart the dev server after changing environment variables
+   - Check that the key matches your Clerk application
+
+5. **Browser extensions**:
+   - Disable ad blockers or privacy extensions that might block Clerk requests
+   - Try in an incognito/private window
+
+6. **Clerk API status**:
+   - Check [Clerk Status](https://status.clerk.com) for any service outages
+   - Wait a few minutes and try again
+
+**Note**: This error is often non-blocking. If authentication still works (you can sign in/out), you can safely ignore this debug log. Clerk will retry the request automatically.
+
 ### 422 Error: "request failed" on sign-up
 
 If you see a console error like `[Clerk Debug] ERROR [fapiClient]: request failed {"method":"POST","path":"/client/sign_ups","status":422}`, this is typically a validation error. Common causes:
@@ -103,7 +147,6 @@ If you see a console error like `[Clerk Debug] ERROR [fapiClient]: request faile
 3. **Missing required fields**: Make sure all required fields are filled in.
 
 **Note**: This console error is usually non-blocking. Clerk's UI component will display the actual error message to the user. If you can still complete sign-up/sign-in successfully, you can ignore this debug log.
-
 ### Users not syncing to Supabase
 
 1. Check that `DATABASE_URL` is set correctly

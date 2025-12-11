@@ -109,7 +109,7 @@ export default function CheckoutSuccessPage(): React.JSX.Element {
             <CardHeader className="text-center">
               <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-primary" />
               <CardTitle>Loading...</CardTitle>
-              <CardDescription>Please wait</CardDescription>
+              <CardDescription>Processing your request</CardDescription>
             </CardHeader>
           </Card>
         }
