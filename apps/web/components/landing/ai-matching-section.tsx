@@ -1,19 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useForm } from "@tanstack/react-form";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sparkles } from "lucide-react";
+import { simpleMatchingFormSchema } from "@/lib/validation-schemas";
 
 export function MatchingSection() {
-  const [artGoals, setArtGoals] = useState("");
-
-  const handleSubmit = (e: React.FormEvent): void => {
-    e.preventDefault();
-    // TODO: Implement matching when backend is ready
-    console.log("Art goals submitted");
-  };
+  const form = useForm({
+    defaultValues: {
+      artGoals: "",
+    },
+    validators: {
+      onChange: simpleMatchingFormSchema,
+    },
+    onSubmit: async ({ value }) => {
+      // TODO: Implement matching when backend is ready
+      console.log("Art goals submitted", value.artGoals);
+      form.reset();
+    },
+  });
 
   return (
     <section id="find-match" className="py-20 px-4 bg-muted/30">
@@ -37,33 +44,65 @@ export function MatchingSection() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="space-y-4">
-                <label
-                  htmlFor="art-goals"
-                  className="block text-center text-xl font-semibold text-white peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                >
-                  What are your art goals?
-                </label>
-                <Textarea
-                  id="art-goals"
-                  placeholder="e.g., I want to improve my character design skills and build a portfolio for game studios. I'm particularly interested in fantasy art and have been working digitally for about 2 years..."
-                  value={artGoals}
-                  onChange={(e) => setArtGoals(e.target.value)}
-                  className="min-h-[120px] resize-none bg-white/10 border-white/20 text-white placeholder:text-white/50 focus:border-white/40"
-                />
-                <p className="text-center text-xs text-white/70">
-                  Be as specific as possible about your goals, experience level, and interests
-                </p>
-              </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                form.handleSubmit();
+              }}
+              className="space-y-6"
+            >
+              <form.Field
+                name="artGoals"
+                validators={{
+                  onChange: simpleMatchingFormSchema.shape.artGoals,
+                }}
+              >
+                {(field) => (
+                  <div className="space-y-4">
+                    <label
+                      htmlFor={field.name}
+                      className="block text-center text-xl font-semibold text-white peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      What are your art goals?
+                    </label>
+                    <Textarea
+                      id={field.name}
+                      name={field.name}
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      placeholder="e.g., I want to improve my character design skills and build a portfolio for game studios. I'm particularly interested in fantasy art and have been working digitally for about 2 years..."
+                      className="min-h-[120px] resize-none bg-white/10 border-white/20 text-white placeholder:text-white/50 focus:border-white/40"
+                      aria-invalid={field.state.meta.errors.length > 0}
+                      aria-describedby={
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                    />
+                    <p className="text-center text-xs text-white/70">
+                      Be as specific as possible about your goals, experience level, and interests
+                    </p>
+                    {field.state.meta.errors.length > 0 && (
+                      <p
+                        id={`${field.name}-error`}
+                        className="text-center text-xs text-red-400"
+                      >
+                        {field.state.meta.errors[0]?.message}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </form.Field>
               
               <Button
                 type="submit"
                 size="lg"
                 className="w-full text-lg vibrant-gradient-button transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!artGoals.trim()}
+                disabled={!form.state.values.artGoals.trim() || form.state.isSubmitting}
               >
-                Find My Match
+                {form.state.isSubmitting ? "Submitting..." : "Find My Match"}
                 <Sparkles className="ml-2 h-4 w-4" />
               </Button>
             </form>
