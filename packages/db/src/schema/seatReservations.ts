@@ -21,7 +21,8 @@ export const seatReservations = pgTable("seat_reservations", {
     .references(() => users.id, { onDelete: "cascade" }),
   sessionPackId: uuid("session_pack_id")
     .notNull()
-    .references(() => sessionPacks.id, { onDelete: "cascade" }),
+    .references(() => sessionPacks.id, { onDelete: "cascade" })
+    .unique(),
   seatExpiresAt: timestamp("seat_expires_at").notNull(),
   gracePeriodEndsAt: timestamp("grace_period_ends_at"),
   status: seatStatusEnum("status").notNull().default("active"),
