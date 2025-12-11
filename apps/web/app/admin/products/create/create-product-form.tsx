@@ -141,14 +141,6 @@ export function CreateProductForm() {
                   <p className="text-sm text-muted-foreground">
                     Or enter a Stripe Price ID directly (e.g., price_...). One of Product ID or Price ID is required.
                   </p>
-                  {field.state.meta.errors.length > 0 && (
-                    <p
-                      id={`${field.name}-error`}
-                      className="text-sm text-red-600 dark:text-red-400"
-                    >
-                      {field.state.meta.errors[0]?.message}
-                    </p>
-                  )}
                 </div>
               )}
             </form.Field>
