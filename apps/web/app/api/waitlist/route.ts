@@ -37,7 +37,7 @@ export async function POST(
     const { userId } = await auth();
     const body = await request.json();
     const validated = waitlistPostSchema.parse(body);
-    const { instructorSlug, type, email } = validated;
+    const { instructorSlug: _instructorSlug, type: _type, email } = validated;
 
     if (!email && !userId) {
       return NextResponse.json(
@@ -115,7 +115,7 @@ export async function GET(
     const validated = waitlistGetSchema.parse({
       instructorSlug: instructorSlugParam || undefined,
     });
-    const { instructorSlug } = validated;
+    const { instructorSlug: _instructorSlug } = validated;
 
     // TODO: Query waitlist table to check if user is on waitlist
     // Return waitlist entries for user (optionally filtered by instructor)

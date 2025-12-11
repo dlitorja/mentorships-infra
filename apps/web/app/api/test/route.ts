@@ -41,7 +41,7 @@ export async function GET() {
     if (userId) {
       authStatus = "authenticated";
     }
-  } catch (error) {
+  } catch {
     authStatus = "error";
   }
 

@@ -18,7 +18,7 @@ import Link from "next/link";
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
-function CheckoutContent(): React.JSX.Element {
+function CheckoutContent(): JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
   const instructorSlug = searchParams.get("instructor");
@@ -232,7 +232,7 @@ function CheckoutContent(): React.JSX.Element {
   );
 }
 
-export default function CheckoutPage(): React.JSX.Element {
+export default function CheckoutPage(): JSX.Element {
   return (
     <Suspense
       fallback={
