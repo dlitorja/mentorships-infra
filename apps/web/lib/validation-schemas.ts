@@ -33,15 +33,15 @@ export type WaitlistFormData = z.infer<typeof waitlistFormSchema>;
 
 /**
  * Product creation form schema
- * At least one of stripeProductId or stripePriceId must be provided
+ * At least one of stripeProductId or stripePriceId must be provided (non-empty)
  */
 export const productFormSchema = z
   .object({
-    stripeProductId: z.string().optional(),
-    stripePriceId: z.string().optional(),
+    stripeProductId: z.string(),
+    stripePriceId: z.string(),
   })
   .refine(
-    (data) => data.stripeProductId || data.stripePriceId,
+    (data) => data.stripeProductId.trim() || data.stripePriceId.trim(),
     {
       message: "Either Stripe Product ID or Price ID is required",
       path: ["stripePriceId"], // Show error on priceId field

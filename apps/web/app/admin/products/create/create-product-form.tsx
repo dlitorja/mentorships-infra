@@ -46,8 +46,8 @@ export function CreateProductForm() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            productId: value.stripeProductId || undefined,
-            priceId: value.stripePriceId || undefined,
+            productId: value.stripeProductId.trim() || undefined,
+            priceId: value.stripePriceId.trim() || undefined,
           }),
         });
 
