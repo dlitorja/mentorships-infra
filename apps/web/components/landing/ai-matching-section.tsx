@@ -1,7 +1,6 @@
 "use client";
 
 import { useForm } from "@tanstack/react-form";
-import { zodValidator } from "@tanstack/zod-form-adapter";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +12,9 @@ export function MatchingSection() {
     defaultValues: {
       artGoals: "",
     },
-    validatorAdapter: zodValidator(),
+    validators: {
+      onChange: simpleMatchingFormSchema,
+    },
     onSubmit: async ({ value }) => {
       // TODO: Implement matching when backend is ready
       console.log("Art goals submitted", value.artGoals);
@@ -54,7 +55,7 @@ export function MatchingSection() {
               <form.Field
                 name="artGoals"
                 validators={{
-                  onChange: zodValidator(simpleMatchingFormSchema.shape.artGoals),
+                  onChange: simpleMatchingFormSchema.shape.artGoals,
                 }}
               >
                 {(field) => (

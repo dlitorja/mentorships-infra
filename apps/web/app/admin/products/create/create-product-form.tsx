@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { useForm } from "@tanstack/react-form";
-import { zodValidator } from "@tanstack/zod-form-adapter";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,7 +33,9 @@ export function CreateProductForm() {
       stripeProductId: "",
       stripePriceId: "",
     },
-    validatorAdapter: zodValidator(),
+    validators: {
+      onChange: productFormSchema,
+    },
     onSubmit: async ({ value }) => {
       setResult(null);
 
@@ -111,12 +112,7 @@ export function CreateProductForm() {
               )}
             </form.Field>
 
-            <form.Field
-              name="stripePriceId"
-              validators={{
-                onChange: zodValidator(productFormSchema),
-              }}
-            >
+            <form.Field name="stripePriceId">
               {(field) => (
                 <div className="space-y-2">
                   <Label htmlFor={field.name}>Stripe Price ID (optional)</Label>

@@ -3,7 +3,6 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "@tanstack/react-form";
-import { zodValidator } from "@tanstack/zod-form-adapter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +24,9 @@ function WaitlistContent(): React.JSX.Element {
     defaultValues: {
       email: "",
     },
-    validatorAdapter: zodValidator(),
+    validators: {
+      onChange: waitlistFormSchema,
+    },
     onSubmit: async ({ value }) => {
       setError(null);
 
@@ -107,7 +108,7 @@ function WaitlistContent(): React.JSX.Element {
             <form.Field
               name="email"
               validators={{
-                onChange: zodValidator(waitlistFormSchema.shape.email),
+                onChange: waitlistFormSchema.shape.email,
               }}
             >
               {(field) => (

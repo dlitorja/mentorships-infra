@@ -1,7 +1,6 @@
 "use client";
 
 import { useForm } from "@tanstack/react-form";
-import { zodValidator } from "@tanstack/zod-form-adapter";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,7 +15,9 @@ export function MatchingSection(): React.JSX.Element {
       artGoals: "",
       email: "",
     },
-    validatorAdapter: zodValidator(),
+    validators: {
+      onChange: matchingFormSchema,
+    },
     onSubmit: async ({ value }) => {
       // If email is provided, add to contacts database
       if (value.email) {
@@ -110,7 +111,7 @@ export function MatchingSection(): React.JSX.Element {
               <form.Field
                 name="artGoals"
                 validators={{
-                  onChange: zodValidator(matchingFormSchema.shape.artGoals),
+                  onChange: matchingFormSchema.shape.artGoals,
                 }}
               >
                 {(field) => (
@@ -154,7 +155,7 @@ export function MatchingSection(): React.JSX.Element {
               <form.Field
                 name="email"
                 validators={{
-                  onChange: zodValidator(matchingFormSchema.shape.email),
+                  onChange: matchingFormSchema.shape.email,
                 }}
               >
                 {(field) => (
