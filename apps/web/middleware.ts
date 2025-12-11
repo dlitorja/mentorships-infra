@@ -24,6 +24,7 @@ const isProtectedRoute = createRouteMatcher([
 const isPublicApiRoute = createRouteMatcher([
   "/api/webhooks(.*)",
   "/api/health",
+  "/api/inngest(.*)", // Inngest dev server needs unauthenticated access
 ]);
 
 /**

@@ -8,6 +8,9 @@ import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
+// Placeholder key used for build-time only (excluded from validation)
+const BUILD_TIME_PLACEHOLDER_KEY = "pk_test_placeholder_for_build_time_only";
+
 export const metadata: Metadata = {
   title: "Huckleberry Art Mentorships | 1-on-1 & Group Art Mentorship",
   description:
@@ -22,7 +25,7 @@ export default function RootLayout({
   const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const hasValidClerkKey = Boolean(
     clerkPublishableKey && 
-    clerkPublishableKey !== "pk_test_placeholder_for_build_time_only" &&
+    clerkPublishableKey !== BUILD_TIME_PLACEHOLDER_KEY &&
     clerkPublishableKey.startsWith("pk_")
   );
 
@@ -47,7 +50,7 @@ export default function RootLayout({
   // This is required for Clerk components like SignIn to work properly
   // If no key is set, we still wrap (Clerk will show errors, but context will be available)
   // This prevents "useSession can only be used within ClerkProvider" errors
-  const publishableKey = clerkPublishableKey || "pk_test_placeholder";
+  const publishableKey = clerkPublishableKey || BUILD_TIME_PLACEHOLDER_KEY;
   
   return (
     <ClerkProvider

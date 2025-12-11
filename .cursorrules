@@ -57,6 +57,89 @@ All systems ready! Let me know which MCPs you'd like to disable for this session
 
 ---
 
+## Context Consultation Before ANY Code Changes - MANDATORY
+
+**CRITICAL: You are ABSOLUTELY DISALLOWED from writing, modifying, or changing ANY code in this project unless you FIRST consult Greptile and check Graphiti memory episodes**
+
+### This Applies to EVERYTHING:
+
+- **Writing new code** - Must understand existing patterns and decisions first
+- **Modifying existing code** - Must understand why it was written that way
+- **Changing configurations** - Must understand current state and previous decisions
+- **Fixing bugs** - Must understand the full context and impact
+- **Refactoring** - Must understand the architecture and constraints
+- **Adding features** - Must understand related code and user preferences
+- **ANY code change whatsoever** - No exceptions
+
+### Before Writing or Changing ANY Code:
+
+1. **MANDATORY: Query Greptile first** to understand:
+   - Historical context of the code/feature you're working with
+   - Previous decisions and why they were made
+   - Related implementations and patterns used in the codebase
+   - Any existing documentation, setup files, or configuration
+   - How this code relates to other parts of the system
+   - What problems were solved previously and how
+
+2. **MANDATORY: Check Graphiti memory** to understand:
+   - Previous decisions made about this feature/area
+   - User preferences and requirements
+   - Configuration decisions (e.g., DATABASE_URL, connection strings, API keys)
+   - Why certain approaches were chosen or rejected
+   - Any constraints or requirements that must be maintained
+   - User frustrations or issues that were already addressed
+   - What NOT to do based on previous mistakes
+
+3. **MANDATORY: Verify current state** before making changes:
+   - Check what the current configuration actually is (NEVER assume)
+   - Verify environment variables, connection strings, API keys, etc.
+   - Understand the impact of your changes on existing functionality
+   - Check if the "problem" you're solving was already solved differently
+
+4. **ABSOLUTELY FORBIDDEN: Making assumptions** about:
+   - Current configuration values
+   - Why something was set up a certain way
+   - What the user wants changed
+   - Previous troubleshooting attempts
+   - What "should" be the correct approach
+   - How things "probably" work
+
+### Required Workflow for EVERY Code Change:
+
+```
+1. User requests: "Fix X" or "Add Y" or "Change Z"
+2. ✅ STOP - Do not write any code yet
+3. ✅ Query Greptile: "What is the current implementation of X? What decisions were made about X? How does X relate to Y and Z?"
+4. ✅ Check Graphiti: "What decisions were made about X? What are the user preferences? What constraints exist?"
+5. ✅ Verify current state: Check actual files, configurations, environment variables
+6. ✅ Understand full context: Why was it done this way? What problems were solved? What should NOT be changed?
+7. ✅ Then and ONLY THEN: Make informed changes based on complete understanding
+```
+
+### Consequences of Violating This Rule:
+
+- **Wastes user time** with back-and-forth changes
+- **Causes extreme frustration** by reversing previous decisions
+- **Breaks working configurations** that were already correct
+- **Shows complete lack of context awareness**
+- **Forces user to repeatedly explain the same things**
+- **Undermines trust in the development process**
+
+### Examples of What NOT to Do:
+
+❌ **WRONG**: User says "Fix database error" → Immediately change DATABASE_URL without checking what it currently is
+✅ **RIGHT**: Query Greptile about DATABASE_URL history → Check Graphiti for decisions → Verify current .env.local → Then fix
+
+❌ **WRONG**: User says "Add feature X" → Start coding without checking if similar features exist
+✅ **RIGHT**: Query Greptile for similar features → Check Graphiti for user preferences → Understand patterns → Then implement
+
+❌ **WRONG**: See an error → Immediately try to fix it without understanding the context
+✅ **RIGHT**: Query Greptile about the error and related code → Check Graphiti for previous fixes → Understand root cause → Then fix
+
+**This rule is ABSOLUTELY NON-NEGOTIABLE. NO EXCEPTIONS. NO CODE CHANGES WITHOUT CONTEXT CONSULTATION.**
+
+---
+
 ## Workspace Detection for Graphiti Memory - MANDATORY
 
 **CRITICAL: Always detect workspace and use correct group_id for Graphiti operations**

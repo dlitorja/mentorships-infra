@@ -52,11 +52,58 @@ export async function syncClerkUserToSupabase(
   role: "student" | "mentor" | "admin" = "student"
 ) {
   // Check if user exists
-  const existingUser = await db
-    .select()
-    .from(users)
-    .where(eq(users.id, clerkUserId))
-    .limit(1);
+  let existingUser;
+  try {
+    existingUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, clerkUserId))
+      .limit(1);
+  } catch (error) {
+    // Extract the underlying error for better debugging
+    let errorMessage = "Unknown error";
+    let errorDetails = "";
+    let underlyingError: unknown = null;
+    
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      
+      // DrizzleQueryError has a 'cause' property with the underlying error
+      if ('cause' in error) {
+        underlyingError = error.cause;
+        if (underlyingError instanceof Error) {
+          errorDetails = underlyingError.message;
+        } else {
+          errorDetails = String(underlyingError);
+        }
+      }
+      
+      // Also check for any other error properties
+      const errorObj = error as Record<string, unknown>;
+      if (errorObj.cause && !errorDetails) {
+        errorDetails = String(errorObj.cause);
+      }
+    } else {
+      errorMessage = String(error);
+    }
+    
+    // Log full error for debugging (check browser console)
+    console.error("Database query error - Full details:", {
+      errorType: error?.constructor?.name,
+      message: errorMessage,
+      details: errorDetails,
+      underlyingError: underlyingError,
+      fullError: error,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    
+    // Throw a more informative error
+    const finalMessage = errorDetails 
+      ? `${errorMessage} | Underlying error: ${errorDetails}`
+      : errorMessage;
+    
+    throw new Error(`Failed to query users table: ${finalMessage}`);
+  }
 
   if (existingUser.length > 0) {
     // Update existing user
