@@ -32,6 +32,9 @@ function formatDateTime(date: Date | string): string {
   });
 }
 
+// Mark this page as dynamic since it uses headers() via requireDbUser
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   try {
     const user = await requireDbUser();

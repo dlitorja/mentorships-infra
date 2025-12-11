@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, mentorshipProducts } from "@mentorships/db";
-import { eq } from "drizzle-orm";
+import { db, mentorshipProducts, eq } from "@mentorships/db";
 
 /**
  * Get product by Stripe Price ID

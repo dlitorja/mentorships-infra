@@ -14,8 +14,8 @@ import {
   updateOrderStatus,
   updateSessionPackStatus,
   getProductById,
+  eq,
 } from "@mentorships/db";
-import { eq } from "drizzle-orm";
 import { stripe } from "../../lib/stripe";
 
 // Process Stripe checkout completion
@@ -76,10 +76,14 @@ export const processStripeCheckout = inngest.createFunction(
       const discount = fullSession.total_details.breakdown.discounts[0];
       if (discount.discount?.promotion_code) {
         const promotionCode = discount.discount.promotion_code;
-        discountCode =
-          (typeof promotionCode === "string"
-            ? promotionCode
-            : promotionCode.code || promotionCode.id) || null;
+        if (typeof promotionCode === "object" && promotionCode !== null) {
+          discountCode =
+            promotionCode.code ||
+            promotionCode.id ||
+            null;
+        } else if (typeof promotionCode === "string") {
+          discountCode = promotionCode;
+        }
       } else if (discount.discount?.coupon) {
         discountCode =
           discount.discount.coupon.id || discount.discount.coupon.name || null;

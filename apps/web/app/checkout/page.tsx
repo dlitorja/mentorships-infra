@@ -236,12 +236,17 @@ export default function CheckoutPage(): React.JSX.Element {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
           <Card className="max-w-2xl w-full">
             <CardHeader>
-              <CardTitle>Loading...</CardTitle>
-              <CardDescription>Please wait</CardDescription>
+              <CardTitle>Checkout</CardTitle>
+              <CardDescription>Loading...</CardDescription>
             </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            </CardContent>
           </Card>
         </div>
       }

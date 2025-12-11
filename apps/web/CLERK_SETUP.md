@@ -147,7 +147,6 @@ If you see a console error like `[Clerk Debug] ERROR [fapiClient]: request faile
 3. **Missing required fields**: Make sure all required fields are filled in.
 
 **Note**: This console error is usually non-blocking. Clerk's UI component will display the actual error message to the user. If you can still complete sign-up/sign-in successfully, you can ignore this debug log.
-
 ### Users not syncing to Supabase
 
 1. Check that `DATABASE_URL` is set correctly

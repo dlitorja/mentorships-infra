@@ -142,9 +142,14 @@ export default function WaitlistPage(): React.JSX.Element {
         <div className="min-h-screen bg-background flex items-center justify-center px-4">
           <Card className="max-w-md w-full">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Loading...</CardTitle>
-              <CardDescription>Please wait</CardDescription>
+              <CardTitle className="text-2xl">Join Waitlist</CardTitle>
+              <CardDescription>Loading...</CardDescription>
             </CardHeader>
+            <CardContent>
+              <div className="text-center py-8 text-muted-foreground">
+                Loading waitlist form...
+              </div>
+            </CardContent>
           </Card>
         </div>
       }
