@@ -27,6 +27,7 @@ export const handleNotificationSend = inngest.createFunction(
     await step.run("report-notification", async () => {
       await reportError({
         source: "inngest:notification/send",
+        error: null,
         level: "info",
         message: `notification/send: ${type}`,
         context: {
