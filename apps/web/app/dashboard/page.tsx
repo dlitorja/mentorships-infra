@@ -1,4 +1,4 @@
-import { requireDbUser } from "@/lib/auth";
+import { getUser, requireDbUser } from "@/lib/auth";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import {
@@ -38,6 +38,10 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   try {
     const user = await requireDbUser();
+    const clerkUser = await getUser();
+    const discordConnected = Boolean(
+      clerkUser?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
+    );
 
     // Fetch all dashboard data in parallel
     const [sessionPacksResult, totalSessions, upcomingSessions, recentSessions] =
@@ -123,6 +127,27 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Next steps</CardTitle>
+            <CardDescription>
+              {discordConnected
+                ? "Complete onboarding so your instructor can tailor sessions to your goals."
+                : "Connect Discord, then complete onboarding so you can access mentorship channels and get the most out of your sessions."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2">
+            {!discordConnected ? (
+              <Link className="text-primary hover:underline" href="/settings">
+                Connect Discord in Settings →
+              </Link>
+            ) : null}
+            <Link className="text-primary hover:underline" href="/dashboard/onboarding">
+              Complete onboarding →
+            </Link>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-6 md:grid-cols-2">
           {/* Active Session Packs */}

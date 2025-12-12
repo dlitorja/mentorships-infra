@@ -37,6 +37,7 @@ export * from "./lib/queries/products";
 export * from "./lib/queries/seatReservations";
 export * from "./lib/queries/bookingValidation";
 export * from "./lib/queries/discounts";
+export * from "./lib/queries/discordActionQueue";
 
 // Export types
 export type { Database } from "./types/database.types";

@@ -1,0 +1,129 @@
+import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
+import { z } from "zod";
+import {
+  and,
+  db,
+  discordActionQueue,
+  eq,
+  getMentorById,
+  menteeOnboardingSubmissions,
+  sessionPacks,
+} from "@mentorships/db";
+import { requireDbUser } from "@/lib/auth";
+
+const imageObjectSchema = z.object({
+  path: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int().positive(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+
+const submitSchema = z.object({
+  submissionId: z.string().uuid(),
+  sessionPackId: z.string().uuid(),
+  goals: z.string().min(10).max(5000),
+  imageObjects: z.array(imageObjectSchema).min(2).max(4),
+});
+
+type SubmitResponse =
+  | { success: true; submissionId: string }
+  | { error: string; errorId: string };
+
+function getBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_URL) return process.env.NEXT_PUBLIC_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_URL or VERCEL_URL must be set in production");
+  }
+  return "http://localhost:3000";
+}
+
+export async function POST(request: Request): Promise<NextResponse<SubmitResponse>> {
+  const errorId = randomUUID();
+
+  try {
+    const user = await requireDbUser();
+    const body = await request.json();
+    const parsed = submitSchema.parse(body);
+
+    // Verify the session pack belongs to the user
+    const pack = await db
+      .select()
+      .from(sessionPacks)
+      .where(and(eq(sessionPacks.id, parsed.sessionPackId), eq(sessionPacks.userId, user.id)))
+      .limit(1);
+
+    const sessionPack = pack[0] ?? null;
+    if (!sessionPack) {
+      return NextResponse.json(
+        { error: "Session pack not found for user", errorId },
+        { status: 404 }
+      );
+    }
+
+    // Sanity-check image paths match the expected user/submission prefix
+    const expectedPrefix = `onboarding/${user.id}/${parsed.submissionId}/`;
+    const allMatch = parsed.imageObjects.every((img) => img.path.startsWith(expectedPrefix));
+    if (!allMatch) {
+      return NextResponse.json(
+        { error: "One or more uploaded image paths are invalid", errorId },
+        { status: 400 }
+      );
+    }
+
+    const mentor = await getMentorById(sessionPack.mentorId);
+    if (!mentor) {
+      return NextResponse.json(
+        { error: "Mentor not found for session pack", errorId },
+        { status: 404 }
+      );
+    }
+
+    // Insert submission (id is client-provided submissionId)
+    await db.insert(menteeOnboardingSubmissions).values({
+      id: parsed.submissionId,
+      userId: user.id,
+      mentorId: mentor.id,
+      sessionPackId: sessionPack.id,
+      goals: parsed.goals,
+      imageObjects: parsed.imageObjects,
+    });
+
+    const baseUrl = getBaseUrl();
+    const instructorOnboardingUrl = `${baseUrl}/instructor/onboarding?submissionId=${encodeURIComponent(
+      parsed.submissionId
+    )}`;
+
+    // Queue instructor DM action with the submitted onboarding info (bot will process later)
+    await db.insert(discordActionQueue).values({
+      type: "dm_instructor_new_signup",
+      status: "pending",
+      subjectUserId: user.id,
+      mentorId: mentor.id,
+      mentorUserId: mentor.userId,
+      payload: {
+        kind: "onboarding_submission",
+        submissionId: parsed.submissionId,
+        sessionPackId: sessionPack.id,
+        goals: parsed.goals,
+        imageObjects: parsed.imageObjects.map((img) => ({
+          path: img.path,
+          mimeType: img.mimeType,
+          sizeBytes: img.sizeBytes,
+        })),
+        instructorOnboardingUrl,
+      },
+    });
+
+    return NextResponse.json({ success: true, submissionId: parsed.submissionId });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error", errorId },
+      { status: 500 }
+    );
+  }
+}
+
+
