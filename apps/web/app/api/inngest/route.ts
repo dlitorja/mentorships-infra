@@ -8,7 +8,7 @@ import {
   handleRenewalReminder,
   sendGracePeriodFinalWarning,
 } from "@/inngest/functions/sessions";
-// import { onboardingFlow } from "@/inngest/functions/onboarding";
+import { onboardingFlow } from "@/inngest/functions/onboarding";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -16,6 +16,7 @@ export const { GET, POST, PUT } = serve({
   functions: [
     processStripeCheckout,
     processStripeRefund,
+    onboardingFlow,
     handleSessionCompleted,
     checkSeatExpiration,
     handleRenewalReminder,
