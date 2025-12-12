@@ -1,4 +1,4 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher, type ClerkMiddlewareAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { protectWithArcjet, type ArcjetPolicy } from "@/lib/arcjet";
@@ -52,8 +52,8 @@ const hasClerkKey = Boolean(
 );
 
 // Create middleware function that handles both cases
-async function middlewareHandler(auth: any, req: NextRequest) {
-  const { userId, sessionId } = await auth();
+async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
+  const { userId } = await auth();
 
   const pathname = req.nextUrl.pathname;
   const method = req.method;

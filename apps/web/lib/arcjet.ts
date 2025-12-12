@@ -285,100 +285,107 @@ export async function protectWithArcjet(
     requested?: number;
   }
 ): Promise<NextResponse | null> {
-  const requested = args.requested ?? 1;
+  const requestedRaw = args.requested ?? 1;
+  const requested = Number.isFinite(requestedRaw) && requestedRaw > 0 ? requestedRaw : 1;
 
   const decision = await (async () => {
-    switch (args.policy) {
-      case "webhook": {
-        if (ajWebhook) {
-          return ajWebhook.protect(req, { requested });
+    try {
+      switch (args.policy) {
+        case "webhook": {
+          if (ajWebhook) {
+            return ajWebhook.protect(req, { requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "forms": {
-        if (ajForms) {
-          return ajForms.protect(req, { requested });
+        case "forms": {
+          if (ajForms) {
+            return ajForms.protect(req, { requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "availability": {
-        if (ajAvailabilityUser && args.userId) {
-          return ajAvailabilityUser.protect(req, { userId: args.userId, requested });
+        case "availability": {
+          if (ajAvailabilityUser && args.userId) {
+            return ajAvailabilityUser.protect(req, { userId: args.userId, requested });
+          }
+          if (ajAvailabilityPublic) {
+            return ajAvailabilityPublic.protect(req, { requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajAvailabilityPublic) {
-          return ajAvailabilityPublic.protect(req, { requested });
-        }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "checkout": {
-        if (ajCheckout && args.userId) {
-          return ajCheckout.protect(req, { userId: args.userId, requested });
+        case "checkout": {
+          if (ajCheckout && args.userId) {
+            return ajCheckout.protect(req, { userId: args.userId, requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "booking": {
-        if (ajBooking && args.userId) {
-          return ajBooking.protect(req, { userId: args.userId, requested });
+        case "booking": {
+          if (ajBooking && args.userId) {
+            return ajBooking.protect(req, { userId: args.userId, requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "instructor": {
-        if (ajInstructor && args.userId) {
-          return ajInstructor.protect(req, { userId: args.userId, requested });
+        case "instructor": {
+          if (ajInstructor && args.userId) {
+            return ajInstructor.protect(req, { userId: args.userId, requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "user": {
-        if (ajUser && args.userId) {
-          return ajUser.protect(req, { userId: args.userId, requested });
+        case "user": {
+          if (ajUser && args.userId) {
+            return ajUser.protect(req, { userId: args.userId, requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "auth": {
-        if (ajAuth) {
-          return ajAuth.protect(req, { requested });
+        case "auth": {
+          if (ajAuth) {
+            return ajAuth.protect(req, { requested });
+          }
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
-        }
-        return null;
-      }
 
-      case "default":
-      default: {
-        if (ajDefault) {
-          return ajDefault.protect(req, { requested });
+        case "default":
+        default: {
+          if (ajDefault) {
+            return ajDefault.protect(req, { requested });
+          }
+          return null;
         }
-        return null;
       }
+    } catch (error) {
+      // Arcjet is designed to fail open; keep this explicit so SDK/runtime issues don't 500 requests.
+      console.error("Arcjet protect error:", error);
+      return null;
     }
   })();
 
@@ -394,7 +401,16 @@ export async function protectWithArcjet(
 
   // Keep responses minimal (avoid leaking enforcement details)
   if (isRateLimitReason(reason) && reason.isRateLimit()) {
-    return NextResponse.json({ error: "Too Many Requests" }, { status: 429 });
+    return NextResponse.json(
+      { error: "Too Many Requests" },
+      {
+        status: 429,
+        headers: {
+          // Fallback retry hint (Arcjet provides a ttl on decisions, but we don't rely on it here)
+          "Retry-After": "60",
+        },
+      }
+    );
   }
 
   if (isBotReason(reason) && reason.isBot()) {
