@@ -25,6 +25,7 @@ const isProtectedRoute = createRouteMatcher([
 const isPublicApiRoute = createRouteMatcher([
   "/api/webhooks(.*)",
   "/api/health",
+  "/api/errors", // Client-side error forwarding endpoint
   "/api/inngest(.*)", // Inngest dev server needs unauthenticated access
   "/api/seats/availability(.*)", // Public seat availability endpoint
   "/api/contacts", // Public contact form endpoint
@@ -69,6 +70,11 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       // Webhooks: public, but protect against request floods.
       if (pathname.startsWith("/api/webhooks/")) {
         return { policy: "webhook", requested: 1 };
+      }
+
+      // Public client-side error forwarding endpoint.
+      if (pathname === "/api/errors") {
+        return { policy: "default", requested: 1 };
       }
 
       // Public marketing endpoints.
@@ -153,8 +159,73 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
 export default hasClerkKey
   ? clerkMiddleware(middlewareHandler)
   : async function middleware(req: NextRequest) {
-      // When Clerk is not configured, allow all routes
-      // This allows the app to work even without Clerk setup
+      const pathname = req.nextUrl.pathname;
+      const method = req.method;
+
+      // Even if Clerk isn't configured, still apply Arcjet to /api/*.
+      // This avoids disabling platform-wide rate limiting/security when auth is misconfigured.
+      if (
+        pathname.startsWith("/api/") &&
+        !pathname.startsWith("/api/inngest") &&
+        pathname !== "/api/health"
+      ) {
+        const { policy, requested }: { policy: ArcjetPolicy; requested: number } = (() => {
+          if (pathname.startsWith("/api/webhooks/")) {
+            return { policy: "webhook", requested: 1 };
+          }
+
+          if (pathname === "/api/contacts" || pathname === "/api/waitlist") {
+            return { policy: "forms", requested: 1 };
+          }
+
+          if (
+            pathname.startsWith("/api/seats/availability/") ||
+            (pathname.startsWith("/api/mentors/") && pathname.endsWith("/availability"))
+          ) {
+            return { policy: "availability", requested: 1 };
+          }
+
+          if (pathname.startsWith("/api/auth/")) {
+            return { policy: "auth", requested: 1 };
+          }
+
+          if (pathname.startsWith("/api/checkout/")) {
+            return { policy: "default", requested: 1 };
+          }
+
+          if (pathname === "/api/sessions" && method === "POST") {
+            return { policy: "default", requested: 1 };
+          }
+
+          if (pathname.startsWith("/api/instructor/")) {
+            return { policy: "default", requested: 1 };
+          }
+
+          return { policy: "default", requested: 1 };
+        })();
+
+        const arcjetResponse = await protectWithArcjet(req, {
+          policy,
+          userId: null,
+          requested,
+        });
+        if (arcjetResponse) {
+          return arcjetResponse;
+        }
+      }
+
+      // In production, failing open on auth configuration is dangerous. Fail loudly.
+      if (process.env.NODE_ENV === "production") {
+        if (req.nextUrl.pathname.startsWith("/api/") && !isPublicApiRoute(req)) {
+          return NextResponse.json({ error: "Authentication not configured" }, { status: 503 });
+        }
+
+        if (isProtectedRoute(req)) {
+          return NextResponse.json({ error: "Authentication not configured" }, { status: 503 });
+        }
+      }
+
+      // When Clerk is not configured, allow all routes (useful for local dev / static previews)
       return NextResponse.next();
     };
 

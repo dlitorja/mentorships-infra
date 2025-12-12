@@ -1,5 +1,6 @@
 import arcjet, { detectBot, shield, tokenBucket } from "@arcjet/next";
 import { NextResponse, type NextRequest } from "next/server";
+import { reportError } from "@/lib/observability";
 
 type ArcjetMode = "LIVE" | "DRY_RUN";
 
@@ -277,6 +278,39 @@ function isBotReason(reason: unknown): reason is { isBot: () => boolean } {
   );
 }
 
+export type ArcjetDecisionLike = {
+  isDenied: () => boolean;
+  reason: unknown;
+};
+
+export function arcjetDecisionToResponse(decision: ArcjetDecisionLike): NextResponse | null {
+  if (!decision.isDenied()) {
+    return null;
+  }
+
+  const reason: unknown = decision.reason;
+
+  // Keep responses minimal (avoid leaking enforcement details)
+  if (isRateLimitReason(reason) && reason.isRateLimit()) {
+    return NextResponse.json(
+      { error: "Too Many Requests" },
+      {
+        status: 429,
+        headers: {
+          // Fallback retry hint (Arcjet provides a ttl on decisions, but we don't rely on it here)
+          "Retry-After": "60",
+        },
+      }
+    );
+  }
+
+  if (isBotReason(reason) && reason.isBot()) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
+
 export async function protectWithArcjet(
   req: NextRequest,
   args: {
@@ -385,6 +419,17 @@ export async function protectWithArcjet(
     } catch (error) {
       // Arcjet is designed to fail open; keep this explicit so SDK/runtime issues don't 500 requests.
       console.error("Arcjet protect error:", error);
+      void reportError({
+        source: "arcjet.middleware",
+        error,
+        message: "Arcjet protect failed (fail-open)",
+        context: {
+          policy: args.policy,
+          pathname: req.nextUrl.pathname,
+          method: req.method,
+          requested,
+        },
+      });
       return null;
     }
   })();
@@ -393,29 +438,5 @@ export async function protectWithArcjet(
     return null;
   }
 
-  if (!decision.isDenied()) {
-    return null;
-  }
-
-  const reason: unknown = decision.reason;
-
-  // Keep responses minimal (avoid leaking enforcement details)
-  if (isRateLimitReason(reason) && reason.isRateLimit()) {
-    return NextResponse.json(
-      { error: "Too Many Requests" },
-      {
-        status: 429,
-        headers: {
-          // Fallback retry hint (Arcjet provides a ttl on decisions, but we don't rely on it here)
-          "Retry-After": "60",
-        },
-      }
-    );
-  }
-
-  if (isBotReason(reason) && reason.isBot()) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  return arcjetDecisionToResponse(decision);
 }

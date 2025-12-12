@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { reportError } from "@/lib/observability";
 
 /**
  * POST /api/errors
@@ -25,6 +26,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // Silently fail if Better Stack is unavailable
       });
     }
+
+    // Also forward to Axiom (if configured) for querying/correlation.
+    // Best-effort, never blocks the response.
+    void reportError({
+      source: "client.errors",
+      // Client payloads are not guaranteed to be Error instances; treat them as unknown.
+      error: body,
+      message: "Client-side error report",
+      level: "error",
+      context: {
+        pathname: request.nextUrl.pathname,
+        userAgent: request.headers.get("user-agent"),
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
