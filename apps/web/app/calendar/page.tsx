@@ -3,6 +3,7 @@ import { db, sessions, sessionPacks, eq, and, gte } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { BookSessionForm } from "@/components/calendar/book-session-form";
 
 export default async function CalendarPage() {
   const user = await requireDbUser();
@@ -33,6 +34,7 @@ export default async function CalendarPage() {
   const activePacks = await db
     .select({
       id: sessionPacks.id,
+      mentorId: sessionPacks.mentorId,
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,
@@ -77,8 +79,8 @@ export default async function CalendarPage() {
                         Expires: {new Date(pack.expiresAt).toLocaleDateString()}
                       </p>
                     </div>
-                    <Button disabled={pack.remainingSessions === 0}>
-                      Book Session
+                    <Button disabled={pack.remainingSessions === 0} variant="outline">
+                      Select below
                     </Button>
                   </div>
                 ))}
@@ -86,6 +88,9 @@ export default async function CalendarPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Booking */}
+        {activePacks.length > 0 && <BookSessionForm packs={activePacks} />}
 
         {/* Upcoming Sessions */}
         <Card>

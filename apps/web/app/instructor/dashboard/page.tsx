@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Users, BookOpen, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
+import { Button } from "@/components/ui/button";
 
 function formatDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
@@ -128,6 +129,33 @@ export default async function InstructorDashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Google Calendar Connection */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <div className="space-y-1">
+              <CardTitle className="text-sm font-medium">Google Calendar</CardTitle>
+              <CardDescription>
+                Connect your calendar so students only see times you’re actually free.
+              </CardDescription>
+            </div>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <div className="text-sm">
+              {mentor.googleRefreshToken ? (
+                <span className="text-green-600">Connected</span>
+              ) : (
+                <span className="text-amber-600">Not connected</span>
+              )}
+            </div>
+            <Button asChild variant={mentor.googleRefreshToken ? "outline" : "default"}>
+              <a href="/api/auth/google">
+                {mentor.googleRefreshToken ? "Reconnect" : "Connect Google Calendar"}
+              </a>
+            </Button>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-6 md:grid-cols-2">
           {/* Upcoming Sessions */}
