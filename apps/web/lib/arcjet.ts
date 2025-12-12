@@ -8,7 +8,16 @@ const arcjetEnabled = Boolean(arcjetKey);
 
 const mode: ArcjetMode = process.env.NODE_ENV === "production" ? "LIVE" : "DRY_RUN";
 
-export type ArcjetPolicy = "default" | "auth" | "booking" | "checkout" | "user";
+export type ArcjetPolicy =
+  | "default"
+  | "auth"
+  | "booking"
+  | "checkout"
+  | "availability"
+  | "instructor"
+  | "forms"
+  | "webhook"
+  | "user";
 
 const allowSearchBots = ["CATEGORY:SEARCH_ENGINE"] as const;
 
@@ -23,6 +32,13 @@ const ajDefault = arcjetEnabled
           refillRate: 120,
           interval: 60,
           capacity: 120,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-IP)
+          refillRate: 2000,
+          interval: 3600,
+          capacity: 2000,
         }),
       ],
     })
@@ -41,6 +57,13 @@ const ajUser = arcjetEnabled
           interval: 60,
           capacity: 120,
         }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-user)
+          refillRate: 6000,
+          interval: 3600,
+          capacity: 6000,
+        }),
       ],
     })
   : null;
@@ -54,9 +77,16 @@ const ajAuth = arcjetEnabled
         tokenBucket({
           mode,
           // OAuth + auth-adjacent endpoints (per-IP)
-          refillRate: 20,
+          refillRate: 15,
           interval: 60,
-          capacity: 20,
+          capacity: 15,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-IP)
+          refillRate: 60,
+          interval: 3600,
+          capacity: 60,
         }),
       ],
     })
@@ -71,9 +101,16 @@ const ajCheckout = arcjetEnabled
         detectBot({ mode, allow: [...allowSearchBots] }),
         tokenBucket({
           mode,
-          // Checkout creation/verification should be strict (per-user)
-          refillRate: 10,
+          // Strict per-minute cap (per-user)
+          refillRate: 3,
           interval: 60,
+          capacity: 3,
+        }),
+        tokenBucket({
+          mode,
+          // Strict per-hour cap (per-user)
+          refillRate: 10,
+          interval: 3600,
           capacity: 10,
         }),
       ],
@@ -88,10 +125,135 @@ const ajBooking = arcjetEnabled
         shield({ mode }),
         tokenBucket({
           mode,
-          // Availability + booking endpoints (per-user)
+          // Session booking (per-user)
+          refillRate: 5,
+          interval: 60,
+          capacity: 5,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-user)
+          refillRate: 20,
+          interval: 3600,
+          capacity: 20,
+        }),
+      ],
+    })
+  : null;
+
+const ajAvailabilityUser = arcjetEnabled
+  ? arcjet({
+      key: arcjetKey!,
+      characteristics: ["userId"],
+      rules: [
+        shield({ mode }),
+        tokenBucket({
+          mode,
+          // Availability checks (per-user)
           refillRate: 30,
           interval: 60,
           capacity: 30,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-user)
+          refillRate: 200,
+          interval: 3600,
+          capacity: 200,
+        }),
+      ],
+    })
+  : null;
+
+const ajAvailabilityPublic = arcjetEnabled
+  ? arcjet({
+      key: arcjetKey!,
+      rules: [
+        shield({ mode }),
+        tokenBucket({
+          mode,
+          // Availability checks (per-IP)
+          refillRate: 30,
+          interval: 60,
+          capacity: 30,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-IP)
+          refillRate: 200,
+          interval: 3600,
+          capacity: 200,
+        }),
+      ],
+    })
+  : null;
+
+const ajInstructor = arcjetEnabled
+  ? arcjet({
+      key: arcjetKey!,
+      characteristics: ["userId"],
+      rules: [
+        shield({ mode }),
+        tokenBucket({
+          mode,
+          // Instructor management (per-user)
+          refillRate: 10,
+          interval: 60,
+          capacity: 10,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-user)
+          refillRate: 60,
+          interval: 3600,
+          capacity: 60,
+        }),
+      ],
+    })
+  : null;
+
+const ajForms = arcjetEnabled
+  ? arcjet({
+      key: arcjetKey!,
+      rules: [
+        shield({ mode }),
+        detectBot({ mode, allow: [...allowSearchBots] }),
+        tokenBucket({
+          mode,
+          // Contact/waitlist submissions (per-IP)
+          refillRate: 3,
+          interval: 60,
+          capacity: 3,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-IP)
+          refillRate: 10,
+          interval: 3600,
+          capacity: 10,
+        }),
+      ],
+    })
+  : null;
+
+const ajWebhook = arcjetEnabled
+  ? arcjet({
+      key: arcjetKey!,
+      rules: [
+        shield({ mode }),
+        tokenBucket({
+          mode,
+          // Webhooks can be bursty, but we still want flood protection (per-IP)
+          refillRate: 100,
+          interval: 60,
+          capacity: 100,
+        }),
+        tokenBucket({
+          mode,
+          // Long-term guardrail (per-IP)
+          refillRate: 1000,
+          interval: 3600,
+          capacity: 1000,
         }),
       ],
     })
@@ -127,6 +289,39 @@ export async function protectWithArcjet(
 
   const decision = await (async () => {
     switch (args.policy) {
+      case "webhook": {
+        if (ajWebhook) {
+          return ajWebhook.protect(req, { requested });
+        }
+        if (ajDefault) {
+          return ajDefault.protect(req, { requested });
+        }
+        return null;
+      }
+
+      case "forms": {
+        if (ajForms) {
+          return ajForms.protect(req, { requested });
+        }
+        if (ajDefault) {
+          return ajDefault.protect(req, { requested });
+        }
+        return null;
+      }
+
+      case "availability": {
+        if (ajAvailabilityUser && args.userId) {
+          return ajAvailabilityUser.protect(req, { userId: args.userId, requested });
+        }
+        if (ajAvailabilityPublic) {
+          return ajAvailabilityPublic.protect(req, { requested });
+        }
+        if (ajDefault) {
+          return ajDefault.protect(req, { requested });
+        }
+        return null;
+      }
+
       case "checkout": {
         if (ajCheckout && args.userId) {
           return ajCheckout.protect(req, { userId: args.userId, requested });
@@ -140,6 +335,16 @@ export async function protectWithArcjet(
       case "booking": {
         if (ajBooking && args.userId) {
           return ajBooking.protect(req, { userId: args.userId, requested });
+        }
+        if (ajDefault) {
+          return ajDefault.protect(req, { requested });
+        }
+        return null;
+      }
+
+      case "instructor": {
+        if (ajInstructor && args.userId) {
+          return ajInstructor.protect(req, { userId: args.userId, requested });
         }
         if (ajDefault) {
           return ajDefault.protect(req, { requested });

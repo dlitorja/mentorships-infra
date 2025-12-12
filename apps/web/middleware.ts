@@ -26,6 +26,9 @@ const isPublicApiRoute = createRouteMatcher([
   "/api/webhooks(.*)",
   "/api/health",
   "/api/inngest(.*)", // Inngest dev server needs unauthenticated access
+  "/api/seats/availability(.*)", // Public seat availability endpoint
+  "/api/contacts", // Public contact form endpoint
+  "/api/waitlist", // Allows unauth POST (GET route enforces auth itself)
 ]);
 
 /**
@@ -53,28 +56,59 @@ async function middlewareHandler(auth: any, req: NextRequest) {
   const { userId, sessionId } = await auth();
 
   const pathname = req.nextUrl.pathname;
+  const method = req.method;
 
-  // Apply Arcjet protection to API routes (except explicitly public ones)
-  if (pathname.startsWith("/api/") && !isPublicApiRoute(req)) {
-    const policy: ArcjetPolicy = (() => {
-      if (pathname.startsWith("/api/checkout/")) return userId ? "checkout" : "default";
-      if (pathname.startsWith("/api/auth/")) return "auth";
-
-      // Booking + availability endpoints tend to be hit frequently; keep a dedicated bucket
-      if (
-        pathname === "/api/sessions" ||
-        pathname.startsWith("/api/sessions/") ||
-        pathname.includes("/api/mentors/") && pathname.endsWith("/availability") ||
-        pathname.startsWith("/api/seats/availability/")
-      ) {
-        return userId ? "booking" : "default";
+  // Apply Arcjet protection to API routes (method-aware policy matrix)
+  // Note: We intentionally skip /api/inngest (dev server) and /api/health (monitoring).
+  if (
+    pathname.startsWith("/api/") &&
+    !pathname.startsWith("/api/inngest") &&
+    pathname !== "/api/health"
+  ) {
+    const { policy, requested }: { policy: ArcjetPolicy; requested: number } = (() => {
+      // Webhooks: public, but protect against request floods.
+      if (pathname.startsWith("/api/webhooks/")) {
+        return { policy: "webhook", requested: 1 };
       }
 
-      // Default: use per-user buckets when authenticated, otherwise per-IP
-      return userId ? "user" : "default";
+      // Public marketing endpoints.
+      if (pathname === "/api/contacts" || pathname === "/api/waitlist") {
+        return { policy: "forms", requested: method === "POST" ? 1 : 1 };
+      }
+
+      // Availability endpoints (read-heavy).
+      if (
+        pathname.startsWith("/api/seats/availability/") ||
+        (pathname.startsWith("/api/mentors/") && pathname.endsWith("/availability"))
+      ) {
+        return { policy: "availability", requested: 1 };
+      }
+
+      // Auth endpoints (OAuth + user sync).
+      if (pathname.startsWith("/api/auth/")) {
+        return { policy: "auth", requested: 1 };
+      }
+
+      // Checkout endpoints (payment creation/verification).
+      if (pathname.startsWith("/api/checkout/")) {
+        return { policy: userId ? "checkout" : "default", requested: 1 };
+      }
+
+      // Booking is only POST /api/sessions (expensive operation).
+      if (pathname === "/api/sessions" && method === "POST") {
+        return { policy: userId ? "booking" : "default", requested: 1 };
+      }
+
+      // Instructor management endpoints.
+      if (pathname.startsWith("/api/instructor/")) {
+        return { policy: userId ? "instructor" : "default", requested: 1 };
+      }
+
+      // Default: use per-user buckets when authenticated, otherwise per-IP.
+      return { policy: userId ? "user" : "default", requested: 1 };
     })();
 
-    const arcjetResponse = await protectWithArcjet(req, { policy, userId, requested: 1 });
+    const arcjetResponse = await protectWithArcjet(req, { policy, userId, requested });
     if (arcjetResponse) {
       return arcjetResponse;
     }
