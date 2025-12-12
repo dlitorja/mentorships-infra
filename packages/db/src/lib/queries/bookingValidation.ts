@@ -14,6 +14,7 @@ export type BookingValidationResult =
         | "PACK_NOT_FOUND"
         | "PACK_EXPIRED"
         | "PACK_DEPLETED"
+        | "SCHEDULED_AFTER_EXPIRATION"
         | "NO_REMAINING_SESSIONS"
         | "SEAT_NOT_ACTIVE"
         | "PACK_NOT_ACTIVE";
@@ -34,7 +35,8 @@ export type BookingValidationResult =
  */
 export async function validateBookingEligibility(
   packId: string,
-  userId: string
+  userId: string,
+  scheduledAt?: Date
 ): Promise<BookingValidationResult> {
   // Get session pack with seat reservation
   const { pack, seat } = await getPackWithSeat(packId, userId);
@@ -55,6 +57,15 @@ export async function validateBookingEligibility(
       valid: false,
       error: "Session pack has expired. Bookings are no longer allowed.",
       errorCode: "PACK_EXPIRED",
+    };
+  }
+
+  // Check if the desired scheduled time exceeds the pack expiration
+  if (scheduledAt && new Date(scheduledAt) > new Date(pack.expiresAt)) {
+    return {
+      valid: false,
+      error: "Session cannot be scheduled after the pack expires.",
+      errorCode: "SCHEDULED_AFTER_EXPIRATION",
     };
   }
 

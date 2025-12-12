@@ -14,6 +14,82 @@ import { getGoogleCalendarClient } from "@/lib/google";
 
 const SESSION_DURATION_MINUTES = 60;
 
+type WorkingHoursInterval = { start: string; end: string };
+type WorkingHours = Partial<Record<0 | 1 | 2 | 3 | 4 | 5 | 6, WorkingHoursInterval[]>>;
+
+const weekdayMap: Record<string, 0 | 1 | 2 | 3 | 4 | 5 | 6> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+function parseHHMM(value: string): number | null {
+  const m = value.match(/^(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return null;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return hh * 60 + mm;
+}
+
+function getLocalWeekdayAndMinutes(
+  date: Date,
+  timeZone: string
+): { day: 0 | 1 | 2 | 3 | 4 | 5 | 6; minutes: number } | null {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+
+    const weekday = parts.find((p) => p.type === "weekday")?.value;
+    const hour = parts.find((p) => p.type === "hour")?.value;
+    const minute = parts.find((p) => p.type === "minute")?.value;
+    if (!weekday || !hour || !minute) return null;
+    const day = weekdayMap[weekday];
+    if (day === undefined) return null;
+    const hh = Number(hour);
+    const mm = Number(minute);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+    return { day, minutes: hh * 60 + mm };
+  } catch {
+    return null;
+  }
+}
+
+function isWithinWorkingHours(
+  slotStart: Date,
+  slotEnd: Date,
+  timeZone: string,
+  workingHours: WorkingHours
+): boolean {
+  const localStart = getLocalWeekdayAndMinutes(slotStart, timeZone);
+  const localEnd = getLocalWeekdayAndMinutes(slotEnd, timeZone);
+  if (!localStart || !localEnd) return true; // fail-open
+  if (localStart.day !== localEnd.day) return false; // don't allow slots spanning days
+
+  const intervals = workingHours[localStart.day];
+  if (!intervals || intervals.length === 0) return false;
+
+  for (const i of intervals) {
+    const startMin = parseHHMM(i.start);
+    const endMin = parseHHMM(i.end);
+    if (startMin === null || endMin === null) continue;
+    if (endMin <= startMin) continue;
+    if (localStart.minutes >= startMin && localEnd.minutes <= endMin) return true;
+  }
+
+  return false;
+}
+
 const createSessionSchema = z.object({
   sessionPackId: z.string().min(1, "sessionPackId is required"),
   scheduledAt: z.string().datetime(),
@@ -78,16 +154,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const eligibility = await validateBookingEligibility(sessionPackId, user.id);
+    const start = new Date(scheduledAt);
+    const end = new Date(start.getTime() + SESSION_DURATION_MINUTES * 60 * 1000);
+
+    const eligibility = await validateBookingEligibility(sessionPackId, user.id, start);
     if (!eligibility.valid) {
       return NextResponse.json(
         { error: eligibility.error, code: eligibility.errorCode },
         { status: 400 }
       );
     }
-
-    const start = new Date(scheduledAt);
-    const end = new Date(start.getTime() + SESSION_DURATION_MINUTES * 60 * 1000);
 
     // Fast idempotency: if the exact session already exists, return it.
     const [existing] = await db
@@ -120,6 +196,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const calendarId = mentor.googleCalendarId || "primary";
     const calendar = await getGoogleCalendarClient(mentor.googleRefreshToken);
+
+    // Enforce working-hours constraints server-side as well (not just in slot UI).
+    if (mentor.timeZone && mentor.workingHours) {
+      if (
+        !isWithinWorkingHours(
+          start,
+          end,
+          mentor.timeZone,
+          mentor.workingHours as WorkingHours
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Selected time is outside mentor working hours", code: "OUTSIDE_WORKING_HOURS" },
+          { status: 400 }
+        );
+      }
+    }
 
     // Re-check availability at booking time (prevents stale UI)
     const fb = await calendar.freebusy.query({
