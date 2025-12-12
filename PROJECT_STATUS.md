@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: December 9, 2024  
-**Status**: Core Payment Infrastructure Complete, Instructor Dashboard Implemented, Ready for PayPal & Booking Features
+**Last Updated**: December 12, 2025  
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Ready for Notifications/Automation
 
 ---
 
@@ -47,6 +47,28 @@
 - ✅ Cost breakdown analysis
 - ✅ Graphiti memory system configured
 - ✅ Testing documentation (`TESTING_CHECKOUT.md`)
+
+### 5. Booking System + Google Calendar Scheduling (CORE FEATURE)
+**Status**: ✅ **COMPLETED** - Calendar-driven availability + booking + mentor scheduling settings
+
+**Completed Tasks**:
+- [x] Google OAuth connect flow for mentors
+- [x] Store mentor calendar auth + scheduling preferences:
+  - [x] `mentors.google_refresh_token`, `mentors.google_calendar_id`
+  - [x] `mentors.time_zone`, `mentors.working_hours`
+- [x] Availability endpoint:
+  - [x] `GET /api/mentors/:mentorId/availability` (Google free/busy → bookable slots)
+  - [x] Optional filtering by mentor timezone + working hours
+- [x] Booking endpoint:
+  - [x] `POST /api/sessions` (re-check free/busy, create calendar event, insert session)
+  - [x] `sessions.google_calendar_event_id` is unique for idempotency
+- [x] Instructor UI:
+  - [x] Connect/Reconnect Google Calendar from `/instructor/dashboard`
+  - [x] Configure timezone + working hours at `/instructor/settings`
+- [x] Student UI:
+  - [x] `/calendar` shows bookable slots and books sessions
+
+**Reference**: PR #20 - `feat(booking): add Google Calendar availability and scheduling settings`
 
 ### 5. Instructor Session Management (CORE FEATURE)
 **Status**: ✅ **COMPLETED** - Full instructor dashboard and session management
@@ -248,37 +270,6 @@
 
 ---
 
-### Priority 5: Booking System (CORE FEATURE)
-**Status**: Routes exist, logic not implemented
-
-**Tasks**:
-- [ ] Create booking API endpoints:
-  - [ ] `POST /api/sessions/book` - Book a session
-    - [ ] Check `remaining_sessions > 0`
-    - [ ] Check `seat_status = active`
-    - [ ] Check pack expiration
-    - [ ] Create session record
-    - [ ] Decrement `remaining_sessions`
-  - [ ] `PATCH /api/sessions/:id/reschedule` - Reschedule session
-    - [ ] Check 24-hour minimum notice
-    - [ ] Update session `scheduled_at`
-  - [ ] `PATCH /api/sessions/:id/cancel` - Cancel session
-    - [ ] Check cancellation policy
-    - [ ] Increment `remaining_sessions` (if applicable)
-    - [ ] Update session status
-  - [ ] `PATCH /api/sessions/:id/complete` - Mark session complete
-    - [ ] Update session status
-    - [ ] Check if session 3 → send renewal reminder
-    - [ ] Check if session 4 → disable booking, start grace period
-- [ ] Create booking UI:
-  - [ ] Calendar view for mentor availability
-  - [ ] Session booking form
-  - [ ] Session management (reschedule/cancel)
-
-**Estimated Time**: 3-4 days
-
----
-
 ### Priority 6: Discord Bot Automation
 **Status**: Bot structure exists, automation not implemented
 
@@ -299,16 +290,7 @@
 ---
 
 ### Priority 7: Google Calendar Integration
-**Status**: Package structure exists, not implemented
-
-**Tasks**:
-- [ ] Set up Google OAuth flow for mentors
-- [ ] Store access/refresh tokens securely
-- [ ] Create calendar events on session booking
-- [ ] Update/delete events on reschedule/cancel
-- [ ] Sync mentor availability from Google Calendar
-
-**Estimated Time**: 2-3 days
+**Status**: ✅ **COMPLETED** - Implemented via booking system (see completed section above)
 
 ---
 
@@ -353,7 +335,7 @@ Based on the plan in `mentorship-platform-plan.md`:
 4. **✅ PayPal integration** (secondary payment option) - COMPLETED
 5. ✅ **Row Level Security (RLS) enabled** - All tables secured with proper policies
 6. **Implement notification system** (connect Discord bot and email services to Inngest events)
-7. **Complete booking system** (now possible after Stripe integration is done)
+7. **Add platform-wide security/rate limiting** (ArcJet chosen; implement across API routes)
 
 ---
 
