@@ -1,0 +1,1 @@
+ALTER TABLE "seat_reservations" ADD CONSTRAINT "seat_reservations_session_pack_id_unique" UNIQUE("session_pack_id");

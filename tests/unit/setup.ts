@@ -6,6 +6,8 @@ process.env.NEXT_PUBLIC_URL = "http://localhost:3000";
 process.env.STRIPE_SECRET_KEY = "sk_test_mock_key";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_mock_secret";
 process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test_mock_key";
+process.env.DATABASE_URL =
+  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres";
 
 // Mock Next.js router
 vi.mock("next/navigation", () => ({

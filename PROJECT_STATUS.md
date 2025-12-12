@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
 **Last Updated**: December 12, 2025  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Ready for Notifications/Automation
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Ready for Notifications/Automation
 
 ---
 
@@ -166,107 +166,48 @@
 
 ---
 
-## 🚧 In Progress / Next Steps
-
-### Priority 1: Instructor Session Management
-**Status**: ✅ **COMPLETED** - See section 5 above
-
----
-
-### Priority 2: Session Pack & Seat Logic (FOUNDATION)
-**Status**: ✅ **COMPLETED** - Implemented with Inngest functions and database helpers
-
-**Tasks**:
-- [x] Create utility functions for session pack management:
-  - [x] `createSessionPack()` - Create pack after payment
-  - [x] `checkPackExpiration()` - Validate pack validity
-  - [x] `getRemainingSessions()` - Calculate remaining sessions
-  - [x] `canBookSession()` - Booking eligibility check (via `validateBookingEligibility`)
-- [x] Create seat reservation logic:
-  - [x] `reserveSeat()` - Create seat reservation
-  - [x] `checkSeatAvailability()` - Verify mentor has available seats
-  - [x] `releaseSeat()` - Release seat on expiration/refund
-  - [x] `handleGracePeriod()` - Grace period management (72 hours)
-- [x] Create API endpoints:
-  - [x] `POST /api/session-packs` - Create pack (internal, called by webhook)
-  - [x] `GET /api/session-packs/me` - Get user's active packs
-  - [x] `GET /api/seats/availability/:mentorId` - Check seat availability
-- [x] Implement Inngest functions for session completion and seat expiration:
-  - [x] `handleSessionCompleted` - Process session completion and decrement remaining sessions
-  - [x] `checkSeatExpiration` - Hourly cron job for seat release management
-  - [x] `handleRenewalReminder` - Handle renewal notifications at session 3 and 4
-  - [x] `sendGracePeriodFinalWarning` - Send final warning before seat release
-
-**Completed Components**:
-- ✅ Session completion handler (`apps/web/inngest/functions/sessions.ts`)
-- ✅ Seat expiration management (`apps/web/inngest/functions/sessions.ts`)
-- ✅ Session number tracking (`packages/db/src/lib/queries/sessions.ts`)
-- ✅ Database helper functions for session packs (`packages/db/src/lib/queries/sessionPacks.ts`)
-- ✅ Booking validation utility (`packages/db/src/lib/queries/bookingValidation.ts`)
-- ✅ Event types and schemas (`apps/web/inngest/types.ts`)
-
-**Estimated Time**: 2-3 days (completed)
-
----
-
----
-
-### Priority 4: PayPal Payment Integration (SECONDARY)
-**Status**: ✅ **COMPLETED** - Fully implemented with Inngest functions
+### 7. Platform-wide Security & Rate Limiting (Arcjet)
+**Status**: ✅ **COMPLETED** - Platform-wide protection via middleware policy matrix
 
 **Completed Tasks**:
-- [x] PayPal SDK installed (`@paypal/paypal-server-sdk`)
-- [x] PayPal adapter package created (`packages/payments/src/paypal/`):
-  - [x] `client.ts` - PayPal client setup with environment validation
-  - [x] `orders.ts` - Order creation & capture
-  - [x] `webhooks.ts` - Webhook signature verification and parsing
-  - [x] `refunds.ts` - Refund processing with amount calculation
-  - [x] `types.ts` - TypeScript type definitions
-- [x] Checkout API endpoint:
-  - [x] `POST /api/checkout/paypal` - Create PayPal order
-  - [x] `POST /api/checkout/paypal/capture` - Capture PayPal order after approval
-- [x] Webhook handler:
-  - [x] `POST /api/webhooks/paypal` - Handle PayPal webhooks with signature verification
-  - [x] `PAYMENT.CAPTURE.COMPLETED` - Processed via Inngest (creates pack, seat, payment)
-  - [x] `PAYMENT.CAPTURE.REFUNDED` - Processed via Inngest (releases seat, updates pack status)
-- [x] Idempotency checks implemented:
-  - [x] Order status check (prevents duplicate processing)
-  - [x] Payment existence check (prevents duplicate payment records)
-  - [x] Session pack existence check (prevents duplicate packs)
-  - [x] Seat reservation existence check (prevents duplicate reservations)
-- [x] Webhook signature verification (CRITICAL security feature)
-- [x] Error handling and logging:
-  - [x] Order cleanup on checkout failure
-  - [x] Comprehensive error messages
-  - [x] Inngest retry logic (3 retries with exponential backoff)
-- [x] Metadata handling:
-  - [x] packId encoded in PayPal order custom_id (JSON format)
-  - [x] Order metadata extraction from webhook events
+- [x] Arcjet integrated (`@arcjet/next`) in `apps/web`
+- [x] Centralized enforcement in `apps/web/middleware.ts` for `/api/*` (excluding `/api/health` and `/api/inngest/*`)
+- [x] Policy matrix implemented in `apps/web/lib/arcjet.ts`:
+  - `default`, `user`, `auth`, `checkout`, `booking`, `availability`, `instructor`, `forms`, `webhook`
+- [x] Verified runtime enforcement (429/403) on production deployments
 
-**Completed Components**:
-- ✅ PayPal payments package (`packages/payments/src/paypal/`)
-- ✅ Checkout API route (`apps/web/app/api/checkout/paypal/route.ts`)
-- ✅ Capture API route (`apps/web/app/api/checkout/paypal/capture/route.ts`)
-- ✅ Webhook handler (`apps/web/app/api/webhooks/paypal/route.ts`)
-- ✅ Inngest payment processing functions (`apps/web/inngest/functions/payments.ts`):
-  - ✅ `processPayPalCheckout` - Handles PAYMENT.CAPTURE.COMPLETED
-  - ✅ `processPayPalRefund` - Handles PAYMENT.CAPTURE.REFUNDED
-- ✅ Event types and schemas (`apps/web/inngest/types.ts`)
+**Reference**: PR #22 - `feat(security): add Arcjet protection in middleware`
 
-**Estimated Time**: 2-3 days (completed)
+---
 
-**Note**: PayPal integration follows the same pattern as Stripe but uses PayPal's Orders API (two-step: create → capture). packId is encoded in the order's custom_id field since PayPal doesn't support metadata like Stripe.
+### 8. Observability & Error Tracking (Axiom + Better Stack)
+**Status**: ✅ **COMPLETED** - Dual-provider observability for errors + security signals
 
-**PR Review Fixes Applied** (PR #11):
-- ✅ Fixed webhook handler to fetch parent order for PAYMENT.CAPTURE.COMPLETED events (capture resource doesn't include purchase_units)
-- ✅ Fixed refund webhook to extract capture ID from resource.links (rel="up") instead of resource.id
-- ✅ Fixed customId encoding to properly handle JSON-encoded metadata with both orderId and packId
-- ✅ Added idempotency check for refund processing
-- ✅ Added explicit return types to all async functions
-- ✅ Improved type safety (removed non-null assertions, added amount validation)
-- ✅ Added client caching for PayPal client instance
-- ✅ Improved type guards with TypeScript type predicates
-- ✅ Added structured logging for payment capture events
+**Completed Tasks**:
+- [x] Centralized reporting utility: `apps/web/lib/observability.ts`
+- [x] Arcjet protect failures report to Axiom/Better Stack (fail-open) via `apps/web/lib/arcjet.ts`
+- [x] Client error forwarding endpoint `/api/errors` forwards to Better Stack + Axiom via server-side token usage
+- [x] `/api/errors` is public (still Arcjet-protected) so client-side error reporting doesn’t 401
+
+**Env Vars**:
+- Axiom: `AXIOM_TOKEN`, `AXIOM_DATASET`, `AXIOM_INGEST_URL`
+- Better Stack: `BETTERSTACK_SOURCE_TOKEN`
+
+**Reference**: PR #23 - `fix(observability): forward errors to Axiom and Better Stack`
+
+---
+
+## 🚧 In Progress / Next Steps
+
+### Priority 1: Notifications & Automation (Discord + Email)
+**Status**: 🚧 **PLANNED** - Connect Inngest events to outbound notifications
+
+**Tasks**:
+- [ ] Wire Discord bot notifications for: pack purchased, renewal reminders, grace warnings, session reminders
+- [ ] Add email provider (Resend or equivalent) + templates for transactional emails
+- [ ] Centralize notification events (Inngest) and ensure idempotency/deduplication
+
+**Estimated Time**: 2-4 days
 
 ---
 
@@ -320,10 +261,11 @@ Based on the plan in `mentorship-platform-plan.md`:
 5. ✅ **Stripe Webhooks** - DONE (integrated with Inngest)
 6. ✅ **Instructor Session Management** - DONE (dashboard, sessions page, API)
 7. ✅ **PayPal one-time checkout** - DONE (fully implemented with webhooks)
-8. ⏳ **Booking rules** - NEXT (can now be implemented after Stripe)
-9. ⏳ **Discord automation** - After #8
-10. ⏳ **Google Calendar** - After #8
-11. ⏳ **Video access control** - After #8
+8. ✅ **Booking system + Google Calendar scheduling** - DONE (availability + booking + settings)
+9. ✅ **Platform-wide security/rate limiting** - DONE (Arcjet middleware policy matrix)
+10. ✅ **Observability** - DONE (Axiom + Better Stack)
+11. ⏳ **Notifications & automation** - NEXT (Discord + email)
+12. ⏳ **Video access control** - After #11
 
 ---
 
@@ -334,8 +276,9 @@ Based on the plan in `mentorship-platform-plan.md`:
 3. **✅ Instructor session management** (completed - dashboard, sessions page, API)
 4. **✅ PayPal integration** (secondary payment option) - COMPLETED
 5. ✅ **Row Level Security (RLS) enabled** - All tables secured with proper policies
-6. **Implement notification system** (connect Discord bot and email services to Inngest events)
-7. **Add platform-wide security/rate limiting** (ArcJet chosen; implement across API routes)
+6. ✅ **Arcjet platform-wide security/rate limiting** (middleware policy matrix)
+7. ✅ **Observability (Axiom + Better Stack)** (errors + Arcjet failures)
+8. **Implement notification system** (connect Discord bot and email services to Inngest events)
 
 ---
 

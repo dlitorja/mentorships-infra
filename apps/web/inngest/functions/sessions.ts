@@ -309,7 +309,8 @@ export const sendGracePeriodFinalWarning = inngest.createFunction(
             eq(seatReservations.status, "grace"),
             sql`${seatReservations.gracePeriodEndsAt} IS NOT NULL`,
             lte(seatReservations.gracePeriodEndsAt, warningThreshold),
-            sql`${seatReservations.gracePeriodEndsAt} > ${now}`
+            sql`${seatReservations.gracePeriodEndsAt} > ${now}`,
+            sql`${seatReservations.finalWarningNotificationSentAt} IS NULL`
           )
         );
 
@@ -336,6 +337,15 @@ export const sendGracePeriodFinalWarning = inngest.createFunction(
             gracePeriodEndsAt: seat.gracePeriodEndsAt,
           },
         });
+
+        // Mark as sent to prevent re-sending every hour
+        await db
+          .update(seatReservations)
+          .set({
+            finalWarningNotificationSentAt: now,
+            updatedAt: now,
+          })
+          .where(eq(seatReservations.id, seat.id));
       });
     }
 
