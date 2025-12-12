@@ -1,6 +1,7 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { protectWithArcjet, type ArcjetPolicy } from "@/lib/arcjet";
 
 /**
  * Define protected routes that require authentication
@@ -50,6 +51,34 @@ const hasClerkKey = Boolean(
 // Create middleware function that handles both cases
 async function middlewareHandler(auth: any, req: NextRequest) {
   const { userId, sessionId } = await auth();
+
+  const pathname = req.nextUrl.pathname;
+
+  // Apply Arcjet protection to API routes (except explicitly public ones)
+  if (pathname.startsWith("/api/") && !isPublicApiRoute(req)) {
+    const policy: ArcjetPolicy = (() => {
+      if (pathname.startsWith("/api/checkout/")) return userId ? "checkout" : "default";
+      if (pathname.startsWith("/api/auth/")) return "auth";
+
+      // Booking + availability endpoints tend to be hit frequently; keep a dedicated bucket
+      if (
+        pathname === "/api/sessions" ||
+        pathname.startsWith("/api/sessions/") ||
+        pathname.includes("/api/mentors/") && pathname.endsWith("/availability") ||
+        pathname.startsWith("/api/seats/availability/")
+      ) {
+        return userId ? "booking" : "default";
+      }
+
+      // Default: use per-user buckets when authenticated, otherwise per-IP
+      return userId ? "user" : "default";
+    })();
+
+    const arcjetResponse = await protectWithArcjet(req, { policy, userId, requested: 1 });
+    if (arcjetResponse) {
+      return arcjetResponse;
+    }
+  }
 
   // Allow public API routes (webhooks, health checks, etc.)
   if (isPublicApiRoute(req)) {

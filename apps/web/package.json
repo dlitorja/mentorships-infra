@@ -10,6 +10,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@arcjet/next": "1.0.0-beta.15",
     "@clerk/nextjs": "^6.35.5",
     "@mentorships/db": "workspace:*",
     "@mentorships/payments": "workspace:*",
@@ -45,4 +46,3 @@
     "typescript": "^5.9.3"
   }
 }
-
