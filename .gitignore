@@ -75,6 +75,8 @@ desktop.ini
 
 # Drizzle
 drizzle/
+!packages/db/drizzle/
+!packages/db/drizzle/**
 
 # Misc
 *.pem

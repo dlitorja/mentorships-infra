@@ -70,10 +70,13 @@ The platform follows a modern monorepo architecture with:
 ## Current Code Quality Issues & Optimization Opportunities
 
 ### 1. Missing Notifications Implementation
-**Issue**: Notification system exists in events but not fully implemented
-**Location**: `handleRenewalReminder` and `sendGracePeriodFinalWarning` functions
-**Status**: Functions exist but use `console.log` and TODO for Discord/Email integration
-**Impact**: Users won't receive renewal reminders until notification system is connected
+**Issue**: Notification system is wired end-to-end at the event layer, but delivery providers (Discord/Email) are not implemented yet
+**Location**:
+- Event emitters: `apps/web/inngest/functions/sessions.ts` (`handleRenewalReminder`, `sendGracePeriodFinalWarning`)
+- Event schema: `apps/web/inngest/types.ts` (`notification/send`)
+- Event handler: `apps/web/inngest/functions/notifications.ts` (`handleNotificationSend`)
+**Status**: ✅ Event handler now exists and is registered with Inngest (`apps/web/app/api/inngest/route.ts`), currently forwarding to observability (Axiom/Better Stack). Provider delivery (Discord/email templates) remains TODO.
+**Impact**: Notifications are now observable and ready to be delivered once Discord/email integration is added.
 
 ### 2. Database Query Optimizations
 - ❌ Proper database indexes likely missing for frequently queried fields
@@ -81,9 +84,10 @@ The platform follows a modern monorepo architecture with:
 - ✅ Session pack queries optimized with proper joins
 
 ### 3. Rate Limiting Implementation
-- ❌ Upstash Redis for rate limiting not implemented
-- ❌ Payment endpoints lack protection
-- ❌ Booking attempts not limited
+- ✅ **RESOLVED** - Platform-wide rate limiting implemented via Arcjet middleware policy matrix (PR #22)
+- ✅ Payment endpoints protected (checkout + webhooks)
+- ✅ Booking attempts protected
+- ⚠️ **Remaining**: validate/tune Arcjet thresholds as traffic patterns become clearer (avoid false positives)
 
 ### 4. Caching Layer
 - ❌ No caching for mentor availability data
@@ -91,13 +95,16 @@ The platform follows a modern monorepo architecture with:
 - ❌ No Redis-based caching
 
 ### 5. Error Handling & Monitoring
-- ❌ No comprehensive error logging
+- ✅ **RESOLVED** - Error forwarding to Axiom + Better Stack implemented (PR #23)
+- ⚠️ **Deployment requirements**:
+  - Axiom ingest: `AXIOM_TOKEN`, `AXIOM_DATASET`, `AXIOM_INGEST_URL` (edge ingest base URL)
+  - Better Stack: `BETTERSTACK_SOURCE_TOKEN`
 - ❌ No dead-letter queues for failed jobs
-- ❌ No alerting for critical failures
+- ❌ No alert rules configured yet (Axiom/Better Stack monitors, paging, SLOs)
 
 ### 6. Unit Testing
 - ❌ No tests for Inngest functions
-- ❌ No tests for business logic edge cases
+- ✅ Added unit tests for booking eligibility business rules (`packages/db/src/lib/queries/bookingValidation.test.ts`)
 - ❌ No concurrency/race condition tests
 
 ## Recommendations
@@ -111,12 +118,12 @@ The platform follows a modern monorepo architecture with:
 ### Immediate Next Steps Needed
 1. **Notification System Integration**: Connect Discord bot and email services to notification events
 2. **Database Indexing**: Verify and create proper indexes for performance
-3. **Error Handling**: Add comprehensive error handling and monitoring
+3. ✅ **Error Handling/Monitoring**: Implemented (Axiom + Better Stack); next is alert rules + uptime checks
 
 ### Medium-term Improvements
 1. Add comprehensive monitoring and alerting
 2. Implement caching for better performance
-3. Add rate limiting for security
+3. ✅ Add rate limiting for security (Arcjet implemented)
 4. Create admin dashboard for monitoring bookings
 5. Add unit tests for all critical business logic
 

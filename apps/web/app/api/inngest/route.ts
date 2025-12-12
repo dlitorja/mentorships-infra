@@ -1,6 +1,7 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/inngest/client";
 import { processStripeCheckout, processStripeRefund } from "@/inngest/functions/payments";
+import { handleNotificationSend } from "@/inngest/functions/notifications";
 import {
   handleSessionCompleted,
   checkSeatExpiration,
@@ -19,6 +20,7 @@ export const { GET, POST, PUT } = serve({
     checkSeatExpiration,
     handleRenewalReminder,
     sendGracePeriodFinalWarning,
+    handleNotificationSend,
   ],
 });
 

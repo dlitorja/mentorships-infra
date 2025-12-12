@@ -25,6 +25,7 @@ export const seatReservations = pgTable("seat_reservations", {
     .unique(),
   seatExpiresAt: timestamp("seat_expires_at").notNull(),
   gracePeriodEndsAt: timestamp("grace_period_ends_at"),
+  finalWarningNotificationSentAt: timestamp("final_warning_notification_sent_at"),
   status: seatStatusEnum("status").notNull().default("active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
