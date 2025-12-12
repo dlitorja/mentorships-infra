@@ -114,5 +114,15 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 # Database (for Drizzle)
 DATABASE_URL=postgresql://postgres:[password]@db.[project-ref].supabase.co:5432/postgres
-```
 
+# Email (Resend) - transactional notifications
+# Required in production (in dev, emails will be skipped if missing)
+RESEND_API_KEY=re_...
+EMAIL_FROM="Huckleberry Mentorships <noreply@yourdomain.com>"
+# Optional
+EMAIL_REPLY_TO="Support <support@yourdomain.com>"
+
+# App base URL (used to generate links inside emails)
+# Either NEXT_PUBLIC_URL or VERCEL_URL must be set in production.
+NEXT_PUBLIC_URL=https://yourdomain.com
+```
