@@ -70,13 +70,22 @@ The platform follows a modern monorepo architecture with:
 ## Current Code Quality Issues & Optimization Opportunities
 
 ### 1. Missing Notifications Implementation
-**Issue**: Notification system is wired end-to-end at the event layer, but delivery providers (Discord/Email) are not implemented yet
+**Issue**: Notification system is wired end-to-end at the event layer, but Discord delivery is not implemented yet
 **Location**:
 - Event emitters: `apps/web/inngest/functions/sessions.ts` (`handleRenewalReminder`, `sendGracePeriodFinalWarning`)
 - Event schema: `apps/web/inngest/types.ts` (`notification/send`)
 - Event handler: `apps/web/inngest/functions/notifications.ts` (`handleNotificationSend`)
-**Status**: ✅ Event handler now exists and is registered with Inngest (`apps/web/app/api/inngest/route.ts`), currently forwarding to observability (Axiom/Better Stack). Provider delivery (Discord/email templates) remains TODO.
-**Impact**: Notifications are now observable and ready to be delivered once Discord/email integration is added.
+**Status**: ✅ **EMAIL NOW IMPLEMENTED + VERIFIED**
+- Email delivery implemented via Resend in `apps/web/lib/email.ts` and template builder `apps/web/lib/notifications/notification-email.ts`
+- `handleNotificationSend` now performs:
+  - `get-user-email` (DB lookup)
+  - `send-email` (Resend API)
+  - observability reporting (Axiom/Better Stack)
+- Verified end-to-end in production: **Inngest run → Resend logs → inbox delivery**
+- Reply handling configured via Google Workspace Group: `support@huckleberry.art` → forwards to `huckleberryartinc@gmail.com`
+
+**Remaining TODO**: Discord provider delivery (Discord DM / bot automation) behind the same `notification/send` event.
+**Impact**: Renewal/grace-period emails now deliver reliably; Discord can be added next without changing event producers.
 
 ### 2. Database Query Optimizations
 - ❌ Proper database indexes likely missing for frequently queried fields
@@ -116,7 +125,8 @@ The platform follows a modern monorepo architecture with:
 4. ✅ **Booking Validation**: ✅ **IMPLEMENTED**
 
 ### Immediate Next Steps Needed
-1. **Notification System Integration**: Connect Discord bot and email services to notification events
+1. ✅ **Email Notifications**: Implemented and verified (Inngest → Resend → inbox; reply-to group configured)
+2. **Discord Notifications**: Connect Discord bot delivery to `notification/send` events
 2. **Database Indexing**: Verify and create proper indexes for performance
 3. ✅ **Error Handling/Monitoring**: Implemented (Axiom + Better Stack); next is alert rules + uptime checks
 

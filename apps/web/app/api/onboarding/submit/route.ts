@@ -103,14 +103,6 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
     }
 
     // Insert submission (submissionId was generated server-side in uploads endpoint)
-    // We already checked for existence above, but double-check to handle race conditions
-    if (existing) {
-      return NextResponse.json(
-        { error: "Submission already exists. Please refresh and try again.", errorId },
-        { status: 409 }
-      );
-    }
-
     // Insert with database primary key constraint as final race condition protection
     try {
       await db.insert(menteeOnboardingSubmissions).values({

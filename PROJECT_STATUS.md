@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
 **Last Updated**: December 12, 2025  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Ready for Notifications/Automation
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Ready for Discord Automation + Video Access Control
 
 ---
 
@@ -197,17 +197,39 @@
 
 ---
 
+### 9. Email Notifications (Resend + Inngest)
+**Status**: ✅ **COMPLETED** - Transactional email delivery for `notification/send` events
+
+**Completed Tasks**:
+- [x] Inngest notification delivery handler implemented: `apps/web/inngest/functions/notifications.ts` (`handleNotificationSend`)
+- [x] Handler registered with Inngest: `apps/web/app/api/inngest/route.ts`
+- [x] Resend email sender implemented: `apps/web/lib/email.ts`
+- [x] Email templates implemented: `apps/web/lib/notifications/notification-email.ts`
+- [x] Verified end-to-end in production: **Inngest run → Resend logs → inbox delivery**
+- [x] Reply-to configured without additional Google Workspace seats:
+  - Google Workspace Group `support@huckleberry.art` forwards to `huckleberryartinc@gmail.com`
+
+**Env Vars**:
+- `RESEND_API_KEY`
+- `EMAIL_FROM="Huckleberry Mentorships <noreply@mentorships.huckleberry.art>"`
+- `EMAIL_REPLY_TO="Support <support@huckleberry.art>"`
+- `NEXT_PUBLIC_URL` (or `VERCEL_URL`) for links inside emails
+
+**Reference**: PR #25 - `feat(web): send email notifications for notification/send events`
+
+---
+
 ## 🚧 In Progress / Next Steps
 
 ### Priority 1: Notifications & Automation (Discord + Email)
-**Status**: 🚧 **PLANNED** - Connect Inngest events to outbound notifications
+**Status**: 🚧 **IN PROGRESS** - Discord remaining (email complete)
 
 **Tasks**:
 - [ ] Wire Discord bot notifications for: pack purchased, renewal reminders, grace warnings, session reminders
-- [ ] Add email provider (Resend or equivalent) + templates for transactional emails
+- [x] Add email provider (Resend) + templates for transactional emails
 - [ ] Centralize notification events (Inngest) and ensure idempotency/deduplication
 
-**Estimated Time**: 2-4 days
+**Estimated Time**: 1-3 days (Discord + polish)
 
 ---
 
@@ -264,8 +286,8 @@ Based on the plan in `mentorship-platform-plan.md`:
 8. ✅ **Booking system + Google Calendar scheduling** - DONE (availability + booking + settings)
 9. ✅ **Platform-wide security/rate limiting** - DONE (Arcjet middleware policy matrix)
 10. ✅ **Observability** - DONE (Axiom + Better Stack)
-11. ⏳ **Notifications & automation** - NEXT (Discord + email)
-12. ⏳ **Video access control** - After #11
+11. ⏳ **Notifications & automation** - NEXT (Discord; email complete)
+12. ⏳ **Video access control** - After #11 (Agora)
 
 ---
 
@@ -278,7 +300,7 @@ Based on the plan in `mentorship-platform-plan.md`:
 5. ✅ **Row Level Security (RLS) enabled** - All tables secured with proper policies
 6. ✅ **Arcjet platform-wide security/rate limiting** (middleware policy matrix)
 7. ✅ **Observability (Axiom + Better Stack)** (errors + Arcjet failures)
-8. **Implement notification system** (connect Discord bot and email services to Inngest events)
+8. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
 
 ---
 
