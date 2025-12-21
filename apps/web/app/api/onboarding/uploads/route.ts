@@ -4,10 +4,6 @@ import { randomUUID } from "crypto";
 import { requireDbUser } from "@/lib/auth";
 import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
 
-const uploadSchema = z.object({
-  submissionId: z.string().uuid(),
-});
-
 type UploadResponse =
   | {
       success: true;
@@ -34,17 +30,18 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
   try {
     const user = await requireDbUser();
 
-    const form = await request.formData();
-    const submissionIdRaw = form.get("submissionId");
-    const submissionId = uploadSchema.parse({ submissionId: submissionIdRaw }).submissionId;
+    // Generate submissionId server-side to prevent race conditions and client manipulation
+    const submissionId = randomUUID();
 
+    const form = await request.formData();
     const files = form
       .getAll("files")
       .filter((v): v is File => typeof File !== "undefined" && v instanceof File);
 
-    if (files.length < 1 || files.length > 4) {
+    // Align validation with submit route: require 2-4 images
+    if (files.length < 2 || files.length > 4) {
       return NextResponse.json(
-        { error: "Upload must include 1 to 4 images", errorId },
+        { error: "Upload must include 2 to 4 images", errorId },
         { status: 400 }
       );
     }
@@ -88,6 +85,11 @@ export async function POST(request: Request): Promise<NextResponse<UploadRespons
 
       uploaded.push({ path: objectPath, mimeType, sizeBytes: file.size });
     }
+
+    // Note: We don't create the submission record here because mentorId and sessionPackId
+    // are required. Instead, we verify the submissionId on submit by checking that
+    // uploaded images exist with the expected prefix pattern.
+    // The submissionId is generated server-side to prevent client manipulation and race conditions.
 
     return NextResponse.json({ success: true, submissionId, images: uploaded });
   } catch (error) {
