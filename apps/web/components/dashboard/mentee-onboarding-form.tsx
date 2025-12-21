@@ -18,7 +18,7 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
   const [sessionPackId, setSessionPackId] = useState<string>(packs[0]?.sessionPackId ?? "");
   const [goals, setGoals] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
-  const [submissionId] = useState<string>(() => crypto.randomUUID());
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
 
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -48,7 +48,7 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     setUploading(true);
     try {
       const form = new FormData();
-      form.set("submissionId", submissionId);
+      // Don't send submissionId - server will generate it to prevent race conditions
       for (const f of files) form.append("files", f);
 
       const res = await fetch("/api/onboarding/uploads", { method: "POST", body: form });
@@ -61,6 +61,8 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
         return;
       }
 
+      // Store server-generated submissionId
+      setSubmissionId(data.submissionId);
       setUploadedImages(data.images);
       setMessage("Images uploaded. You can now submit onboarding.");
     } catch {
@@ -72,7 +74,10 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
 
   async function submit() {
     setMessage(null);
-    if (!canSubmit) return;
+    if (!canSubmit || !submissionId) {
+      setMessage("Please upload images first");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -164,10 +169,12 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button type="button" onClick={submit} disabled={!canSubmit}>
+          <Button type="button" onClick={submit} disabled={!canSubmit || !submissionId}>
             {submitting ? "Submitting..." : "Submit onboarding"}
           </Button>
-          <span className="text-xs text-muted-foreground">Submission ID: {submissionId}</span>
+          {submissionId ? (
+            <span className="text-xs text-muted-foreground">Submission ID: {submissionId}</span>
+          ) : null}
         </div>
 
         {message ? <p className="text-sm">{message}</p> : null}
