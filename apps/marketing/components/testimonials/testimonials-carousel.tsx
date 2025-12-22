@@ -13,20 +13,11 @@ import {
 } from "@/components/ui/carousel";
 import { instructors } from "@/lib/instructors";
 import type { Testimonial } from "@/lib/instructors";
+import { shuffleArray } from "@/lib/utils";
 
 interface TestimonialWithInstructor extends Testimonial {
   instructorName: string;
   instructorSlug: string;
-}
-
-// Fisher-Yates shuffle algorithm to randomize array
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
 }
 
 export function TestimonialsCarousel(): React.JSX.Element | null {
@@ -59,18 +50,16 @@ export function TestimonialsCarousel(): React.JSX.Element | null {
     if (!api || randomizedTestimonials.length === 0) return;
 
     const interval = setInterval(() => {
-      if (api.canScrollNext()) {
-        api.scrollNext();
-      } else {
-        api.scrollTo(0); // Loop back to start
-      }
+      api.scrollNext(); // loop: true handles wrap-around
     }, 6000);
 
     return () => clearInterval(interval);
   }, [api, randomizedTestimonials.length]);
 
   if (randomizedTestimonials.length === 0) {
-    return null;
+    return (
+      <div className="w-full h-64 animate-pulse bg-black/20 rounded-xl" aria-label="Loading testimonials..." />
+    );
   }
 
   return (

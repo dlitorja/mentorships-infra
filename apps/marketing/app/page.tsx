@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { InstructorCarousel } from "@/components/instructors/instructor-carousel";
 import { TestimonialsCarousel } from "@/components/testimonials/testimonials-carousel";
 
@@ -53,7 +54,9 @@ export default function HomePage(): React.JSX.Element {
               </div>
             </div>
 
-            <InstructorCarousel />
+            <ErrorBoundary fallback={<p className="text-white/80">Unable to load instructors.</p>}>
+              <InstructorCarousel />
+            </ErrorBoundary>
           </div>
         </section>
 
@@ -102,7 +105,9 @@ export default function HomePage(): React.JSX.Element {
                 </p>
               </div>
             </div>
-            <TestimonialsCarousel />
+            <ErrorBoundary fallback={<p className="text-white/80">Unable to load testimonials.</p>}>
+              <TestimonialsCarousel />
+            </ErrorBoundary>
           </div>
         </section>
 

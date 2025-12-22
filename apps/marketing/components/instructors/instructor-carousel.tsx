@@ -16,16 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { Instructor } from "@/lib/instructors";
 import { instructors } from "@/lib/instructors";
-
-// Fisher-Yates shuffle algorithm to randomize array
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
+import { shuffleArray } from "@/lib/utils";
 
 export function InstructorCarousel(): React.JSX.Element | null {
   const [randomizedInstructors, setRandomizedInstructors] = useState<Instructor[]>([]);
@@ -42,18 +33,16 @@ export function InstructorCarousel(): React.JSX.Element | null {
     if (!api || randomizedInstructors.length === 0) return;
 
     const interval = setInterval(() => {
-      if (api.canScrollNext()) {
-        api.scrollNext();
-      } else {
-        api.scrollTo(0); // Loop back to start
-      }
+      api.scrollNext(); // loop: true handles wrap-around
     }, 5000);
 
     return () => clearInterval(interval);
   }, [api, randomizedInstructors.length]);
 
   if (randomizedInstructors.length === 0) {
-    return null;
+    return (
+      <div className="w-full h-64 animate-pulse bg-black/20 rounded-xl" aria-label="Loading instructors..." />
+    );
   }
 
   return (
