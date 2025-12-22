@@ -2,6 +2,7 @@ export interface InstructorOffer {
   kind: "oneOnOne" | "group";
   label: string;
   url: string;
+  active?: boolean; // If false, offer will be hidden. Defaults to true if not specified.
 }
 
 export interface Testimonial {
@@ -199,6 +200,7 @@ export const instructors: Instructor[] = [
         kind: "group",
         label: "Buy group mentorship",
         url: `${KAJABI_PLACEHOLDER}?instructor=rakasa&type=group`,
+        active: false, // Placeholder URL - hide until real URL is available
       },
     ],
     testimonials: [

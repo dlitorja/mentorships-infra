@@ -127,10 +127,11 @@ export default async function InstructorProfilePage({
                 <div className="mt-4 flex flex-col gap-3">
                   {instructor.offers
                     .filter((offer) => {
-                      // Hide group mentorship for Rakasa
-                      if (instructor.slug === "rakasa" && offer.kind === "group") {
+                      // Hide inactive offers (e.g., placeholder URLs)
+                      if (offer.active === false) {
                         return false;
                       }
+                      // Default to showing offer if active is not specified (backward compatibility)
                       return true;
                     })
                     .map((offer) => (

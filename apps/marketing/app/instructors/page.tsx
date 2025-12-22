@@ -23,6 +23,15 @@ export default function InstructorsPage(): React.JSX.Element {
   // Randomize instructors order on each page load
   const randomizedInstructors = shuffleArray(instructors);
 
+  // Deterministically select first 6 instructors alphabetically for priority loading
+  // This ensures the same images are prioritized regardless of shuffle order
+  const priorityInstructorIds = new Set(
+    [...instructors]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 6)
+      .map((inst) => inst.id)
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-12">
@@ -35,7 +44,7 @@ export default function InstructorsPage(): React.JSX.Element {
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {randomizedInstructors.map((instructor, index) => (
+            {randomizedInstructors.map((instructor) => (
               <Card
                 key={instructor.id}
                 className="flex flex-col h-full overflow-hidden transition-shadow hover:shadow-lg"
@@ -50,7 +59,7 @@ export default function InstructorsPage(): React.JSX.Element {
                     fill
                     className="object-cover transition-transform hover:scale-105"
                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    priority={index < 6}
+                    priority={priorityInstructorIds.has(instructor.id)}
                   />
                 </Link>
 
