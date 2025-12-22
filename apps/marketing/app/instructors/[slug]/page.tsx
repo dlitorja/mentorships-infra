@@ -56,15 +56,11 @@ export default async function InstructorProfilePage({
   const previousInstructor = getPreviousInstructor(slug);
 
   return (
-    <InstructorNavigation
-      previousSlug={previousInstructor?.slug || null}
-      nextSlug={nextInstructor?.slug || null}
-    >
+    <InstructorNavigation>
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8 md:py-12">
           <InstructorNavigationWrapper
             currentSlug={slug}
-            instructor={instructor}
             defaultNext={nextInstructor}
             defaultPrevious={previousInstructor}
           />
