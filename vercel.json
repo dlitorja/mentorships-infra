@@ -1,0 +1,7 @@
+{
+  "_comment": "This file is not used when Root Directory is set to apps/marketing in Vercel project settings. See apps/marketing/vercel.json for the actual configuration.",
+  "buildCommand": "pnpm --filter @mentorships/marketing build",
+  "installCommand": "pnpm install",
+  "framework": "nextjs"
+}
+
