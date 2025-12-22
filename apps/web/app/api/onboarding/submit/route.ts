@@ -116,8 +116,29 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
     } catch (error) {
       // Handle race condition: if submissionId already exists (primary key violation)
       // This can happen if user submits the form twice quickly between our check and insert
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes("duplicate") || errorMessage.includes("unique")) {
+      // Check for Postgres unique constraint violation error code 23505
+      // postgres-js errors may have the code directly, or nested in a cause property
+      let isUniqueConstraintError = false;
+      
+      if (error instanceof Error) {
+        // Check for Postgres error code 23505 (unique_violation)
+        // postgres-js errors have a 'code' property
+        const errorCode = (error as { code?: string }).code;
+        if (errorCode === "23505") {
+          isUniqueConstraintError = true;
+        }
+        
+        // Also check nested error in case Drizzle wraps it
+        const cause = (error as { cause?: unknown }).cause;
+        if (cause && typeof cause === "object") {
+          const causeCode = (cause as { code?: string }).code;
+          if (causeCode === "23505") {
+            isUniqueConstraintError = true;
+          }
+        }
+      }
+      
+      if (isUniqueConstraintError) {
         return NextResponse.json(
           { error: "Submission already exists. Please refresh and try again.", errorId },
           { status: 409 }
