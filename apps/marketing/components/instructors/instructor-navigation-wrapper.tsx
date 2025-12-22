@@ -10,17 +10,15 @@ import type { Instructor } from "@/lib/instructors";
 
 interface InstructorNavigationWrapperProps {
   currentSlug: string;
-  instructor: Instructor;
   defaultNext?: Instructor | null;
   defaultPrevious?: Instructor | null;
 }
 
 export function InstructorNavigationWrapper({
   currentSlug,
-  instructor,
   defaultNext,
   defaultPrevious,
-}: InstructorNavigationWrapperProps) {
+}: InstructorNavigationWrapperProps): React.JSX.Element {
   const [navInfo, setNavInfo] = useState<{
     next: Instructor | undefined;
     previous: Instructor | undefined;

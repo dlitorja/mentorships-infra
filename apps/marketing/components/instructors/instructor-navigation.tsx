@@ -1,8 +1,8 @@
 "use client";
 
 interface InstructorNavigationProps {
-  previousSlug: string | null;
-  nextSlug: string | null;
+  previousSlug?: string | null;
+  nextSlug?: string | null;
   children: React.ReactNode;
 }
 
@@ -12,10 +12,8 @@ interface InstructorNavigationProps {
  * which has access to dynamic order from session storage
  */
 export function InstructorNavigation({
-  previousSlug,
-  nextSlug,
   children,
-}: InstructorNavigationProps) {
+}: InstructorNavigationProps): React.JSX.Element {
   // Keyboard navigation is handled by InstructorNavigationWrapper
   // This component is kept for backwards compatibility and potential future use
   return <>{children}</>;

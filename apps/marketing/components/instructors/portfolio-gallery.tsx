@@ -13,7 +13,7 @@ interface PortfolioGalleryProps {
 export function PortfolioGallery({
   images,
   instructorName,
-}: PortfolioGalleryProps) {
+}: PortfolioGalleryProps): React.JSX.Element {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
 

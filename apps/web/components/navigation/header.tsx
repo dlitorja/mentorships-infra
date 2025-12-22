@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy } from "react";
+import type { ReactElement } from "react";
 import { Menu } from "lucide-react";
 import {
   Sheet,
@@ -61,7 +62,7 @@ function FallbackAuthButtons() {
 // Mobile-specific auth buttons component
 const MobileClerkAuthButtons = lazy(() =>
   import("@clerk/nextjs").then((clerk) => ({
-    default: function MobileClerkAuthButtons() {
+    default: function MobileClerkAuthButtons(): ReactElement {
       const { SignedIn, SignedOut, UserButton } = clerk;
       return (
         <>
@@ -88,7 +89,7 @@ const MobileClerkAuthButtons = lazy(() =>
   }))
 );
 
-function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }) {
+function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactElement {
   return (
     <div className="flex flex-col gap-6 mt-6">
       <SheetClose asChild>
@@ -137,9 +138,7 @@ function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }) {
   );
 }
 
-export function Header({ hasClerk = true }: HeaderProps) {
-  const [open, setOpen] = useState(false);
-
+export function Header({ hasClerk = true }: HeaderProps): ReactElement {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/85">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -172,7 +171,7 @@ export function Header({ hasClerk = true }: HeaderProps) {
         </nav>
 
         {/* Mobile Navigation */}
-        <Sheet open={open} onOpenChange={setOpen}>
+        <Sheet>
           <SheetTrigger asChild className="md:hidden">
             <Button variant="ghost" size="icon" aria-label="Open menu">
               <Menu className="h-6 w-6" />
