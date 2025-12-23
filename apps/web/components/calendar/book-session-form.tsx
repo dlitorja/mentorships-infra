@@ -149,9 +149,8 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
                 value={selectedPackId}
                 onChange={(e) => {
                   setSelectedPackId(e.target.value);
-                  setAvailableSlots([]);
-                  setError(null);
-                  setInfo(null);
+                  // Reset availability loading when pack changes
+                  setShouldLoadSlots(false);
                 }}
               >
                 {eligiblePacks.map((p) => (
