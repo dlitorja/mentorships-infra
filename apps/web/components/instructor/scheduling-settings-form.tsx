@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { updateInstructorSettings } from "@/lib/queries/api-client";
 
 type WorkingHoursInterval = { start: string; end: string };
 type WorkingHours = Partial<Record<0 | 1 | 2 | 3 | 4 | 5 | 6, WorkingHoursInterval[]>>;
@@ -62,34 +64,27 @@ export function SchedulingSettingsForm({
     }
   );
 
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  // Save settings mutation
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      updateInstructorSettings({
+        timeZone: timeZone || null,
+        workingHours: normalizeWorkingHours(workingHours),
+      }),
+    onSuccess: () => {
+      // Settings saved successfully
+    },
+  });
 
-  async function save() {
-    setSaving(true);
-    setMessage(null);
-    try {
-      const res = await fetch("/api/instructor/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          timeZone: timeZone || null,
-          workingHours: normalizeWorkingHours(workingHours),
-        }),
-      });
+  const saving = saveMutation.isPending;
+  const message = saveMutation.isSuccess
+    ? "Saved."
+    : saveMutation.error instanceof Error
+      ? saveMutation.error.message
+      : null;
 
-      const data = await res.json();
-      if (!res.ok) {
-        setMessage(data?.error ?? "Failed to save settings");
-        return;
-      }
-
-      setMessage("Saved.");
-    } catch {
-      setMessage("Failed to save settings");
-    } finally {
-      setSaving(false);
-    }
+  function save() {
+    saveMutation.mutate();
   }
 
   return (

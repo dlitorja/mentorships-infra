@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
+import { createCheckoutSession } from "@/lib/queries/api-client";
 
 /**
  * Test page for Stripe checkout flow
@@ -15,47 +17,32 @@ import Link from "next/link";
  */
 export default function CheckoutTestPage() {
   const { isSignedIn, isLoaded } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
 
   // Product ID we created
   const productId = "24cfcc67-ff04-4d57-a702-b0e8c55bbb23";
 
-  const handleCheckout = async () => {
-    setLoading(true);
-    setError(null);
-    setOrderId(null);
-
-    try {
-      const response = await fetch("/api/checkout/stripe", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          productId,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to create checkout session");
-      }
-
-      if (data.checkoutUrl) {
+  // Checkout mutation
+  const checkoutMutation = useMutation({
+    mutationFn: () => createCheckoutSession({ productId }),
+    onSuccess: (data) => {
+      if (data.checkoutUrl || data.url) {
         setOrderId(data.orderId);
         // Redirect to Stripe Checkout
-        window.location.href = data.checkoutUrl;
+        window.location.href = data.checkoutUrl || data.url;
       } else {
         throw new Error("No checkout URL returned");
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error occurred");
-      setLoading(false);
-    }
+    },
+  });
+
+  const handleCheckout = () => {
+    checkoutMutation.mutate();
   };
+
+  const loading = checkoutMutation.isPending;
+  const error =
+    checkoutMutation.error instanceof Error ? checkoutMutation.error.message : null;
 
   // Show loading state while checking auth
   if (!isLoaded) {

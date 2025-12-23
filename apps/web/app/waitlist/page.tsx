@@ -1,13 +1,15 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "@tanstack/react-form";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { waitlistFormSchema } from "@/lib/validation-schemas";
+import { joinWaitlist } from "@/lib/queries/api-client";
 
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
@@ -16,9 +18,15 @@ function WaitlistContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const instructorSlug = searchParams.get("instructor");
   const type = searchParams.get("type") || "one-on-one";
-  
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // Join waitlist mutation
+  const joinWaitlistMutation = useMutation({
+    mutationFn: (data: { email: string; instructorSlug?: string; type?: string }) =>
+      joinWaitlist(data),
+    onSuccess: () => {
+      form.reset();
+    },
+  });
 
   const form = useForm({
     defaultValues: {
@@ -28,34 +36,19 @@ function WaitlistContent(): React.JSX.Element {
       onChange: waitlistFormSchema,
     },
     onSubmit: async ({ value }) => {
-      setError(null);
-
-      try {
-        const response = await fetch("/api/waitlist", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            instructorSlug,
-            type,
-            email: value.email,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to join waitlist");
-        }
-
-        setIsSuccess(true);
-        form.reset();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
-      }
+      joinWaitlistMutation.mutate({
+        email: value.email,
+        instructorSlug: instructorSlug || undefined,
+        type,
+      });
     },
   });
+
+  const isSuccess = joinWaitlistMutation.isSuccess;
+  const error =
+    joinWaitlistMutation.error instanceof Error
+      ? joinWaitlistMutation.error.message
+      : null;
 
   if (isSuccess) {
     return (
@@ -154,9 +147,11 @@ function WaitlistContent(): React.JSX.Element {
                 type="submit"
                 size="lg"
                 className="w-full vibrant-gradient-button transition-all"
-                disabled={form.state.isSubmitting}
+                disabled={form.state.isSubmitting || joinWaitlistMutation.isPending}
               >
-                {form.state.isSubmitting ? "Joining Waitlist..." : "Join Waitlist"}
+                {form.state.isSubmitting || joinWaitlistMutation.isPending
+                  ? "Joining Waitlist..."
+                  : "Join Waitlist"}
               </Button>
               <Button asChild variant="outline" className="w-full">
                 <Link href={instructorSlug ? `/instructors/${instructorSlug}` : "/instructors"}>

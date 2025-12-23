@@ -323,6 +323,12 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.81.1
         version: 2.86.2
+      '@tanstack/react-query':
+        specifier: ^5.90.8
+        version: 5.90.12(react@19.2.0)
+      '@tanstack/react-query-devtools':
+        specifier: ^5.90.2
+        version: 5.91.1(@tanstack/react-query@5.90.12(react@19.2.0))(react@19.2.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

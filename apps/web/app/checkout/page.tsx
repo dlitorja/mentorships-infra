@@ -1,7 +1,8 @@
 "use client";
 
-import React, { Suspense, useState, useEffect } from "react";
+import React, { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
+import { queryKeys } from "@/lib/queries/query-keys";
+import { fetchProduct, createCheckoutSession } from "@/lib/queries/api-client";
 
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
@@ -25,84 +28,57 @@ function CheckoutContent(): React.JSX.Element {
   const packIdParam = searchParams.get("packId");
 
   const [packId, setPackId] = useState(packIdParam || "");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [product, setProduct] = useState<{
-    id: string;
-    title: string;
-    price: string;
-    sessionsPerPack: number;
-    validityDays: number;
-    stripePriceId: string | null;
-  } | null>(null);
 
-  // Fetch product if packId is provided
-  useEffect(() => {
-    if (packId && packId.trim()) {
-      fetchProduct(packId);
-    }
-  }, [packId]);
+  // Fetch product using TanStack Query
+  const {
+    data: product,
+    isLoading: isLoadingProduct,
+    error: productError,
+    refetch: refetchProduct,
+  } = useQuery({
+    queryKey: queryKeys.products.detail(packId),
+    queryFn: () => fetchProduct(packId),
+    enabled: !!packId && packId.trim() !== "",
+  });
 
-  const fetchProduct = async (id: string) => {
-    try {
-      setError(null);
-      const response = await fetch(`/api/products/${id}`);
-      if (!response.ok) {
-        throw new Error("Product not found");
-      }
-      const data = await response.json();
-      setProduct(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load product");
-      setProduct(null);
-    }
-  };
-
-  const handleCheckout = async () => {
-    if (!packId.trim()) {
-      setError("Please enter a product ID");
-      return;
-    }
-
-    if (!product) {
-      setError("Please load a valid product first");
-      return;
-    }
-
-    if (!product.stripePriceId) {
-      setError("This product doesn't have a Stripe price configured");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/checkout/stripe", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ packId: product.id }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Checkout failed");
-      }
-
+  // Checkout mutation
+  const checkoutMutation = useMutation({
+    mutationFn: (data: { packId: string }) => createCheckoutSession(data),
+    onSuccess: (data) => {
       // Redirect to Stripe checkout
       if (data.url) {
         window.location.href = data.url;
       } else {
         throw new Error("No checkout URL returned");
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start checkout");
-      setLoading(false);
+    },
+  });
+
+  const handleCheckout = () => {
+    if (!packId.trim()) {
+      return;
     }
+
+    if (!product) {
+      return;
+    }
+
+    if (!product.stripePriceId) {
+      return;
+    }
+
+    checkoutMutation.mutate({ packId: product.id });
   };
+
+  // Determine error message
+  const error =
+    productError instanceof Error
+      ? productError.message
+      : checkoutMutation.error instanceof Error
+        ? checkoutMutation.error.message
+        : null;
+
+  const loading = checkoutMutation.isPending;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
@@ -128,11 +104,18 @@ function CheckoutContent(): React.JSX.Element {
                 disabled={loading}
               />
               <Button
-                onClick={() => fetchProduct(packId)}
-                disabled={!packId.trim() || loading}
+                onClick={() => refetchProduct()}
+                disabled={!packId.trim() || loading || isLoadingProduct}
                 variant="outline"
               >
-                Load
+                {isLoadingProduct ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Load"
+                )}
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">

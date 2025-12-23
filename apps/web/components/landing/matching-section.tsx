@@ -1,6 +1,7 @@
 "use client";
 
 import { useForm } from "@tanstack/react-form";
+import { useMutation } from "@tanstack/react-query";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,8 +9,44 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { matchingFormSchema } from "@/lib/validation-schemas";
+import { submitContact } from "@/lib/queries/api-client";
 
 export function MatchingSection(): React.JSX.Element {
+  // Submit contact mutation
+  const submitContactMutation = useMutation({
+    mutationFn: (data: { email: string; artGoals: string }) => submitContact(data),
+    onSuccess: () => {
+      toast.success("Thank you! We'll be in touch soon.");
+      form.reset();
+    },
+    onError: (error) => {
+      const errorMessage = error instanceof Error ? error.message : "Failed to submit";
+      console.error("Failed to add email to contacts:", errorMessage);
+      
+      // Forward error to Better Stack via server-side API route
+      fetch("/api/errors", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: errorMessage,
+          level: "error",
+          service: "mentorship-platform",
+          component: "matching-section",
+          error: {
+            name: error instanceof Error ? error.name : "UnknownError",
+            message: errorMessage,
+          },
+        }),
+      }).catch(() => {
+        // Silently fail if error tracking is unavailable
+      });
+      
+      toast.error("Something went wrong. Please try again later.");
+    },
+  });
+
   const form = useForm({
     defaultValues: {
       artGoals: "",
@@ -26,55 +63,10 @@ export function MatchingSection(): React.JSX.Element {
 
       // If email is provided, add to contacts database
       if (value.email?.trim()) {
-        try {
-          const response = await fetch("/api/contacts", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              email: value.email,
-              artGoals: value.artGoals,
-            }),
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(
-              errorData.error ||
-                `Request failed with status ${response.status} ${response.statusText}`
-            );
-          }
-
-          toast.success("Thank you! We'll be in touch soon.");
-          form.reset();
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : "Failed to submit";
-          console.error("Failed to add email to contacts:", errorMessage);
-          
-          // Forward error to Better Stack via server-side API route
-          fetch("/api/errors", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              message: errorMessage,
-              level: "error",
-              service: "mentorship-platform",
-              component: "matching-section",
-              error: {
-                name: error instanceof Error ? error.name : "UnknownError",
-                message: errorMessage,
-              },
-            }),
-          }).catch(() => {
-            // Silently fail if error tracking is unavailable
-          });
-          
-          toast.error("Something went wrong. Please try again later.");
-        }
+        submitContactMutation.mutate({
+          email: value.email,
+          artGoals: value.artGoals,
+        });
       } else {
         // No email provided, just mark as success for now
         toast.success("Thank you! We'll be in touch soon.");
@@ -198,10 +190,13 @@ export function MatchingSection(): React.JSX.Element {
                 className="w-full text-lg vibrant-gradient-button transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={
                   !form.state.values.artGoals.trim() ||
-                  form.state.isSubmitting
+                  form.state.isSubmitting ||
+                  submitContactMutation.isPending
                 }
               >
-                {form.state.isSubmitting ? "Submitting..." : "Find My Match"}
+                {form.state.isSubmitting || submitContactMutation.isPending
+                  ? "Submitting..."
+                  : "Find My Match"}
                 <Sparkles className="ml-2 h-4 w-4" />
               </Button>
             </form>

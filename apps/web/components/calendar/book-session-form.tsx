@@ -1,8 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { queryKeys } from "@/lib/queries/query-keys";
+import { fetchMentorAvailability, bookSession } from "@/lib/queries/api-client";
 
 type PackOption = {
   id: string;
@@ -27,83 +30,101 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
   );
   const selectedPack = eligiblePacks.find((p) => p.id === selectedPackId) ?? null;
 
-  const [booking, setBooking] = useState(false);
-  const [loadingSlots, setLoadingSlots] = useState(false);
-  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
+  const [shouldLoadSlots, setShouldLoadSlots] = useState(false);
+  const queryClient = useQueryClient();
 
-  async function loadSlots() {
-    if (!selectedPack) return;
+  // Calculate date range for availability
+  const dateRange = useMemo(() => {
+    if (!selectedPack || !shouldLoadSlots) return null;
+    const start = new Date();
+    const end = addDays(start, 7);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }, [selectedPack, shouldLoadSlots]);
 
-    setLoadingSlots(true);
-    setError(null);
-    setInfo(null);
-    setAvailableSlots([]);
+  // Fetch availability
+  const {
+    data: availabilityData,
+    isLoading: loadingSlots,
+    error: availabilityError,
+  } = useQuery({
+    queryKey: queryKeys.mentors.availability(
+      selectedPack?.mentorId || "",
+      dateRange?.start || "",
+      dateRange?.end || ""
+    ),
+    queryFn: () =>
+      fetchMentorAvailability(
+        selectedPack!.mentorId,
+        dateRange!.start,
+        dateRange!.end,
+        60
+      ),
+    enabled: !!selectedPack && !!dateRange,
+  });
 
-    try {
-      const start = new Date();
-      const end = addDays(start, 7);
-
-      const res = await fetch(
-        `/api/mentors/${selectedPack.mentorId}/availability?start=${encodeURIComponent(
-          start.toISOString()
-        )}&end=${encodeURIComponent(end.toISOString())}&slotMinutes=60`,
-        { method: "GET" }
-      );
-
-      const data = await res.json();
-      if (!res.ok) {
-        if (res.status === 409 && data?.code === "GOOGLE_CALENDAR_NOT_CONNECTED") {
-          setInfo("This mentor hasn’t connected Google Calendar yet.");
-          return;
-        }
-        setError(data?.error ?? "Failed to load availability");
-        return;
-      }
-
-      const slots: string[] = data?.availableSlots ?? [];
-      setAvailableSlots(slots);
-      if (data?.truncated) {
-        setInfo("Showing the first 500 available slots (range truncated).");
-      }
-      if (slots.length === 0) {
-        setInfo("No available slots in the next 7 days.");
-      }
-    } catch {
-      setError("Failed to load availability");
-    } finally {
-      setLoadingSlots(false);
+  const availableSlots = availabilityData?.availableSlots ?? [];
+  const error =
+    availabilityError instanceof Error ? availabilityError.message : null;
+  const info = useMemo(() => {
+    if (availabilityData?.truncated) {
+      return "Showing the first 500 available slots (range truncated).";
     }
+    if (availableSlots.length === 0 && !loadingSlots && shouldLoadSlots) {
+      return "No available slots in the next 7 days.";
+    }
+    return null;
+  }, [availabilityData, availableSlots.length, loadingSlots, shouldLoadSlots]);
+
+  // Handle availability errors
+  const availabilityErrorMessage = useMemo(() => {
+    if (
+      availabilityError &&
+      availabilityError instanceof Error &&
+      ((availabilityError as Error & { code?: string }).code === "GOOGLE_CALENDAR_NOT_CONNECTED" ||
+        availabilityError.message.includes("GOOGLE_CALENDAR_NOT_CONNECTED"))
+    ) {
+      return null; // This becomes info, not error
+    }
+    return error;
+  }, [error, availabilityError]);
+
+  const availabilityInfo = useMemo(() => {
+    if (
+      availabilityError &&
+      availabilityError instanceof Error &&
+      ((availabilityError as Error & { code?: string }).code === "GOOGLE_CALENDAR_NOT_CONNECTED" ||
+        availabilityError.message.includes("GOOGLE_CALENDAR_NOT_CONNECTED"))
+    ) {
+      return "This mentor hasn't connected Google Calendar yet.";
+    }
+    return info;
+  }, [error, info, availabilityError]);
+
+  // Book session mutation
+  const bookSessionMutation = useMutation({
+    mutationFn: (scheduledAtIso: string) =>
+      bookSession({ sessionPackId: selectedPack!.id, scheduledAt: scheduledAtIso }),
+    onSuccess: () => {
+      // Invalidate relevant queries
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });
+      // Refresh page to show the newly created session in the server component list
+      window.location.reload();
+    },
+  });
+
+  const booking = bookSessionMutation.isPending;
+  const bookingError =
+    bookSessionMutation.error instanceof Error
+      ? bookSessionMutation.error.message
+      : null;
+
+  function loadSlots() {
+    setShouldLoadSlots(true);
   }
 
-  async function bookSession(scheduledAtIso: string) {
+  function handleBookSession(scheduledAtIso: string) {
     if (!selectedPack) return;
-
-    setBooking(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionPackId: selectedPack.id, scheduledAt: scheduledAtIso }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        const message = data?.error ?? "Booking failed";
-        setError(message);
-        return;
-      }
-
-      // Refresh page to show the newly created session in the server component list
-      // Basic UX: refresh page to show the newly created session in the server component list
-      window.location.reload();
-    } catch {
-      setError("Booking failed");
-    } finally {
-      setBooking(false);
-    }
+    bookSessionMutation.mutate(scheduledAtIso);
   }
 
   return (
@@ -156,8 +177,11 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
               Slots are generated in 60-minute increments.
             </div>
 
-            {info && <p className="text-sm text-amber-600">{info}</p>}
-            {error && <p className="text-sm text-red-600">{error}</p>}
+            {availabilityInfo && <p className="text-sm text-amber-600">{availabilityInfo}</p>}
+            {availabilityErrorMessage && (
+              <p className="text-sm text-red-600">{availabilityErrorMessage}</p>
+            )}
+            {bookingError && <p className="text-sm text-red-600">{bookingError}</p>}
 
             {availableSlots.length > 0 && (
               <div className="space-y-2">
@@ -171,7 +195,7 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
                         type="button"
                         variant="outline"
                         disabled={booking}
-                        onClick={() => bookSession(slot)}
+                        onClick={() => handleBookSession(slot)}
                       >
                         {d.toLocaleString("en-US", {
                           weekday: "short",
