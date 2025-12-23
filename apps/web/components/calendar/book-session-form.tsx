@@ -186,7 +186,7 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
               <div className="space-y-2">
                 <div className="text-sm font-medium">Available times</div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {availableSlots.slice(0, 60).map((slot) => {
+                  {availableSlots.slice(0, 60).map((slot: string) => {
                     const d = new Date(slot);
                     return (
                       <Button
