@@ -208,10 +208,12 @@ export async function POST(req: NextRequest) {
 
 **File: `apps/web/app/api/webhooks/stripe/route.ts`**
 
+**Note**: ✅ **IMPLEMENTED** - Current implementation uses Inngest for processing
+
 ```typescript
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { createClient } from '@/packages/db/supabase/server';
+import { inngest } from '@/inngest/client';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-12-18.acacia',
@@ -237,144 +239,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
   
-  const supabase = createClient();
-  
-  // Handle different event types
+  // Send event to Inngest for processing
+  // Inngest handles retries, idempotency, and error recovery
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
-      
-      // Get order_id from metadata
       const orderId = session.metadata?.order_id;
-      if (!orderId) {
-        console.error('No order_id in metadata');
-        return NextResponse.json({ error: 'Missing metadata' }, { status: 400 });
-      }
       
-      // 1. Update order status to 'paid'
-      await supabase
-        .from('orders')
-        .update({ status: 'paid' })
-        .eq('id', orderId);
-      
-      // 2. Create payment record
-      const { data: payment } = await supabase
-        .from('payments')
-        .insert({
-          order_id: orderId,
-          provider: 'stripe',
-          provider_payment_id: session.payment_intent as string,
-          amount: session.amount_total! / 100, // Stripe uses cents
-          currency: session.currency!,
-          status: 'completed',
-        })
-        .select()
-        .single();
-      
-      // 3. Create session pack
-      const packId = session.metadata?.pack_id;
-      const userId = session.metadata?.user_id;
-      
-      const { data: pack } = await supabase
-        .from('mentorship_products')
-        .select('*, mentors(*)')
-        .eq('id', packId)
-        .single();
-      
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + pack.validity_days);
-      
-      const { data: sessionPack } = await supabase
-        .from('session_packs')
-        .insert({
-          user_id: userId,
-          mentor_id: pack.mentor_id,
-          total_sessions: pack.sessions_per_pack,
-          remaining_sessions: pack.sessions_per_pack,
-          purchased_at: new Date(),
-          expires_at: expiresAt,
-          status: 'active',
-          payment_id: payment.id,
-        })
-        .select()
-        .single();
-      
-      // 4. Create seat reservation
-      await supabase
-        .from('seat_reservations')
-        .insert({
-          mentor_id: pack.mentor_id,
-          user_id: userId,
-          session_pack_id: sessionPack.id,
-          seat_expires_at: expiresAt,
-          status: 'active',
+      if (orderId) {
+        await inngest.send({
+          name: 'stripe/checkout.session.completed',
+          data: { session, orderId },
         });
-      
-      // 5. Send notifications (Discord bot, email)
-      // ... (we'll implement this later)
-      
+      }
       break;
     }
     
     case 'charge.refunded': {
       const charge = event.data.object as Stripe.Charge;
-      
-      // Find payment by provider_payment_id
-      const { data: payment } = await supabase
-        .from('payments')
-        .select('*, orders(*)')
-        .eq('provider_payment_id', charge.payment_intent)
-        .single();
-      
-      if (payment) {
-        // Update payment status
-        await supabase
-          .from('payments')
-          .update({
-            status: 'refunded',
-            refunded_amount: charge.amount_refunded / 100,
-          })
-          .eq('id', payment.id);
-        
-        // Update order
-        await supabase
-          .from('orders')
-          .update({ status: 'refunded' })
-          .eq('id', payment.order_id);
-        
-        // Release seat and mark pack as refunded
-        const { data: pack } = await supabase
-          .from('session_packs')
-          .select('*')
-          .eq('payment_id', payment.id)
-          .single();
-        
-        if (pack) {
-          await supabase
-            .from('session_packs')
-            .update({ status: 'refunded', remaining_sessions: 0 })
-            .eq('id', pack.id);
-          
-          await supabase
-            .from('seat_reservations')
-            .update({ status: 'released' })
-            .eq('session_pack_id', pack.id);
-        }
-      }
-      
+      await inngest.send({
+        name: 'stripe/charge.refunded',
+        data: { charge },
+      });
       break;
     }
-    
-    default:
-      console.log(`Unhandled event type: ${event.type}`);
   }
   
   return NextResponse.json({ received: true });
 }
 
-// Disable body parsing (Stripe needs raw body)
 export const runtime = 'nodejs';
 ```
+
+**Key Difference**: Current implementation delegates all processing to Inngest functions, which provides:
+- ✅ Automatic retries
+- ✅ Idempotency checks
+- ✅ Better error handling
+- ✅ Visual debugging in Inngest dashboard
 
 **Critical Security Notes:**
 - ✅ Always verify webhook signature
@@ -474,7 +375,48 @@ export async function POST(req: NextRequest) {
 
 ---
 
-## 3. Video Recording Setup: Agora + Cloudflare + Backblaze B2
+## 3. Background Jobs & Event Processing: Inngest ✅ IMPLEMENTED
+
+### Current Implementation
+
+**Status**: ✅ **FULLY IMPLEMENTED** - Production-ready
+
+**What's Implemented:**
+- ✅ Inngest client configured (`apps/web/inngest/client.ts`)
+- ✅ Inngest route handler (`apps/web/app/api/inngest/route.ts`)
+- ✅ Payment processing functions:
+  - `processStripeCheckout` - Handles `checkout.session.completed` events
+  - `processStripeRefund` - Handles `charge.refunded` events
+  - `processPayPalCheckout` - Ready for PayPal (when implemented)
+  - `processPayPalRefund` - Ready for PayPal (when implemented)
+- ✅ Notification delivery (`handleNotificationSend`)
+- ✅ Session lifecycle management:
+  - `handleSessionCompleted` - Processes completed sessions
+  - `checkSeatExpiration` - Daily cron for seat expiration
+  - `handleRenewalReminder` - Sends renewal reminders
+  - `sendGracePeriodFinalWarning` - Final grace period warnings
+- ✅ Discord action queue processing (`processDiscordActionQueue`)
+- ✅ Onboarding flow (`onboardingFlow`)
+
+**Benefits Realized:**
+- ✅ Automatic retries with exponential backoff
+- ✅ Built-in idempotency (prevents duplicate processing)
+- ✅ Visual debugging dashboard
+- ✅ No lost events (Inngest queues everything)
+- ✅ Serverless (no infrastructure to manage)
+- ✅ Event-driven architecture (decoupled, scalable)
+
+**Integration Points:**
+- ✅ Stripe webhooks → Inngest events → Payment processing
+- ✅ Inngest events → Resend → Email delivery
+- ✅ Inngest events → Discord bot (when implemented)
+- ✅ Database triggers → Inngest events (session completion, etc.)
+
+**Cost**: Free tier available, then pay-per-execution (very reasonable)
+
+---
+
+## 4. Video Recording Setup: Agora + Cloudflare + Backblaze B2 ⚠️ PLANNED
 
 ### Architecture Overview
 
@@ -751,7 +693,7 @@ WHERE recording_url IS NOT NULL
 
 ---
 
-## 4. Tooling Integration from 5head Repo
+## 5. Tooling Integration from 5head Repo
 
 ### Files to Copy/Adapt
 
@@ -891,45 +833,101 @@ semantic_tags:
 
 ---
 
-## 5. Next Steps
+## 6. Next Steps
 
-### Immediate Actions
+### Implementation Status
 
-1. **Confirm Tech Decisions**
-   - [ ] Clerk for auth (revisit at 20k users)
-   - [ ] shadcn/ui for UI components
-   - [ ] Stripe + PayPal for payments
-   - [ ] Agora for video
-   - [ ] Recording: Agora → Cloudflare → Backblaze B2
+1. **✅ Completed Implementations**
+   - [x] Clerk for auth (revisit at 20k users)
+   - [x] shadcn/ui for UI components
+   - [x] Stripe for payments (with Inngest webhook processing)
+   - [x] ArcJet for security (rate limiting, bot detection)
+   - [x] Inngest for background jobs (payment processing, notifications)
+   - [x] Resend for email notifications
+   - [x] Google Calendar integration
+   - [x] Axiom + Better Stack for observability
+   - [x] Database schema + migrations
+   - [x] Session pack + seat logic
+   - [x] Booking + Calendar integration
 
-2. **Set Up Accounts**
-   - [ ] Stripe account (test mode)
-   - [ ] PayPal developer account
-   - [ ] Agora account
-   - [ ] Backblaze B2 account
-   - [ ] Cloudflare account (if not already)
+2. **⚠️ Planned/Upcoming**
+   - [ ] PostHog for product analytics
+   - [ ] PayPal developer account (Stripe already working)
+   - [ ] Agora account for video calls
+   - [ ] Backblaze B2 account for recordings
+   - [ ] Discord Bot implementation
+   - [ ] Video recording pipeline (Agora → Cloudflare → Backblaze B2)
 
-3. **Copy Tooling Configs**
-   - [ ] Copy `.cursorrules` from 5head
-   - [ ] Set up MCP servers
-   - [ ] Configure CodeRabbit
-   - [ ] Set up Greptile
-
-4. **Begin Implementation**
-   - [ ] Week 1: Database schema + Stripe
-   - [ ] Week 2: PayPal + Webhooks
-   - [ ] Week 3: Booking + Calendar
-   - [ ] Week 4: Video + Recording
+3. **✅ Tooling Configs**
+   - [x] `.cursorrules` configured
+   - [x] MCP servers configured
+   - [x] CodeRabbit configured
+   - [x] Greptile configured
 
 ---
 
 ## Summary
 
-**Auth**: Clerk (migrate to Auth.js at 20k+ users if cost justifies)
-**UI**: shadcn/ui (can adopt Base UI incrementally)
-**Payments**: Stripe first, PayPal second (1 week total)
-**Video**: Agora (simple, good DX)
-**Recording**: Agora → Cloudflare → Backblaze B2 (~$0.07/session)
+**Auth**: ✅ **Clerk IMPLEMENTED** (migrate to Auth.js at 20k+ users if cost justifies)
+**UI**: ✅ **shadcn/ui IMPLEMENTED** (can adopt Base UI incrementally)
+**Payments**: ✅ **Stripe IMPLEMENTED**, ⚠️ **PayPal PLANNED** (Stripe working with Inngest)
+**Video**: ⚠️ **Agora PLANNED** (simple, good DX)
+**Recording**: ⚠️ **PLANNED** - Agora → Cloudflare → Backblaze B2 (~$0.07/session)
+**Security**: ✅ **ArcJet IMPLEMENTED** (rate limiting, bot detection, platform-wide protection)
+**Background Jobs**: ✅ **Inngest IMPLEMENTED** (payment processing, notifications, workflows)
+**Email**: ✅ **Resend IMPLEMENTED** (transactional emails, templates)
+**Calendar**: ✅ **Google Calendar IMPLEMENTED** (OAuth, events, availability)
+**Observability**: ✅ **Axiom + Better Stack IMPLEMENTED** (logging, error tracking)
+**Analytics**: ⚠️ **PostHog PLANNED** (product analytics, feature flags)
 
 **All decisions are reversible and can be optimized as you scale.**
+
+## Current Implementation Status
+
+### ✅ Production-Ready Implementations
+
+1. **Core Infrastructure**
+   - ✅ Drizzle ORM (v0.44.7) - Database ORM
+   - ✅ Supabase - PostgreSQL database
+   - ✅ Clerk - Authentication
+   - ✅ Stripe - Payment processing (with Inngest webhook handling)
+
+2. **Security & Performance**
+   - ✅ ArcJet - Rate limiting, bot detection, request validation
+   - ✅ Upstash Redis - Caching and rate limiting
+   - ✅ Vercel Analytics & Speed Insights - Performance monitoring
+
+3. **Background Processing**
+   - ✅ Inngest - Event-driven workflows
+     - Payment webhook processing
+     - Email notifications
+     - Session lifecycle management
+     - Renewal reminders
+     - Seat expiration checks
+
+4. **Communication**
+   - ✅ Resend - Email notifications (integrated with Inngest)
+   - ✅ Google Calendar - OAuth integration, event management
+
+5. **Observability**
+   - ✅ Axiom - Structured logging
+   - ✅ Better Stack - Error tracking
+
+6. **UI & Forms**
+   - ✅ shadcn/ui - UI component library
+   - ✅ TanStack Form - Form management
+   - ✅ react-dropzone - File uploads
+
+7. **Search & AI**
+   - ✅ Meilisearch - Search functionality
+   - ✅ Vercel AI SDK - AI integration
+   - ✅ OpenAI + Google Gemini - Multi-provider AI
+
+### ⚠️ Planned for Future Implementation
+
+1. **PostHog** - Product analytics, feature flags, session recordings
+2. **PayPal** - Additional payment provider (Stripe already working)
+3. **Agora** - Video calls for mentorship sessions
+4. **Discord Bot** - Automated Discord notifications and commands
+5. **Video Recording** - Agora → Cloudflare → Backblaze B2 pipeline
 

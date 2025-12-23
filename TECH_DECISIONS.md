@@ -512,13 +512,41 @@ const canReschedule = (scheduledAt: Date) => {
 
 ## Summary of Recommendations
 
-| Decision | Recommendation | Rationale |
-|----------|---------------|-----------|
-| **Auth** | Clerk | Decoupled, fast, good DX, free tier |
-| **UI** | shadcn/ui | Community, flexibility, AI-friendly |
-| **Payments** | Stripe first, PayPal second | Stripe easier, both straightforward |
-| **Video** | Agora | Simpler, better DX for MVP |
-| **Monorepo** | pnpm workspaces + Turborepo | Fast, efficient, good tooling |
+| Decision | Recommendation | Status | Rationale |
+|----------|---------------|--------|-----------|
+| **Auth** | Clerk | ✅ **IMPLEMENTED** | Decoupled, fast, good DX, free tier |
+| **UI** | shadcn/ui | ✅ **IMPLEMENTED** | Community, flexibility, AI-friendly |
+| **Payments** | Stripe first, PayPal second | ✅ **Stripe IMPLEMENTED**, ⚠️ **PayPal PLANNED** | Stripe easier, both straightforward |
+| **Video** | Agora | ⚠️ **PLANNED** | Simpler, better DX for MVP |
+| **Monorepo** | pnpm workspaces | ✅ **IMPLEMENTED** | Fast, efficient, good tooling |
+| **Security** | ArcJet | ✅ **IMPLEMENTED** | Modern security, rate limiting, bot detection |
+| **Background Jobs** | Inngest | ✅ **IMPLEMENTED** | Event-driven workflows, automatic retries |
+| **Email** | Resend | ✅ **IMPLEMENTED** | Modern API, excellent DX |
+| **Calendar** | Google Calendar | ✅ **IMPLEMENTED** | Industry standard, OAuth integration |
+| **Observability** | Axiom + Better Stack | ✅ **IMPLEMENTED** | Logging and error tracking |
+| **Analytics** | PostHog | ⚠️ **PLANNED** | Product analytics, feature flags |
 
 **All decisions are reversible** - can migrate later if needed.
+
+## Current Implementation Status
+
+### ✅ Fully Implemented
+- **Authentication**: Clerk (decoupled auth, pre-built UI)
+- **Database**: Supabase + Drizzle ORM (v0.44.7)
+- **Payments**: Stripe (checkout, webhooks, refunds via Inngest)
+- **Security**: ArcJet (platform-wide rate limiting, bot detection)
+- **Background Jobs**: Inngest (payment processing, notifications, session management)
+- **Email**: Resend (transactional emails, templates)
+- **Calendar**: Google Calendar (OAuth, event creation, availability)
+- **Observability**: Axiom (logging), Better Stack (error tracking)
+- **Caching**: Upstash Redis
+- **Search**: Meilisearch
+- **UI**: shadcn/ui, TanStack Form, react-dropzone
+- **AI**: Vercel AI SDK, OpenAI, Google Gemini
+
+### ⚠️ Planned/Upcoming
+- **PostHog**: Product analytics, feature flags, session recordings
+- **PayPal**: Additional payment provider (Stripe already working)
+- **Agora**: Video calls for mentorship sessions
+- **Discord Bot**: Automated notifications and commands
 
