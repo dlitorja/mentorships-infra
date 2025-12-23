@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { uploadOnboardingImages, submitOnboarding } from "@/lib/queries/api-client";
 
 type PackOption = {
   sessionPackId: string;
@@ -20,10 +22,42 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
   const [files, setFiles] = useState<File[]>([]);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
 
-  const [uploading, setUploading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Upload images mutation
+  const uploadImagesMutation = useMutation({
+    mutationFn: (formData: FormData) => uploadOnboardingImages(formData),
+    onSuccess: (data) => {
+      // Store server-generated submissionId
+      setSubmissionId(data.submissionId);
+      setUploadedImages(data.images);
+      setMessage("Images uploaded. You can now submit onboarding.");
+    },
+    onError: () => {
+      setMessage("Upload failed");
+    },
+  });
+
+  // Submit onboarding mutation
+  const submitOnboardingMutation = useMutation({
+    mutationFn: () =>
+      submitOnboarding({
+        submissionId: submissionId!,
+        sessionPackId,
+        goals,
+        imageObjects: uploadedImages,
+      }),
+    onSuccess: () => {
+      setMessage("Submitted! Your instructor will be notified.");
+    },
+    onError: (error) => {
+      setMessage(error instanceof Error ? error.message : "Submission failed");
+    },
+  });
+
+  const uploading = uploadImagesMutation.isPending;
+  const submitting = submitOnboardingMutation.isPending;
 
   const canUpload = files.length >= 1 && files.length <= 4 && !uploading && !submitting;
   const canSubmit =
@@ -45,31 +79,11 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     setMessage(null);
     if (!canUpload) return;
 
-    setUploading(true);
-    try {
-      const form = new FormData();
-      // Don't send submissionId - server will generate it to prevent race conditions
-      for (const f of files) form.append("files", f);
+    const form = new FormData();
+    // Don't send submissionId - server will generate it to prevent race conditions
+    for (const f of files) form.append("files", f);
 
-      const res = await fetch("/api/onboarding/uploads", { method: "POST", body: form });
-      const data = (await res.json()) as
-        | { success: true; submissionId: string; images: UploadedImage[] }
-        | { error: string };
-
-      if (!res.ok || !("success" in data) || data.success !== true) {
-        setMessage("error" in data ? data.error : "Upload failed");
-        return;
-      }
-
-      // Store server-generated submissionId
-      setSubmissionId(data.submissionId);
-      setUploadedImages(data.images);
-      setMessage("Images uploaded. You can now submit onboarding.");
-    } catch {
-      setMessage("Upload failed");
-    } finally {
-      setUploading(false);
-    }
+    uploadImagesMutation.mutate(form);
   }
 
   async function submit() {
@@ -79,31 +93,7 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
       return;
     }
 
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/onboarding/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          submissionId,
-          sessionPackId,
-          goals,
-          imageObjects: uploadedImages,
-        }),
-      });
-
-      const data = (await res.json()) as { success?: true; error?: string };
-      if (!res.ok || data.success !== true) {
-        setMessage(data.error ?? "Submission failed");
-        return;
-      }
-
-      setMessage("Submitted! Your instructor will be notified.");
-    } catch {
-      setMessage("Submission failed");
-    } finally {
-      setSubmitting(false);
-    }
+    submitOnboardingMutation.mutate();
   }
 
   return (

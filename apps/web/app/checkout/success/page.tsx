@@ -2,7 +2,8 @@
 
 import React from "react";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,6 +14,8 @@ import {
 } from "@/components/ui/card";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { queryKeys } from "@/lib/queries/query-keys";
+import { verifyCheckoutSession } from "@/lib/queries/api-client";
 
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
@@ -20,30 +23,13 @@ export const dynamic = "force-dynamic";
 function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
-  const [loading, setLoading] = useState(true);
-  const [_verified, setVerified] = useState(false);
 
-  useEffect(() => {
-    // Verify the session if session_id is provided
-    if (sessionId) {
-      verifySession(sessionId);
-    } else {
-      setLoading(false);
-    }
-  }, [sessionId]);
-
-  const verifySession = async (id: string) => {
-    try {
-      const response = await fetch(`/api/checkout/verify?session_id=${id}`);
-      if (response.ok) {
-        setVerified(true);
-      }
-    } catch (error) {
-      console.error("Failed to verify session:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Verify the session if session_id is provided
+  const { isLoading: loading } = useQuery({
+    queryKey: queryKeys.checkout.verify(sessionId || ""),
+    queryFn: () => verifyCheckoutSession(sessionId!),
+    enabled: !!sessionId,
+  });
 
   return (
     <Card className="max-w-md w-full">

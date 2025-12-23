@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "sonner";
 import { Header } from "@/components/navigation/header";
 import { HeaderErrorBoundary } from "@/components/navigation/header-error-boundary";
+import { QueryProvider } from "@/lib/providers/query-provider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -61,7 +62,9 @@ export default function RootLayout({
       // and is handled gracefully by Clerk's UI
       // Network errors are usually temporary and will retry automatically
     >
-      {layoutContent}
+      <QueryProvider>
+        {layoutContent}
+      </QueryProvider>
     </ClerkProvider>
   );
 }

@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useForm } from "@tanstack/react-form";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { productFormSchema } from "@/lib/validation-schemas";
+import { createProductFromStripe } from "@/lib/queries/api-client";
 
 export function CreateProductForm() {
   const [result, setResult] = useState<{
@@ -28,6 +30,27 @@ export function CreateProductForm() {
     };
   } | null>(null);
 
+  // Create product mutation
+  const createProductMutation = useMutation({
+    mutationFn: (data: { productId?: string; priceId?: string }) =>
+      createProductFromStripe(data),
+    onSuccess: (data) => {
+      setResult({
+        success: true,
+        message: data.message || "Product created successfully",
+        product: data.product,
+      });
+      // Clear form on success
+      form.reset();
+    },
+    onError: (error) => {
+      setResult({
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to create product",
+      });
+    },
+  });
+
   const form = useForm({
     defaultValues: {
       stripeProductId: "",
@@ -39,45 +62,19 @@ export function CreateProductForm() {
       if (!validationResult.success) {
         setResult({
           success: false,
-          message: validationResult.error.issues[0]?.message || "Either Stripe Product ID or Price ID is required",
+          message:
+            validationResult.error.issues[0]?.message ||
+            "Either Stripe Product ID or Price ID is required",
         });
         return;
       }
 
       setResult(null);
 
-      try {
-        const response = await fetch("/api/products/create-from-stripe", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            productId: value.stripeProductId.trim() || undefined,
-            priceId: value.stripePriceId.trim() || undefined,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to create product");
-        }
-
-        setResult({
-          success: true,
-          message: data.message || "Product created successfully",
-          product: data.product,
-        });
-
-        // Clear form on success
-        form.reset();
-      } catch (error) {
-        setResult({
-          success: false,
-          message: error instanceof Error ? error.message : "Failed to create product",
-        });
-      }
+      createProductMutation.mutate({
+        productId: value.stripeProductId.trim() || undefined,
+        priceId: value.stripePriceId.trim() || undefined,
+      });
     },
   });
 
@@ -210,10 +207,11 @@ export function CreateProductForm() {
                 type="submit"
                 disabled={
                   form.state.isSubmitting ||
+                  createProductMutation.isPending ||
                   (!form.state.values.stripeProductId && !form.state.values.stripePriceId)
                 }
               >
-                {form.state.isSubmitting ? (
+                {form.state.isSubmitting || createProductMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Creating...
