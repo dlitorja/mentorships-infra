@@ -2,6 +2,7 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "./drizzle";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
+import { sanitizeErrorForLogging, sanitizeForLogging } from "./errorSanitization";
 
 /**
  * Type guard to check if an error has a 'cause' property
@@ -90,20 +91,22 @@ export async function syncClerkUserToSupabase(
       errorMessage = String(error);
     }
     
-    // Log full error for debugging (check browser console)
-    console.error("Database query error - Full details:", {
+    // Log sanitized error for debugging (prevents sensitive data leakage)
+    const sanitizedError = sanitizeErrorForLogging(error);
+    const sanitizedDetails = errorDetails ? sanitizeForLogging(errorDetails) : undefined;
+    
+    console.error("Database query error:", {
       errorType: error?.constructor?.name,
-      message: errorMessage,
-      details: errorDetails,
-      underlyingError: underlyingError,
-      fullError: error,
-      stack: error instanceof Error ? error.stack : undefined,
+      message: sanitizedError.message,
+      details: sanitizedDetails,
+      code: sanitizedError.code,
+      stack: sanitizedError.stack,
+      // Don't log fullError, underlyingError, or raw errorDetails to prevent sensitive data leakage
     });
     
-    // Throw a more informative error
-    const finalMessage = errorDetails 
-      ? `${errorMessage} | Underlying error: ${errorDetails}`
-      : errorMessage;
+    // Throw a sanitized error message (don't include underlying error details that might be sensitive)
+    const sanitizedMessage = sanitizeErrorForLogging(new Error(errorMessage));
+    const finalMessage = `Failed to query users table: ${sanitizedMessage.message}`;
     
     throw new Error(`Failed to query users table: ${finalMessage}`);
   }

@@ -5,12 +5,23 @@ import {
   db,
   eq,
   getMentorById,
+  decryptMentorRefreshToken,
   getSessionPackById,
   sessions,
   validateBookingEligibility,
 } from "@mentorships/db";
 import { requireDbUser } from "@/lib/auth";
 import { getGoogleCalendarClient } from "@/lib/google";
+import {
+  forbidden,
+  notFound,
+  validationError,
+  conflict,
+  schedulingError,
+  externalServiceError,
+  createApiSuccess,
+  internalError,
+} from "@/lib/api-error";
 
 const SESSION_DURATION_MINUTES = 60;
 
@@ -129,29 +140,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const user = await requireDbUser();
 
     if (user.role !== "student") {
-      return NextResponse.json(
-        { error: "Forbidden: student role required" },
-        { status: 403 }
-      );
+      const { response: errorResponse } = forbidden("Student role required");
+      return NextResponse.json(errorResponse, { status: 403 });
     }
 
     const body = await req.json();
     const parsed = createSessionSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
-        { error: "Invalid request", details: parsed.error.issues },
-        { status: 400 }
+      const { response: errorResponse } = validationError(
+        "Invalid request", 
+        parsed.error.issues
       );
+      return NextResponse.json(errorResponse, { status: 400 });
     }
 
     const { sessionPackId, scheduledAt, recordingConsent } = parsed.data;
 
     const pack = await getSessionPackById(sessionPackId);
     if (!pack || pack.userId !== user.id) {
-      return NextResponse.json(
-        { error: "Session pack not found or you don't have access to it" },
-        { status: 404 }
-      );
+      const { response: errorResponse } = notFound("Session pack");
+      return NextResponse.json(errorResponse, { status: 404 });
     }
 
     const start = new Date(scheduledAt);
@@ -159,10 +167,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const eligibility = await validateBookingEligibility(sessionPackId, user.id, start);
     if (!eligibility.valid) {
-      return NextResponse.json(
-        { error: eligibility.error, code: eligibility.errorCode },
-        { status: 400 }
-      );
+      const { response: errorResponse } = schedulingError(eligibility.error);
+      return NextResponse.json(errorResponse, { status: 400 });
     }
 
     // Fast idempotency: if the exact session already exists, return it.
@@ -180,22 +186,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .limit(1);
 
     if (existing) {
-      return NextResponse.json({ success: true, session: existing });
+      return NextResponse.json(
+        createApiSuccess({ session: existing }, "Session already exists")
+      );
     }
 
     const mentor = await getMentorById(pack.mentorId);
     if (!mentor) {
-      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
+      const { response: errorResponse } = notFound("Mentor");
+      return NextResponse.json(errorResponse, { status: 404 });
     }
-    if (!mentor.googleRefreshToken) {
-      return NextResponse.json(
-        { error: "Mentor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
-        { status: 409 }
+    const refreshToken = decryptMentorRefreshToken(mentor);
+    if (!refreshToken) {
+      const { response: errorResponse } = schedulingError(
+        "Mentor has not connected Google Calendar"
       );
+      return NextResponse.json(errorResponse, { status: 409 });
     }
 
     const calendarId = mentor.googleCalendarId || "primary";
-    const calendar = await getGoogleCalendarClient(mentor.googleRefreshToken);
+    const calendar = await getGoogleCalendarClient(refreshToken);
 
     // Enforce working-hours constraints server-side as well (not just in slot UI).
     if (mentor.timeZone && mentor.workingHours) {
@@ -207,10 +217,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           mentor.workingHours as WorkingHours
         )
       ) {
-        return NextResponse.json(
-          { error: "Selected time is outside mentor working hours", code: "OUTSIDE_WORKING_HOURS" },
-          { status: 400 }
+        const { response: errorResponse } = schedulingError(
+          "Selected time is outside mentor working hours"
         );
+        return NextResponse.json(errorResponse, { status: 400 });
       }
     }
 
@@ -225,14 +235,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const busy = fb.data.calendars?.[calendarId]?.busy ?? [];
 
     if (overlapsBusyWindow(start, end, busy)) {
-      return NextResponse.json(
-        {
-          error: "Time slot is no longer available",
-          code: "TIME_SLOT_UNAVAILABLE",
-          busy,
-        },
-        { status: 409 }
+      const { response: errorResponse } = conflict(
+        "Time slot is no longer available",
+        { busy }
       );
+      return NextResponse.json(errorResponse, { status: 409 });
     }
 
     // Create calendar event first, then insert DB session; cleanup event on DB failure.
@@ -254,10 +261,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const googleCalendarEventId = event.data.id;
     if (!googleCalendarEventId) {
-      return NextResponse.json(
-        { error: "Google Calendar did not return an event id" },
-        { status: 502 }
+      const { response: errorResponse } = externalServiceError(
+        "Google Calendar",
+        "Google Calendar did not return an event id"
       );
+      return NextResponse.json(errorResponse, { status: 502 });
     }
 
     try {
@@ -278,7 +286,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         throw new Error("Failed to create session");
       }
 
-      return NextResponse.json({ success: true, session: created });
+      return NextResponse.json(
+        createApiSuccess({ session: created }, "Session booked successfully")
+      );
     } catch (dbError) {
       // Best-effort cleanup if DB insert fails
       try {
@@ -290,10 +300,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   } catch (error) {
     console.error("Create session booking error:", error);
-    return NextResponse.json(
-      { error: "Failed to book session" },
-      { status: 500 }
-    );
+    const { response: errorResponse } = internalError("Failed to book session");
+    return NextResponse.json(errorResponse, { status: 500 });
   }
 }
 

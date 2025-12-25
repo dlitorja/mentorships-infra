@@ -17,5 +17,7 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").notNull().default("student"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // Soft deletion for audit trails
+  deletedAt: timestamp("deleted_at"),
 });
 

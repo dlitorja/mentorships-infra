@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { validateEmail, sanitizeArtGoals } from "@/lib/validation";
-import { randomUUID } from "crypto";
+import { 
+  createApiSuccess, 
+  validationError, 
+  internalError 
+} from "@/lib/api-error";
 
 /**
  * POST /api/contacts
@@ -8,30 +12,24 @@ import { randomUUID } from "crypto";
  * Public endpoint - no authentication required
  */
 export async function POST(request: Request): Promise<NextResponse> {
-  const errorId = randomUUID();
-
   try {
     const body = await request.json();
     const { email, artGoals } = body;
 
     if (!email) {
-      return NextResponse.json(
-        { error: "Email is required", errorId },
-        { status: 400 }
-      );
+      const { response: errorResponse } = validationError("Email is required");
+      return NextResponse.json(errorResponse, { status: 400 });
     }
 
     // Validate and normalize email
     const normalizedEmail = validateEmail(email);
     if (!normalizedEmail) {
-      return NextResponse.json(
-        { error: "Invalid email format", errorId },
-        { status: 400 }
-      );
+      const { response: errorResponse } = validationError("Invalid email format");
+      return NextResponse.json(errorResponse, { status: 400 });
     }
 
     // Sanitize artGoals
-    const _sanitizedArtGoals = sanitizeArtGoals(artGoals);
+    const sanitizedArtGoals = sanitizeArtGoals(artGoals);
 
     // TODO: Implement contacts database logic
     // 1. Check if email already exists in contacts table
@@ -49,18 +47,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     // - Add to email marketing platform (e.g., Mailchimp, SendGrid)
     // - Send welcome email
 
-    return NextResponse.json({
-      success: true,
-      message: "Email added to contacts",
-    });
-  } catch (error) {
-    const errorName = error instanceof Error ? error.name : "UnknownError";
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Contacts error [${errorId}]: ${errorName} - ${errorMessage}`);
     return NextResponse.json(
-      { error: "Failed to add email to contacts", errorId },
-      { status: 500 }
+      createApiSuccess(
+        { email: normalizedEmail, artGoals: sanitizedArtGoals },
+        "Email added to contacts"
+      )
     );
+  } catch {
+    const { response: errorResponse } = internalError("Failed to add email to contacts");
+    return NextResponse.json(errorResponse, { status: 500 });
   }
 }
 

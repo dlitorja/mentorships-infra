@@ -46,5 +46,7 @@ export const mentors = pgTable("mentors", {
   pricing: numeric("pricing", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // Soft deletion for audit trails
+  deletedAt: timestamp("deleted_at"),
 });
 
