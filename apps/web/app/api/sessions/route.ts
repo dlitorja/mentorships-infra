@@ -18,6 +18,7 @@ import {
   validationError,
   conflict,
   schedulingError,
+  externalServiceError,
   createApiSuccess,
   internalError,
 } from "@/lib/api-error";
@@ -260,10 +261,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const googleCalendarEventId = event.data.id;
     if (!googleCalendarEventId) {
-      return NextResponse.json(
-        { error: "Google Calendar did not return an event id" },
-        { status: 502 }
+      const { response: errorResponse } = externalServiceError(
+        "Google Calendar",
+        "Google Calendar did not return an event id"
       );
+      return NextResponse.json(errorResponse, { status: 502 });
     }
 
     try {

@@ -7,7 +7,7 @@ import { db, sql } from "@mentorships/db";
  * Database connection health check
  * Verifies database connectivity and basic query execution
  */
-export async function GET() {
+export async function GET(): Promise<NextResponse> {
   try {
     const startTime = Date.now();
     
@@ -15,7 +15,7 @@ export async function GET() {
     await db.execute(sql`SELECT 1`);
     
     const responseTime = Date.now() - startTime;
-
+    
     const status: {
       status: string;
       timestamp: string;
@@ -34,15 +34,16 @@ export async function GET() {
         queryTime: responseTime,
       },
     };
-
+    
     // Slow database warnings
     if (responseTime > 1000) {
       status.database.status = "slow";
       status.status = "degraded";
     }
-
+    
     return NextResponse.json(createApiSuccess(status, "Database is healthy"));
-  } catch {
+  } catch (error) {
+    console.error("Database health check failed:", error);
     const { response: errorResponse } = databaseError("Database connection failed");
     return NextResponse.json(errorResponse, { status: 503 });
   }

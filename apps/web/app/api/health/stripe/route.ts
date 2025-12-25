@@ -32,7 +32,6 @@ export async function GET() {
       stripe: {
         connected: true,
         responseTime,
-        mode: process.env.STRIPE_SECRET_KEY.startsWith('sk_live') ? 'live' : 'test',
       },
     };
 
