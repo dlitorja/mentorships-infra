@@ -41,7 +41,7 @@ export async function updateMentorGoogleCalendarAuth(
   data: { googleRefreshToken?: string; googleCalendarId?: string | null }
 ) {
   const updateData: {
-    googleRefreshToken?: string;
+    googleRefreshToken?: string | null;
     googleCalendarId?: string | null;
     updatedAt: Date;
   } = {
