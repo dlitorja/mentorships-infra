@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../drizzle";
 import { mentors } from "../../schema";
 import type { MentorWorkingHours } from "../../schema/mentors";
+import { encrypt, decrypt } from "../encryption";
 
 /**
  * Get mentor by Clerk user ID
@@ -33,26 +34,64 @@ export async function getMentorById(mentorId: string) {
  * Update mentor Google Calendar auth settings (refresh token + calendar id)
  *
  * IMPORTANT: Never return tokens to the client.
+ * The refresh token is automatically encrypted before storage.
  */
 export async function updateMentorGoogleCalendarAuth(
   mentorId: string,
   data: { googleRefreshToken?: string; googleCalendarId?: string | null }
 ) {
+  const updateData: {
+    googleRefreshToken?: string;
+    googleCalendarId?: string | null;
+    updatedAt: Date;
+  } = {
+    updatedAt: new Date(),
+  };
+
+  // Encrypt refresh token before storing
+  if (data.googleRefreshToken !== undefined) {
+    updateData.googleRefreshToken = data.googleRefreshToken
+      ? encrypt(data.googleRefreshToken)
+      : null;
+  }
+
+  if (data.googleCalendarId !== undefined) {
+    updateData.googleCalendarId = data.googleCalendarId;
+  }
+
   const [updated] = await db
     .update(mentors)
-    .set({
-      ...(data.googleRefreshToken !== undefined
-        ? { googleRefreshToken: data.googleRefreshToken }
-        : {}),
-      ...(data.googleCalendarId !== undefined
-        ? { googleCalendarId: data.googleCalendarId }
-        : {}),
-      updatedAt: new Date(),
-    })
+    .set(updateData)
     .where(eq(mentors.id, mentorId))
     .returning();
 
   return updated || null;
+}
+
+/**
+ * Decrypts the Google refresh token from a mentor object
+ * 
+ * @param mentor - Mentor object with potentially encrypted refresh token
+ * @returns Decrypted refresh token, or null if not present
+ * 
+ * IMPORTANT: Only use this when you need the plaintext token (e.g., for API calls).
+ * Never return decrypted tokens to the client.
+ */
+export function decryptMentorRefreshToken(mentor: {
+  googleRefreshToken: string | null;
+} | null | undefined): string | null {
+  if (!mentor?.googleRefreshToken) {
+    return null;
+  }
+
+  try {
+    return decrypt(mentor.googleRefreshToken);
+  } catch (error) {
+    // If decryption fails, it might be unencrypted data from before migration
+    // Log error but return the original value to allow graceful migration
+    console.error("Failed to decrypt refresh token (may be legacy unencrypted data):", error);
+    return mentor.googleRefreshToken;
+  }
 }
 
 export async function updateMentorSchedulingSettings(

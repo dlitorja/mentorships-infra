@@ -1,0 +1,157 @@
+# GitLab CI/CD Configuration
+# Converted from GitHub Actions workflows
+# This is an EXAMPLE - adjust based on your GitLab setup
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+variables:
+  PNPM_VERSION: "10"
+  NODE_VERSION: "20"
+  # Cache configuration
+  PNPM_CACHE_DIR: "$CI_PROJECT_DIR/.pnpm-store"
+
+# Cache pnpm store for faster builds
+cache:
+  key:
+    files:
+      - pnpm-lock.yaml
+  paths:
+    - .pnpm-store
+  policy: pull-push
+
+# Lint & Type Check Job
+lint-and-typecheck:
+  stage: lint
+  image: node:${NODE_VERSION}
+  before_script:
+    - npm install -g pnpm@${PNPM_VERSION}
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm lint
+    - pnpm typecheck
+  only:
+    - main
+    - develop
+    - merge_requests
+  tags:
+    - docker  # Use GitLab shared runners or your self-hosted runners
+
+# Unit Tests Job
+unit-tests:
+  stage: test
+  image: node:${NODE_VERSION}
+  environment:
+    name: Preview
+  before_script:
+    - npm install -g pnpm@${PNPM_VERSION}
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm test:unit
+  coverage: '/Coverage: \d+\.\d+%/'  # Extract coverage from test output
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/coverage-final.json
+    when: always
+    expire_in: 30 days
+  only:
+    - main
+    - develop
+    - merge_requests
+  tags:
+    - docker
+
+# E2E Tests Job
+e2e-tests:
+  stage: test
+  image: node:${NODE_VERSION}
+  environment:
+    name: Preview
+  services:
+    # Add services if needed (e.g., database, Redis)
+    # - postgres:15
+    # - redis:7
+  before_script:
+    - npm install -g pnpm@${PNPM_VERSION}
+    - pnpm install --frozen-lockfile
+    - pnpm exec playwright install --with-deps
+  script:
+    - pnpm test
+  artifacts:
+    when: always
+    paths:
+      - playwright-report/
+    expire_in: 30 days
+  only:
+    - main
+    - develop
+    - merge_requests
+  tags:
+    - docker
+
+# Build Job
+build:
+  stage: build
+  image: node:${NODE_VERSION}
+  environment:
+    name: Preview
+  needs:
+    - lint-and-typecheck
+    - unit-tests
+  before_script:
+    - npm install -g pnpm@${PNPM_VERSION}
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm build
+  only:
+    - main
+    - develop
+    - merge_requests
+  tags:
+    - docker
+
+# Deploy Job
+deploy:
+  stage: deploy
+  image: node:${NODE_VERSION}
+  environment:
+    name: Production
+  before_script:
+    - npm install -g pnpm@${PNPM_VERSION}
+    - pnpm install --frozen-lockfile
+  script:
+    - pnpm --filter @mentorships/marketing build
+    - |
+      npm install -g vercel
+      vercel --prod \
+        --token $VERCEL_TOKEN \
+        --scope $VERCEL_ORG_ID \
+        --yes
+  only:
+    - main
+  when: manual  # Optional: require manual approval for production
+  tags:
+    - docker
+
+# Alternative: Deploy with Vercel CLI (if using Vercel GitLab integration)
+# deploy-vercel:
+#   stage: deploy
+#   image: node:${NODE_VERSION}
+#   environment:
+#     name: Production
+#   before_script:
+#     - npm install -g pnpm@${PNPM_VERSION}
+#     - pnpm install --frozen-lockfile
+#   script:
+#     - pnpm --filter @mentorships/marketing build
+#   only:
+#     - main
+#   tags:
+#     - docker
+#   # Vercel will handle deployment via GitLab integration
+

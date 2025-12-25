@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMentorById } from "@mentorships/db";
+import { getMentorById, decryptMentorRefreshToken } from "@mentorships/db";
 import { getGoogleCalendarClient } from "@/lib/google";
 
 const querySchema = z.object({
@@ -171,7 +171,8 @@ export async function GET(
       return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
     }
 
-    if (!mentor.googleRefreshToken) {
+    const refreshToken = decryptMentorRefreshToken(mentor);
+    if (!refreshToken) {
       return NextResponse.json(
         { error: "Mentor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
         { status: 409 }
@@ -179,7 +180,7 @@ export async function GET(
     }
 
     const calendarId = mentor.googleCalendarId || "primary";
-    const calendar = await getGoogleCalendarClient(mentor.googleRefreshToken);
+    const calendar = await getGoogleCalendarClient(refreshToken);
 
     const fb = await calendar.freebusy.query({
       requestBody: {

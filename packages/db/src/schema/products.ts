@@ -17,5 +17,7 @@ export const mentorshipProducts = pgTable("mentorship_products", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  // Soft deletion for audit trails
+  deletedAt: timestamp("deleted_at"),
 });
 
