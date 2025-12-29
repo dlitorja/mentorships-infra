@@ -13,6 +13,9 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 
+const COURSES_URL = "https://home.huckleberry.art";
+const DISCORD_URL = "https://discord.com/invite/4DqDyKZyA8";
+
 export function Header(): React.JSX.Element {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/85">
@@ -38,17 +41,19 @@ export function Header(): React.JSX.Element {
             Testimonials
           </Link>
           <a
-            href="https://home.huckleberry.art"
+            href={COURSES_URL}
             target="_blank"
             rel="noopener noreferrer"
+            aria-label="Courses (opens in a new window)"
             className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
           >
             Courses
           </a>
           <a
-            href="https://discord.com/invite/4DqDyKZyA8"
+            href={DISCORD_URL}
             target="_blank"
             rel="noopener noreferrer"
+            aria-label="Discord (opens in a new window)"
             className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
           >
             Discord
@@ -89,9 +94,10 @@ export function Header(): React.JSX.Element {
               </SheetClose>
               <SheetClose asChild>
                 <a
-                  href="https://home.huckleberry.art"
+                  href={COURSES_URL}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label="Courses (opens in a new tab)"
                   className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
                 >
                   Courses
@@ -99,9 +105,10 @@ export function Header(): React.JSX.Element {
               </SheetClose>
               <SheetClose asChild>
                 <a
-                  href="https://discord.com/invite/4DqDyKZyA8"
+                  href={DISCORD_URL}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label="Discord (opens in a new tab)"
                   className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
                 >
                   Discord
