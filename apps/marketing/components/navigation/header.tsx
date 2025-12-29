@@ -26,12 +26,6 @@ export function Header(): React.JSX.Element {
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center gap-6">
           <Link
-            href="/instructors"
-            className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
-          >
-            Instructors
-          </Link>
-          <Link
             href="/#how-it-works"
             className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
           >
@@ -43,6 +37,22 @@ export function Header(): React.JSX.Element {
           >
             Testimonials
           </Link>
+          <a
+            href="https://home.huckleberry.art"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
+          >
+            Courses
+          </a>
+          <a
+            href="https://discord.com/invite/4DqDyKZyA8"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-foreground/90 transition-colors hover:text-foreground drop-shadow-sm"
+          >
+            Discord
+          </a>
 
           <Button asChild size="sm" className="vibrant-gradient-button transition-all">
             <Link href="/instructors">Browse Instructors</Link>
@@ -63,14 +73,6 @@ export function Header(): React.JSX.Element {
             <div className="flex flex-col gap-6 mt-6">
               <SheetClose asChild>
                 <Link
-                  href="/instructors"
-                  className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
-                >
-                  Instructors
-                </Link>
-              </SheetClose>
-              <SheetClose asChild>
-                <Link
                   href="/#how-it-works"
                   className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
                 >
@@ -84,6 +86,26 @@ export function Header(): React.JSX.Element {
                 >
                   Testimonials
                 </Link>
+              </SheetClose>
+              <SheetClose asChild>
+                <a
+                  href="https://home.huckleberry.art"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
+                >
+                  Courses
+                </a>
+              </SheetClose>
+              <SheetClose asChild>
+                <a
+                  href="https://discord.com/invite/4DqDyKZyA8"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
+                >
+                  Discord
+                </a>
               </SheetClose>
               
               <div className="pt-4 border-t">
