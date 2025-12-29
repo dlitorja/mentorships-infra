@@ -13,8 +13,8 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 
-const COURSES_URL = "https://home.huckleberry.art";
-const DISCORD_URL = "https://discord.com/invite/4DqDyKZyA8";
+const COURSES_URL = "https://home.huckleberry.art" as const;
+const DISCORD_URL = "https://discord.com/invite/4DqDyKZyA8" as const;
 
 export function Header(): React.JSX.Element {
   return (
