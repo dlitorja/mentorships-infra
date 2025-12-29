@@ -97,7 +97,7 @@ export function Header(): React.JSX.Element {
                   href={COURSES_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="Courses (opens in a new tab)"
+                  aria-label="Courses (opens in a new window)"
                   className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
                 >
                   Courses
@@ -108,7 +108,7 @@ export function Header(): React.JSX.Element {
                   href={DISCORD_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label="Discord (opens in a new tab)"
+                  aria-label="Discord (opens in a new window)"
                   className="text-lg font-medium text-foreground transition-colors hover:text-foreground"
                 >
                   Discord
