@@ -22,8 +22,10 @@ touch .env.local
 Open `apps/web/.env.local` and add:
 
 ```env
-DATABASE_URL=postgresql://postgres:PdD4i%2AHmyAyaEKRSxkTvua2%24lVXZtmy0@db.ytxtlscmxyqomxhripki.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@db.ytxtlscmxyqomxhripki.supabase.co:5432/postgres
 ```
+
+**Note**: Replace `YOUR_PASSWORD` with your actual Supabase database password. URL-encode special characters if needed (e.g., `@` becomes `%40`, `$` becomes `%24`).
 
 **Important**: 
 - ❌ NO quotes around the value
