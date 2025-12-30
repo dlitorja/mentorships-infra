@@ -198,10 +198,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
     const refreshToken = decryptMentorRefreshToken(mentor);
     if (!refreshToken) {
-      const { response: errorResponse } = schedulingError(
+      const { response: errorResponse } = validationError(
         "Mentor has not connected Google Calendar"
       );
-      return NextResponse.json(errorResponse, { status: 409 });
+      return NextResponse.json(errorResponse, { status: 422 });
     }
 
     const calendarId = mentor.googleCalendarId || "primary";

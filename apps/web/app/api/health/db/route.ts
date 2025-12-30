@@ -2,6 +2,17 @@ import { NextResponse } from "next/server";
 import { createApiSuccess, databaseError } from "@/lib/api-error";
 import { db, sql } from "@mentorships/db";
 
+interface DatabaseHealthStatus {
+  status: string;
+  timestamp: string;
+  responseTime: string;
+  database: {
+    connected: boolean;
+    queryTime: number;
+    status?: string;
+  };
+}
+
 /**
  * GET /api/health/db
  * Database connection health check
@@ -10,22 +21,13 @@ import { db, sql } from "@mentorships/db";
 export async function GET(): Promise<NextResponse> {
   try {
     const startTime = Date.now();
-    
+
     // Test basic database connectivity with a simple query
     await db.execute(sql`SELECT 1`);
-    
+
     const responseTime = Date.now() - startTime;
-    
-    const status: {
-      status: string;
-      timestamp: string;
-      responseTime: string;
-      database: {
-        connected: boolean;
-        queryTime: number;
-        status?: string;
-      };
-    } = {
+
+    const status: DatabaseHealthStatus = {
       status: "healthy",
       timestamp: new Date().toISOString(),
       responseTime: `${responseTime}ms`,
