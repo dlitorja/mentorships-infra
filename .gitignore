@@ -97,3 +97,6 @@ pnpm-debug.log*
 # Local development
 .local/
 local/
+
+# Clerk
+.clerk/
