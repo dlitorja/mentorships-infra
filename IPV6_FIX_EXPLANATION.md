@@ -23,7 +23,7 @@ Update your `apps/web/.env.local` to use the pooler URL:
 # DATABASE_URL=postgresql://postgres:[password]@db.ytxtlscmxyqomxhripki.supabase.co:5432/postgres
 
 # To connection pooler (port 6543):
-DATABASE_URL=postgresql://postgres.ytxtlscmxyqomxhripki:PdD4i%2AHmyAyaEKRSxkTvua2%24lVXZtmy0@aws-0-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true
+DATABASE_URL=postgresql://postgres.ytxtlscmxyqomxhripki:YOUR_PASSWORD@aws-0-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true
 ```
 
 **Note**: The pooler URL format is:
