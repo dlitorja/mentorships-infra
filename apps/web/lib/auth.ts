@@ -1,5 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { getOrCreateUser } from "@mentorships/db";
+import { getOrCreateUser, UnauthorizedError } from "@mentorships/db";
 
 /**
  * Get the current authenticated user's Clerk ID
@@ -19,13 +19,13 @@ export async function getUser() {
 }
 
 /**
- * Require authentication - throws error if user is not authenticated
+ * Require authentication - throws UnauthorizedError if user is not authenticated
  * Use this in API routes and server components that require auth
  */
 export async function requireAuth() {
   const userId = await getUserId();
   if (!userId) {
-    throw new Error("Unauthorized: Authentication required");
+    throw new UnauthorizedError("Authentication required");
   }
   return userId;
 }
@@ -49,4 +49,10 @@ export async function requireDbUser() {
   await requireAuth();
   return await getDbUser();
 }
+
+/**
+ * Re-export the UnauthorizedError and isUnauthorizedError from the db package
+ * for convenience in API routes
+ */
+export { UnauthorizedError, isUnauthorizedError } from "@mentorships/db";
 

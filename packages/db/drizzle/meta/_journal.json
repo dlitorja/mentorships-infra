@@ -71,6 +71,13 @@
       "when": 1766624569802,
       "tag": "0009_conscious_masked_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1767156292410,
+      "tag": "0010_colossal_paladin",
+      "breakpoints": true
     }
   ]
 }

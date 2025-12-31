@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireDbUser } from "@/lib/auth";
+import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
 import { db, sessions, eq } from "@mentorships/db";
 import { getMentorByUserId, getSessionById } from "@mentorships/db";
 import { z } from "zod";
@@ -118,7 +118,7 @@ export async function PATCH(
     }
 
     // Handle authentication errors
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }

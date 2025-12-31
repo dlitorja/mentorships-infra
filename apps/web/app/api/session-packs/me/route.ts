@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireDbUser } from "@/lib/auth";
+import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
 import { getUserActiveSessionPacks } from "@mentorships/db";
 
 /**
@@ -25,7 +25,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching user session packs:", error);
 
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }

@@ -5,6 +5,50 @@ import { eq } from "drizzle-orm";
 import { sanitizeErrorForLogging, sanitizeForLogging } from "./errorSanitization";
 
 /**
+ * Custom error class for unauthorized access
+ * Provides a stable way to detect authentication failures
+ */
+export class UnauthorizedError extends Error {
+  readonly code = "UNAUTHORIZED" as const;
+  readonly statusCode = 401 as const;
+
+  constructor(message: string = "Unauthorized") {
+    super(message);
+    this.name = "UnauthorizedError";
+    Object.setPrototypeOf(this, UnauthorizedError.prototype);
+  }
+}
+
+/**
+ * Custom error class for forbidden access
+ * Provides a stable way to detect authorization failures
+ */
+export class ForbiddenError extends Error {
+  readonly code = "FORBIDDEN" as const;
+  readonly statusCode = 403 as const;
+
+  constructor(message: string = "Forbidden") {
+    super(message);
+    this.name = "ForbiddenError";
+    Object.setPrototypeOf(this, ForbiddenError.prototype);
+  }
+}
+
+/**
+ * Type guard to check if an error is an UnauthorizedError
+ */
+export function isUnauthorizedError(error: unknown): error is UnauthorizedError {
+  return error instanceof UnauthorizedError;
+}
+
+/**
+ * Type guard to check if an error is a ForbiddenError
+ */
+export function isForbiddenError(error: unknown): error is ForbiddenError {
+  return error instanceof ForbiddenError;
+}
+
+/**
  * Type guard to check if an error has a 'cause' property
  */
 type ErrorWithCause = Error & { cause?: unknown };
@@ -34,15 +78,15 @@ export async function getClerkUser() {
 
 /**
  * Ensures the user is authenticated and returns their Clerk user ID
- * Throws an error if not authenticated
+ * Throws an UnauthorizedError if not authenticated
  * 
  * @returns Clerk user ID
- * @throws Error if user is not authenticated
+ * @throws UnauthorizedError if user is not authenticated
  */
 export async function requireAuth(): Promise<string> {
   const userId = await getClerkUserId();
   if (!userId) {
-    throw new Error("Unauthorized: User must be authenticated");
+    throw new UnauthorizedError("User must be authenticated");
   }
   return userId;
 }

@@ -21,6 +21,10 @@ export {
   requireAuth,
   syncClerkUserToSupabase,
   getOrCreateUser,
+  UnauthorizedError,
+  ForbiddenError,
+  isUnauthorizedError,
+  isForbiddenError,
 } from "./lib/clerk";
 
 // Export Drizzle database instance
