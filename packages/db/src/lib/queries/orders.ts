@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { db } from "../drizzle";
 import { orders } from "../../schema";
 import type { OrderStatus, PaymentProvider } from "../../schema/orders";
@@ -56,6 +56,7 @@ export async function getOrderById(orderId: string): Promise<Order | null> {
 
 /**
  * Get orders for a user
+ * @deprecated Use getUserOrdersPaginated() instead for better performance
  * 
  * @param userId - Clerk user ID
  * @returns Array of orders
@@ -68,6 +69,56 @@ export async function getUserOrders(userId: string): Promise<Order[]> {
     .orderBy(desc(orders.createdAt));
 
   return userOrders;
+}
+
+/**
+ * Get orders for a user with pagination
+ * 
+ * @param userId - Clerk user ID
+ * @param page - Page number (1-indexed)
+ * @param pageSize - Number of items per page (default: 20, max: 100)
+ * @returns Paginated orders with total count
+ */
+export async function getUserOrdersPaginated(
+  userId: string,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<{
+  items: Order[];
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
+  // Validate and clamp pageSize
+  const validatedPageSize = Math.min(Math.max(1, pageSize), 100);
+  const validatedPage = Math.max(1, page);
+  const offset = (validatedPage - 1) * validatedPageSize;
+
+  // Get total count
+  const totalResult = await db
+    .select({
+      count: sql<number>`count(*)`,
+    })
+    .from(orders)
+    .where(eq(orders.userId, userId));
+
+  const total = Number(totalResult[0]?.count || 0);
+
+  // Get paginated items
+  const userOrders = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.userId, userId))
+    .orderBy(desc(orders.createdAt))
+    .limit(validatedPageSize)
+    .offset(offset);
+
+  return {
+    items: userOrders,
+    total,
+    page: validatedPage,
+    pageSize: validatedPageSize,
+  };
 }
 
 /**

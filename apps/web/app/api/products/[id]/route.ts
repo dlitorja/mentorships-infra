@@ -1,11 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById } from "@mentorships/db";
+import { getProductById, requireAuth } from "@mentorships/db";
 
+/**
+ * GET /api/products/[id]
+ * 
+ * Get product details by ID
+ * Requires authentication to prevent exposing Stripe price IDs to unauthenticated users
+ */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Require authentication
+    await requireAuth();
+    
     const { id } = await params;
     
     const product = await getProductById(id);
@@ -30,6 +39,13 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (error instanceof Error && error.message.includes("Unauthorized")) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+    
     console.error("Error fetching product:", error);
     return NextResponse.json(
       { error: "Failed to fetch product" },

@@ -37,6 +37,10 @@ export const seatReservations = pgTable(
     userIdIdx: index("seat_reservations_user_id_idx").on(t.userId),
     statusIdx: index("seat_reservations_status_idx").on(t.status),
     seatExpiresAtIdx: index("seat_reservations_seat_expires_at_idx").on(t.seatExpiresAt),
+    // Composite index for common queries: checkSeatAvailability, getMentorActiveSeats
+    mentorIdStatusIdx: index("seat_reservations_mentor_id_status_idx").on(t.mentorId, t.status),
+    // Composite index for queries filtering by userId and mentorId together
+    userIdMentorIdIdx: index("seat_reservations_user_id_mentor_id_idx").on(t.userId, t.mentorId),
     // session_pack_id already has unique constraint (which creates an index)
   })
 );

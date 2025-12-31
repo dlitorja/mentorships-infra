@@ -37,10 +37,11 @@ try {
 // Create the connection
 // Using connection pooler URL (port 6543) which should handle IPv4/IPv6 routing
 // If IPv6 errors persist in WSL2, the pooler infrastructure should handle it
+// Increased max connections from 1 to 10 to improve performance and handle concurrent requests
 let client: ReturnType<typeof postgres>;
 try {
   client = postgres(cleanedConnectionString, { 
-    max: 1,
+    max: 10, // Increased from 1 to handle concurrent requests efficiently
     onnotice: () => {}, // Suppress notices
     // Disable prepared statements for Supabase compatibility
     // Required when using connection pooling (pgbouncer)

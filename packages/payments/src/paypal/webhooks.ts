@@ -1,21 +1,23 @@
 import type { ParsedPayPalEvent, PayPalWebhookEventType } from "./types";
+import { getPayPalClient } from "./client";
+import { NotificationsController } from "@paypal/paypal-server-sdk";
 
 /**
  * Verify PayPal webhook signature
  * 
- * PayPal webhook verification requires:
- * 1. Verifying the webhook signature header
- * 2. Validating the certificate chain
- * 3. Verifying the payload
+ * PayPal webhook verification uses PayPal's verification API endpoint
+ * which validates:
+ * 1. The webhook signature header
+ * 2. The certificate chain
+ * 3. The payload integrity
  * 
- * Note: PayPal webhook verification is more complex than Stripe.
- * For production, consider using PayPal's webhook verification library
- * or implementing full certificate chain validation.
+ * This is the recommended approach by PayPal for production use.
  * 
  * @param body - Raw request body as string
  * @param headers - Request headers (must include PayPal webhook headers)
  * @param webhookId - PayPal webhook ID (from PayPal dashboard)
  * @returns true if signature is valid
+ * @throws Error if verification fails or headers are missing
  */
 export async function verifyWebhookSignature(
   body: string,
@@ -40,37 +42,81 @@ export async function verifyWebhookSignature(
   const transmissionSig = normalizedHeaders["paypal-transmission-sig"];
   const transmissionTime = normalizedHeaders["paypal-transmission-time"];
 
+  // Validate all required headers are present
   if (!authAlgo || !certUrl || !transmissionId || !transmissionSig || !transmissionTime) {
     throw new Error("Missing required PayPal webhook headers");
   }
 
-  // For MVP, we'll do basic validation
-  // In production, implement full certificate chain validation
-  // See: https://developer.paypal.com/docs/api-basics/notifications/webhooks/notification-messages/#verify-webhook-signatures
+  // Ensure all headers are strings (not arrays)
+  const authAlgoStr = Array.isArray(authAlgo) ? authAlgo[0] : authAlgo;
+  const certUrlStr = Array.isArray(certUrl) ? certUrl[0] : certUrl;
+  const transmissionIdStr = Array.isArray(transmissionId) ? transmissionId[0] : transmissionId;
+  const transmissionSigStr = Array.isArray(transmissionSig) ? transmissionSig[0] : transmissionSig;
+  const transmissionTimeStr = Array.isArray(transmissionTime) ? transmissionTime[0] : transmissionTime;
 
-  // Basic validation: check that headers are present and non-empty
-  const requiredHeaders = [
-    authAlgo,
-    certUrl,
-    transmissionId,
-    transmissionSig,
-    transmissionTime,
-  ];
-
-  for (const header of requiredHeaders) {
-    if (!header || (typeof header === "string" && header.trim() === "")) {
-      return false;
-    }
+  // Validate headers are non-empty
+  if (!authAlgoStr?.trim() || !certUrlStr?.trim() || !transmissionIdStr?.trim() || 
+      !transmissionSigStr?.trim() || !transmissionTimeStr?.trim()) {
+    return false;
   }
 
-  // TODO: Implement full certificate chain validation for production
-  // For now, we'll rely on HTTPS and webhook secret validation
-  // In production, use PayPal's webhook verification SDK or implement:
-  // 1. Fetch certificate from certUrl
-  // 2. Verify certificate chain
-  // 3. Verify signature using certificate
+  try {
+    // Parse the webhook event to get the event ID
+    const event = JSON.parse(body);
+    const eventId = event.id;
 
-  return true;
+    if (!eventId) {
+      console.error("PayPal webhook event missing ID");
+      return false;
+    }
+
+    // Use PayPal's verification API to verify the webhook signature
+    // This is the recommended approach by PayPal
+    const client = getPayPalClient();
+    const notificationsController = new NotificationsController(client);
+
+    const verificationResponse = await notificationsController.verifyWebhookSignature({
+      body: {
+        auth_algo: authAlgoStr,
+        cert_url: certUrlStr,
+        transmission_id: transmissionIdStr,
+        transmission_sig: transmissionSigStr,
+        transmission_time: transmissionTimeStr,
+        webhook_id: webhookId,
+        webhook_event: event,
+      },
+    });
+
+    // Check if verification was successful
+    if (verificationResponse.statusCode !== 200) {
+      console.error(
+        `PayPal webhook verification failed: ${verificationResponse.statusCode}`,
+        verificationResponse.result
+      );
+      return false;
+    }
+
+    const verificationResult = verificationResponse.result;
+    
+    // PayPal returns verification_status: "SUCCESS" if valid
+    if (verificationResult?.verification_status === "SUCCESS") {
+      return true;
+    }
+
+    // Log the reason for failure if available
+    if (verificationResult?.verification_status) {
+      console.error(
+        `PayPal webhook verification failed: ${verificationResult.verification_status}`,
+        verificationResult
+      );
+    }
+
+    return false;
+  } catch (error) {
+    // Log the error but don't expose internal details
+    console.error("PayPal webhook verification error:", error instanceof Error ? error.message : "Unknown error");
+    return false;
+  }
 }
 
 /**

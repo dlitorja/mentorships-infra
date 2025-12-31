@@ -8,6 +8,7 @@ import {
   eq,
 } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
+import { requireRole } from "@/lib/auth-helpers";
 
 /**
  * Create a database product from a Stripe Product ID or Price ID
@@ -16,11 +17,13 @@ import { stripe } from "@/lib/stripe";
  * Accepts either:
  * - productId: Stripe Product ID (e.g., prod_...) - will use the default price
  * - priceId: Stripe Price ID (e.g., price_...) - preferred
+ * 
+ * Requires admin role to prevent unauthorized product creation
  */
 export async function POST(req: NextRequest) {
   try {
-    // Require authentication (admin only in production)
-    await requireAuth();
+    // Require admin role for product creation
+    await requireRole("admin");
     
     const { productId, priceId, mentorId } = await req.json();
     

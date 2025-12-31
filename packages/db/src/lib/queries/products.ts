@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "../drizzle";
 import { mentorshipProducts, mentors } from "../../schema";
 
@@ -55,6 +55,7 @@ export async function getProductsByMentorId(
 
 /**
  * Get all active products
+ * @deprecated Use getAllActiveProductsPaginated() instead for better performance
  */
 export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
   const products = await db
@@ -67,6 +68,58 @@ export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
     .where(eq(mentorshipProducts.active, true));
 
   return products.map((p) => ({ ...p.product, mentor: p.mentor }));
+}
+
+/**
+ * Get all active products with pagination
+ * 
+ * @param page - Page number (1-indexed)
+ * @param pageSize - Number of items per page (default: 20, max: 100)
+ * @returns Paginated products with total count
+ */
+export async function getAllActiveProductsPaginated(
+  page: number = 1,
+  pageSize: number = 20
+): Promise<{
+  items: ProductWithMentor[];
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
+  // Validate and clamp pageSize
+  const validatedPageSize = Math.min(Math.max(1, pageSize), 100);
+  const validatedPage = Math.max(1, page);
+  const offset = (validatedPage - 1) * validatedPageSize;
+
+  // Get total count
+  const totalResult = await db
+    .select({
+      count: sql<number>`count(*)`,
+    })
+    .from(mentorshipProducts)
+    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+    .where(eq(mentorshipProducts.active, true));
+
+  const total = Number(totalResult[0]?.count || 0);
+
+  // Get paginated items
+  const products = await db
+    .select({
+      product: mentorshipProducts,
+      mentor: mentors,
+    })
+    .from(mentorshipProducts)
+    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+    .where(eq(mentorshipProducts.active, true))
+    .limit(validatedPageSize)
+    .offset(offset);
+
+  return {
+    items: products.map((p) => ({ ...p.product, mentor: p.mentor })),
+    total,
+    page: validatedPage,
+    pageSize: validatedPageSize,
+  };
 }
 
 /**

@@ -1,0 +1,2 @@
+CREATE INDEX "seat_reservations_mentor_id_status_idx" ON "seat_reservations" USING btree ("mentor_id","status");--> statement-breakpoint
+CREATE INDEX "seat_reservations_user_id_mentor_id_idx" ON "seat_reservations" USING btree ("user_id","mentor_id");
