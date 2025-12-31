@@ -1,18 +1,56 @@
 import type { ParsedPayPalEvent, PayPalWebhookEventType } from "./types";
 import { getPayPalClient } from "./client";
 import { NotificationsController } from "@paypal/paypal-server-sdk";
+import { z } from "zod";
+
+/**
+ * Zod schema for validating PayPal webhook event structure
+ * At minimum, events must have an id field
+ */
+const PayPalWebhookEventSchema = z.object({
+  id: z.string(),
+  event_type: z.string(),
+  resource_type: z.string(),
+  summary: z.string(),
+  resource: z.record(z.string(), z.unknown()),
+});
+
+type PayPalWebhookEvent = z.infer<typeof PayPalWebhookEventSchema>;
+
+/**
+ * Type guard for PayPal verification response result
+ */
+interface VerificationResponseResult {
+  verification_status: string;
+}
+
+interface VerificationResponse {
+  statusCode: number;
+  result?: unknown;
+}
+
+function isVerificationResponseResult(
+  result: unknown
+): result is VerificationResponseResult {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "verification_status" in result &&
+    typeof (result as VerificationResponseResult).verification_status === "string"
+  );
+}
 
 /**
  * Verify PayPal webhook signature
- * 
+ *
  * PayPal webhook verification uses PayPal's verification API endpoint
  * which validates:
  * 1. The webhook signature header
  * 2. The certificate chain
  * 3. The payload integrity
- * 
+ *
  * This is the recommended approach by PayPal for production use.
- * 
+ *
  * @param body - Raw request body as string
  * @param headers - Request headers (must include PayPal webhook headers)
  * @param webhookId - PayPal webhook ID (from PayPal dashboard)
@@ -54,19 +92,44 @@ export async function verifyWebhookSignature(
   const transmissionSigStr = Array.isArray(transmissionSig) ? transmissionSig[0] : transmissionSig;
   const transmissionTimeStr = Array.isArray(transmissionTime) ? transmissionTime[0] : transmissionTime;
 
-  // Validate headers are non-empty
-  if (!authAlgoStr?.trim() || !certUrlStr?.trim() || !transmissionIdStr?.trim() || 
-      !transmissionSigStr?.trim() || !transmissionTimeStr?.trim()) {
-    return false;
+  // Validate headers are non-empty - throw error for consistency
+  if (!authAlgoStr?.trim()) {
+    throw new Error("PAYPAL-AUTH-ALGO header is empty");
+  }
+  if (!certUrlStr?.trim()) {
+    throw new Error("PAYPAL-CERT-URL header is empty");
+  }
+  if (!transmissionIdStr?.trim()) {
+    throw new Error("PAYPAL-TRANSMISSION-ID header is empty");
+  }
+  if (!transmissionSigStr?.trim()) {
+    throw new Error("PAYPAL-TRANSMISSION-SIG header is empty");
+  }
+  if (!transmissionTimeStr?.trim()) {
+    throw new Error("PAYPAL-TRANSMISSION-TIME header is empty");
   }
 
   try {
-    // Parse the webhook event to get the event ID
-    const event = JSON.parse(body);
-    const eventId = event.id;
+    // Parse and validate the webhook event structure using Zod
+    let event: PayPalWebhookEvent;
+    try {
+      const parsed = JSON.parse(body);
+      const validation = PayPalWebhookEventSchema.safeParse(parsed);
+      if (!validation.success) {
+        console.error(
+          "PayPal webhook event validation failed:",
+          (validation.error as any).issues || validation.error
+        );
+        return false;
+      }
+      event = validation.data;
+    } catch (error) {
+      console.error("Failed to parse PayPal webhook body as JSON:", error);
+      return false;
+    }
 
-    if (!eventId) {
-      console.error("PayPal webhook event missing ID");
+    if (!event.id) {
+      console.error("PayPal webhook event missing ID after validation");
       return false;
     }
 
@@ -96,20 +159,27 @@ export async function verifyWebhookSignature(
       return false;
     }
 
+    // Validate verification response result structure before accessing
+    if (!isVerificationResponseResult(verificationResponse.result)) {
+      console.error(
+        "PayPal webhook verification response has invalid structure",
+        verificationResponse.result
+      );
+      return false;
+    }
+
     const verificationResult = verificationResponse.result;
-    
+
     // PayPal returns verification_status: "SUCCESS" if valid
-    if (verificationResult?.verification_status === "SUCCESS") {
+    if (verificationResult.verification_status === "SUCCESS") {
       return true;
     }
 
-    // Log the reason for failure if available
-    if (verificationResult?.verification_status) {
-      console.error(
-        `PayPal webhook verification failed: ${verificationResult.verification_status}`,
-        verificationResult
-      );
-    }
+    // Log the reason for failure
+    console.error(
+      `PayPal webhook verification failed: ${verificationResult.verification_status}`,
+      verificationResult
+    );
 
     return false;
   } catch (error) {

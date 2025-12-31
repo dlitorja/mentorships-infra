@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireDbUser, requireAuth } from "@/lib/auth";
+import { requireDbUser, requireAuth, isUnauthorizedError } from "@/lib/auth";
 import {
   createSessionPack,
   getUserActiveSessionPacks,
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Error creating session pack:", error);
 
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -99,7 +99,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error fetching session packs:", error);
 
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }

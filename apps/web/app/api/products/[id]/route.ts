@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById, requireAuth } from "@mentorships/db";
+import { getProductById, requireAuth, isUnauthorizedError } from "@mentorships/db";
 
 /**
  * GET /api/products/[id]
@@ -39,13 +39,13 @@ export async function GET(
       },
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
-    
+
     console.error("Error fetching product:", error);
     return NextResponse.json(
       { error: "Failed to fetch product" },

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOrCreateUser } from "@mentorships/db";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, isUnauthorizedError } from "@/lib/auth";
 
 /**
  * API route to manually sync Clerk user to Supabase
@@ -26,14 +26,14 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Error syncing user:", error);
-    
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+
+    if (isUnauthorizedError(error)) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
-    
+
     return NextResponse.json(
       { error: "Failed to sync user" },
       { status: 500 }

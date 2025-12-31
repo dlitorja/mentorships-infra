@@ -92,12 +92,13 @@ export async function getAllActiveProductsPaginated(
   const offset = (validatedPage - 1) * validatedPageSize;
 
   // Get total count
+  // Note: innerJoin to mentors removed because mentorshipProducts.mentorId has NOT NULL constraint
+  // with onDelete: "cascade" foreign key, so orphaned products cannot exist
   const totalResult = await db
     .select({
       count: sql<number>`count(*)`,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
     .where(eq(mentorshipProducts.active, true));
 
   const total = Number(totalResult[0]?.count || 0);

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getMentorByUserId, updateMentorSchedulingSettings } from "@mentorships/db";
 import type { MentorWorkingHours } from "@mentorships/db";
-import { requireDbUser } from "@/lib/auth";
+import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
 
 const intervalSchema = z.object({
   start: z.string().regex(/^\d{2}:\d{2}$/),
@@ -47,7 +47,7 @@ export async function GET(): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("Get instructor settings error:", error);
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json({ error: "Failed to load settings" }, { status: 500 });
@@ -89,7 +89,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("Update instructor settings error:", error);
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
