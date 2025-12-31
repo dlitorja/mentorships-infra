@@ -8,7 +8,7 @@ import {
   eq,
 } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
-import { requireRole } from "@/lib/auth-helpers";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 /**
  * Create a database product from a Stripe Product ID or Price ID
@@ -22,8 +22,8 @@ import { requireRole } from "@/lib/auth-helpers";
  */
 export async function POST(req: NextRequest) {
   try {
-    // Require admin role for product creation
-    await requireRole("admin");
+    // Require admin role for product creation (API-safe version)
+    await requireRoleForApi("admin");
     
     const { productId, priceId, mentorId } = await req.json();
     
@@ -140,6 +140,22 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
+    // Handle authorization errors with proper status codes
+    if (error instanceof Error) {
+      if (error.name === "UnauthorizedError" || error.message.includes("Unauthorized")) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 401 }
+        );
+      }
+      if (error.name === "ForbiddenError" || error.message.includes("Forbidden")) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 403 }
+        );
+      }
+    }
+    
     console.error("Error creating product from Stripe:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create product" },
