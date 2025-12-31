@@ -20,10 +20,32 @@ export class UnauthorizedError extends Error {
 }
 
 /**
+ * Custom error class for forbidden access
+ * Provides a stable way to detect authorization failures
+ */
+export class ForbiddenError extends Error {
+  readonly code = "FORBIDDEN" as const;
+  readonly statusCode = 403 as const;
+
+  constructor(message: string = "Forbidden") {
+    super(message);
+    this.name = "ForbiddenError";
+    Object.setPrototypeOf(this, ForbiddenError.prototype);
+  }
+}
+
+/**
  * Type guard to check if an error is an UnauthorizedError
  */
 export function isUnauthorizedError(error: unknown): error is UnauthorizedError {
   return error instanceof UnauthorizedError;
+}
+
+/**
+ * Type guard to check if an error is a ForbiddenError
+ */
+export function isForbiddenError(error: unknown): error is ForbiddenError {
+  return error instanceof ForbiddenError;
 }
 
 /**

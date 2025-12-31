@@ -4,8 +4,9 @@ import {
   db,
   mentorshipProducts,
   mentors,
-  requireAuth,
   eq,
+  isUnauthorizedError,
+  isForbiddenError,
 } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
 import { requireRoleForApi } from "@/lib/auth-helpers";
@@ -141,21 +142,19 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     // Handle authorization errors with proper status codes
-    if (error instanceof Error) {
-      if (error.name === "UnauthorizedError" || error.message.includes("Unauthorized")) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 401 }
-        );
-      }
-      if (error.name === "ForbiddenError" || error.message.includes("Forbidden")) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 403 }
-        );
-      }
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
     }
-    
+    if (isForbiddenError(error)) {
+      return NextResponse.json(
+        { error: "Forbidden: Admin role required" },
+        { status: 403 }
+      );
+    }
+
     console.error("Error creating product from Stripe:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to create product" },

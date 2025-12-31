@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById, requireAuth, isUnauthorizedError } from "@mentorships/db";
+import { getProductById } from "@mentorships/db";
+import { requireAuth, isUnauthorizedError } from "@/lib/auth";
 
 /**
  * GET /api/products/[id]
