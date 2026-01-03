@@ -6,7 +6,7 @@ import {
   internalError
 } from "@/lib/api-error";
 import { db } from "@/lib/db";
-import { contacts } from "@mentorships-infra/db";
+import { contacts } from "@mentorships/db";
 import { eq } from "drizzle-orm";
 
 /**
