@@ -79,35 +79,61 @@ export default async function InstructorProfilePage({
   const nextInstructor = getNextInstructor(slug);
   const previousInstructor = getPreviousInstructor(slug);
 
-  // Dummy data for available spots (will be replaced with real data later)
-// TODO: Re-enable group mentorship section when waitlist functionality is complete
-// Currently disabled because waitlist notification system is not fully implemented
-// Group mentorship requires Phase 3 (email notifications when spots become available)
-  const spotSeed = Date.now() % 10;
-  const oneOnOneSpots = slug === "rakasa" ? Math.floor(Math.random() * 6) : spotSeed % 6;
-  const groupSpots = slug === "jordan-jardine" ? Math.floor(Math.random() * 6) : (spotSeed + 3) % 6;
+  const nextInstructor = getNextInstructor(slug);
 
-  const renderOfferButton = (
-    kind: "oneOnOne" | "group",
-    label: string,
-    spots: number
-  ) => {
-    if (kind === "group") {
-      // TODO: Re-enable group mentorship section when waitlist functionality is complete
-      return null;
-    }
+  return (
+    <InstructorNavigation>
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8 md:py-12">
+          <InstructorNavigationWrapper
+            currentSlug={slug}
+            defaultNext={nextInstructor}
+            defaultPrevious={previousInstructor}
+          />
 
-    if (spots === 0) {
-      const type = kind === "oneOnOne" ? "one-on-one" : "group";
-      return (
-        <div className="flex flex-col gap-2">
-          <p className="text-sm text-muted-foreground">Sold out</p>
-          <Button asChild variant="outline" size="lg">
-            <Link href={`/waitlist?instructor=${slug}&type=${type}`}>
-              Join Waitlist
-            </Link>
-          </Button>
-        </div>
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
+              <div className="relative aspect-square w-full overflow-hidden rounded-lg">
+                <Image
+                  src={instructor.profileImage}
+                  alt={instructor.name}
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  priority
+                />
+              </div>
+
+              <div className="flex flex-col space-y-6">
+                <div>
+                  <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+                    {instructor.name}
+                  </h1>
+                  <p className="mt-2 text-xl text-muted-foreground">{instructor.tagline}</p>
+                </div>
+
+                <div>
+                  <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
+                  <div className="space-y-4">
+                    {instructor.offers
+                      .filter((offer) => {
+                        if (offer.active === false) return false;
+                        return true;
+                      })
+                      .map((offer) => (
+                        <Button
+                          key={offer.kind}
+                          asChild
+                          size="lg"
+                          className="vibrant-gradient-button transition-all gap-2"
+                        >
+                          <a href={offer.url} target="_blank" rel="noopener noreferrer">
+                            {offer.label}
+                          </a>
+                        </Button>
+                      ))}
+                  </div>
+                </div>
       );
     }
 
@@ -234,17 +260,41 @@ export default async function InstructorProfilePage({
                   {renderOfferButton("group", "Group Mentorship", groupSpots)}
                 </div>
               </div>
-            </div>
-          </div>
+                <div>
+                  <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
+                  <div className="space-y-4">
+                    {instructor.offers.map((offer) => (
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="text-sm text-muted-foreground">
+                            {offer.label}
+                          </p>
+                          <Button
+                            asChild
+                            size="lg"
+                            className="vibrant-gradient-button transition-all gap-2"
+                          >
+                            <a href={offer.url} target="_blank" rel="noopener noreferrer">
+                              Purchase 1-on-1 Mentorship
+                            </a>
+                          </Button>
+                        </div>
+                        <div className="flex-1 text-right">
+                          <p className="text-sm text-muted-foreground">Sold out</p>
+                          <Button asChild variant="outline" size="lg">
+                            <Link href={`/waitlist?instructor=${slug}&type=${offer.kind === "oneOnOne" ? "one-on-one" : "group"}`}>
+                              Join Waitlist
+                            </Link>
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                </div>
 
-          {instructor.workImages.length > 0 && (
-            <div className="mt-12">
-              <div className="mb-6 flex items-center gap-3">
-                <h2 className="text-3xl font-bold">Portfolio</h2>
-                <p className="text-sm text-muted-foreground">
-                  Click any image to view in full size
-                </p>
-              </div>
+                <div>
+                  <h2 className="text-2xl font-semibold mb-3">Portfolio</h2>
               <PortfolioGallery
                 images={instructor.workImages}
                 instructorName={instructor.name}
