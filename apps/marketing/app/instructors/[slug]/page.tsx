@@ -70,6 +70,51 @@ export default async function InstructorProfilePage({
   const nextInstructor = getNextInstructor(slug);
   const previousInstructor = getPreviousInstructor(slug);
 
+  // Dummy data for available spots (will be replaced with real data later)
+  const spotSeed = Date.now() % 10;
+  const oneOnOneSpots = slug === "rakasa" ? Math.floor(Math.random() * 6) : spotSeed % 6;
+  const groupSpots = slug === "jordan-jardine" ? Math.floor(Math.random() * 6) : (spotSeed + 3) % 6;
+
+  const renderOfferButton = (
+    kind: "oneOnOne" | "group",
+    label: string,
+    spots: number
+  ) => {
+    if (spots === 0) {
+      const type = kind === "oneOnOne" ? "one-on-one" : "group";
+      return (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-muted-foreground">Sold out</p>
+          <Button asChild variant="outline" size="lg">
+            <Link href={`/waitlist?instructor=${slug}&type=${type}`}>
+              Join Waitlist
+            </Link>
+          </Button>
+        </div>
+      );
+    }
+
+    const offer = instructor.offers.find((o) => o.kind === kind);
+    if (!offer) return null;
+
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-sm text-muted-foreground">
+          {spots} spot{spots !== 1 ? "s" : ""} available
+        </p>
+        <Button
+          asChild
+          size="lg"
+          className="vibrant-gradient-button transition-all gap-2"
+        >
+          <a href={offer.url} target="_blank" rel="noopener noreferrer">
+            {label}
+          </a>
+        </Button>
+      </div>
+    );
+  };
+
   return (
     <InstructorNavigation>
       <div className="min-h-screen bg-background">
@@ -160,29 +205,9 @@ export default async function InstructorProfilePage({
                   Purchases are handled on Kajabi. You’ll be redirected to an external checkout.
                 </p>
 
-                <div className="mt-4 flex flex-col gap-3">
-                  {instructor.offers
-                    .filter((offer) => {
-                      // Hide inactive offers (e.g., placeholder URLs)
-                      if (offer.active === false) {
-                        return false;
-                      }
-                      // Default to showing offer if active is not specified (backward compatibility)
-                      return true;
-                    })
-                    .map((offer) => (
-                      <Button
-                        key={offer.kind}
-                        asChild
-                        size="lg"
-                        className="vibrant-gradient-button transition-all gap-2"
-                      >
-                        <a href={offer.url} target="_blank" rel="noopener noreferrer">
-                          {offer.label}
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      </Button>
-                    ))}
+                <div className="mt-4 flex flex-col gap-4">
+                  {renderOfferButton("oneOnOne", "One-on-One Mentorship", oneOnOneSpots)}
+                  {renderOfferButton("group", "Group Mentorship", groupSpots)}
                 </div>
               </div>
             </div>

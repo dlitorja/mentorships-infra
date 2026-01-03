@@ -78,6 +78,13 @@
       "when": 1767156292410,
       "tag": "0010_colossal_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1767460388041,
+      "tag": "0011_wide_the_twelve",
+      "breakpoints": true
     }
   ]
 }

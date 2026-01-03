@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { db } from "@/lib/db";
+import { waitlist } from "@mentorships-infra/db";
+import { eq, and } from "drizzle-orm";
+import { validateEmail } from "@/lib/validation";
 
 const waitlistPostSchema = z.object({
   instructorSlug: z.string().min(1, "Instructor slug is required"),
@@ -37,33 +41,49 @@ export async function POST(
     const { userId } = await auth();
     const body = await request.json();
     const validated = waitlistPostSchema.parse(body);
-    // Validated but not yet used - will be used when TODO below is implemented
-    const { instructorSlug: _instructorSlug, type: _type, email } = validated;
+    const { instructorSlug, type, email } = validated;
 
-    if (!email && !userId) {
+    // Normalize email for unauthenticated users
+    const normalizedEmail = email ? validateEmail(email) : null;
+
+    if (!normalizedEmail && !userId) {
       return NextResponse.json(
         { error: "Email is required for unauthenticated users", errorId },
         { status: 400 }
       );
     }
 
-    // TODO: Implement waitlist database logic
-    // 1. Check if user/email is already on waitlist for this instructor/type
-    // 2. Add user to waitlist table with:
-    //    - userId (if authenticated) or null
-    //    - email (required)
-    //    - instructorSlug
-    //    - type (one-on-one or group)
-    //    - createdAt timestamp
-    //    - notified: false
-    
-    // For now, just return success
-    // In production, this would:
-    // - Insert into waitlist table
-    // - Send confirmation email
-    // - Set up notification job to check when spots become available
-    // - When instructor spots > 0, notify all waitlist entries for that instructor/type
-    // - Mark entries as notified to prevent duplicate notifications
+    // Use authenticated user's email or provided email
+    const userEmail = normalizedEmail || `user-${userId}@internal`;
+
+    // Check if already on waitlist for this instructor/type
+    const existingEntry = await db
+      .select()
+      .from(waitlist)
+      .where(
+        and(
+          eq(waitlist.email, userEmail),
+          eq(waitlist.instructorSlug, instructorSlug),
+          eq(waitlist.type, type)
+        )
+      )
+      .limit(1);
+
+    if (existingEntry.length > 0) {
+      return NextResponse.json({
+        success: true,
+        message: "You are already on this waitlist",
+      });
+    }
+
+    // Add to waitlist
+    await db.insert(waitlist).values({
+      userId: userId || null,
+      email: userEmail,
+      instructorSlug,
+      type,
+      notified: false,
+    });
 
     return NextResponse.json({
       success: true,
@@ -116,15 +136,23 @@ export async function GET(
     const validated = waitlistGetSchema.parse({
       instructorSlug: instructorSlugParam || undefined,
     });
-    const { instructorSlug: _instructorSlug } = validated;
+    const { instructorSlug } = validated;
 
-    // TODO: Query waitlist table to check if user is on waitlist
-    // Return waitlist entries for user (optionally filtered by instructor)
-    // SELECT * FROM waitlist WHERE user_id = userId [AND instructor_slug = instructorSlug]
+    // Query waitlist table for user entries
+    let query = db.select().from(waitlist).where(eq(waitlist.userId, userId));
+
+    // Filter by instructor if specified
+    if (instructorSlug) {
+      query = query.where(
+        and(eq(waitlist.userId, userId), eq(waitlist.instructorSlug, instructorSlug))
+      );
+    }
+
+    const entries = await query;
 
     return NextResponse.json({
-      onWaitlist: false,
-      entries: [],
+      onWaitlist: entries.length > 0,
+      entries,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

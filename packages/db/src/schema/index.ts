@@ -10,6 +10,8 @@ export * from "./sessions";
 export * from "./userIdentities";
 export * from "./menteeOnboardingSubmissions";
 export * from "./discordActionQueue";
+export * from "./contacts";
+export * from "./waitlist";
 
 // Re-export drizzle-orm for convenience
 export * from "drizzle-orm";

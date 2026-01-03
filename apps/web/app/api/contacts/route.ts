@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { validateEmail, sanitizeArtGoals } from "@/lib/validation";
-import { 
-  createApiSuccess, 
-  validationError, 
-  internalError 
+import {
+  createApiSuccess,
+  validationError,
+  internalError
 } from "@/lib/api-error";
+import { db } from "@/lib/db";
+import { contacts } from "@mentorships-infra/db";
+import { eq } from "drizzle-orm";
 
 /**
  * POST /api/contacts
@@ -31,21 +34,30 @@ export async function POST(request: Request): Promise<NextResponse> {
     // Sanitize artGoals
     const sanitizedArtGoals = sanitizeArtGoals(artGoals);
 
-    // TODO: Implement contacts database logic
-    // 1. Check if email already exists in contacts table
-    // 2. Insert into contacts table with:
-    //    - email: normalizedEmail
-    //    - art_goals: sanitizedArtGoals (optional, if provided)
-    //    - source: "matching_form"
-    //    - opted_in: true
-    //    - created_at timestamp
-    // 3. Send confirmation email (optional)
-    
-    // For now, just return success
-    // In production, this would:
-    // - Insert into contacts/marketing database
-    // - Add to email marketing platform (e.g., Mailchimp, SendGrid)
-    // - Send welcome email
+    // Check if email already exists
+    const existingContact = await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.email, normalizedEmail))
+      .limit(1);
+
+    // If contact exists, update art goals if provided and source
+    if (existingContact.length > 0) {
+      return NextResponse.json(
+        createApiSuccess(
+          { email: normalizedEmail, artGoals: sanitizedArtGoals },
+          "Email already exists in contacts"
+        )
+      );
+    }
+
+    // Insert new contact
+    await db.insert(contacts).values({
+      email: normalizedEmail,
+      artGoals: sanitizedArtGoals || null,
+      source: "matching_form",
+      optedIn: true,
+    });
 
     return NextResponse.json(
       createApiSuccess(
