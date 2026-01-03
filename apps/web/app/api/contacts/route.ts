@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       .where(eq(contacts.email, normalizedEmail))
       .limit(1);
 
-    // If contact exists, update art goals if provided and source
+    // If contact exists, return early without modifying
     if (existingContact.length > 0) {
       return NextResponse.json(
         createApiSuccess(

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp, boolean, uuid, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, boolean, uuid, pgEnum, unique, index } from "drizzle-orm/pg-core";
 import { users } from "./users";
 
 export const waitlistTypeEnum = pgEnum("waitlist_type", ["one-on-one", "group"]);
@@ -12,4 +12,8 @@ export const waitlist = pgTable("waitlist", {
   notified: boolean("notified").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  uniqueConstraint: unique("unique_waitlist_entry").on(table.email, table.instructorSlug, table.type),
+  userIdIndex: index("waitlist_user_id_idx").on(table.userId),
+  emailInstructorTypeIndex: index("waitlist_email_instructor_type_idx").on(table.email, table.instructorSlug, table.type),
+}));

@@ -489,7 +489,7 @@ socials: [
     socials: [
       {
         platform: "X",
-        url: "https://twitter.com/anearbycat"
+        url: "https://twitter.com/anearbycat" // TODO: Verify Kimea Zizzari's actual X/Twitter handle and update
       }
     ],
     profileImage: "/instructors/kimea-zizzari/profile.jpg",

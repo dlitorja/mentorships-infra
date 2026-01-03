@@ -7,6 +7,12 @@ const waitlistPostSchema = z.object({
   type: z.enum(["one-on-one", "group"]),
 });
 
+const waitlistResponseSchema = z.object({
+  success: z.boolean().optional(),
+  message: z.string().optional(),
+  error: z.string().optional(),
+});
+
 /**
  * POST /api/waitlist
  * Proxy to web app waitlist API
@@ -17,22 +23,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const validated = waitlistPostSchema.parse(body);
 
     // Get web app URL from environment or use localhost for development
-    const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || "http://localhost:3001";
+    const webAppUrl = process.env.WEB_APP_URL || "http://localhost:3001";
 
-    // Proxy to web app API
+    // Proxy to web app API with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
     const response = await fetch(`${webAppUrl}/api/waitlist`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(validated),
+      signal: controller.signal,
     });
 
-    const data = await response.json();
+    clearTimeout(timeout);
 
-    if (!response.ok) {
-      return NextResponse.json(data, { status: response.status });
+    const contentType = response.headers.get("content-type");
+    if (!contentType?.includes("application/json")) {
+      console.error("Waitlist proxy: non-JSON response from web app");
+      return NextResponse.json(
+        { error: "Failed to join waitlist" },
+        { status: 502 }
+      );
     }
 
-    return NextResponse.json(data);
+    const data = await response.json();
+    const validatedData = waitlistResponseSchema.parse(data);
+
+    if (!response.ok) {
+      return NextResponse.json(validatedData, { status: response.status });
+    }
+
+    return NextResponse.json(validatedData);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(

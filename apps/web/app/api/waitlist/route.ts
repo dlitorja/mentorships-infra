@@ -53,20 +53,25 @@ export async function POST(
       );
     }
 
-    // Use authenticated user's email or provided email
-    const userEmail = normalizedEmail || `user-${userId}@internal`;
+    // Use userId for authenticated users, normalizedEmail for unauthenticated
+    // Don't create synthetic emails - email can be null when userId is present
+    const userEmail = userId ? null : normalizedEmail;
 
     // Check if already on waitlist for this instructor/type
+    // For authenticated users: check by userId
+    // For unauthenticated users: check by email
+    const whereCondition = userId
+      ? eq(waitlist.userId, userId)
+      : and(
+          eq(waitlist.email, userEmail!),
+          eq(waitlist.instructorSlug, instructorSlug),
+          eq(waitlist.type, type)
+        );
+
     const existingEntry = await db
       .select()
       .from(waitlist)
-      .where(
-        and(
-          eq(waitlist.email, userEmail),
-          eq(waitlist.instructorSlug, instructorSlug),
-          eq(waitlist.type, type)
-        )
-      )
+      .where(whereCondition)
       .limit(1);
 
     if (existingEntry.length > 0) {
@@ -139,14 +144,15 @@ export async function GET(
     const { instructorSlug } = validated;
 
     // Query waitlist table for user entries
-    let query = db.select().from(waitlist).where(eq(waitlist.userId, userId));
+    // Combine conditions to avoid calling .where() twice
+    const conditions = [eq(waitlist.userId, userId)];
 
     // Filter by instructor if specified
     if (instructorSlug) {
-      query = query.where(
-        and(eq(waitlist.userId, userId), eq(waitlist.instructorSlug, instructorSlug))
-      );
+      conditions.push(eq(waitlist.instructorSlug, instructorSlug));
     }
+
+    const query = db.select().from(waitlist).where(and(...conditions));
 
     const entries = await query;
 

@@ -16,14 +16,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const validated = contactsSchema.parse(body);
 
     // Get web app URL from environment or use localhost for development
-    const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || "http://localhost:3001";
+    const webAppUrl = process.env.WEB_APP_URL || "http://localhost:3001";
 
-    // Proxy to web app API
+    // Proxy to web app API with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
     const response = await fetch(`${webAppUrl}/api/contacts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(validated),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeout);
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType?.includes("application/json")) {
+      console.error("Contacts proxy: non-JSON response from web app");
+      return NextResponse.json(
+        { error: "Failed to submit contact" },
+        { status: 502 }
+      );
+    }
 
     const data = await response.json();
 
