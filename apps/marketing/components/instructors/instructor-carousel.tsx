@@ -65,14 +65,19 @@ export function InstructorCarousel(): React.JSX.Element | null {
                 href={`/instructors/${instructor.slug}`}
                 className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0"
               >
-                <Image
-                  src={instructor.profileImage}
-                  alt={`${instructor.name} profile picture`}
-                  fill
-                  className="object-cover transition-transform hover:scale-105"
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                  priority={index < 3}
-                />
+<Image
+                   src={instructor.profileImage}
+                   alt={`${instructor.name} profile picture`}
+                   fill
+                   className="object-cover transition-transform hover:scale-105"
+                   sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                   priority={index < 3}
+                 />
+                 {instructor.isNew && (
+                   <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                     NEW
+                   </div>
+                 )}
               </Link>
               <CardContent className="flex flex-col flex-1 p-6">
                 <h3 className="text-xl font-semibold">{instructor.name}</h3>
