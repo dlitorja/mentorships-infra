@@ -48,8 +48,12 @@ export default function HomePage(): React.JSX.Element {
         {/* How it works */}
         <section id="how-it-works" className="py-20 px-4">
           <div className="mx-auto max-w-5xl">
+            <div className="text-center mb-12">
+              <div className="inline-block px-8 py-6 rounded-2xl bg-black/60 backdrop-blur-sm">
+                <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">How it works</h2>
+              </div>
+            </div>
             <div className="rounded-2xl bg-black/60 backdrop-blur-sm px-8 py-10 text-white">
-              <h2 className="text-3xl font-bold sm:text-4xl">How it works</h2>
               <div className="mt-6 grid gap-6 md:grid-cols-3">
                 <div className="rounded-xl bg-white/5 p-6">
                   <p className="text-sm font-semibold text-white/90">Step 1</p>
