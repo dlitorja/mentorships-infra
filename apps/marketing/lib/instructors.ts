@@ -445,7 +445,7 @@ export const instructors: Instructor[] = [
         icon: "instagram"
       }
     ],
-    profileImage: "/instructors/andrea-sipl/profile.png",
+    profileImage: "/instructors/andrea-sipl/work-2.jpg",
     workImages: [
       "/instructors/andrea-sipl/work-1.png",
       "/instructors/andrea-sipl/work-2.jpg",
