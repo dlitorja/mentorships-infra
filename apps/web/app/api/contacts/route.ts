@@ -41,9 +41,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       .where(eq(contacts.email, normalizedEmail))
       .limit(1);
 
-    // If contact exists, return early (web app response includes stored artGoals)
+    // If contact exists, return early with the stored contact
     if (existingContact.length > 0) {
-      return NextResponse.json(data, { status: response.status });
+      return NextResponse.json({ success: true, contact: existingContact[0] }, { status: 200 });
     }
 
     // Insert new contact
@@ -53,6 +53,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       source: "matching_form",
       optedIn: true,
     });
+
+    return NextResponse.json({ success: true }, { status: 201 });
   } catch {
     const { response: errorResponse } = internalError("Failed to add email to contacts");
     return NextResponse.json(errorResponse, { status: 500 });

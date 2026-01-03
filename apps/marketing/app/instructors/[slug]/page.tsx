@@ -79,8 +79,6 @@ export default async function InstructorProfilePage({
   const nextInstructor = getNextInstructor(slug);
   const previousInstructor = getPreviousInstructor(slug);
 
-  const nextInstructor = getNextInstructor(slug);
-
   return (
     <InstructorNavigation>
       <div className="min-h-screen bg-background">
@@ -113,14 +111,74 @@ export default async function InstructorProfilePage({
                 </div>
 
                 <div>
+                  <h2 className="text-2xl font-semibold mb-3">About</h2>
+                  <p className="text-muted-foreground leading-relaxed">{instructor.bio}</p>
+                </div>
+
+                <div>
+                  <h2 className="text-2xl font-semibold mb-3">Specialties</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {instructor.specialties.map((specialty: string) => (
+                      <Badge key={specialty} variant="secondary" className="text-sm">
+                        {specialty}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h2 className="text-2xl font-semibold mb-3">Background</h2>
+                  <div className="flex flex-wrap gap-2">
+                    {instructor.background.map((bg: string) => (
+                      <Badge key={bg} variant="outline" className="text-sm">
+                        {bg}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                {instructor.socials && instructor.socials.length > 0 && (
+                  <div>
+                    <h2 className="text-2xl font-semibold mb-4">Socials</h2>
+                    <div className="flex flex-wrap gap-4">
+                      {instructor.socials
+                        .filter(
+                          (social: any) =>
+                            typeof social.platform === "string" &&
+                            typeof social.url === "string" &&
+                            isValidUrl(social.url)
+                        )
+                        .map((social: any) => (
+                          <Button
+                            key={social.url}
+                            asChild
+                            className="flex items-center gap-3 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                          >
+                            <a
+                              href={social.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`${social.platform} (opens in a new window)`}
+                            >
+                              {getSocialIcon(social.platform)}
+                              {social.platform}
+                            </a>
+                          </Button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
                   <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-                  <div className="space-y-4">
+                  <p className="text-muted-foreground">
+                    Purchases are handled on Kajabi. You'll be redirected to an external checkout.
+                  </p>
+                  
+                  <div className="mt-4 space-y-4">
                     {instructor.offers
-                      .filter((offer) => {
-                        if (offer.active === false) return false;
-                        return true;
-                      })
-                      .map((offer) => (
+                      .filter((offer: any) => offer.active !== false)
+                      .map((offer: any) => (
                         <Button
                           key={offer.kind}
                           asChild
@@ -134,206 +192,51 @@ export default async function InstructorProfilePage({
                       ))}
                   </div>
                 </div>
-      );
-    }
-
-    const offer = instructor.offers.find((o) => o.kind === kind);
-    if (!offer) return null;
-
-    return (
-      <div className="flex flex-col gap-2">
-        <p className="text-sm text-muted-foreground">
-          {spots} spot{spots !== 1 ? "s" : ""} available
-        </p>
-        <Button
-          asChild
-          size="lg"
-          className="vibrant-gradient-button transition-all gap-2"
-        >
-          <a href={offer.url} target="_blank" rel="noopener noreferrer">
-            {label}
-          </a>
-        </Button>
-      </div>
-    );
-  };
-
-  return (
-    <InstructorNavigation>
-      <div className="min-h-screen bg-background">
-        <div className="container mx-auto px-4 py-8 md:py-12">
-          <InstructorNavigationWrapper
-            currentSlug={slug}
-            defaultNext={nextInstructor}
-            defaultPrevious={previousInstructor}
-          />
-
-          <div className="mx-auto max-w-6xl">
-
-          <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
-            <div className="relative aspect-square w-full overflow-hidden rounded-lg">
-              <Image
-                src={instructor.profileImage}
-                alt={instructor.name}
-                fill
-                className="object-cover"
-                sizes="(max-width: 768px) 100vw, 50vw"
-                priority
-              />
+              </div>
             </div>
 
-            <div className="flex flex-col space-y-6">
-              <div>
-                <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
-                  {instructor.name}
-                </h1>
-                <p className="mt-2 text-xl text-muted-foreground">{instructor.tagline}</p>
+            {instructor.workImages && instructor.workImages.length > 0 && (
+              <div className="mt-12">
+                <h2 className="text-2xl font-semibold mb-3">Portfolio</h2>
+                <PortfolioGallery
+                  images={instructor.workImages}
+                  instructorName={instructor.name}
+                />
               </div>
+            )}
 
-              <div>
-                <h2 className="text-2xl font-semibold mb-3">About</h2>
-                <p className="text-muted-foreground leading-relaxed">{instructor.bio}</p>
-              </div>
-
-              <div>
-                <h2 className="text-2xl font-semibold mb-3">Specialties</h2>
-                <div className="flex flex-wrap gap-2">
-                  {instructor.specialties.map((specialty) => (
-                    <Badge key={specialty} variant="secondary" className="text-sm">
-                      {specialty}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h2 className="text-2xl font-semibold mb-3">Background</h2>
-                <div className="flex flex-wrap gap-2">
-                  {instructor.background.map((bg) => (
-                    <Badge key={bg} variant="outline" className="text-sm">
-                      {bg}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              {instructor.socials && instructor.socials.length > 0 && (
-                <div>
-                  <h2 className="text-2xl font-semibold mb-4">Socials</h2>
-                  <div className="flex flex-wrap gap-4">
-                    {instructor.socials
-                      .filter(
-                        (social) =>
-                          typeof social.platform === "string" &&
-                          typeof social.url === "string" &&
-                          isValidUrl(social.url)
-                      )
-                      .map((social) => (
-                        <Button
-                          key={social.url}
-                          asChild
-                          className="flex items-center gap-3 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
-                        >
-                          <a
-                            href={social.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label={`${social.platform} (opens in a new window)`}
-                          >
-                            {getSocialIcon(social.platform)}
-                            {social.platform}
-                          </a>
-                        </Button>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-                <p className="text-muted-foreground">
-                  Purchases are handled on Kajabi. You’ll be redirected to an external checkout.
-                </p>
-
-                <div className="mt-4 flex flex-col gap-4">
-                  {renderOfferButton("oneOnOne", "One-on-One Mentorship", oneOnOneSpots)}
-                  {renderOfferButton("group", "Group Mentorship", groupSpots)}
-                </div>
-              </div>
-                <div>
-                  <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-                  <div className="space-y-4">
-                    {instructor.offers.map((offer) => (
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <p className="text-sm text-muted-foreground">
-                            {offer.label}
+            {instructor.testimonials && instructor.testimonials.length > 0 && (
+              <div className="mt-12">
+                <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {instructor.testimonials.map((testimonial: any, index: number) => (
+                    <div
+                      key={index}
+                      className="rounded-lg border bg-card p-6 shadow-sm"
+                    >
+                      <Quote className="h-6 w-6 text-muted-foreground mb-4" />
+                      <div className="text-base leading-relaxed mb-4 italic">
+                        {testimonial.text.split("\n\n").map((paragraph: string, pIndex: number, paragraphs: string[]) => (
+                          <p key={pIndex} className={pIndex > 0 ? "mt-4" : ""}>
+                            {pIndex === 0 && '"'}
+                            {paragraph}
+                            {pIndex === paragraphs.length - 1 && '"'}
                           </p>
-                          <Button
-                            asChild
-                            size="lg"
-                            className="vibrant-gradient-button transition-all gap-2"
-                          >
-                            <a href={offer.url} target="_blank" rel="noopener noreferrer">
-                              Purchase 1-on-1 Mentorship
-                            </a>
-                          </Button>
-                        </div>
-                        <div className="flex-1 text-right">
-                          <p className="text-sm text-muted-foreground">Sold out</p>
-                          <Button asChild variant="outline" size="lg">
-                            <Link href={`/waitlist?instructor=${slug}&type=${offer.kind === "oneOnOne" ? "one-on-one" : "group"}`}>
-                              Join Waitlist
-                            </Link>
-                          </Button>
-                        </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
-                </div>
-
-                <div>
-                  <h2 className="text-2xl font-semibold mb-3">Portfolio</h2>
-              <PortfolioGallery
-                images={instructor.workImages}
-                instructorName={instructor.name}
-              />
-            </div>
-          )}
-
-          {instructor.testimonials && instructor.testimonials.length > 0 && (
-            <div className="mt-12">
-              <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {instructor.testimonials.map((testimonial, index) => (
-                  <div
-                    key={index}
-                    className="rounded-lg border bg-card p-6 shadow-sm"
-                  >
-                    <Quote className="h-6 w-6 text-muted-foreground mb-4" />
-                    <div className="text-base leading-relaxed mb-4 italic">
-                      {testimonial.text.split("\n\n").map((paragraph, pIndex, paragraphs) => (
-                        <p key={pIndex} className={pIndex > 0 ? "mt-4" : ""}>
-                          {pIndex === 0 && '"'}
-                          {paragraph}
-                          {pIndex === paragraphs.length - 1 && '"'}
-                        </p>
-                      ))}
+                      <div>
+                        <p className="font-semibold">{testimonial.author}</p>
+                        {testimonial.role && (
+                          <p className="text-sm text-muted-foreground">
+                            {testimonial.role}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-semibold">{testimonial.author}</p>
-                      {testimonial.role && (
-                        <p className="text-sm text-muted-foreground">
-                          {testimonial.role}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
           </div>
         </div>
       </div>

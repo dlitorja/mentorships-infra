@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import { waitlist } from "@mentorships-infra/db";
+import { waitlist } from "@mentorships/db";
 import { eq, and } from "drizzle-orm";
 import { validateEmail } from "@/lib/validation";
 
@@ -43,30 +43,44 @@ export async function POST(
     const validated = waitlistPostSchema.parse(body);
     const { instructorSlug, type, email } = validated;
 
-    // Normalize email for unauthenticated users
-    const normalizedEmail = email ? validateEmail(email) : null;
+    let userEmail: string;
 
-    if (!normalizedEmail && !userId) {
-      return NextResponse.json(
-        { error: "Email is required for unauthenticated users", errorId },
-        { status: 400 }
-      );
+    if (userId) {
+      // For authenticated users, get email from Clerk
+      const user = await currentUser();
+      const clerkEmail = user?.primaryEmailAddress?.emailAddress;
+      if (!clerkEmail) {
+        return NextResponse.json(
+          { error: "User email not found", errorId },
+          { status: 400 }
+        );
+      }
+      userEmail = clerkEmail;
+    } else {
+      // For unauthenticated users, use provided email
+      if (!email) {
+        return NextResponse.json(
+          { error: "Email is required for unauthenticated users", errorId },
+          { status: 400 }
+        );
+      }
+      const normalizedEmail = validateEmail(email);
+      if (!normalizedEmail) {
+        return NextResponse.json(
+          { error: "Invalid email format", errorId },
+          { status: 400 }
+        );
+      }
+      userEmail = normalizedEmail;
     }
 
-    // Use userId for authenticated users, normalizedEmail for unauthenticated
-    // Don't create synthetic emails - email can be null when userId is present
-    const userEmail = userId ? null : normalizedEmail;
-
     // Check if already on waitlist for this instructor/type
-    // For authenticated users: check by userId
-    // For unauthenticated users: check by email
-    const whereCondition = userId
-      ? eq(waitlist.userId, userId)
-      : and(
-          eq(waitlist.email, userEmail!),
-          eq(waitlist.instructorSlug, instructorSlug),
-          eq(waitlist.type, type)
-        );
+    // Always check by email since it's required
+    const whereCondition = and(
+      eq(waitlist.email, userEmail),
+      eq(waitlist.instructorSlug, instructorSlug),
+      eq(waitlist.type, type)
+    );
 
     const existingEntry = await db
       .select()
