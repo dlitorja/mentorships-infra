@@ -84,10 +84,10 @@ export const instructors: Instructor[] = [
     bio: "Cameron Nissen is a seasoned freelance illustrator and concept artist. Cameron is known for his fast and expressive painterly style and creating both original work and art inspired by popular IPs like Game of Thrones.",
     specialties: ["Illustration", "Concept Art", "Painterly Style"],
     background: ["Gaming", "Indie"],
-    socials: [
+socials: [
       {
-        platform: "Instagram",
-        url: "https://www.instagram.com/crookednosedelf/?hl=en"
+        platform: "Twitter",
+        url: "https://twitter.com/anearbycat"
       }
     ],
     profileImage: "/instructors/cameron-nissen/profile.jpg",
@@ -184,7 +184,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Instagram",
-        url: "https://www.instagram.com/kimeazizzari/"
+        url: "https://www.instagram.com/void.bug/"
       }
     ],
     profileImage: "/instructors/malina-dowling/profile.jpg",
