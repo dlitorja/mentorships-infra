@@ -80,6 +80,9 @@ export default async function InstructorProfilePage({
   const previousInstructor = getPreviousInstructor(slug);
 
   // Dummy data for available spots (will be replaced with real data later)
+// TODO: Re-enable group mentorship section when waitlist functionality is complete
+// Currently disabled because waitlist notification system is not fully implemented
+// Group mentorship requires Phase 3 (email notifications when spots become available)
   const spotSeed = Date.now() % 10;
   const oneOnOneSpots = slug === "rakasa" ? Math.floor(Math.random() * 6) : spotSeed % 6;
   const groupSpots = slug === "jordan-jardine" ? Math.floor(Math.random() * 6) : (spotSeed + 3) % 6;
@@ -89,6 +92,11 @@ export default async function InstructorProfilePage({
     label: string,
     spots: number
   ) => {
+    if (kind === "group") {
+      // TODO: Re-enable group mentorship section when waitlist functionality is complete
+      return null;
+    }
+
     if (spots === 0) {
       const type = kind === "oneOnOne" ? "one-on-one" : "group";
       return (
@@ -157,8 +165,28 @@ export default async function InstructorProfilePage({
               </div>
 
               <div>
-                <h2 className="text-2xl font-semibold mb-3">About</h2>
-                <p className="text-muted-foreground leading-relaxed">{instructor.bio}</p>
+                <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
+                <div className="space-y-4">
+                  {instructor.offers
+                    .filter((offer) => {
+                      // TODO: Re-enable group mentorship section when waitlist functionality is complete
+                      if (offer.kind === "group") return false;
+                      if (offer.active === false) return false;
+                      return true;
+                    })
+                    .map((offer) => (
+                      <Button
+                        key={offer.kind}
+                        asChild
+                        size="lg"
+                        className="vibrant-gradient-button transition-all gap-2"
+                      >
+                        <a href={offer.url} target="_blank" rel="noopener noreferrer">
+                          {offer.label}
+                        </a>
+                      </Button>
+                    ))}
+                </div>
               </div>
 
               <div>
