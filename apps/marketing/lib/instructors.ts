@@ -516,6 +516,12 @@ background: ["Gaming", "Indie"],
     bio: "Keven Mallqui (aka seekevdraw) is a seasoned artist whose creative style has been shaped by many influences of his youth. His portfolio spans iconic IPs such as Transformers, Spawn, Star Wars, Predator, and Marvel and DC universes. Over the years, Keven has built a successful career as a freelance industry artist and is a well-recognized presence on the convention circuit as an established indie creator.",
     specialties: ["Digital Illustration", "Character Design", "Visual Art"],
     background: ["Indie"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/seekevdraw/?hl=en"
+      }
+    ],
     profileImage: "/instructors/keven-mallqui/profile.jpg",
     workImages: [
       "/instructors/keven-mallqui/work-1.jpg",
@@ -526,7 +532,7 @@ background: ["Gaming", "Indie"],
       {
         kind: "oneOnOne",
         label: "Buy 1-on-1 mentorship",
-        url: "https://home.huckleberry.art/offers/SZrKzyoT",
+        url: "https://home.huckleberry.art/offers/SZrKzyoT/checkout",
       },
     ],
   },
