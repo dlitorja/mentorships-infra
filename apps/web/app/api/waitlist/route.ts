@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { db } from "@/lib/db";
+import { waitlist } from "@mentorships/db";
+import { eq, and } from "drizzle-orm";
+import { validateEmail } from "@/lib/validation";
 
 const waitlistPostSchema = z.object({
   instructorSlug: z.string().min(1, "Instructor slug is required"),
@@ -37,33 +41,68 @@ export async function POST(
     const { userId } = await auth();
     const body = await request.json();
     const validated = waitlistPostSchema.parse(body);
-    // Validated but not yet used - will be used when TODO below is implemented
-    const { instructorSlug: _instructorSlug, type: _type, email } = validated;
+    const { instructorSlug, type, email } = validated;
 
-    if (!email && !userId) {
-      return NextResponse.json(
-        { error: "Email is required for unauthenticated users", errorId },
-        { status: 400 }
-      );
+    let userEmail: string;
+
+    if (userId) {
+      // For authenticated users, get email from Clerk
+      const user = await currentUser();
+      const clerkEmail = user?.primaryEmailAddress?.emailAddress;
+      if (!clerkEmail) {
+        return NextResponse.json(
+          { error: "User email not found", errorId },
+          { status: 400 }
+        );
+      }
+      userEmail = clerkEmail;
+    } else {
+      // For unauthenticated users, use provided email
+      if (!email) {
+        return NextResponse.json(
+          { error: "Email is required for unauthenticated users", errorId },
+          { status: 400 }
+        );
+      }
+      const normalizedEmail = validateEmail(email);
+      if (!normalizedEmail) {
+        return NextResponse.json(
+          { error: "Invalid email format", errorId },
+          { status: 400 }
+        );
+      }
+      userEmail = normalizedEmail;
     }
 
-    // TODO: Implement waitlist database logic
-    // 1. Check if user/email is already on waitlist for this instructor/type
-    // 2. Add user to waitlist table with:
-    //    - userId (if authenticated) or null
-    //    - email (required)
-    //    - instructorSlug
-    //    - type (one-on-one or group)
-    //    - createdAt timestamp
-    //    - notified: false
-    
-    // For now, just return success
-    // In production, this would:
-    // - Insert into waitlist table
-    // - Send confirmation email
-    // - Set up notification job to check when spots become available
-    // - When instructor spots > 0, notify all waitlist entries for that instructor/type
-    // - Mark entries as notified to prevent duplicate notifications
+    // Check if already on waitlist for this instructor/type
+    // Always check by email since it's required
+    const whereCondition = and(
+      eq(waitlist.email, userEmail),
+      eq(waitlist.instructorSlug, instructorSlug),
+      eq(waitlist.type, type)
+    );
+
+    const existingEntry = await db
+      .select()
+      .from(waitlist)
+      .where(whereCondition)
+      .limit(1);
+
+    if (existingEntry.length > 0) {
+      return NextResponse.json({
+        success: true,
+        message: "You are already on this waitlist",
+      });
+    }
+
+    // Add to waitlist
+    await db.insert(waitlist).values({
+      userId: userId || null,
+      email: userEmail,
+      instructorSlug,
+      type,
+      notified: false,
+    });
 
     return NextResponse.json({
       success: true,
@@ -116,15 +155,24 @@ export async function GET(
     const validated = waitlistGetSchema.parse({
       instructorSlug: instructorSlugParam || undefined,
     });
-    const { instructorSlug: _instructorSlug } = validated;
+    const { instructorSlug } = validated;
 
-    // TODO: Query waitlist table to check if user is on waitlist
-    // Return waitlist entries for user (optionally filtered by instructor)
-    // SELECT * FROM waitlist WHERE user_id = userId [AND instructor_slug = instructorSlug]
+    // Query waitlist table for user entries
+    // Combine conditions to avoid calling .where() twice
+    const conditions = [eq(waitlist.userId, userId)];
+
+    // Filter by instructor if specified
+    if (instructorSlug) {
+      conditions.push(eq(waitlist.instructorSlug, instructorSlug));
+    }
+
+    const query = db.select().from(waitlist).where(and(...conditions));
+
+    const entries = await query;
 
     return NextResponse.json({
-      onWaitlist: false,
-      entries: [],
+      onWaitlist: entries.length > 0,
+      entries,
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

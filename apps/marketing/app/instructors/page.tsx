@@ -38,9 +38,6 @@ export default function InstructorsPage(): React.JSX.Element {
         <div className="mx-auto max-w-7xl">
           <div className="mb-12 text-center">
             <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Our Instructors</h1>
-            <p className="mt-4 text-lg text-muted-foreground">
-              Talented artists from gaming, TV, film, and independent studios.
-            </p>
           </div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -53,14 +50,22 @@ export default function InstructorsPage(): React.JSX.Element {
                   href={`/instructors/${instructor.slug}`}
                   className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0"
                 >
-                  <Image
-                    src={instructor.profileImage}
-                    alt={`${instructor.name} profile picture`}
-                    fill
-                    className="object-cover transition-transform hover:scale-105"
-                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    priority={priorityInstructorIds.has(instructor.id)}
-                  />
+<Image
+                     src={instructor.profileImage}
+                     alt={`${instructor.name} profile picture`}
+                     fill
+                     className="object-cover transition-transform hover:scale-105"
+                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                     priority={priorityInstructorIds.has(instructor.id)}
+                   />
+                   {instructor.isNew && (
+                     <Badge
+                       className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-semibold"
+                       aria-label="New instructor"
+                     >
+                       NEW
+                     </Badge>
+                   )}
                 </Link>
 
                 <CardContent className="flex flex-col flex-1 p-6">

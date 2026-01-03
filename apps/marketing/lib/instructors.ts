@@ -27,6 +27,11 @@ export interface Instructor {
   };
   offers: InstructorOffer[];
   testimonials?: Testimonial[];
+  isNew?: boolean;
+  socials?: {
+    platform: string;
+    url: string;
+  }[];
 }
 
 const KAJABI_PLACEHOLDER = "https://huckleberryart.kajabi.com/offers/REPLACE_ME";
@@ -36,9 +41,10 @@ export const instructors: Instructor[] = [
     id: "jordan-jardine",
     name: "Jordan Jardine",
     slug: "jordan-jardine",
+    isNew: true,
     tagline:
       "Toronto-based Freelance Artist Specializing in Digital Painting, Illustration and Concept Art",
-    bio: "Jordan Jardine is a Toronto-based freelance artist specializing in digital painting, illustration and concept art. He is currently working on projects focusing on character and environment development as well as 2D asset creation. Having trained traditionally, Jordan has a devout love for the beauty of physical media and seeks to incorporate it into his digital work.",
+    bio: "Jordan Jardine is a Toronto-based freelance artist specializing in digital painting, illustration and concept art. He has worked on the Netflix series 'Tomb Raider: The Legend of Lara Croft' and is currently working on projects focusing on character and environment development as well as 2D asset creation. Having trained traditionally, Jordan has a devout love for the beauty of physical media and seeks to incorporate it into his digital work.",
     specialties: [
       "Digital Painting",
       "Illustration",
@@ -48,7 +54,13 @@ export const instructors: Instructor[] = [
       "2D Asset Creation",
     ],
     background: ["Freelance", "Indie"],
-    profileImage: "/instructors/jordan-jardine/profile.jpg",
+    socials: [
+      {
+        platform: "Website",
+        url: "https://www.jordanjardine.com"
+      }
+    ],
+    profileImage: "/instructors/jordan-jardine/work-2.jpg",
     workImages: [
       "/instructors/jordan-jardine/work-1.jpg",
       "/instructors/jordan-jardine/work-2.jpg",
@@ -67,10 +79,17 @@ export const instructors: Instructor[] = [
     id: "cameron-nissen",
     name: "Cameron Nissen",
     slug: "cameron-nissen",
+    isNew: true,
     tagline: "Freelance Illustrator and Concept Artist",
     bio: "Cameron Nissen is a seasoned freelance illustrator and concept artist. Cameron is known for his fast and expressive painterly style and creating both original work and art inspired by popular IPs like Game of Thrones.",
     specialties: ["Illustration", "Concept Art", "Painterly Style"],
-    background: ["Gaming", "Indie"],
+background: ["Gaming", "Indie"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/crookednosedelf/?hl=en"
+      }
+    ],
     profileImage: "/instructors/cameron-nissen/profile.jpg",
     workImages: [
       "/instructors/cameron-nissen/work-1.jpg",
@@ -95,7 +114,13 @@ export const instructors: Instructor[] = [
     tagline: "Freelance Illustrator and Independent Artist",
     bio: "Nino Vecia is a seasoned freelance illustrator and independent artist who has worked with high-profile clients, including Wizards of the Coast (Magic: The Gathering, Dungeons and Dragons), Blizzard Entertainment, and more.",
     specialties: ["Illustration", "Character Design", "Fantasy Art"],
-    background: ["Gaming", "Indie"],
+background: ["Gaming", "Indie"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/ninovecia/?hl=en"
+      }
+    ],
     profileImage: "/instructors/nino-vecia/profile.jpg",
     workImages: [
       "/instructors/nino-vecia/work-1.png",
@@ -121,6 +146,12 @@ export const instructors: Instructor[] = [
     bio: "Ollie is a concept artist, filmmaker, and YouTuber, with over 6 years of games industry experience working at Paradox Interactive on the Age of Wonders series, and with a successful and rapidly growing YouTube channel.",
     specialties: ["Concept Art", "World-building", "Game Development", "Content Creation"],
     background: ["Gaming", "Indie"],
+    socials: [
+      {
+        platform: "YouTube",
+        url: "https://www.youtube.com/@KappatheWorldofTurtles-tm6zb/videos"
+      }
+    ],
     profileImage: "/instructors/oliver-titley/profile.png",
     workImages: [
       "/instructors/oliver-titley/work-1.png",
@@ -150,6 +181,12 @@ export const instructors: Instructor[] = [
     bio: "Malina Dowling is a Midwest-based independent artist that works primarily in watercolors. She has traveled the country working and learning the ins and outs of the convention circuit for the better part of a decade.",
     specialties: ["Watercolor", "Traditional Art", "Convention Art"],
     background: ["Indie"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/void.bug/"
+      }
+    ],
     profileImage: "/instructors/malina-dowling/profile.jpg",
     workImages: [
       "/instructors/malina-dowling/work-1.jpg",
@@ -182,6 +219,12 @@ export const instructors: Instructor[] = [
     bio: "Rakasa is a self-taught freelance illustrator who decided in 2023 to pursue her passion for art full-time, focusing on creating stunning digital illustrations and character designs. She has worked with top-tier clients including Clip Studio Paint, AFK Journey, and Infinity Nikki, bringing her unique artistic vision to major projects in the gaming and software industries.",
     specialties: ["Digital Illustration", "Character Design", "Self-Taught Journey"],
     background: ["Indie"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/rakasademon/?hl=en"
+      }
+    ],
     profileImage: "/instructors/rakasa/profile.jpg",
     workImages: [
       "/instructors/rakasa/work-1.jpg",
@@ -230,6 +273,12 @@ export const instructors: Instructor[] = [
     bio: "Amanda Kiefer is a senior-level concept artist with 7+ years of games industry experience creating original characters, environments, weapons and prop concept art for various projects and problem-solving design challenges.",
     specialties: ["Concept Art", "Character Design", "Environment Art", "Prop Design"],
     background: ["Gaming"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/amanda_kiefer_art/?hl=en"
+      }
+    ],
     profileImage: "/instructors/amanda-kiefer/profile.jpg",
     workImages: [
       "/instructors/amanda-kiefer/work-1.jpg",
@@ -258,6 +307,12 @@ export const instructors: Instructor[] = [
     bio: "Neil Gray is a concept artist who has worked in the gaming industry and has been rapidly growing on social media for intricate and creative character, armor, and weaponry designs.",
     specialties: ["Concept Art", "Character Design", "Armor Design", "Weaponry"],
     background: ["Gaming", "Indie"],
+    socials: [
+      {
+        platform: "X",
+        url: "https://x.com/nrcgray?lang=en"
+      }
+    ],
     profileImage: "/instructors/neil-gray/profile.jpg",
     workImages: [
       "/instructors/neil-gray/work-1.jpg",
@@ -305,6 +360,12 @@ export const instructors: Instructor[] = [
     bio: "Ash Kirk is an illustrator, concept artist, UI artist, and graphic designer with over a decade of experience as a professional artist with experience with licenses such as Guild Wars 2, Star Wars, HBO, and more.",
     specialties: ["Illustration", "Concept Art", "UI Art", "Graphic Design"],
     background: ["Gaming", "TV", "Film"],
+    socials: [
+      {
+        platform: "Website",
+        url: "https://www.jordanjardine.com"
+      }
+    ],
     profileImage: "/instructors/ash-kirk/profile.jpg",
     workImages: [
       "/instructors/ash-kirk/work-1.jpg",
@@ -367,7 +428,13 @@ export const instructors: Instructor[] = [
     bio: "Andrea is an illustrator, oil painter, UI artist, and gaming art designer, who leverages over 16 years of professional experience. She's collaborated with licenses such as ARCHER, Coca-Cola, and FX Networks.",
     specialties: ["Illustration", "Oil Painting", "UI Art", "Game Design"],
     background: ["Gaming", "TV", "Indie"],
-    profileImage: "/instructors/andrea-sipl/profile.png",
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/andrea_sipl/?hl=en"
+      }
+    ],
+    profileImage: "/instructors/andrea-sipl/work-2.jpg",
     workImages: [
       "/instructors/andrea-sipl/work-1.png",
       "/instructors/andrea-sipl/work-2.jpg",
@@ -408,6 +475,7 @@ export const instructors: Instructor[] = [
     id: "kimea-zizzari",
     name: "Kimea Zizzari",
     slug: "kimea-zizzari",
+    isNew: true,
     tagline: "Professional Multimedia Artist and Tattoo Artist",
     bio: "Kimea Zizzari is a professional multimedia artist and works as a resident tattoo artist in Bern, Switzerland. She has been an explorative creator all her life and has a strong background in clinical, health, and behavioral psychology with a master's degree in the field. She continues to explore creative pursuits as an indie artist and has developed a calling to help other artists find their creative pursuits in life. Kimea is also seasoned in running convention booths and runs booths at 8-12 conventions annually. This can be very helpful for aspiring indies that want to pursue convention circuits.",
     specialties: [
@@ -418,6 +486,12 @@ export const instructors: Instructor[] = [
       "Indie Art Business",
     ],
     background: ["Indie"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/kimeazizzari/"
+      }
+    ],
     profileImage: "/instructors/kimea-zizzari/profile.jpg",
     workImages: [
       "/instructors/kimea-zizzari/work-1.jpg",

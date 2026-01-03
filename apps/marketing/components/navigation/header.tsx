@@ -14,24 +14,25 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 
-const COURSES_URL = "https://home.huckleberry.art/store" as const;
-const MENTORSHIPS_URL = "https://mentorships.huckleberry.art" as const;
-const DISCORD_URL = "https://discord.com/invite/4DqDyKZyA8" as const;
-const LOGIN_URL = "https://home.huckleberry.art/login" as const;
+const COURSES_URL = process.env.NEXT_PUBLIC_COURSES_URL || ("https://home.huckleberry.art/store" as const);
+const MENTORSHIPS_URL = process.env.NEXT_PUBLIC_MENTORSHIPS_URL || ("https://mentorships.huckleberry.art" as const);
+const DISCORD_URL = process.env.NEXT_PUBLIC_DISCORD_URL || ("https://discord.com/invite/4DqDyKZyA8" as const);
+const LOGIN_URL = process.env.NEXT_PUBLIC_LOGIN_URL || ("https://home.huckleberry.art/login" as const);
 
 export function Header(): React.JSX.Element {
   return (
     <header className="sticky top-0 z-50 w-full bg-white">
       <div className="container mx-auto flex h-16 md:h-20 items-center px-4 md:px-10">
         <Link href="/" className="flex items-center">
-          <Image
-            src="/logo_bad2_gray.png"
-            alt="Huckleberry Art"
-            width={100}
-            height={56}
-            className="h-11 w-auto"
-            priority
-          />
+          <div className="h-11 relative" style={{ width: '79px' }}>
+            <Image
+              src="/logo_bad2_gray.png"
+              alt="Huckleberry Art"
+              fill
+              style={{ objectFit: 'contain' }}
+              priority
+            />
+          </div>
         </Link>
 
         {/* Desktop Navigation */}
@@ -63,9 +64,15 @@ export function Header(): React.JSX.Element {
           >
             Discord
           </a>
-          <Link href={LOGIN_URL} className="text-base font-normal text-[#595959] hover:text-black transition-colors ml-2">
+          <a
+            href={LOGIN_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Log In (opens in a new window)"
+            className="text-base font-normal text-[#595959] hover:text-black transition-colors ml-2"
+          >
             Log In
-          </Link>
+          </a>
         </nav>
 
         {/* Mobile Navigation */}
@@ -116,9 +123,15 @@ export function Header(): React.JSX.Element {
 
               <div className="pt-4 border-t">
                 <SheetClose asChild>
-                  <Link href={LOGIN_URL} className="text-base font-normal text-[#595959] transition-colors hover:text-black">
+                  <a
+                    href={LOGIN_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Log In (opens in a new window)"
+                    className="text-base font-normal text-[#595959] transition-colors hover:text-black"
+                  >
                     Log In
-                  </Link>
+                  </a>
                 </SheetClose>
               </div>
             </div>
