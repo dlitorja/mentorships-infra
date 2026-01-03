@@ -165,28 +165,8 @@ export default async function InstructorProfilePage({
               </div>
 
               <div>
-                <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-                <div className="space-y-4">
-                  {instructor.offers
-                    .filter((offer) => {
-                      // TODO: Re-enable group mentorship section when waitlist functionality is complete
-                      if (offer.kind === "group") return false;
-                      if (offer.active === false) return false;
-                      return true;
-                    })
-                    .map((offer) => (
-                      <Button
-                        key={offer.kind}
-                        asChild
-                        size="lg"
-                        className="vibrant-gradient-button transition-all gap-2"
-                      >
-                        <a href={offer.url} target="_blank" rel="noopener noreferrer">
-                          {offer.label}
-                        </a>
-                      </Button>
-                    ))}
-                </div>
+                <h2 className="text-2xl font-semibold mb-3">About</h2>
+                <p className="text-muted-foreground leading-relaxed">{instructor.bio}</p>
               </div>
 
               <div>
