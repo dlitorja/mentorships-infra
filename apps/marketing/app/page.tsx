@@ -15,6 +15,16 @@ export default function HomePage(): React.JSX.Element {
           <div className="mx-auto max-w-7xl">
             <div className="mb-12 text-center">
               <div className="inline-block px-8 py-6 rounded-2xl bg-black/60 backdrop-blur-sm">
+                <div className="mb-6 flex justify-center">
+                  <Image
+                    src="/logo_bad2.png"
+                    alt="Huckleberry Art"
+                    width={240}
+                    height={135}
+                    className="h-32 w-auto"
+                    priority
+                  />
+                </div>
                 <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
                   Our Instructors
                 </h2>
