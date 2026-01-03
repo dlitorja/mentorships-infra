@@ -84,12 +84,7 @@ export const instructors: Instructor[] = [
     bio: "Cameron Nissen is a seasoned freelance illustrator and concept artist. Cameron is known for his fast and expressive painterly style and creating both original work and art inspired by popular IPs like Game of Thrones.",
     specialties: ["Illustration", "Concept Art", "Painterly Style"],
     background: ["Gaming", "Indie"],
-socials: [
-      {
-        platform: "Twitter",
-        url: "https://twitter.com/anearbycat"
-      }
-    ],
+socials: [], // TODO: Add Ash Kirk's correct website
     profileImage: "/instructors/cameron-nissen/profile.jpg",
     workImages: [
       "/instructors/cameron-nissen/work-1.jpg",
@@ -114,13 +109,8 @@ socials: [
     tagline: "Freelance Illustrator and Independent Artist",
     bio: "Nino Vecia is a seasoned freelance illustrator and independent artist who has worked with high-profile clients, including Wizards of the Coast (Magic: The Gathering, Dungeons and Dragons), Blizzard Entertainment, and more.",
     specialties: ["Illustration", "Character Design", "Fantasy Art"],
-    background: ["Gaming", "Indie"],
-    socials: [
-      {
-        platform: "Instagram",
-        url: "https://www.instagram.com/ninovecia/?hl=en"
-      }
-    ],
+background: ["Gaming", "Indie"],
+    socials: [], // TODO: Add Cameron Nissen's correct Twitter/X handle
     profileImage: "/instructors/nino-vecia/profile.jpg",
     workImages: [
       "/instructors/nino-vecia/work-1.png",
@@ -486,12 +476,7 @@ socials: [
       "Indie Art Business",
     ],
     background: ["Indie"],
-    socials: [
-      {
-        platform: "X",
-        url: "https://twitter.com/anearbycat" // TODO: Verify Kimea Zizzari's actual X/Twitter handle and update
-      }
-    ],
+    socials: [], // TODO: Add Kimea Zizzari's correct social links
     profileImage: "/instructors/kimea-zizzari/profile.jpg",
     workImages: [
       "/instructors/kimea-zizzari/work-1.jpg",
