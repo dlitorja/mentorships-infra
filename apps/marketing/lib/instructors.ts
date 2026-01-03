@@ -507,6 +507,30 @@ background: ["Gaming", "Indie"],
       },
     ],
   },
+  {
+    id: "keven-mallqui",
+    name: "Keven Mallqui",
+    slug: "keven-mallqui",
+    isNew: true,
+    tagline: "Digital Artist and Illustrator",
+    bio: "Keven Mallqui is a talented digital artist and illustrator with a passion for creating compelling visual artwork. With expertise in digital illustration and character design, Keven brings creativity and technical skill to every project.",
+    specialties: ["Digital Illustration", "Character Design", "Visual Art"],
+    background: ["Indie"],
+    profileImage: "/instructors/keven-mallqui/profile.jpg",
+    workImages: [
+      "/instructors/keven-mallqui/work-1.jpg",
+      "/instructors/keven-mallqui/work-2.jpg",
+      "/instructors/keven-mallqui/work-3.jpg",
+    ],
+    offers: [
+      {
+        kind: "oneOnOne",
+        label: "Buy 1-on-1 mentorship",
+        url: `${KAJABI_PLACEHOLDER}?instructor=keven-mallqui&type=oneOnOne`,
+        active: false, // Placeholder URL - hide until real URL is available
+      },
+    ],
+  },
 ];
 
 export function getInstructorBySlug(slug: string): Instructor | undefined {
