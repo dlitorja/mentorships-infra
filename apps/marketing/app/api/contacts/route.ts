@@ -22,15 +22,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-    const response = await fetch(`${webAppUrl}/api/contacts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(validated),
-      signal: controller.signal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${webAppUrl}/api/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validated),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return NextResponse.json(
+          { error: "Request timed out" },
+          { status: 504 }
+        );
+      }
+      console.error("Contacts proxy error:", error);
+      return NextResponse.json(
+        { error: "Failed to submit contact" },
+        { status: 500 }
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
 
-    clearTimeout(timeout);
-
+    // Validate response content type
     const contentType = response.headers.get("content-type");
     if (!contentType?.includes("application/json")) {
       console.error("Contacts proxy: non-JSON response from web app");

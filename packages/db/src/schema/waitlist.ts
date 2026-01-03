@@ -15,5 +15,4 @@ export const waitlist = pgTable("waitlist", {
 }, (table) => ({
   uniqueConstraint: unique("unique_waitlist_entry").on(table.email, table.instructorSlug, table.type),
   userIdIndex: index("waitlist_user_id_idx").on(table.userId),
-  emailInstructorTypeIndex: index("waitlist_email_instructor_type_idx").on(table.email, table.instructorSlug, table.type),
 }));
