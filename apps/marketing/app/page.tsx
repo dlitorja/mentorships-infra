@@ -28,9 +28,6 @@ export default function HomePage(): React.JSX.Element {
                 <h2 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
                   Our Instructors
                 </h2>
-                <p className="mt-4 text-lg text-white/90">
-                  Talented artists from gaming, TV, film, and independent studios.
-                </p>
                 <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:justify-center">
                   <Button asChild size="lg" className="vibrant-gradient-button transition-all">
                     <Link href="/instructors">View All Instructors</Link>
