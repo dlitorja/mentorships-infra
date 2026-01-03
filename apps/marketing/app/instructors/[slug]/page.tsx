@@ -17,6 +17,20 @@ import {
   instructors,
 } from "@/lib/instructors";
 
+function getSocialIcon(platform: string) {
+  switch (platform.toLowerCase()) {
+    case "instagram":
+      return <Instagram className="h-5 w-5" />;
+    case "youtube":
+      return <Youtube className="h-5 w-5" />;
+    case "twitter":
+    case "x":
+      return <Twitter className="h-5 w-5" />;
+    default:
+      return <Globe className="h-5 w-5" />;
+  }
+}
+
 interface InstructorProfilePageProps {
   params: Promise<{ slug: string }>;
 }
@@ -119,39 +133,23 @@ export default async function InstructorProfilePage({
                 <div>
                   <h2 className="text-2xl font-semibold mb-4">Socials</h2>
                   <div className="flex flex-wrap gap-4">
-                    {instructor.socials.map((social, index) => {
-                      const getIcon = (platform: string) => {
-                        switch (platform.toLowerCase()) {
-                          case "instagram":
-                            return <Instagram className="h-5 w-5" />;
-                          case "youtube":
-                            return <Youtube className="h-5 w-5" />;
-                          case "twitter":
-                          case "x":
-                            return <Twitter className="h-5 w-5" />;
-                          default:
-                            return <Globe className="h-5 w-5" />;
-                        }
-                      };
-
-                      return (
-                        <Button
-                          key={index}
-                          asChild
-                          className="flex items-center gap-3 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                    {instructor.socials.map((social, index) => (
+                      <Button
+                        key={index}
+                        asChild
+                        className="flex items-center gap-3 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                      >
+                        <a
+                          href={social.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`${social.platform} (opens in a new window)`}
                         >
-                          <a
-                            href={social.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label={`${social.platform} (opens in a new window)`}
-                          >
-                            {getIcon(social.platform)}
-                            {social.platform}
-                          </a>
-                        </Button>
-                      );
-                    })}
+                          {getSocialIcon(social.platform)}
+                          {social.platform}
+                        </a>
+                      </Button>
+                    ))}
                   </div>
                 </div>
               )}

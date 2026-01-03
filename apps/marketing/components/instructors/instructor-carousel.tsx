@@ -74,9 +74,12 @@ export function InstructorCarousel(): React.JSX.Element | null {
                    priority={index < 3}
                  />
                  {instructor.isNew && (
-                   <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                   <Badge
+                     className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-semibold"
+                     aria-label="New instructor"
+                   >
                      NEW
-                   </div>
+                   </Badge>
                  )}
               </Link>
               <CardContent className="flex flex-col flex-1 p-6">

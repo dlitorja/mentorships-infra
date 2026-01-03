@@ -31,7 +31,6 @@ export interface Instructor {
   socials?: {
     platform: string;
     url: string;
-    icon?: string;
   }[];
 }
 
@@ -58,8 +57,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Website",
-        url: "https://www.jordanjardine.com",
-        icon: "globe"
+        url: "https://www.jordanjardine.com"
       }
     ],
     profileImage: "/instructors/jordan-jardine/work-2.jpg",
@@ -89,8 +87,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Instagram",
-        url: "https://www.instagram.com/crookednosedelf/?hl=en",
-        icon: "instagram"
+        url: "https://www.instagram.com/crookednosedelf/?hl=en"
       }
     ],
     profileImage: "/instructors/cameron-nissen/profile.jpg",
@@ -121,8 +118,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Instagram",
-        url: "https://www.instagram.com/ninovecia/?hl=en",
-        icon: "instagram"
+        url: "https://www.instagram.com/ninovecia/?hl=en"
       }
     ],
     profileImage: "/instructors/nino-vecia/profile.jpg",
@@ -153,8 +149,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "YouTube",
-        url: "https://www.youtube.com/@KappatheWorldofTurtles-tm6zb/videos",
-        icon: "youtube"
+        url: "https://www.youtube.com/@KappatheWorldofTurtles-tm6zb/videos"
       }
     ],
     profileImage: "/instructors/oliver-titley/profile.png",
@@ -189,8 +184,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Instagram",
-        url: "https://www.instagram.com/void.bug/",
-        icon: "instagram"
+        url: "https://www.instagram.com/kimeazizzari/"
       }
     ],
     profileImage: "/instructors/malina-dowling/profile.jpg",
@@ -228,8 +222,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Instagram",
-        url: "https://www.instagram.com/rakasademon/?hl=en",
-        icon: "instagram"
+        url: "https://www.instagram.com/rakasademon/?hl=en"
       }
     ],
     profileImage: "/instructors/rakasa/profile.jpg",
@@ -283,8 +276,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Instagram",
-        url: "https://www.instagram.com/amanda_kiefer_art/?hl=en",
-        icon: "instagram"
+        url: "https://www.instagram.com/amanda_kiefer_art/?hl=en"
       }
     ],
     profileImage: "/instructors/amanda-kiefer/profile.jpg",
@@ -318,8 +310,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "X",
-        url: "https://x.com/nrcgray?lang=en",
-        icon: "twitter"
+        url: "https://x.com/nrcgray?lang=en"
       }
     ],
     profileImage: "/instructors/neil-gray/profile.jpg",
@@ -371,9 +362,8 @@ export const instructors: Instructor[] = [
     background: ["Gaming", "TV", "Film"],
     socials: [
       {
-        platform: "X",
-        url: "https://twitter.com/anearbycat",
-        icon: "twitter"
+        platform: "Website",
+        url: "https://www.jordanjardine.com"
       }
     ],
     profileImage: "/instructors/ash-kirk/profile.jpg",
@@ -441,8 +431,7 @@ export const instructors: Instructor[] = [
     socials: [
       {
         platform: "Instagram",
-        url: "https://www.instagram.com/andrea_sipl/?hl=en",
-        icon: "instagram"
+        url: "https://www.instagram.com/andrea_sipl/?hl=en"
       }
     ],
     profileImage: "/instructors/andrea-sipl/work-2.jpg",
@@ -499,9 +488,8 @@ export const instructors: Instructor[] = [
     background: ["Indie"],
     socials: [
       {
-        platform: "Instagram",
-        url: "https://www.instagram.com/kimeazizzari/",
-        icon: "instagram"
+        platform: "X",
+        url: "https://twitter.com/anearbycat"
       }
     ],
     profileImage: "/instructors/kimea-zizzari/profile.jpg",
