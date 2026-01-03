@@ -9,8 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CheckCircle2, ArrowLeft } from "lucide-react";
+import { Suspense } from "react";
 
-export default function WaitlistPage(): React.JSX.Element {
+function WaitlistPageContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const instructorSlug = searchParams.get("instructor");
   const type = searchParams.get("type") as "one-on-one" | "group" | null;
@@ -71,14 +72,14 @@ export default function WaitlistPage(): React.JSX.Element {
               <div className="flex justify-center mb-4">
                 <CheckCircle2 className="h-16 w-16 text-green-500" />
               </div>
-              <CardTitle className="text-3xl">You're on the Waitlist!</CardTitle>
+              <CardTitle className="text-3xl">You're on Waitlist!</CardTitle>
               <CardDescription className="text-lg">
                 We'll notify you when spots become available.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <p className="text-muted-foreground mb-6">
-                You've been added to the waitlist for{" "}
+                You've been added to waitlist for{" "}
                 {instructorSlug && (
                   <Link
                     href={`/instructors/${instructorSlug}`}
@@ -112,11 +113,11 @@ export default function WaitlistPage(): React.JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-3xl">Join the Waitlist</CardTitle>
+            <CardTitle className="text-3xl">Join Waitlist</CardTitle>
             <CardDescription>
               {instructorSlug && type ? (
                 <>
-                  Join the waitlist for{" "}
+                  Join waitlist for{" "}
                   <span className="font-medium">
                     {type === "one-on-one" ? "One-on-One" : "Group"} Mentorship
                   </span>
@@ -160,5 +161,13 @@ export default function WaitlistPage(): React.JSX.Element {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function WaitlistPage(): React.JSX.Element {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center">Loading...</div>}>
+      <WaitlistPageContent />
+    </Suspense>
   );
 }

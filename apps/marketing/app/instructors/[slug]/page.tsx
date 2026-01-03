@@ -17,7 +17,7 @@ import {
   instructors,
 } from "@/lib/instructors";
 
-function getSocialIcon(platform: string): JSX.Element {
+function getSocialIcon(platform: string): React.ReactElement {
   switch (platform.toLowerCase()) {
     case "instagram":
       return <Instagram className="h-5 w-5" />;
