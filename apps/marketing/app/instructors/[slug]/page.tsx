@@ -15,6 +15,9 @@ import {
   getNextInstructor,
   getPreviousInstructor,
   instructors,
+  type Instructor,
+  type InstructorOffer,
+  type Testimonial,
 } from "@/lib/instructors";
 
 function getSocialIcon(platform: string): React.ReactElement {
@@ -143,12 +146,12 @@ export default async function InstructorProfilePage({
                     <div className="flex flex-wrap gap-4">
                       {instructor.socials
                         .filter(
-                          (social: any) =>
+                          (social) =>
                             typeof social.platform === "string" &&
                             typeof social.url === "string" &&
                             isValidUrl(social.url)
                         )
-                        .map((social: any) => (
+                        .map((social) => (
                           <Button
                             key={social.url}
                             asChild
@@ -177,8 +180,8 @@ export default async function InstructorProfilePage({
                   
                   <div className="mt-4 space-y-4">
                     {instructor.offers
-                      .filter((offer: any) => offer.active !== false)
-                      .map((offer: any) => (
+                      .filter((offer: InstructorOffer) => offer.active !== false)
+                      .map((offer: InstructorOffer) => (
                         <Button
                           key={offer.kind}
                           asChild
@@ -209,7 +212,7 @@ export default async function InstructorProfilePage({
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {instructor.testimonials.map((testimonial: any, index: number) => (
+                  {instructor.testimonials.map((testimonial: Testimonial, index: number) => (
                     <div
                       key={index}
                       className="rounded-lg border bg-card p-6 shadow-sm"
