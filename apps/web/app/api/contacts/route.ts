@@ -54,6 +54,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       optedIn: true,
     }).returning();
 
+    if (!createdContact || createdContact.length === 0) {
+      const { response: errorResponse } = internalError("Contact creation failed");
+      return NextResponse.json(errorResponse, { status: 500 });
+    }
+
     return NextResponse.json({ success: true, contact: createdContact[0] }, { status: 201 });
   } catch {
     const { response: errorResponse } = internalError("Failed to add email to contacts");

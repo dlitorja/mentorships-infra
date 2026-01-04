@@ -145,7 +145,7 @@ export default async function InstructorProfilePage({
                     <h2 className="text-2xl font-semibold mb-4">Socials</h2>
                     <div className="flex flex-wrap gap-4">
                       {instructor.socials
-                        ?.filter(
+                        .filter(
                           (social) =>
                             typeof social.platform === "string" &&
                             typeof social.url === "string" &&
@@ -212,7 +212,7 @@ export default async function InstructorProfilePage({
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {instructor.testimonials?.map((testimonial: Testimonial, index: number) => (
+                  {instructor.testimonials.map((testimonial: Testimonial, index: number) => (
                     <div
                       key={index}
                       className="rounded-lg border bg-card p-6 shadow-sm"
