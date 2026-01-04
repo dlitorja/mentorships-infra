@@ -46,15 +46,15 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({ success: true, contact: existingContact[0] }, { status: 200 });
     }
 
-    // Insert new contact
-    await db.insert(contacts).values({
+    // Insert new contact and return the created record
+    const createdContact = await db.insert(contacts).values({
       email: normalizedEmail,
       artGoals: sanitizedArtGoals || null,
       source: "matching_form",
       optedIn: true,
-    });
+    }).returning();
 
-    return NextResponse.json({ success: true }, { status: 201 });
+    return NextResponse.json({ success: true, contact: createdContact[0] }, { status: 201 });
   } catch {
     const { response: errorResponse } = internalError("Failed to add email to contacts");
     return NextResponse.json(errorResponse, { status: 500 });
