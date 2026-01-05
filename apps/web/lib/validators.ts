@@ -21,8 +21,12 @@ export function isValidInstructorSlug(slug: string): slug is ValidInstructorSlug
   return (VALID_INSTRUCTOR_SLUGS as readonly string[]).includes(slug);
 }
 
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export const INSTRUCTOR_SLUG_REGEX = new RegExp(
-  `^(?:${VALID_INSTRUCTOR_SLUGS.join("|")})$`
+  `^(?:${VALID_INSTRUCTOR_SLUGS.map(escapeRegExp).join("|")})$`
 );
 
 export const waitlistPostSchema = z.object({
@@ -44,6 +48,6 @@ export const waitlistGetSchema = z.object({
     .optional()
     .refine(
       (val) => !val || isValidInstructorSlug(val),
-      "Invalid instructor slug"
+      { message: "Invalid instructor slug" }
     ),
 });
