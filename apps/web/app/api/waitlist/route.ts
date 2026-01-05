@@ -7,12 +7,11 @@ import { waitlist } from "@mentorships/db";
 import { eq, and } from "drizzle-orm";
 import { validateEmail } from "@/lib/validation";
 import {
-  type ValidInstructorSlug,
   waitlistPostSchema,
   waitlistGetSchema,
 } from "@/lib/validators";
 
-const VALID_GROUP_MENTORSHIP_SLUGS: ValidInstructorSlug[] = ["rakasa"];
+const VALID_GROUP_MENTORSHIP_SLUGS: readonly string[] = ["rakasa"];
 
 type WaitlistPostResponse =
   | { success: true; message: string }
@@ -38,7 +37,7 @@ export async function POST(
     const validated = waitlistPostSchema.parse(body);
     const { instructorSlug, type, email } = validated;
 
-    if (type === "group" && !VALID_GROUP_MENTORSHIP_SLUGS.includes(instructorSlug as ValidInstructorSlug)) {
+    if (type === "group" && !VALID_GROUP_MENTORSHIP_SLUGS.includes(instructorSlug)) {
       return NextResponse.json(
         { error: "Group mentorship is not available for this instructor", errorId },
         { status: 400 }
