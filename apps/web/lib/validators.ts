@@ -21,21 +21,13 @@ export function isValidInstructorSlug(slug: string): slug is ValidInstructorSlug
   return (VALID_INSTRUCTOR_SLUGS as readonly string[]).includes(slug);
 }
 
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-export const INSTRUCTOR_SLUG_REGEX = new RegExp(
-  `^(?:${VALID_INSTRUCTOR_SLUGS.map(escapeRegExp).join("|")})$`
-);
-
 // Instructors who offer group mentorship - sync with instructor configuration
 export const VALID_GROUP_MENTORSHIP_SLUGS: readonly string[] = ["rakasa"];
 
 export const waitlistPostSchema = z.object({
   instructorSlug: z
     .string()
-    .min(1, "Instructor slug is required")
+    .min(1, { message: "Instructor slug is required" })
     .refine(isValidInstructorSlug, {
       message: "Invalid instructor slug",
     }),
