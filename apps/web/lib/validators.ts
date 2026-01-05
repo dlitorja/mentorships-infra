@@ -29,6 +29,9 @@ export const INSTRUCTOR_SLUG_REGEX = new RegExp(
   `^(?:${VALID_INSTRUCTOR_SLUGS.map(escapeRegExp).join("|")})$`
 );
 
+// Instructors who offer group mentorship - sync with instructor configuration
+export const VALID_GROUP_MENTORSHIP_SLUGS: readonly string[] = ["rakasa"];
+
 export const waitlistPostSchema = z.object({
   instructorSlug: z
     .string()

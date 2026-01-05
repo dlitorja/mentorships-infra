@@ -7,11 +7,10 @@ import { waitlist } from "@mentorships/db";
 import { eq, and } from "drizzle-orm";
 import { validateEmail } from "@/lib/validation";
 import {
+  VALID_GROUP_MENTORSHIP_SLUGS,
   waitlistPostSchema,
   waitlistGetSchema,
 } from "@/lib/validators";
-
-const VALID_GROUP_MENTORSHIP_SLUGS: readonly string[] = ["rakasa"];
 
 type WaitlistPostResponse =
   | { success: true; message: string }
