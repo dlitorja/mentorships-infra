@@ -6,18 +6,11 @@ import { db } from "@/lib/db";
 import { waitlist } from "@mentorships/db";
 import { eq, and } from "drizzle-orm";
 import { validateEmail } from "@/lib/validation";
-
-const waitlistPostSchema = z.object({
-  instructorSlug: z.string().min(1, "Instructor slug is required"),
-  type: z.enum(["one-on-one", "group"], {
-    message: "Type must be 'one-on-one' or 'group'",
-  }),
-  email: z.string().email().optional(),
-});
-
-const waitlistGetSchema = z.object({
-  instructorSlug: z.string().optional(),
-});
+import {
+  VALID_GROUP_MENTORSHIP_SLUGS,
+  waitlistPostSchema,
+  waitlistGetSchema,
+} from "@/lib/validators";
 
 type WaitlistPostResponse =
   | { success: true; message: string }
@@ -42,6 +35,13 @@ export async function POST(
     const body = await request.json();
     const validated = waitlistPostSchema.parse(body);
     const { instructorSlug, type, email } = validated;
+
+    if (type === "group" && !VALID_GROUP_MENTORSHIP_SLUGS.includes(instructorSlug)) {
+      return NextResponse.json(
+        { error: "Group mentorship is not available for this instructor", errorId },
+        { status: 400 }
+      );
+    }
 
     let userEmail: string;
 
