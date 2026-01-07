@@ -11,7 +11,7 @@ export default function AdminSignInLayout({
         routing="path"
         path="/admin/signin"
         signUpUrl="/admin/signup"
-        afterSignInUrl="/admin"
+        signInFallbackRedirectUrl="/admin"
       />
     </div>
   );
