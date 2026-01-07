@@ -61,7 +61,12 @@ CREATE OR REPLACE FUNCTION decrement_inventory(
 DECLARE
   new_value INTEGER;
   current_value INTEGER;
+  valid_columns TEXT[] := ARRAY['one_on_one_inventory', 'group_inventory'];
 BEGIN
+  IF inventory_column NOT IN (SELECT unnest(valid_columns)) THEN
+    RAISE EXCEPTION 'Invalid inventory_column value';
+  END IF;
+
   EXECUTE format('SELECT %I FROM instructor_inventory WHERE instructor_slug = $1', inventory_column)
     INTO current_value
     USING slug_param;

@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Notifications sent to ${notifiedCount} people`,
+      message: `Marked ${notifiedCount} people for notification`,
       notifiedCount,
       notifiedEmails: notifiedEmails.slice(0, 10),
       totalEmails: notifiedCount,

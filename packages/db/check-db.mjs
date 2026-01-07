@@ -1,6 +1,10 @@
 import postgres from "postgres";
 
-const DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres.ytxtlscmxyqomxhripki:PdD4i%2AHmyAyaEKRSxkTvua2%24lVXZtmy0@aws-0-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true";
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL environment variable is required");
+}
 
 async function main() {
   console.log("Connecting to database...");

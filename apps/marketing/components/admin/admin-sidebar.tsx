@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 import { 
   LayoutDashboard, 
   Package,
-  LogOut 
+  LogIn,
+  LogOut
 } from "lucide-react";
 import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -97,7 +98,7 @@ export function AdminSidebar() {
         <div className="border-t pt-4 mt-auto">
           <SignInButton mode="modal">
             <button className="w-full flex items-center gap-3 rounded-lg px-4 py-2 hover:bg-muted transition-colors">
-              <LogOut className="h-5 w-5" />
+              <LogIn className="h-5 w-5" />
               Sign In
             </button>
           </SignInButton>

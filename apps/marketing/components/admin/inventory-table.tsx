@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { updateInventory, getWaitlistForInstructor } from "@/lib/supabase-inventory";
+import { updateInventory } from "@/lib/supabase-inventory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,26 +63,31 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
 
   const handleSave = async (slug: string) => {
     setSaving(slug);
-    const result = await updateInventory(slug, {
-      one_on_one_inventory: editValues.oneOnOne,
-      group_inventory: editValues.group,
-    });
-    setSaving(null);
+    try {
+      const result = await updateInventory(slug, {
+        one_on_one_inventory: editValues.oneOnOne,
+        group_inventory: editValues.group,
+      });
 
-    if (result) {
-      setInventory((prev) => ({
-        ...prev,
-        [slug]: {
-          ...prev[slug],
-          one_on_one_inventory: editValues.oneOnOne,
-          group_inventory: editValues.group,
-        },
-      }));
-      toast.success(`Updated inventory for ${inventory[slug].instructor_name}`);
-    } else {
+      if (result) {
+        setInventory((prev) => ({
+          ...prev,
+          [slug]: {
+            ...prev[slug],
+            one_on_one_inventory: editValues.oneOnOne,
+            group_inventory: editValues.group,
+          },
+        }));
+        toast.success(`Updated inventory for ${inventory[slug].instructor_name}`);
+      } else {
+        toast.error("Failed to update inventory");
+      }
+    } catch (error) {
       toast.error("Failed to update inventory");
+    } finally {
+      setSaving(null);
+      setEditing(null);
     }
-    setEditing(null);
   };
 
   const handleCancel = () => {

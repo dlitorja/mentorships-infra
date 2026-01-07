@@ -32,17 +32,6 @@ export async function updateInstructorInventory(
   userId: string,
   updates: Partial<InstructorInventory>
 ): Promise<InstructorInventory | null> {
-  const instructor = await db.query.mentors.findFirst({
-    where: eq(mentors.userId, userId),
-  });
-
-  if (!instructor) {
-    return null;
-  }
-
-  const currentOneOnOne = instructor.oneOnOneInventory ?? 0;
-  const currentGroup = instructor.groupInventory ?? 0;
-
   const updateData: Partial<typeof mentors.$inferSelect> = {
     updatedAt: new Date(),
   };
@@ -61,9 +50,8 @@ export async function updateInstructorInventory(
     .where(eq(mentors.userId, userId));
 
   return {
-    oneOnOneInventory:
-      updates.oneOnOneInventory ?? currentOneOnOne,
-    groupInventory: updates.groupInventory ?? currentGroup,
+    oneOnOneInventory: updates.oneOnOneInventory ?? 0,
+    groupInventory: updates.groupInventory ?? 0,
   };
 }
 
