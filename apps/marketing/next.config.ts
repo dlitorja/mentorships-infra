@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  trailingSlash: false,
   redirects: async () => {
     return [
       { source: "/sign-in", destination: "/", permanent: true },
@@ -15,9 +16,6 @@ const nextConfig: NextConfig = {
       { source: "/instructor/:path*", destination: "/instructors", permanent: true },
       { source: "/checkout/:path*", destination: "/", permanent: true },
       { source: "/waitlist/:path*", destination: "/", permanent: true },
-
-      // Avoid exposing broken endpoints while marketing site owns prod domain
-      { source: "/api/:path*", destination: "/", permanent: true },
     ];
   },
 };

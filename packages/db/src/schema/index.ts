@@ -12,6 +12,7 @@ export * from "./menteeOnboardingSubmissions";
 export * from "./discordActionQueue";
 export * from "./contacts";
 export * from "./waitlist";
+export * from "./kajabi-offers";
 
 // Re-export drizzle-orm for convenience
 export * from "drizzle-orm";

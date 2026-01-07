@@ -1,0 +1,96 @@
+import { auth } from "@clerk/nextjs/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ytxtlscmxyqomxhripki.supabase.co";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+export async function POST(request: NextRequest) {
+  let userId: string | null = null;
+  try {
+    const authResult = await auth();
+    userId = authResult.userId;
+  } catch (e) {
+    console.error("Auth error:", e);
+  }
+
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const { instructorSlug, type } = await request.json();
+
+    if (!instructorSlug || !type) {
+      return NextResponse.json(
+        { error: "Missing instructorSlug or type" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const { data: waitlistEntries, error } = await supabase
+      .from("marketing_waitlist")
+      .select("email, created_at")
+      .eq("instructor_slug", instructorSlug)
+      .eq("mentorship_type", type)
+      .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo}`);
+
+    if (error) {
+      console.error("Error fetching waitlist:", error);
+      return NextResponse.json(
+        { error: "Failed to fetch waitlist" },
+        { status: 500 }
+      );
+    }
+
+    const emails = waitlistEntries?.map((entry) => entry.email) || [];
+    const uniqueEmails = [...new Set(emails)];
+
+    let notifiedCount = 0;
+    const notifiedEmails: string[] = [];
+
+    if (uniqueEmails.length > 0) {
+      for (const email of uniqueEmails) {
+        const { data: existing } = await supabase
+          .from("marketing_waitlist")
+          .select("id")
+          .eq("email", email)
+          .eq("instructor_slug", instructorSlug)
+          .eq("mentorship_type", type)
+          .single();
+
+        if (existing) {
+          await supabase
+            .from("marketing_waitlist")
+            .update({
+              notified: true,
+              last_notification_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existing.id);
+
+          notifiedEmails.push(email);
+          notifiedCount++;
+        }
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Notifications sent to ${notifiedCount} people`,
+      notifiedCount,
+      notifiedEmails: notifiedEmails.slice(0, 10),
+      totalEmails: notifiedCount,
+    });
+  } catch (error) {
+    console.error("Error sending notifications:", error);
+    return NextResponse.json(
+      { error: "Failed to send notifications" },
+      { status: 500 }
+    );
+  }
+}

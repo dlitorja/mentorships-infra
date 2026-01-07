@@ -1,4 +1,5 @@
 import { pgTable, uuid, text, integer, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
 import { users } from "./users";
 
 export type MentorWorkingHoursInterval = {
@@ -44,9 +45,25 @@ export const mentors = pgTable("mentors", {
   maxActiveStudents: integer("max_active_students").notNull().default(10),
   bio: text("bio"),
   pricing: numeric("pricing", { precision: 10, scale: 2 }),
+
+  /**
+   * Inventory counts for waitlist system
+   *
+   * When inventory > 0, show "Buy Now" button on instructor profile
+   * When inventory === 0, show "Join Waitlist" button instead
+   */
+  oneOnOneInventory: integer("one_on_one_inventory").notNull().default(0),
+  groupInventory: integer("group_inventory").notNull().default(0),
+
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   // Soft deletion for audit trails
   deletedAt: timestamp("deleted_at"),
 });
+
+export const mentorsRelations = relations(mentors, ({ many }) => ({
+  seatReservations: many(seatReservations),
+}));
+
+import { seatReservations } from "./seatReservations";
 
