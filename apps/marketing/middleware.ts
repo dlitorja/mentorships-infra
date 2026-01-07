@@ -1,19 +1,25 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyWebhookSignature } from "@/lib/webhook-utils";
 import { protectWithArcjet } from "@/lib/arcjet";
 
-function isPublicRoute(pathname: string): boolean {
-  return (
-    pathname.startsWith("/admin/signin") ||
-    pathname.startsWith("/api/admin") ||
-    pathname.startsWith("/api/webhooks/kajabi") ||
-    pathname.startsWith("/api/contacts") ||
-    pathname.startsWith("/api/waitlist") ||
-    pathname.startsWith("/api/instructor/inventory")
-  );
-}
+const isPublicRoute = createRouteMatcher([
+  "/",
+  "/admin/signin(.*)",
+  "/admin/signup(.*)",
+  "/api/webhooks(.*)",
+  "/api/contacts(.*)",
+  "/api/waitlist(.*)",
+  "/api/instructor/inventory(.*)",
+  "/api/inngest(.*)",
+  "/instructors(.*)",
+  "/waitlist(.*)",
+]);
+
+const isWebhookRoute = createRouteMatcher([
+  "/api/webhooks(.*)",
+]);
 
 async function verifyClerkWebhook(req: NextRequest): Promise<boolean> {
   const clonedReq = req.clone();
@@ -52,7 +58,7 @@ async function verifyStripeWebhook(req: NextRequest): Promise<boolean> {
 export default clerkMiddleware(async (auth, request): Promise<NextResponse | undefined> => {
   const pathname = request.nextUrl.pathname;
 
-  if (pathname.startsWith("/api/webhooks")) {
+  if (isWebhookRoute(request)) {
     const arcjetResponse = await protectWithArcjet(request, "webhook");
     if (arcjetResponse) {
       return arcjetResponse;
@@ -91,7 +97,8 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
   if (
     pathname.startsWith("/api/contacts") ||
     pathname.startsWith("/api/waitlist") ||
-    pathname.startsWith("/api/instructor/inventory")
+    pathname.startsWith("/api/instructor/inventory") ||
+    pathname.startsWith("/api/inngest")
   ) {
     const arcjetResponse = await protectWithArcjet(request, "default");
     if (arcjetResponse) {
@@ -99,7 +106,7 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
     }
   }
 
-  if (isPublicRoute(pathname)) {
+  if (isPublicRoute(request)) {
     return NextResponse.next();
   }
 
