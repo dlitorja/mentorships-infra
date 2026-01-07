@@ -60,22 +60,21 @@ export async function decrementInventory(
   type: "one-on-one" | "group",
   quantity: number = 1
 ): Promise<boolean> {
-  const column =
-    type === "one-on-one" ? mentors.oneOnOneInventory : mentors.groupInventory;
+  const isOneOnOne = type === "one-on-one";
 
   const result = await db
     .update(mentors)
-    .set({
-      [column.name]: sql`${column} - ${quantity}`,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(mentors.userId, userId),
-        sql`${column} >= ${quantity}`
-      )
+    .set(
+      isOneOnOne
+        ? { oneOnOneInventory: sql`${mentors.oneOnOneInventory} - ${quantity}`, updatedAt: new Date() }
+        : { groupInventory: sql`${mentors.groupInventory} - ${quantity}`, updatedAt: new Date() }
     )
-    .returning({ newQty: column });
+    .where(
+      isOneOnOne
+        ? and(eq(mentors.userId, userId), sql`${mentors.oneOnOneInventory} >= ${quantity}`)
+        : and(eq(mentors.userId, userId), sql`${mentors.groupInventory} >= ${quantity}`)
+    )
+    .returning({ userId: mentors.userId });
 
-  return result.length > 0 && (result[0]?.newQty ?? 0) >= 0;
+  return result.length > 0;
 }

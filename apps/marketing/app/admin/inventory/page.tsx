@@ -3,6 +3,7 @@ import { getAllInstructorsWithInventory } from "@/lib/supabase-inventory";
 import { InventoryTable } from "@/components/admin/inventory-table";
 import { instructors } from "@/lib/instructors";
 import { createHash } from "crypto";
+import { ErrorBoundary } from "@/components/admin/error-boundary";
 
 function generateDeterministicId(slug: string): string {
   const hash = createHash("md5").update(slug).digest("hex");
@@ -42,7 +43,9 @@ export default async function InventoryPage(): Promise<React.ReactElement> {
   return (
     <div className="max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold mb-8">Inventory Management</h1>
-      <InventoryTable initialData={mergedInstructors} />
+      <ErrorBoundary>
+        <InventoryTable initialData={mergedInstructors} />
+      </ErrorBoundary>
     </div>
   );
 }
