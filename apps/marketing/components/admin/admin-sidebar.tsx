@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { 
   LayoutDashboard, 
@@ -9,8 +9,7 @@ import {
   LogIn,
   LogOut
 } from "lucide-react";
-import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+import { SignInButton, UserButton, useUser, useClerk } from "@clerk/nextjs";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -19,11 +18,12 @@ const navItems = [
 
 export function AdminSidebar() {
   const pathname = usePathname();
-  const { isSignedIn, user, isLoaded } = useUser();
   const router = useRouter();
+  const { isSignedIn, user, isLoaded } = useUser();
+  const { signOut } = useClerk();
 
-  const handleSignOut = () => {
-    router.push("/");
+  const handleSignOut = async () => {
+    await signOut({ redirectUrl: "/" });
   };
 
   if (!isLoaded) {
