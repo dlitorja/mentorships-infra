@@ -1,7 +1,15 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-export const ADMIN_EMAIL = "admin@huckleberry.art";
+const DEFAULT_ADMIN_EMAILS = ["admin@huckleberry.art"];
+
+export function getAdminEmails(): string[] {
+  const envValue = process.env.ADMIN_EMAILS;
+  if (!envValue || envValue.trim() === "") {
+    return DEFAULT_ADMIN_EMAILS;
+  }
+  return envValue.split(",").map((email) => email.trim()).filter(Boolean);
+}
 
 export async function requireAdmin() {
   const { userId } = await auth();
@@ -10,7 +18,9 @@ export async function requireAdmin() {
   }
 
   const user = await currentUser();
-  const isAdmin = user?.emailAddresses?.[0]?.emailAddress === ADMIN_EMAIL;
+  const adminEmails = getAdminEmails();
+  const userEmail = user?.emailAddresses?.[0]?.emailAddress;
+  const isAdmin = userEmail ? adminEmails.includes(userEmail) : false;
 
   if (!isAdmin) {
     throw new Error("Forbidden: Admin access required");
@@ -30,5 +40,7 @@ export async function getCurrentUser() {
 
 export function isAdmin(user: Awaited<ReturnType<typeof currentUser>>): boolean {
   if (!user) return false;
-  return user.emailAddresses?.[0]?.emailAddress === ADMIN_EMAIL;
+  const adminEmails = getAdminEmails();
+  const userEmail = user.emailAddresses?.[0]?.emailAddress;
+  return userEmail ? adminEmails.includes(userEmail) : false;
 }

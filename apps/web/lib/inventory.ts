@@ -8,10 +8,10 @@ export interface InstructorInventory {
 }
 
 export async function getInstructorInventory(
-  slug: string
+  userId: string
 ): Promise<InstructorInventory | null> {
   const instructor = await db.query.mentors.findFirst({
-    where: eq(mentors.slug, slug),
+    where: eq(mentors.userId, userId),
     columns: {
       oneOnOneInventory: true,
       groupInventory: true,
@@ -29,11 +29,11 @@ export async function getInstructorInventory(
 }
 
 export async function updateInstructorInventory(
-  slug: string,
+  userId: string,
   updates: Partial<InstructorInventory>
 ): Promise<InstructorInventory | null> {
   const instructor = await db.query.mentors.findFirst({
-    where: eq(mentors.slug, slug),
+    where: eq(mentors.userId, userId),
   });
 
   if (!instructor) {
@@ -58,7 +58,7 @@ export async function updateInstructorInventory(
   await db
     .update(mentors)
     .set(updateData)
-    .where(eq(mentors.slug, slug));
+    .where(eq(mentors.userId, userId));
 
   return {
     oneOnOneInventory:
@@ -68,7 +68,7 @@ export async function updateInstructorInventory(
 }
 
 export async function decrementInventory(
-  slug: string,
+  userId: string,
   type: "one-on-one" | "group",
   quantity: number = 1
 ): Promise<boolean> {
@@ -83,11 +83,11 @@ export async function decrementInventory(
     })
     .where(
       and(
-        eq(mentors.slug, slug),
+        eq(mentors.userId, userId),
         sql`${column} >= ${quantity}`
       )
     )
-    .returning({ [column.name]: true });
+    .returning({ newQty: column });
 
-  return result.length > 0;
+  return result.length > 0 && (result[0]?.newQty ?? 0) >= 0;
 }

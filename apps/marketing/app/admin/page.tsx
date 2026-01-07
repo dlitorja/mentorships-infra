@@ -1,4 +1,4 @@
-import { getCurrentUser, ADMIN_EMAIL } from "@/lib/auth";
+import { getCurrentUser, isAdmin } from "@/lib/auth";
 import { getAllInstructorsWithInventory } from "@/lib/supabase-inventory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
@@ -16,9 +16,7 @@ export default async function AdminDashboard() {
     );
   }
 
-  const isAdmin = user.emailAddresses?.[0]?.emailAddress === ADMIN_EMAIL;
-
-  if (!isAdmin) {
+  if (!isAdmin(user)) {
     return (
       <div className="text-center py-12">
         <h1 className="text-2xl font-bold mb-4">Access Denied</h1>

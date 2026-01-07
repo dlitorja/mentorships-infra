@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { mentors } from "@mentorships/db";
 import { eq } from "drizzle-orm";
 import { inngest } from "@/inngest/client";
+
+const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(",").map((e) => e.trim()) || [
+  "admin@huckleberry.art",
+];
 
 type InventoryResponse =
   | { oneOnOneInventory: number; groupInventory: number }
@@ -15,22 +19,29 @@ type InventoryUpdateResponse =
   | { success: true; oneOnOneInventory: number; groupInventory: number }
   | { error: string; errorId: string };
 
+const inventoryQuerySchema = z.object({
+  userId: z.string().min(1),
+});
+
 const inventoryUpdateSchema = z.object({
+  userId: z.string().min(1),
   oneOnOneInventory: z.number().int().min(0).optional(),
   groupInventory: z.number().int().min(0).optional(),
 });
 
-export async function GET(
-  request: Request,
-  { params }: { params: { slug: string } }
+async function handleGet(
+  request: Request
 ): Promise<NextResponse<InventoryResponse>> {
   const errorId = randomUUID();
 
   try {
-    const { slug } = params;
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+
+    const validated = inventoryQuerySchema.parse({ userId });
 
     const instructor = await db.query.mentors.findFirst({
-      where: eq(mentors.slug, slug),
+      where: eq(mentors.userId, validated.userId),
       columns: {
         oneOnOneInventory: true,
         groupInventory: true,
@@ -49,6 +60,12 @@ export async function GET(
       groupInventory: instructor.groupInventory ?? 0,
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: error.issues[0]?.message || "Invalid request", errorId },
+        { status: 400 }
+      );
+    }
     console.error(`Inventory GET error [${errorId}]:`, error);
     return NextResponse.json(
       { error: "Failed to get inventory", errorId },
@@ -57,9 +74,8 @@ export async function GET(
   }
 }
 
-export async function PUT(
-  request: Request,
-  { params }: { params: { slug: string } }
+async function handlePut(
+  request: Request
 ): Promise<NextResponse<InventoryUpdateResponse>> {
   const errorId = randomUUID();
 
@@ -73,12 +89,22 @@ export async function PUT(
       );
     }
 
-    const { slug } = params;
+    const user = await currentUser();
+    const userEmail = user?.emailAddresses?.[0]?.emailAddress;
+    const isAdmin = userEmail ? ADMIN_EMAILS.includes(userEmail) : false;
+
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: "Forbidden: Admin access required", errorId },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const validated = inventoryUpdateSchema.parse(body);
 
     const instructor = await db.query.mentors.findFirst({
-      where: eq(mentors.slug, slug),
+      where: eq(mentors.userId, validated.userId),
     });
 
     if (!instructor) {
@@ -100,7 +126,7 @@ export async function PUT(
         groupInventory: newGroup,
         updatedAt: new Date(),
       })
-      .where(eq(mentors.slug, slug));
+      .where(eq(mentors.userId, validated.userId));
 
     const shouldNotifyOneOnOne =
       currentOneOnOne === 0 && newOneOnOne > 0;
@@ -108,25 +134,39 @@ export async function PUT(
       currentGroup === 0 && newGroup > 0;
 
     if (shouldNotifyOneOnOne) {
-      await inngest.send({
-        name: "inventory/available",
-        data: {
-          instructorSlug: slug,
-          type: "one-on-one",
-          inventory: newOneOnOne,
-        },
-      });
+      try {
+        await inngest.send({
+          name: "inventory/available",
+          data: {
+            instructorUserId: validated.userId,
+            type: "one-on-one",
+            inventory: newOneOnOne,
+          },
+        });
+      } catch (notifyError) {
+        console.error(
+          `Failed to send one-on-one notification for user ${validated.userId}:`,
+          notifyError
+        );
+      }
     }
 
     if (shouldNotifyGroup) {
-      await inngest.send({
-        name: "inventory/available",
-        data: {
-          instructorSlug: slug,
-          type: "group",
-          inventory: newGroup,
-        },
-      });
+      try {
+        await inngest.send({
+          name: "inventory/available",
+          data: {
+            instructorUserId: validated.userId,
+            type: "group",
+            inventory: newGroup,
+          },
+        });
+      } catch (notifyError) {
+        console.error(
+          `Failed to send group notification for user ${validated.userId}:`,
+          notifyError
+        );
+      }
     }
 
     return NextResponse.json({
@@ -150,10 +190,5 @@ export async function PUT(
   }
 }
 
-const handler = {
-  GET,
-  PUT,
-};
-
-export { GET, PUT };
-export default handler;
+export const GET = handleGet;
+export const PUT = handlePut;

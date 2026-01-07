@@ -152,7 +152,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
     setSelectedEmails(new Set());
     setShowWaitlistModal(true);
 
-    try {
+      try {
       const response = await fetch(
         `/api/admin/waitlist?instructor=${item.instructor_slug}&type=${type}`
       );
@@ -164,6 +164,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
       }
     } catch (error) {
       console.error("Error fetching waitlist:", error);
+      toast.error("Failed to fetch waitlist. Please try again.");
       setWaitlistData([]);
     } finally {
       setLoadingWaitlist(false);
