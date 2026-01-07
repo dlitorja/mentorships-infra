@@ -19,6 +19,7 @@ import {
   type InstructorOffer,
   type Testimonial,
 } from "@/lib/instructors";
+import { OffersSection } from "@/components/instructors/offers-section";
 
 function getSocialIcon(platform: string): React.ReactElement {
   switch (platform.toLowerCase()) {
@@ -172,29 +173,10 @@ export default async function InstructorProfilePage({
                   </div>
                 )}
 
-                <div>
-                  <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-                  <p className="text-muted-foreground">
-                    Purchases are handled on Kajabi. You'll be redirected to an external checkout.
-                  </p>
-                  
-                  <div className="mt-4 space-y-4">
-                    {instructor.offers
-                      .filter((offer: InstructorOffer) => offer.active !== false)
-                      .map((offer: InstructorOffer) => (
-                        <Button
-                          key={offer.kind}
-                          asChild
-                          size="lg"
-                          className="vibrant-gradient-button transition-all gap-2"
-                        >
-                          <a href={offer.url} target="_blank" rel="noopener noreferrer">
-                            {offer.label}
-                          </a>
-                        </Button>
-                      ))}
-                  </div>
-                </div>
+                <OffersSection
+                  offers={instructor.offers}
+                  instructorSlug={instructor.slug}
+                />
               </div>
             </div>
 
