@@ -6,12 +6,15 @@ import { protectWithArcjet } from "@/lib/arcjet";
 
 function isPublicRoute(pathname: string): boolean {
   return (
+    pathname === "/" ||
     pathname.startsWith("/admin/signin") ||
     pathname.startsWith("/api/admin") ||
     pathname.startsWith("/api/webhooks/kajabi") ||
     pathname.startsWith("/api/contacts") ||
     pathname.startsWith("/api/waitlist") ||
-    pathname.startsWith("/api/instructor/inventory")
+    pathname.startsWith("/api/instructor/inventory") ||
+    pathname.startsWith("/instructors") ||
+    pathname.startsWith("/waitlist")
   );
 }
 
