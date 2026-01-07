@@ -1,10 +1,16 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdmin } from "@/lib/auth";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+const WaitlistNotifySchema = z.object({
+  instructorSlug: z.string().nonempty(),
+  type: z.string().nonempty(),
+});
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -36,20 +42,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const { instructorSlug, type } = await request.json();
+    const body = await request.json();
+    const parsed = WaitlistNotifySchema.safeParse(body);
 
-    if (!instructorSlug || !type) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Missing instructorSlug or type" },
+        { error: "Invalid request", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
 
+    const { instructorSlug, type } = parsed.data;
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: waitlistEntries, error } = await supabase
       .from("marketing_waitlist")
-      .select("email, created_at")
+      .select("id, email")
       .eq("instructor_slug", instructorSlug)
       .eq("mentorship_type", type)
       .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo}`);
@@ -62,33 +70,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const emails = waitlistEntries?.map((entry) => entry.email) || [];
-    const uniqueEmails = [...new Set(emails)];
-
+    const uniqueEmails = [...new Set(waitlistEntries?.map((entry) => entry.email) || [])];
     let notifiedCount = 0;
 
     if (uniqueEmails.length > 0) {
-      for (const email of uniqueEmails) {
-        const { data: existing } = await supabase
+      const { data: matchingRows, error: selectError } = await supabase
+        .from("marketing_waitlist")
+        .select("id, email")
+        .in("email", uniqueEmails)
+        .eq("instructor_slug", instructorSlug)
+        .eq("mentorship_type", type);
+
+      if (selectError) {
+        console.error("Error fetching matching rows:", selectError);
+        return NextResponse.json(
+          { error: "Failed to fetch matching entries" },
+          { status: 500 }
+        );
+      }
+
+      const idsToUpdate = matchingRows?.map((row) => row.id).filter(Boolean) || [];
+
+      if (idsToUpdate.length > 0) {
+        const { error: updateError } = await supabase
           .from("marketing_waitlist")
-          .select("id")
-          .eq("email", email)
-          .eq("instructor_slug", instructorSlug)
-          .eq("mentorship_type", type)
-          .single();
+          .update({
+            notified: true,
+            last_notification_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .in("id", idsToUpdate);
 
-        if (existing) {
-          await supabase
-            .from("marketing_waitlist")
-            .update({
-              notified: true,
-              last_notification_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", existing.id);
-
-          notifiedCount++;
+        if (updateError) {
+          console.error("Error updating waitlist entries:", updateError);
+          return NextResponse.json(
+            { error: "Failed to update entries" },
+            { status: 500 }
+          );
         }
+
+        notifiedCount = idsToUpdate.length;
       }
     }
 

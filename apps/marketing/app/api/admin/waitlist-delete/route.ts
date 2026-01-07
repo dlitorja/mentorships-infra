@@ -1,12 +1,17 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdmin } from "@/lib/auth";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export async function POST(request: NextRequest) {
+const WaitlistDeleteSchema = z.object({
+  ids: z.array(z.string()).nonempty(),
+});
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
       { error: "Server configuration error: Supabase not configured" },
@@ -31,21 +36,40 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { ids } = await request.json();
+    const body = await request.json();
+    const parsed = WaitlistDeleteSchema.safeParse(body);
 
-    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "No IDs provided" },
+        { error: parsed.error.message || "Invalid request", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
 
+    const { ids } = parsed.data;
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-    const { error, count } = await supabase
+    const deleteResult = await supabase
       .from("marketing_waitlist")
       .delete()
       .in("id", ids);
+
+    const SupabaseDeleteResponseSchema = z.object({
+      error: z.any().optional(),
+      count: z.number().optional(),
+    });
+
+    const parsedResult = SupabaseDeleteResponseSchema.safeParse(deleteResult);
+
+    if (!parsedResult.success) {
+      console.error("Supabase response validation failed:", deleteResult);
+      return NextResponse.json(
+        { error: "Invalid response from database" },
+        { status: 500 }
+      );
+    }
+
+    const { error, count } = parsedResult.data;
 
     if (error) {
       console.error("Error deleting waitlist entries:", error);

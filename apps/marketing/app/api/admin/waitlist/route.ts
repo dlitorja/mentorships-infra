@@ -1,12 +1,18 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdmin } from "@/lib/auth";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export async function GET(request: NextRequest) {
+const WaitlistQuerySchema = z.object({
+  instructor: z.string().min(1),
+  type: z.string().min(1),
+});
+
+export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
       { error: "Server configuration error: Supabase not configured" },
@@ -32,16 +38,21 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const instructorSlug = searchParams.get("instructor");
-    const type = searchParams.get("type");
+    const params = {
+      instructor: searchParams.get("instructor") || "",
+      type: searchParams.get("type") || "",
+    };
 
-    if (!instructorSlug || !type) {
+    const parsed = WaitlistQuerySchema.safeParse(params);
+
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Missing instructor or type" },
+        { error: parsed.error.message || "Invalid query parameters", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
 
+    const { instructor: instructorSlug, type } = parsed.data;
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const { data: entries, error } = await supabase
