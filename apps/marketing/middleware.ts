@@ -1,42 +1,46 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { createHmac, timingSafeEqual } from "crypto";
 
 function isPublicRoute(pathname: string): boolean {
   return pathname.startsWith("/admin/signin");
 }
 
-const CLERK_WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
-
-function verifyWebhookSignature(
-  req: NextRequest,
-  secret: string | undefined,
-  signatureHeader: string,
-  payload: string
-): boolean {
-  if (!secret) {
-    console.error("Webhook secret not configured");
-    return false;
-  }
-
-  const signature = req.headers.get(signatureHeader);
-  if (!signature) {
-    console.error("Missing webhook signature header");
-    return false;
-  }
-
-  const expectedSignature = createHmac("sha256", secret)
-    .update(payload)
-    .digest("hex");
-
-  const encoder = new TextEncoder();
-  const expectedBuffer = encoder.encode(expectedSignature);
-  const signatureBuffer = encoder.encode(signature);
-
+async function verifyWebhookSignature(
+  secret: string,
+  payload: string,
+  signature: string
+): Promise<boolean> {
   try {
-    return timingSafeEqual(expectedBuffer, signatureBuffer);
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
+    
+    const expectedSignature = await crypto.subtle.sign(
+      "HMAC",
+      key,
+      encoder.encode(payload)
+    );
+    
+    const expectedBytes = new Uint8Array(expectedSignature);
+    const signatureBytes = encoder.encode(signature);
+    
+    if (signatureBytes.length !== expectedBytes.length) {
+      return false;
+    }
+    
+    for (let i = 0; i < expectedBytes.length; i++) {
+      if (expectedBytes[i] !== signatureBytes[i]) {
+        return false;
+      }
+    }
+    
+    return true;
   } catch {
     return false;
   }
@@ -50,12 +54,12 @@ async function verifyClerkWebhook(req: NextRequest): Promise<boolean> {
     return false;
   }
 
-  if (!CLERK_WEBHOOK_SECRET) {
-    console.error("CLERK_WEBHOOK_SECRET not configured");
+  const secret = process.env.CLERK_WEBHOOK_SECRET;
+  if (!secret) {
     return false;
   }
 
-  return verifyWebhookSignature(req, CLERK_WEBHOOK_SECRET, "svix-signature", payload);
+  return verifyWebhookSignature(secret, payload, signature);
 }
 
 async function verifyStripeWebhook(req: NextRequest): Promise<boolean> {
@@ -66,12 +70,12 @@ async function verifyStripeWebhook(req: NextRequest): Promise<boolean> {
     return false;
   }
 
-  if (!STRIPE_WEBHOOK_SECRET) {
-    console.error("STRIPE_WEBHOOK_SECRET not configured");
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) {
     return false;
   }
 
-  return verifyWebhookSignature(req, STRIPE_WEBHOOK_SECRET, "stripe-signature", payload);
+  return verifyWebhookSignature(secret, payload, signature);
 }
 
 export default clerkMiddleware(async (auth, request): Promise<NextResponse | undefined> => {
