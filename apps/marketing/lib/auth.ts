@@ -11,6 +11,15 @@ export function getAdminEmails(): string[] {
   return envValue.split(",").map((email) => email.trim()).filter(Boolean);
 }
 
+function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string | null {
+  if (!user?.emailAddresses?.length) return null;
+  
+  const primary = user.emailAddresses.find(e => e.id === user.primaryEmailAddressId);
+  if (primary) return primary.emailAddress;
+  
+  return user.emailAddresses[0]?.emailAddress ?? null;
+}
+
 export async function requireAdmin() {
   const { userId } = await auth();
   if (!userId) {
@@ -19,7 +28,7 @@ export async function requireAdmin() {
 
   const user = await currentUser();
   const adminEmails = getAdminEmails();
-  const userEmail = user?.emailAddresses?.[0]?.emailAddress;
+  const userEmail = getPrimaryEmail(user);
   const isAdmin = userEmail ? adminEmails.includes(userEmail) : false;
 
   if (!isAdmin) {
@@ -41,6 +50,6 @@ export async function getCurrentUser() {
 export function isAdmin(user: Awaited<ReturnType<typeof currentUser>>): boolean {
   if (!user) return false;
   const adminEmails = getAdminEmails();
-  const userEmail = user.emailAddresses?.[0]?.emailAddress;
+  const userEmail = getPrimaryEmail(user);
   return userEmail ? adminEmails.includes(userEmail) : false;
 }

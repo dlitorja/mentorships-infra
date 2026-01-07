@@ -44,14 +44,19 @@ export async function updateInstructorInventory(
     updateData.groupInventory = updates.groupInventory;
   }
 
-  await db
+  const [updated] = await db
     .update(mentors)
     .set(updateData)
-    .where(eq(mentors.userId, userId));
+    .where(eq(mentors.userId, userId))
+    .returning();
+
+  if (!updated) {
+    return null;
+  }
 
   return {
-    oneOnOneInventory: updates.oneOnOneInventory ?? 0,
-    groupInventory: updates.groupInventory ?? 0,
+    oneOnOneInventory: updated.oneOnOneInventory ?? 0,
+    groupInventory: updated.groupInventory ?? 0,
   };
 }
 

@@ -13,13 +13,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse> {
   let userId: string | null = null;
   try {
     const authResult = await auth();
     userId = authResult.userId;
   } catch (e) {
     console.error("Auth error:", e);
+    return NextResponse.json(
+      { error: "Authentication service error" },
+      { status: 502 }
+    );
   }
 
   if (!userId) {

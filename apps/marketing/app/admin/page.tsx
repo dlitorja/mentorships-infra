@@ -4,7 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { Package } from "lucide-react";
 
-export default async function AdminDashboard() {
+type InventorySummary = {
+  oneOnOne: number;
+  group: number;
+};
+
+export default async function AdminDashboard(): Promise<React.ReactElement> {
   const user = await getCurrentUser();
   
   if (!user) {
@@ -25,14 +30,21 @@ export default async function AdminDashboard() {
     );
   }
 
-  const instructors = await getAllInstructorsWithInventory();
+  let instructors: Awaited<ReturnType<typeof getAllInstructorsWithInventory>>;
+  try {
+    instructors = await getAllInstructorsWithInventory();
+  } catch (error) {
+    console.error("Error fetching instructors:", error);
+    instructors = [];
+  }
 
-  const totalInventory = instructors.reduce(
+  const initial: InventorySummary = { oneOnOne: 0, group: 0 };
+  const totalInventory = instructors.reduce<InventorySummary>(
     (acc, i) => ({
-      oneOnOne: acc.oneOnOne + (i.one_on_one_inventory || 0),
-      group: acc.group + (i.group_inventory || 0),
+      oneOnOne: acc.oneOnOne + (i.one_on_one_inventory ?? 0),
+      group: acc.group + (i.group_inventory ?? 0),
     }),
-    { oneOnOne: 0, group: 0 }
+    initial
   );
 
   const outOfStock = instructors.filter(
