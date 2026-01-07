@@ -7,7 +7,12 @@ export default function AdminSignInLayout({
 }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30">
-      <SignIn />
+      <SignIn
+        routing="path"
+        path="/admin/signin"
+        signUpUrl="/admin/signup"
+        afterSignInUrl="/admin"
+      />
     </div>
   );
 }
