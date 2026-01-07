@@ -2,23 +2,27 @@ import { auth } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ytxtlscmxyqomxhripki.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 export async function GET(request: NextRequest) {
-  console.log("[waitlist] Incoming request:", request.method, request.url);
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return NextResponse.json(
+      { error: "Server configuration error: Supabase not configured" },
+      { status: 500 }
+    );
+  }
 
   let userId: string | null = null;
   try {
     const authResult = await auth();
     userId = authResult.userId;
-    console.log("[waitlist] Auth result, userId:", userId);
   } catch (e) {
     console.error("[waitlist] Auth error:", e);
+    return NextResponse.json({ error: "Authentication error" }, { status: 401 });
   }
 
   if (!userId) {
-    console.log("[waitlist] No userId, returning 401");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -26,8 +30,6 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const instructorSlug = searchParams.get("instructor");
     const type = searchParams.get("type");
-
-    console.log("[waitlist] Params:", { instructorSlug, type });
 
     if (!instructorSlug || !type) {
       return NextResponse.json(
@@ -53,7 +55,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log("[waitlist] Returning entries:", entries?.length || 0);
     return NextResponse.json({ entries: entries || [] });
   } catch (error) {
     console.error("Error:", error);

@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 function isPublicRoute(pathname: string): boolean {
-  return pathname.startsWith("/admin/signin");
+  return (
+    pathname.startsWith("/admin/signin") ||
+    pathname.startsWith("/api/admin") ||
+    pathname.startsWith("/api/webhooks/kajabi")
+  );
 }
 
 async function verifyWebhookSignature(
