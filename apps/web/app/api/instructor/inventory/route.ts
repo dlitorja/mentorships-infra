@@ -91,10 +91,10 @@ async function handlePut(
 
     const user = await currentUser();
     const primaryEmailId = user?.primaryEmailAddressId;
-    const userEmail = primaryEmailId
+    const primaryEmail = primaryEmailId
       ? user.emailAddresses?.find(e => e.id === primaryEmailId)?.emailAddress
-      : user?.emailAddresses?.[0]?.emailAddress;
-    const isAdmin = userEmail ? ADMIN_EMAILS.includes(userEmail) : false;
+      : null;
+    const isAdmin = primaryEmail ? ADMIN_EMAILS.includes(primaryEmail) : false;
 
     if (!isAdmin) {
       return NextResponse.json(

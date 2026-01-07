@@ -66,7 +66,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const uniqueEmails = [...new Set(emails)];
 
     let notifiedCount = 0;
-    const notifiedEmails: string[] = [];
 
     if (uniqueEmails.length > 0) {
       for (const email of uniqueEmails) {
@@ -88,7 +87,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             })
             .eq("id", existing.id);
 
-          notifiedEmails.push(email);
           notifiedCount++;
         }
       }
@@ -98,7 +96,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       success: true,
       message: `Marked ${notifiedCount} people for notification`,
       notifiedCount,
-      notifiedEmails: notifiedEmails.slice(0, 10),
       totalEmails: notifiedCount,
     });
   } catch (error) {

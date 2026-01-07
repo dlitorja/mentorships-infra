@@ -1,6 +1,7 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { verifyWebhookSignature } from "@/lib/webhook-utils";
 
 function isPublicRoute(pathname: string): boolean {
   return (
@@ -10,50 +11,11 @@ function isPublicRoute(pathname: string): boolean {
   );
 }
 
-async function verifyWebhookSignature(
-  secret: string,
-  payload: string,
-  signature: string
-): Promise<boolean> {
-  try {
-    const encoder = new TextEncoder();
-    const key = await crypto.subtle.importKey(
-      "raw",
-      encoder.encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    
-    const expectedSignature = await crypto.subtle.sign(
-      "HMAC",
-      key,
-      encoder.encode(payload)
-    );
-    
-    const expectedBytes = new Uint8Array(expectedSignature);
-    const signatureBytes = encoder.encode(signature);
-    
-    if (signatureBytes.length !== expectedBytes.length) {
-      return false;
-    }
-    
-    for (let i = 0; i < expectedBytes.length; i++) {
-      if (expectedBytes[i] !== signatureBytes[i]) {
-        return false;
-      }
-    }
-    
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function verifyClerkWebhook(req: NextRequest): Promise<boolean> {
-  const payload = await req.text();
+  const clonedReq = req.clone();
+  const payload = await clonedReq.text();
   const signature = req.headers.get("svix-signature");
-  
+
   if (!signature) {
     return false;
   }
@@ -67,9 +29,10 @@ async function verifyClerkWebhook(req: NextRequest): Promise<boolean> {
 }
 
 async function verifyStripeWebhook(req: NextRequest): Promise<boolean> {
-  const payload = await req.text();
+  const clonedReq = req.clone();
+  const payload = await clonedReq.text();
   const signature = req.headers.get("stripe-signature");
-  
+
   if (!signature) {
     return false;
   }
