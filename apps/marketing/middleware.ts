@@ -8,7 +8,10 @@ function isPublicRoute(pathname: string): boolean {
   return (
     pathname.startsWith("/admin/signin") ||
     pathname.startsWith("/api/admin") ||
-    pathname.startsWith("/api/webhooks/kajabi")
+    pathname.startsWith("/api/webhooks/kajabi") ||
+    pathname.startsWith("/api/contacts") ||
+    pathname.startsWith("/api/waitlist") ||
+    pathname.startsWith("/api/instructor/inventory")
   );
 }
 
@@ -80,6 +83,17 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
 
   if (pathname.startsWith("/api/admin")) {
     const arcjetResponse = await protectWithArcjet(request, "admin");
+    if (arcjetResponse) {
+      return arcjetResponse;
+    }
+  }
+
+  if (
+    pathname.startsWith("/api/contacts") ||
+    pathname.startsWith("/api/waitlist") ||
+    pathname.startsWith("/api/instructor/inventory")
+  ) {
+    const arcjetResponse = await protectWithArcjet(request, "default");
     if (arcjetResponse) {
       return arcjetResponse;
     }
