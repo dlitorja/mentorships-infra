@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { mentors } from "@mentorships/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 
 export interface InstructorInventory {
   oneOnOneInventory: number;
@@ -91,5 +91,3 @@ export async function decrementInventory(
 
   return result.length > 0;
 }
-
-import { sql, and } from "drizzle-orm";

@@ -4,7 +4,7 @@ export default function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
-}) {
+}): React.ReactElement {
   return (
     <div className="min-h-screen bg-background">
       <div className="flex">

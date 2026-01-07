@@ -22,12 +22,12 @@ const inventoryUpdateSchema = z.object({
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: { slug: string } }
 ): Promise<NextResponse<InventoryResponse>> {
   const errorId = randomUUID();
 
   try {
-    const { slug } = await params;
+    const { slug } = params;
 
     const instructor = await db.query.mentors.findFirst({
       where: eq(mentors.slug, slug),
@@ -59,7 +59,7 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: Promise<{ slug: string }> }
+  { params }: { params: { slug: string } }
 ): Promise<NextResponse<InventoryUpdateResponse>> {
   const errorId = randomUUID();
 
@@ -73,7 +73,7 @@ export async function PUT(
       );
     }
 
-    const { slug } = await params;
+    const { slug } = params;
     const body = await request.json();
     const validated = inventoryUpdateSchema.parse(body);
 
@@ -149,3 +149,11 @@ export async function PUT(
     );
   }
 }
+
+const handler = {
+  GET,
+  PUT,
+};
+
+export { GET, PUT };
+export default handler;

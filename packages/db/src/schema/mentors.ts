@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, integer, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { users } from "./users";
+import { seatReservations } from "./seatReservations";
 
 export type MentorWorkingHoursInterval = {
   start: string; // "HH:MM" 24h
@@ -64,6 +65,4 @@ export const mentors = pgTable("mentors", {
 export const mentorsRelations = relations(mentors, ({ many }) => ({
   seatReservations: many(seatReservations),
 }));
-
-import { seatReservations } from "./seatReservations";
 

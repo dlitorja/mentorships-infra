@@ -3,17 +3,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 function isPublicRoute(pathname: string): boolean {
-  return (
-    pathname.startsWith("/admin/signin") ||
-    pathname.startsWith("/api/webhooks") ||
-    pathname.startsWith("/api/admin") ||
-    pathname.startsWith("/api/contacts") ||
-    pathname.startsWith("/api/waitlist")
-  );
+  return pathname.startsWith("/admin/signin");
 }
 
-export default clerkMiddleware(async (auth, request) => {
+export default clerkMiddleware(async (auth, request): Promise<NextResponse | undefined> => {
   const pathname = request.nextUrl.pathname;
+
+  if (pathname.startsWith("/api/webhooks")) {
+    return NextResponse.next();
+  }
 
   if (isPublicRoute(pathname)) {
     return NextResponse.next();
