@@ -1,4 +1,4 @@
-import { getCurrentUser, isAdmin } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { getAllInstructorsWithInventory } from "@/lib/supabase-inventory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
@@ -10,25 +10,7 @@ type InventorySummary = {
 };
 
 export default async function AdminDashboard(): Promise<React.ReactElement> {
-  const user = await getCurrentUser();
-  
-  if (!user) {
-    return (
-      <div className="text-center py-12">
-        <h1 className="text-2xl font-bold mb-4">Sign In Required</h1>
-        <p className="text-muted-foreground">Please sign in to access the admin dashboard.</p>
-      </div>
-    );
-  }
-
-  if (!isAdmin(user)) {
-    return (
-      <div className="text-center py-12">
-        <h1 className="text-2xl font-bold mb-4">Access Denied</h1>
-        <p className="text-muted-foreground">You do not have permission to access the admin dashboard.</p>
-      </div>
-    );
-  }
+  await requireAdmin();
 
   let instructors: Awaited<ReturnType<typeof getAllInstructorsWithInventory>>;
   try {

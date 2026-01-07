@@ -1,6 +1,7 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isAdmin } from "@/lib/auth";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -13,17 +14,20 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let userId: string | null = null;
+  let user = null;
   try {
-    const authResult = await auth();
-    userId = authResult.userId;
+    user = await currentUser();
   } catch (e) {
     console.error("Auth error:", e);
     return NextResponse.json({ error: "Authentication error" }, { status: 401 });
   }
 
-  if (!userId) {
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!isAdmin(user)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
