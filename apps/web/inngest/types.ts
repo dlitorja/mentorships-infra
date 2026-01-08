@@ -114,6 +114,17 @@ export const notificationSendEventSchema = z.object({
   }),
 });
 
+export const inventoryChangedEventSchema = z.object({
+  name: z.literal("inventory/changed"),
+  data: z.object({
+    instructorSlug: z.string(),
+    type: z.enum(["one-on-one", "group"]),
+    previousInventory: z.number(),
+    newInventory: z.number(),
+    quantity: z.number(),
+  }),
+});
+
 // Type exports
 export type PurchaseMentorshipEvent = z.infer<typeof purchaseMentorshipEventSchema>;
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
@@ -127,6 +138,7 @@ export type SessionScheduledEvent = z.infer<typeof sessionScheduledEventSchema>;
 export type PackExpirationCheckEvent = z.infer<typeof packExpirationCheckEventSchema>;
 export type SessionRenewalReminderEvent = z.infer<typeof sessionRenewalReminderEventSchema>;
 export type NotificationSendEvent = z.infer<typeof notificationSendEventSchema>;
+export type InventoryChangedEvent = z.infer<typeof inventoryChangedEventSchema>;
 
 export type InngestEvent =
   | PurchaseMentorshipEvent
@@ -140,5 +152,6 @@ export type InngestEvent =
   | SessionScheduledEvent
   | PackExpirationCheckEvent
   | SessionRenewalReminderEvent
-  | NotificationSendEvent;
+  | NotificationSendEvent
+  | InventoryChangedEvent;
 
