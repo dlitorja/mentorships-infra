@@ -78,35 +78,34 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
   };
 
   const handleSave = async (slug: string) => {
-    await editForm.handleSubmit(async () => {
-      setSaving(slug);
-      try {
-        const values = editForm.state.values;
-        const result = await updateInventory(slug, {
-          one_on_one_inventory: values.oneOnOne,
-          group_inventory: values.group,
-        });
+    setSaving(slug);
+    try {
+      await editForm.handleSubmit();
+      const values = editForm.state.values;
+      const result = await updateInventory(slug, {
+        one_on_one_inventory: values.oneOnOne,
+        group_inventory: values.group,
+      });
 
-        if (result) {
-          setInventory((prev) => ({
-            ...prev,
-            [slug]: {
-              ...prev[slug],
-              one_on_one_inventory: values.oneOnOne,
-              group_inventory: values.group,
-            },
-          }));
-          toast.success(`Updated inventory for ${inventory[slug].instructor_name}`);
-        } else {
-          toast.error("Failed to update inventory");
-        }
-      } catch (error) {
+      if (result) {
+        setInventory((prev) => ({
+          ...prev,
+          [slug]: {
+            ...prev[slug],
+            one_on_one_inventory: values.oneOnOne,
+            group_inventory: values.group,
+          },
+        }));
+        toast.success(`Updated inventory for ${inventory[slug].instructor_name}`);
+      } else {
         toast.error("Failed to update inventory");
-      } finally {
-        setSaving(null);
-        setEditing(null);
       }
-    })();
+    } catch (error) {
+      toast.error("Failed to update inventory");
+    } finally {
+      setSaving(null);
+      setEditing(null);
+    }
   };
 
   const handleCancel = () => {
