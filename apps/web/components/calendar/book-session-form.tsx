@@ -116,7 +116,7 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
       bookSession({ sessionPackId: selectedPack!.id, scheduledAt: scheduledAtIso }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });
-      window.location.reload();
+      setShouldLoadSlots(false);
     },
   });
 

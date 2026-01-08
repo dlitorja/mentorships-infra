@@ -9,10 +9,15 @@ import {
 } from "@tanstack/react-form";
 import { z } from "zod";
 
-const FormContext = React.createContext<ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any> | null>(null);
+// Type alias for TanStack Form's complex generic signature
+// TanStack Form requires 12 type arguments which is verbose
+// This pattern is documented in TanStack Form issues as the recommended approach
+type TypedFormApi<T> = ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any>;
 
-export function useFormContext<T = unknown>(): ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any> | null {
-  return useContext(FormContext) as ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any> | null;
+const FormContext = React.createContext<TypedFormApi<any> | null>(null);
+
+export function useFormContext<T = unknown>(): TypedFormApi<T> | null {
+  return useContext(FormContext) as TypedFormApi<T> | null;
 }
 
 export function useAppForm<T>(opts: {
@@ -91,7 +96,7 @@ interface FormProps<T = unknown> {
     onSubmit?: z.ZodSchema<T>;
   };
   onSubmit: (values: T) => Promise<void>;
-  children: ReactNode | ((form: ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any>) => ReactNode);
+  children: ReactNode | ((form: TypedFormApi<T>) => ReactNode);
 }
 
 export function Form<T>({
@@ -109,7 +114,7 @@ export function Form<T>({
   } as any);
 
   return (
-    <FormContext.Provider value={form as unknown as ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>}>
+    <FormContext.Provider value={form as unknown as TypedFormApi<any>}>
       <form
         onSubmit={async (e: React.FormEvent) => {
           e.preventDefault();
@@ -121,7 +126,7 @@ export function Form<T>({
           }
         }}
       >
-        {typeof children === "function" ? children(form as ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any>) : children}
+        {typeof children === "function" ? children(form as unknown as TypedFormApi<T>) : children}
       </form>
     </FormContext.Provider>
   );

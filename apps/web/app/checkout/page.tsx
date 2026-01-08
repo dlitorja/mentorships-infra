@@ -56,6 +56,7 @@ function CheckoutContent(): React.JSX.Element {
     data: product,
     isLoading: isLoadingProduct,
     error: productError,
+    refetch: refetchProduct,
   } = useQuery({
     queryKey: queryKeys.products.detail(packId),
     queryFn: () => fetchProduct(packId),
@@ -106,54 +107,47 @@ function CheckoutContent(): React.JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              form.handleSubmit();
-            }}
-          >
-            <form.Field name="packId">
-              {(field) => (
-                <div className="space-y-2">
-                  <label htmlFor={field.name} className="text-sm font-medium">
-                    Product ID
-                  </label>
-                  <div className="flex gap-2">
-                    <Input
-                      id={field.name}
-                      value={field.state.value as string}
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="Enter product ID (UUID)"
-                      disabled={loading}
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={!packId.trim() || loading || isLoadingProduct}
-                      onClick={() => {}}
-                    >
-                      {isLoadingProduct ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Loading...
-                        </>
-                      ) : (
-                        "Load"
-                      )}
-                    </Button>
-                  </div>
-                  {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-600">
-                      {field.state.meta.errors[0]?.message}
-                    </p>
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    Enter the product ID from your database to load product details
-                  </p>
+          <form.Field name="packId">
+            {(field) => (
+              <div className="space-y-2">
+                <label htmlFor={field.name} className="text-sm font-medium">
+                  Product ID
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id={field.name}
+                    value={field.state.value as string}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="Enter product ID (UUID)"
+                    disabled={loading}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!packId.trim() || loading || isLoadingProduct}
+                    onClick={() => refetchProduct()}
+                  >
+                    {isLoadingProduct ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      "Load"
+                    )}
+                  </Button>
                 </div>
-              )}
-            </form.Field>
-          </form>
+                {field.state.meta.errors.length > 0 && (
+                  <p className="text-sm text-red-600">
+                    {field.state.meta.errors[0]?.message}
+                  </p>
+                )}
+                <p className="text-sm text-muted-foreground">
+                  Enter the product ID from your database to load product details
+                </p>
+              </div>
+            )}
+          </form.Field>
 
           {product && (
             <div className="border rounded-lg p-4 space-y-3 bg-muted/50">

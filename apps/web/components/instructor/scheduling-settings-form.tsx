@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateInstructorSettings } from "@/lib/queries/api-client";
@@ -63,6 +63,7 @@ export function SchedulingSettingsForm({
   initialWorkingHours: WorkingHours | null;
 }) {
   const timeZones = useMemo(() => getTimeZones(), []);
+  const queryClient = useQueryClient();
 
   const defaultValues: SettingsValues = {
     timeZone: initialTimeZone || "",
@@ -86,7 +87,7 @@ export function SchedulingSettingsForm({
         workingHours: workingHours || {},
       }),
     onSuccess: () => {
-      // Settings saved successfully
+      queryClient.invalidateQueries({ queryKey: ["instructorSettings"] });
     },
   });
 
