@@ -13,6 +13,7 @@ export * from "./discordActionQueue";
 export * from "./contacts";
 export * from "./waitlist";
 export * from "./kajabi-offers";
+export * from "./admin-digest-settings";
 
 // Re-export drizzle-orm for convenience
 export * from "drizzle-orm";
