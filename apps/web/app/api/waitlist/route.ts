@@ -2,15 +2,18 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import { waitlist } from "@mentorships/db";
-import { eq, and } from "drizzle-orm";
+import { createClient } from "@supabase/supabase-js";
 import { validateEmail } from "@/lib/validation";
 import {
   VALID_GROUP_MENTORSHIP_SLUGS,
   waitlistPostSchema,
   waitlistGetSchema,
 } from "@/lib/validators";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ytxtlscmxyqomxhripki.supabase.co";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type WaitlistPostResponse =
   | { success: true; message: string }
@@ -20,11 +23,6 @@ type WaitlistGetResponse =
   | { onWaitlist: boolean; entries: unknown[] }
   | { error: string; errorId: string };
 
-/**
- * POST /api/waitlist
- * Add user to waitlist for an instructor
- * Allows both authenticated and unauthenticated users (using email)
- */
 export async function POST(
   request: Request
 ): Promise<NextResponse<WaitlistPostResponse>> {
@@ -46,7 +44,6 @@ export async function POST(
     let userEmail: string;
 
     if (userId) {
-      // For authenticated users, get email from Clerk
       const user = await currentUser();
       const clerkEmail = user?.primaryEmailAddress?.emailAddress;
       if (!clerkEmail) {
@@ -57,7 +54,6 @@ export async function POST(
       }
       userEmail = clerkEmail;
     } else {
-      // For unauthenticated users, use provided email
       if (!email) {
         return NextResponse.json(
           { error: "Email is required for unauthenticated users", errorId },
@@ -74,35 +70,44 @@ export async function POST(
       userEmail = normalizedEmail;
     }
 
-    // Check if already on waitlist for this instructor/type
-    // Always check by email since it's required
-    const whereCondition = and(
-      eq(waitlist.email, userEmail),
-      eq(waitlist.instructorSlug, instructorSlug),
-      eq(waitlist.type, type)
-    );
-
-    const existingEntry = await db
-      .select()
-      .from(waitlist)
-      .where(whereCondition)
+    const { data, error } = await supabase
+      .from("marketing_waitlist")
+      .select("*")
+      .eq("email", userEmail)
+      .eq("instructor_slug", instructorSlug)
+      .eq("mentorship_type", type)
       .limit(1);
 
-    if (existingEntry.length > 0) {
+    if (error) {
+      console.error("Error checking waitlist:", error);
+      return NextResponse.json(
+        { error: "Failed to join waitlist", errorId },
+        { status: 500 }
+      );
+    }
+
+    if (data && data.length > 0) {
       return NextResponse.json({
         success: true,
         message: "You are already on this waitlist",
       });
     }
 
-    // Add to waitlist
-    await db.insert(waitlist).values({
-      userId: userId || null,
-      email: userEmail,
-      instructorSlug,
-      type,
-      notified: false,
-    });
+    const { error: insertError } = await supabase
+      .from("marketing_waitlist")
+      .insert({
+        email: userEmail,
+        instructor_slug: instructorSlug,
+        mentorship_type: type,
+      });
+
+    if (insertError) {
+      console.error("Error inserting to waitlist:", insertError);
+      return NextResponse.json(
+        { error: "Failed to join waitlist", errorId },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -129,11 +134,6 @@ export async function POST(
   }
 }
 
-/**
- * GET /api/waitlist
- * Get waitlist status for current user
- * Requires authentication
- */
 export async function GET(
   request: Request
 ): Promise<NextResponse<WaitlistGetResponse>> {
@@ -149,6 +149,16 @@ export async function GET(
       );
     }
 
+    const user = await currentUser();
+    const userEmail = user?.primaryEmailAddress?.emailAddress;
+
+    if (!userEmail) {
+      return NextResponse.json(
+        { error: "User email not found", errorId },
+        { status: 400 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const instructorSlugParam = searchParams.get("instructorSlug");
 
@@ -157,22 +167,28 @@ export async function GET(
     });
     const { instructorSlug } = validated;
 
-    // Query waitlist table for user entries
-    // Combine conditions to avoid calling .where() twice
-    const conditions = [eq(waitlist.userId, userId)];
+    let query = supabase
+      .from("marketing_waitlist")
+      .select("*")
+      .eq("email", userEmail);
 
-    // Filter by instructor if specified
     if (instructorSlug) {
-      conditions.push(eq(waitlist.instructorSlug, instructorSlug));
+      query = query.eq("instructor_slug", instructorSlug);
     }
 
-    const query = db.select().from(waitlist).where(and(...conditions));
+    const { data, error } = await query;
 
-    const entries = await query;
+    if (error) {
+      console.error("Error fetching waitlist:", error);
+      return NextResponse.json(
+        { error: "Failed to query waitlist", errorId },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
-      onWaitlist: entries.length > 0,
-      entries,
+      onWaitlist: (data?.length ?? 0) > 0,
+      entries: data ?? [],
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -196,4 +212,3 @@ export async function GET(
     );
   }
 }
-

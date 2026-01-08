@@ -21,15 +21,12 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
   const [goals, setGoals] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
-
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
-  // Upload images mutation
   const uploadImagesMutation = useMutation({
     mutationFn: (formData: FormData) => uploadOnboardingImages(formData),
     onSuccess: (data) => {
-      // Store server-generated submissionId
       setSubmissionId(data.submissionId);
       setUploadedImages(data.images);
       setMessage("Images uploaded. You can now submit onboarding.");
@@ -39,7 +36,6 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     },
   });
 
-  // Submit onboarding mutation
   const submitOnboardingMutation = useMutation({
     mutationFn: () =>
       submitOnboarding({
@@ -80,7 +76,6 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     if (!canUpload) return;
 
     const form = new FormData();
-    // Don't send submissionId - server will generate it to prevent race conditions
     for (const f of files) form.append("files", f);
 
     uploadImagesMutation.mutate(form);
@@ -172,5 +167,3 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     </Card>
   );
 }
-
-

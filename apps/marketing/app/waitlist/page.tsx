@@ -3,57 +3,54 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-
+import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { CheckCircle2, ArrowLeft } from "lucide-react";
-import { Suspense } from "react";
+import { Form, FormField } from "@/components/form";
+import { waitlistFormSchema } from "@/lib/validators";
+
+interface WaitlistFormData {
+  email: string;
+}
 
 function WaitlistPageContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const instructorSlug = searchParams.get("instructor");
   const type = searchParams.get("type") as "one-on-one" | "group" | null;
 
-  const [email, setEmail] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
-    setIsSubmitting(true);
+  async function handleSubmit(data: WaitlistFormData) {
     setError("");
+    if (!instructorSlug || !type) {
+      setError("Instructor and type are required");
+      return;
+    }
 
     try {
-      if (!instructorSlug || !type) {
-        throw new Error("Instructor and type are required");
-      }
-
       const response = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
+          email: data.email,
           instructorSlug,
           type,
         }),
       });
 
-      const data = await response.json();
+      const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to join waitlist");
+        throw new Error(result.error || "Failed to join waitlist");
       }
 
       setIsSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setIsSubmitting(false);
     }
-  };
+  }
 
   if (isSuccess) {
     return (
@@ -128,35 +125,56 @@ function WaitlistPageContent(): React.JSX.Element {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="your@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={isSubmitting}
-                />
-              </div>
+            <Form<WaitlistFormData>
+              defaultValues={{ email: "" }}
+              validators={{ onChange: waitlistFormSchema }}
+              onSubmit={handleSubmit}
+            >
+              {(form) => (
+                <div className="space-y-4">
+                  <FormField
+                    name="email"
+                    label="Email Address"
+                    placeholder="your@email.com"
+                    type="email"
+                    validator={{ onChange: waitlistFormSchema.shape.email }}
+                  >
+                    {(field) => (
+                      <input
+                        id={field.name}
+                        type="email"
+                        value={field.state.value}
+                        onChange={(e) => field.handleChange(e.target.value)}
+                        onBlur={field.handleBlur}
+                        placeholder="your@email.com"
+                        className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                        disabled={form.state.isSubmitting}
+                      />
+                    )}
+                  </FormField>
 
-              {error && (
-                <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                  {error}
+                  {error && (
+                    <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                      {error}
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="w-full"
+                    disabled={form.state.isSubmitting}
+                  >
+                    {form.state.isSubmitting ? "Joining..." : "Join Waitlist"}
+                  </Button>
+
+                  <p className="text-xs text-muted-foreground text-center">
+                    By joining, you agree to receive email notifications about mentorship
+                    availability. You can unsubscribe at any time.
+                  </p>
                 </div>
               )}
-
-              <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? "Joining..." : "Join Waitlist"}
-              </Button>
-
-              <p className="text-xs text-muted-foreground text-center">
-                By joining, you agree to receive email notifications about mentorship
-                availability. You can unsubscribe at any time.
-              </p>
-            </form>
+            </Form>
           </CardContent>
         </Card>
       </div>
