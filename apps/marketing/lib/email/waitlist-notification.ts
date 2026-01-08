@@ -35,7 +35,7 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
   const text = [
     "Great news!",
     "",
-    `A spot has opened up for ${instructorName}'s ${typeLabel}.`,
+    `A spot has opened up for ${sanitizedInstructorName}'s ${typeLabel}.`,
     "",
     urlFallbackMessage,
     "",
