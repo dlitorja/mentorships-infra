@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Loader2, Mail, X } from "lucide-react";
 import { toast } from "sonner";
 import { addToWaitlist } from "@/lib/supabase-inventory";
+import { Form, FormField } from "@/components/form";
+import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
 
 interface InventoryStatus {
   oneOnOne: number;
@@ -22,23 +23,18 @@ interface OfferButtonProps {
 
 export function OfferButton({ kind, label, url, inventory, instructorSlug }: OfferButtonProps) {
   const [showWaitlist, setShowWaitlist] = useState(false);
-  const [email, setEmail] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [joined, setJoined] = useState(false);
 
   const available = inventory[kind] > 0;
 
-  const handleWaitlistSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !email.includes("@")) {
-      toast.error("Please enter a valid email address");
-      return;
-    }
-
-    setSubmitting(true);
+  async function handleWaitlistSubmit(data: WaitlistFormInput) {
     try {
-      const result = await addToWaitlist(email, instructorSlug, kind === "oneOnOne" ? "one-on-one" : "group");
-      
+      const result = await addToWaitlist(
+        data.email,
+        instructorSlug,
+        kind === "oneOnOne" ? "one-on-one" : "group"
+      );
+
       if (result?.alreadyOnWaitlist) {
         toast.info("You're already on the waitlist!");
       } else if (result) {
@@ -49,10 +45,8 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
       }
     } catch (error) {
       toast.error("Failed to join waitlist. Please try again.");
-    } finally {
-      setSubmitting(false);
     }
-  };
+  }
 
   if (!available && !showWaitlist) {
     return (
@@ -91,7 +85,6 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
             onClick={() => {
               setShowWaitlist(false);
               setJoined(false);
-              setEmail("");
             }}
           >
             <X className="h-4 w-4 mr-1" />
@@ -102,37 +95,57 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
     }
 
     return (
-      <form onSubmit={handleWaitlistSubmit} className="space-y-3">
-        <div className="flex gap-2">
-          <Input
-            type="email"
-            placeholder="Enter your email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="flex-1"
-          />
-          <Button type="submit" disabled={submitting}>
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              "Join"
-            )}
-          </Button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          We'll notify you when this mentorship becomes available.
-        </p>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full"
-          onClick={() => setShowWaitlist(false)}
-        >
-          Cancel
-        </Button>
-      </form>
+      <Form
+        defaultValues={{ email: "" }}
+        validators={{ onChange: waitlistFormSchema }}
+        onSubmit={handleWaitlistSubmit}
+      >
+        {(form) => (
+          <div className="space-y-3">
+            <FormField
+              name="email"
+              label="Email"
+              placeholder="Enter your email"
+              type="email"
+              validators={{ onChange: waitlistFormSchema.shape.email }}
+            >
+              {(field) => (
+                <div className="flex gap-2">
+                  <input
+                    id={field.name}
+                    type="email"
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="Enter your email"
+                    className="flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+                    disabled={form.state.isSubmitting}
+                  />
+                  <Button type="submit" disabled={form.state.isSubmitting}>
+                    {form.state.isSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Join"
+                    )}
+                  </Button>
+                </div>
+              )}
+            </FormField>
+            <p className="text-xs text-muted-foreground">
+              We'll notify you when this mentorship becomes available.
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => setShowWaitlist(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        )}
+      </Form>
     );
   }
 
