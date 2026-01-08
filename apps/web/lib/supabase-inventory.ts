@@ -70,7 +70,7 @@ export async function updateInventory(
   return parsed.data;
 }
 
-const decrementInventoryResultSchema = z.record(z.any());
+const decrementInventoryResultSchema = z.record(z.string(), z.unknown());
 
 export async function decrementInventory(
   slug: string,
