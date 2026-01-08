@@ -143,7 +143,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       }
 
       const emailToIdMap = new Map<string, string>();
-      matchingRows?.forEach((row: { email: string; id: string }) => {
+      matchingRows?.forEach((row: any) => {
         emailToIdMap.set(row.email, row.id);
       });
 
