@@ -483,6 +483,44 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/schemas:
+    dependencies:
+      zod:
+        specifier: ^4.1.13
+        version: 4.1.13
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.25
+        version: 20.19.25
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/ui:
+    dependencies:
+      '@tanstack/react-form':
+        specifier: ^1.27.0
+        version: 1.27.1(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      next:
+        specifier: ^16.0.0
+        version: 16.0.10(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.0
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.0(react@19.2.0)
+      zod:
+        specifier: ^4.1.13
+        version: 4.1.13
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.25
+        version: 20.19.25
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
 packages:
 
   '@acemir/cssom@0.9.26':
