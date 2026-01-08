@@ -4,6 +4,12 @@ import React, { ReactNode, createContext, useContext } from "react";
 import { useForm as useTanStackForm, FormApi } from "@tanstack/react-form";
 import { z } from "zod";
 
+/**
+ * FormContext uses `any` due to TanStack Form v1.27's complex generic types
+ * (FormApi requires 11-12 type arguments). TODO: Replace with strict interface
+ * once TanStack Form exposes stable, simpler types. useFormContext<T>() provides
+ * a generic consumer API for typed access.
+ */
 const FormContext = createContext<any>(null);
 
 function useFormContext<T = any>(): T {
@@ -20,6 +26,8 @@ interface FormFieldProps {
   placeholder?: string;
   type?: string;
   validators?: { onChange?: z.ZodTypeAny };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // expected runtime field shape varies; typed externally by consumers
   children?: (field: any) => ReactNode;
 }
 
@@ -57,7 +65,11 @@ export function FormField({
             />
           )}
           {field.state.meta.errors.length > 0 && (
-            <p className="text-sm text-red-600">{field.state.meta.errors[0]?.message}</p>
+            <p className="text-sm text-red-600">
+              {typeof field.state.meta.errors[0] === "string"
+                ? field.state.meta.errors[0]
+                : field.state.meta.errors[0]?.message ?? String(field.state.meta.errors[0])}
+            </p>
           )}
         </div>
       )}
@@ -92,9 +104,14 @@ export function Form({
   return (
     <FormContext.Provider value={form}>
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          form.handleSubmit();
+          try {
+            await form.handleSubmit();
+          } catch (error) {
+            console.error("Form submission error:", error);
+            throw error;
+          }
         }}
       >
         {typeof children === "function" ? children(form) : children}

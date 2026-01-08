@@ -151,8 +151,6 @@ function WaitlistPageContent(): React.JSX.Element {
                   <FormField
                     name="email"
                     label="Email Address"
-                    placeholder="your@email.com"
-                    type="email"
                     validators={{ onChange: waitlistFormSchema.shape.email }}
                   >
                     {(field) => (

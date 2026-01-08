@@ -197,7 +197,7 @@ export async function getKajabiOfferMapping(offerId: string): Promise<KajabiOffe
 export async function getAllInstructorsWithInventory(): Promise<InstructorInventory[] | null> {
   const { data, error } = await supabase
     .from("instructor_inventory")
-    .select("id, instructor_slug, one_on_one_inventory, group_inventory")
+    .select("one_on_one_inventory, group_inventory")
     .order("instructor_slug");
 
   if (error) {
