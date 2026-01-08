@@ -34,8 +34,15 @@ This document tracks the implementation of an authenticated admin dashboard in a
           ┌───────────┐   ┌───────────────┐
           │  Resend   │   │   Inngest     │
           │  (Email)  │   │   (Background)│
-          └───────────┘   └───────────────┘
+           └───────────┘   └───────────────┘
 ```
+
+## Current State
+
+- **PR #48**: Phase 2 implementation in review/iteration
+- **Build Status**: ✅ Both apps build successfully
+- **TanStack Form**: Uses `any` types workaround (see Known Issues)
+- **Middleware**: Renamed to `proxy.ts` (Next.js 16 requirement)
 
 ## Form Standards
 
@@ -142,9 +149,9 @@ export function Form<T>({ defaultValues, validators, onSubmit, children }: FormP
 
 #### 2.1 Create Shared Schemas Package ✅
 - [x] Created `packages/schemas/package.json`
-- [x] Created `packages/schemas/tsconfig.json] Created `packages/schemas/src/index.ts` with:
-`
-- [x  - `VALID_INSTRUCTOR_SLUGS`
+- [x] Created `packages/schemas/tsconfig.json`
+- [x] Created `packages/schemas/src/index.ts` with:
+  - `VALID_INSTRUCTOR_SLUGS`
   - `VALID_GROUP_MENTORSHIP_SLUGS`
   - `waitlistPostSchema`
   - `waitlistGetSchema`
@@ -156,8 +163,7 @@ export function Form<T>({ defaultValues, validators, onSubmit, children }: FormP
 #### 2.2 Create Shared UI Components ✅
 - [x] Created `packages/ui/package.json`
 - [x] Created `packages/ui/tsconfig.json`
-- [x] Created `packages/ui/src/components/form-field.tsx`
-- [x] Created `packages/ui/src/components/form.tsx`
+- [x] Created `packages/ui/src/components/form-field.tsx` (merged Form + FormField in single file)
 - [x] Created `packages/ui/src/index.ts`
 
 #### 2.3 Migrate Forms to TanStack Form ✅
@@ -235,17 +241,16 @@ When apps/marketing develops features ahead of apps/web:
 
 | Status | Count |
 |--------|-------|
-| Already using TanStack Form | 2 |
-| Using manual state (TO MIGRATE) | 7 |
+| Already using TanStack Form | 4 |
+| Using manual state (TO MIGRATE) | 5 |
 | Using react-hook-form | 0 |
 
 **Migration Order:**
 1. MenteeOnboardingForm (HIGH - core flow)
 2. BookSessionForm (HIGH - core flow)
-3. Marketing waitlist forms (MEDIUM - marketing)
-4. SchedulingSettingsForm (MEDIUM - complex nested state)
-5. Checkout page (LOW - simple)
-6. InventoryTable (LOW - admin only)
+3. SchedulingSettingsForm (MEDIUM - complex nested state)
+4. Checkout page (LOW - simple)
+5. InventoryTable (LOW - admin only)
 
 ---
 
@@ -256,10 +261,12 @@ When apps/marketing develops features ahead of apps/web:
 | `packages/schemas/package.json` | Shared Zod schemas package |
 | `packages/schemas/tsconfig.json` | TypeScript config |
 | `packages/schemas/src/index.ts` | All shared schemas |
-| `packages/ui/src/components/form-field.tsx` | Reusable FormField component |
-| `packages/ui/src/components/form.tsx` | Form wrapper component |
+| `packages/ui/src/components/form-field.tsx` | Reusable FormField + Form components |
 | `packages/ui/src/index.ts` | UI package exports |
-| `apps/web/lib/supabase-inventory.ts` | Supabase client for waitlist |
+| `apps/web/lib/supabase-inventory.ts` | Supabase client for waitlist/inventory |
+| `apps/marketing/lib/supabase.ts` | Supabase client initialization |
+| `apps/marketing/components/form.tsx` | Re-exports from @mentorships/ui |
+| `apps/marketing/lib/validators.ts` | Re-exports from @mentorships/schemas |
 
 ---
 
@@ -268,8 +275,9 @@ When apps/marketing develops features ahead of apps/web:
 | File | Reason |
 |------|--------|
 | `packages/db/src/schema/waitlist.ts` | No longer needed (Supabase source of truth) |
-| `apps/marketing/lib/supabase-inventory.ts` | Functions moved to apps/web |
-| `apps/web/lib/queries/api-client.ts` | Waitlist functions extracted |
+| `apps/marketing/lib/supabase-inventory.ts` | Functions moved to apps/web (kept local supabase.ts for client init) |
+| `packages/ui/src/components/form.tsx` | Consolidated into form-field.tsx |
+| `apps/web/lib/queries/api-client.ts` | Waitlist functions extracted to supabase-inventory.ts |
 
 ---
 
@@ -342,8 +350,29 @@ When apps/marketing develops features ahead of apps/web:
 
 ---
 
+## PR Reference
+
+**Phase 2: Unified Waitlist with Supabase + TanStack Form**
+- GitHub PR: https://github.com/dlitorja/mentorships-infra/pull/48
+- Branch: `feat/phase2-waitlist-supabase`
+- Status: In review
+
+Key changes:
+- Created `@mentorships/schemas` package with shared Zod schemas
+- Created `@mentorships/ui` package with FormField + Form components
+- Consolidated waitlist storage to Supabase (single source of truth)
+- Migrated marketing waitlist forms to TanStack Form + Zod
+- Renamed `middleware.ts` → `proxy.ts` (Next.js 16)
+
+---
+
 ## Testing Checklist
 
+- [x] Marketing app builds successfully
+- [x] Web app builds successfully
+- [x] TanStack Form components render correctly
+- [x] Waitlist API endpoints respond correctly
+- [x] Supabase client initializes properly
 - [ ] Admin can access /admin after signing in
 - [ ] Inventory values display correctly
 - [ ] Inventory can be edited (increment/decrement)
@@ -361,16 +390,35 @@ When apps/marketing develops features ahead of apps/web:
 
 3. **Email notifications not implemented**: Phase 4 not yet complete.
 
-4. **Dual waitlist storage**: Currently both PostgreSQL and Supabase have waitlist tables. Phase 2 consolidates to Supabase only.
+4. **TanStack Form v1.27 type complexity**: Uses `any` types in FormContext due to FormApi requiring 11-12 type arguments. TODO: Replace with strict interface when TanStack Form exposes stable types.
 
-5. **Forms using manual state**: 7 forms need migration to TanStack Form + Zod (see Forms Audit Summary).
+5. **Forms using manual state**: 5 forms need migration to TanStack Form + Zod (see Forms Audit Summary).
+
+6. **Middleware deprecated**: Renamed `middleware.ts` to `proxy.ts` per Next.js 16 requirements.
 
 ---
 
 ## Next Session Tasks
 
-1. Create `packages/schemas` package with shared Zod schemas
-2. Create `packages/ui` package with FormField and Form components
-3. Migrate all manual state forms to TanStack Form
-4. Update API routes to use Supabase directly
-5. Remove PostgreSQL waitlist table
+1. **Phase 3: Kajabi Webhook Integration**
+   - Create `/api/webhooks/kajabi` endpoint in apps/web
+   - Verify webhook signature
+   - Decrement inventory on purchase
+   - Trigger notification flow
+
+2. **Phase 4: Waitlist Notifications**
+   - Email template for waitlist notifications
+   - Inngest function for processing notifications
+   - Resend integration for sending emails
+
+3. **Complete Form Migrations**
+   - MenteeOnboardingForm (file upload flow)
+   - BookSessionForm (query-based slots)
+   - SchedulingSettingsForm (nested state)
+   - Checkout page (simple form)
+   - InventoryTable (admin UI)
+
+4. **Known Issues to Address**
+   - [ ] Update FormContext types when TanStack Form releases stable generics
+   - [ ] Remove middleware.ts → proxy.ts rename note (done)
+   - [ ] Add PR reference for Phase 2 changes
