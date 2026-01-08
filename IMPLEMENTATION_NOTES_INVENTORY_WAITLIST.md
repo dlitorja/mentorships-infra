@@ -454,3 +454,16 @@ Key changes:
    - [ ] Update FormContext types when TanStack Form releases stable generics
    - [ ] Remove middleware.ts → proxy.ts rename note (done)
    - [ ] Add PR reference for Phase 2 changes
+
+---
+
+## Implementation Progress
+
+| Milestone | Status | PR |
+|-----------|--------|-----|
+| Phase 1: Database & Admin Foundation | ✅ | - |
+| Phase 2: Unified Waitlist + TanStack Form | ✅ | #48 |
+| Phase 3: Kajabi Webhook + Inngest | ✅ | #50 |
+| Form Migrations (5 forms) | ✅ | #51 |
+| Phase 4: Waitlist Notifications | ⏳ Pending | - |
+| Phase 5: UI Polish | ⏳ Pending | - |
