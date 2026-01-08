@@ -431,9 +431,11 @@ When apps/marketing develops features ahead of apps/web:
 | `apps/marketing/components/ui/select.tsx` | UI component for frequency selector |
 | `apps/marketing/app/api/admin/digest-settings/route.ts` | API endpoint for getting/updating digest settings |
 | `apps/marketing/app/api/admin/digest-send/route.ts` | API endpoint for manual digest trigger |
-| `apps/marketing/lib/email/weekly-digest.ts` | Email template builder for weekly digest |
+| `apps/marketing/lib/email/client.ts` | Shared email client utility (getResendClient, getFromAddress) |
+| `apps/marketing/lib/email/weekly-digest.ts` | Email template builder for weekly digest (moved formatDate to module scope, fixed pseudo-selectors) |
 | `apps/marketing/lib/digest-data.ts` | Data gathering functions for digest sections |
-| `apps/marketing/inngest/functions/weekly-digest.ts` | Scheduled Inngest functions for automatic digests |
+| `apps/marketing/inngest/functions/weekly-digest.ts` | Scheduled Inngest functions for automatic digests (guarded sendWeeklyDigest, checks sendResult.error, uses captured timestamp) |
+| `apps/marketing/inngest/functions/inventory-available.ts` | Handles inventory/available events (added Zod schema for type, only marks successful sends as notified, uses shared email client) |
 
 ## Files Modified (Phase 7)
 
@@ -681,3 +683,15 @@ Key changes:
 | Phase 6: Automatic Notifications | ✅ | - |
 | Phase 7: Weekly Digest | ✅ | Pending |
 | Main DB Migration | ⏳ Pending | - |
+
+## Files Modified (Phase 6 & 7 - Code Review Fixes)
+
+| File | Changes |
+|------|---------|
+| `apps/marketing/app/api/admin/digest-send/route.ts` | Use shared email client, check sendResult.error before updating database |
+| `apps/marketing/app/api/admin/digest-settings/route.ts` | Added Zod schema validation for GET and PUT handlers |
+| `apps/marketing/components/admin/digest-settings-form.tsx` | Added debounced update for admin email input, added error state UI, added Zod schema validation for fetchSettings |
+| `apps/marketing/inngest/functions/inventory-available.ts` | Added Zod schema for type validation, only mark successful sends as notified, uses shared email client |
+| `apps/marketing/inngest/functions/weekly-digest.ts` | Added guard to sendWeeklyDigest, check sendResult.error, use captured timestamp, removed duplicate getResendClient/getFromAddress |
+| `apps/marketing/lib/email/weekly-digest.ts` | Moved formatDate to module scope, fixed :last-child pseudo-selectors with conditional logic in map callbacks |
+| `apps/marketing/lib/supabase-inventory.ts` | Added Promise<void> return type to logInventoryChange, removed unused logs variable |
