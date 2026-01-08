@@ -19,15 +19,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const validated = waitlistPostSchema.parse(body);
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("marketing_waitlist")
       .insert({
         email: validated.email,
         instructor_slug: validated.instructorSlug,
         mentorship_type: validated.type,
-      })
-      .select()
-      .single();
+      });
 
     if (error) {
       if (error.code === "23505") {

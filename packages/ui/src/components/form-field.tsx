@@ -67,20 +67,23 @@ export function FormField<T>({
 
 interface FormProps<T> {
   defaultValues: T;
-  validator?: { onChange: z.ZodSchema<T> };
+  validators?: {
+    onChange?: z.ZodSchema<T>;
+    onSubmit?: z.ZodSchema<T>;
+  };
   onSubmit: (values: T) => Promise<void>;
   children: ReactNode | ((form: ReturnType<typeof useForm<T>>) => ReactNode);
 }
 
 export function Form<T>({
   defaultValues,
-  validator,
+  validators,
   onSubmit,
   children,
 }: FormProps<T>): ReactNode {
   const form = useForm<T>({
     defaultValues,
-    validator,
+    validators,
     onSubmit: async ({ value }) => {
       await onSubmit(value);
     },

@@ -97,7 +97,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
     return (
       <Form<WaitlistFormInput>
         defaultValues={{ email: "" }}
-        validator={{ onChange: waitlistFormSchema }}
+        validators={{ onChange: waitlistFormSchema }}
         onSubmit={handleWaitlistSubmit}
       >
         {(form) => (
@@ -107,7 +107,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
               label="Email"
               placeholder="Enter your email"
               type="email"
-              validator={{ onChange: waitlistFormSchema.shape.email }}
+              validators={{ onChange: waitlistFormSchema.shape.email }}
             >
               {(field) => (
                 <div className="flex gap-2">

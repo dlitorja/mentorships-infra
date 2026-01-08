@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -11,7 +12,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-export async function getInstructorInventory(slug: string) {
+const instructorInventorySchema = z.object({
+  one_on_one_inventory: z.number(),
+  group_inventory: z.number(),
+});
+
+export type InstructorInventory = z.infer<typeof instructorInventorySchema>;
+
+export async function getInstructorInventory(slug: string): Promise<InstructorInventory | null> {
   const { data, error } = await supabase
     .from("instructor_inventory")
     .select("one_on_one_inventory, group_inventory")
@@ -23,7 +31,13 @@ export async function getInstructorInventory(slug: string) {
     return null;
   }
 
-  return data;
+  const parsed = instructorInventorySchema.safeParse(data);
+  if (!parsed.success) {
+    console.error("Validation error for instructor inventory:", parsed.error.format());
+    return null;
+  }
+
+  return parsed.data;
 }
 
 export async function updateInventory(
@@ -98,14 +112,25 @@ export async function addToWaitlist(
   return data;
 }
 
+const waitlistEntrySchema = z.object({
+  id: z.number(),
+  email: z.string(),
+  instructor_slug: z.string(),
+  mentorship_type: z.string(),
+  notified: z.boolean(),
+  created_at: z.string(),
+});
+
+type WaitlistEntry = z.infer<typeof waitlistEntrySchema>;
+
 export async function getWaitlistStatus(
   email: string,
   instructorSlug: string,
   type?: "one-on-one" | "group"
-) {
+): Promise<WaitlistEntry[] | null> {
   let query = supabase
     .from("marketing_waitlist")
-    .select("*")
+    .select("id, email, instructor_slug, mentorship_type, notified, created_at")
     .eq("email", email)
     .eq("instructor_slug", instructorSlug);
 
@@ -120,13 +145,30 @@ export async function getWaitlistStatus(
     return null;
   }
 
-  return data;
+  const parsed = waitlistEntrySchema.array().safeParse(data);
+  if (!parsed.success) {
+    console.error("Validation error for waitlist status:", parsed.error.format());
+    return null;
+  }
+
+  return parsed.data;
 }
 
-export async function getKajabiOfferMapping(offerId: string) {
+const kajabiOfferMappingSchema = z.object({
+  id: z.number(),
+  offer_id: z.string(),
+  instructor_slug: z.string().nullable(),
+  product_id: z.string().nullable(),
+  offer_type: z.string().nullable(),
+  created_at: z.string(),
+});
+
+type KajabiOfferMapping = z.infer<typeof kajabiOfferMappingSchema>;
+
+export async function getKajabiOfferMapping(offerId: string): Promise<KajabiOfferMapping | null> {
   const { data, error } = await supabase
     .from("kajabi_offer_mappings")
-    .select("*")
+    .select("id, offer_id, instructor_slug, product_id, offer_type, created_at")
     .eq("offer_id", offerId)
     .single();
 
@@ -135,7 +177,13 @@ export async function getKajabiOfferMapping(offerId: string) {
     return null;
   }
 
-  return data;
+  const parsed = kajabiOfferMappingSchema.safeParse(data);
+  if (!parsed.success) {
+    console.error("Validation error for kajabi offer mapping:", parsed.error.format());
+    return null;
+  }
+
+  return parsed.data;
 }
 
 export async function getAllInstructorsWithInventory() {

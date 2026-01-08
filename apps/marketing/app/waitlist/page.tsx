@@ -143,7 +143,7 @@ function WaitlistPageContent(): React.JSX.Element {
           <CardContent>
             <Form<WaitlistFormInput>
               defaultValues={{ email: "" }}
-              validator={{ onChange: waitlistFormSchema }}
+              validators={{ onChange: waitlistFormSchema }}
               onSubmit={handleSubmit}
             >
               {(form) => (
@@ -153,7 +153,7 @@ function WaitlistPageContent(): React.JSX.Element {
                     label="Email Address"
                     placeholder="your@email.com"
                     type="email"
-                    validator={{ onChange: waitlistFormSchema.shape.email }}
+                    validators={{ onChange: waitlistFormSchema.shape.email }}
                   >
                     {(field) => (
                       <input
