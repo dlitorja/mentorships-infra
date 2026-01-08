@@ -1,18 +1,24 @@
 "use client";
 
-import React, { ReactNode, useContext } from "react";
+import React, { ReactNode, useContext, useMemo } from "react";
 import {
   useForm as useTanStackForm,
   FormApi,
   AnyFieldApi,
   ReactFormExtendedApi,
+  FormOptions,
 } from "@tanstack/react-form";
 import { z } from "zod";
 
-// Type alias for TanStack Form's complex generic signature
-// TanStack Form requires 12 type arguments which is verbose
-// This pattern is documented in TanStack Form issues as recommended approach
-type TypedFormApi<T> = ReactFormExtendedApi<T, any, any, any, any, any, any, any, any>;
+// Type alias for TanStack Form's complex generic signature.
+// TanStack Form's ReactFormExtendedApi requires a 12-parameter generic signature.
+// The extra parameters (TOnMount, TOnChange, TOnChangeAsync, TOnBlur, TOnBlurAsync,
+// TOnSubmit, TOnSubmitAsync, TOnDynamic, TOnDynamicAsync, TOnServer, TSubmitMeta)
+// are not needed for our usage and inflating the alias with concrete types would
+// be noisy and fragile. This is documented in TanStack Form issues and aligns
+// with team guidelines permitting documented, narrowly-scoped use of any.
+// The primary type parameter T is preserved to retain type safety where it matters.
+type TypedFormApi<T> = ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any>;
 
 const FormContext = React.createContext<TypedFormApi<any> | null>(null);
 
@@ -94,7 +100,7 @@ export function Form<T>({
   onSubmit,
   children,
 }: FormProps<T>): ReactNode {
-  const form = useTanStackForm<T, any, any, any, any, any, any, any, any>({
+  const form = useTanStackForm<T, any, any, any, any, any, any, any, any, any, any, any>({
     defaultValues,
     validators,
     onSubmit: async ({ value }: { value: T }) => {
@@ -102,8 +108,10 @@ export function Form<T>({
     },
   } as any);
 
+  const contextValue = useMemo(() => form as unknown as TypedFormApi<any>, [form]);
+
   return (
-    <FormContext.Provider value={form as unknown as TypedFormApi<any>}>
+    <FormContext.Provider value={contextValue}>
       <form
         onSubmit={async (e: React.FormEvent) => {
           e.preventDefault();
@@ -120,13 +128,39 @@ export function Form<T>({
   );
 }
 
-export function useAppForm<T>(opts: {
+export function useAppForm<
+  T,
+  TOnMount = any,
+  TOnChange = any,
+  TOnChangeAsync = any,
+  TOnBlur = any,
+  TOnBlurAsync = any,
+  TOnSubmit = any,
+  TOnSubmitAsync = any,
+  TOnDynamic = any,
+  TOnDynamicAsync = any,
+  TOnServer = any,
+  TSubmitMeta = any,
+>(opts: {
   defaultValues: T;
   validators?: {
     onChange?: z.ZodSchema<T>;
     onSubmit?: z.ZodSchema<T>;
   };
   onSubmit?: (values: T) => Promise<void>;
-}): ReturnType<typeof useTanStackForm> {
-  return useTanStackForm<T, any, any, any, any, any, any, any, any, any, any, any>(opts as any);
+}) {
+  return useTanStackForm<
+    T,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any
+  >(opts as any);
 }
