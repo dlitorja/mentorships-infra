@@ -1,12 +1,12 @@
 "use client";
 
 import React, { ReactNode, createContext, useContext } from "react";
-import { FieldApi, useForm } from "@tanstack/react-form";
+import { useForm as useTanStackForm, FormApi } from "@tanstack/react-form";
 import { z } from "zod";
 
-const FormContext = createContext<unknown>(null);
+const FormContext = createContext<any>(null);
 
-function useFormContext<T>(): unknown {
+function useFormContext<T>(): any {
   const context = useContext(FormContext);
   if (!context) {
     throw new Error("FormField must be used within a Form component");
@@ -14,28 +14,28 @@ function useFormContext<T>(): unknown {
   return context;
 }
 
-interface FormFieldProps<T> {
+interface FormFieldProps {
   name: string;
   label: string;
   placeholder?: string;
   type?: string;
   validators?: { onChange?: z.ZodTypeAny };
-  children?: (field: FieldApi<T, unknown>) => ReactNode;
+  children?: (field: any) => ReactNode;
 }
 
-export function FormField<T>({
+export function FormField({
   name,
   label,
   placeholder,
   type = "text",
   validators,
   children,
-}: FormFieldProps<T>): ReactNode {
-  const _form = useFormContext<T>();
+}: FormFieldProps): ReactNode {
+  const form = useFormContext();
 
   return (
     <form.Field name={name} validators={validators}>
-      {(field) => (
+      {(field: any) => (
         <div className="space-y-2">
           <label htmlFor={field.name} className="text-sm font-medium">
             {label}
@@ -49,7 +49,7 @@ export function FormField<T>({
               value={typeof field.state.value === "string" ? field.state.value : ""}
               onChange={(e) => {
                 const val = e.target.value;
-                field.handleChange(val as T);
+                field.handleChange(val);
               }}
               onBlur={field.handleBlur}
               placeholder={placeholder}
@@ -65,26 +65,26 @@ export function FormField<T>({
   );
 }
 
-interface FormProps<T> {
-  defaultValues: T;
+interface FormProps {
+  defaultValues: any;
   validators?: {
-    onChange?: z.ZodSchema<T>;
-    onSubmit?: z.ZodSchema<T>;
+    onChange?: z.ZodSchema<any>;
+    onSubmit?: z.ZodSchema<any>;
   };
-  onSubmit: (values: T) => Promise<void>;
-  children: ReactNode | ((form: ReturnType<typeof useForm<T>>) => ReactNode);
+  onSubmit: (values: any) => Promise<void>;
+  children: ReactNode | ((form: any) => ReactNode);
 }
 
-export function Form<T>({
+export function Form({
   defaultValues,
   validators,
   onSubmit,
   children,
-}: FormProps<T>): ReactNode {
-  const form = useForm<T>({
+}: FormProps): ReactNode {
+  const form = (useTanStackForm as any)({
     defaultValues,
     validators,
-    onSubmit: async ({ value }) => {
+    onSubmit: async ({ value }: { value: any }) => {
       await onSubmit(value);
     },
   });

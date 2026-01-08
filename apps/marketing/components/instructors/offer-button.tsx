@@ -95,7 +95,7 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
     }
 
     return (
-      <Form<WaitlistFormInput>
+      <Form
         defaultValues={{ email: "" }}
         validators={{ onChange: waitlistFormSchema }}
         onSubmit={handleWaitlistSubmit}

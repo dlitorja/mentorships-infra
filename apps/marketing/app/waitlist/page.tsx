@@ -141,7 +141,7 @@ function WaitlistPageContent(): React.JSX.Element {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Form<WaitlistFormInput>
+            <Form
               defaultValues={{ email: "" }}
               validators={{ onChange: waitlistFormSchema }}
               onSubmit={handleSubmit}
