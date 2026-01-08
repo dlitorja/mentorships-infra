@@ -119,9 +119,9 @@ export const inventoryChangedEventSchema = z.object({
   data: z.object({
     instructorSlug: z.string(),
     type: z.enum(["one-on-one", "group"]),
-    previousInventory: z.number(),
-    newInventory: z.number(),
-    quantity: z.number(),
+    previousInventory: z.number().int().min(0),
+    newInventory: z.number().int().min(-1),
+    quantity: z.number().int().positive(),
   }),
 });
 
