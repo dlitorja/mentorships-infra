@@ -57,7 +57,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
   const [selectedEmails, setSelectedEmails] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
-  const editForm = useForm<InventoryValues>({
+  const editForm = useForm<InventoryValues, any, any, any, any, any, any, any, any, any, any, any>({
     defaultValues: {
       oneOnOne: 0,
       group: 0,
