@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -13,37 +13,74 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Loader2, Bell, Send } from "lucide-react";
+import { Loader2, Bell, Send, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { z } from "zod";
 
-interface DigestSettings {
-  id: string;
-  enabled: boolean;
-  frequency: "daily" | "weekly" | "monthly";
-  admin_email: string;
-  last_sent_at: string | null;
-  updated_at: string;
-}
+const digestSettingsSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  admin_email: z.string().email(),
+  last_sent_at: z.string().nullable(),
+  updated_at: z.string(),
+});
 
-export function DigestSettingsForm() {
+type DigestSettings = z.infer<typeof digestSettingsSchema>;
+
+interface DigestSettingsProps {}
+
+export function DigestSettingsForm(_: DigestSettingsProps) {
   const [settings, setSettings] = useState<DigestSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
+  const [localAdminEmail, setLocalAdminEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSettings();
   }, []);
+
+  const debouncedUpdateEmail = useCallback(
+    (email: string) => {
+      if (!settings) return;
+      setSettings({ ...settings, admin_email: email });
+    },
+    [settings]
+  );
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (localAdminEmail !== settings?.admin_email) {
+        debouncedUpdateEmail(localAdminEmail);
+      }
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [localAdminEmail, settings, debouncedUpdateEmail]);
 
   async function fetchSettings() {
     try {
       const response = await fetch("/api/admin/digest-settings");
       if (!response.ok) throw new Error("Failed to fetch settings");
       const data = await response.json();
-      setSettings(data);
-    } catch (error) {
-      console.error("Error fetching digest settings:", error);
+
+      const validatedData = digestSettingsSchema.safeParse(data);
+      if (!validatedData.success) {
+        console.error("Invalid digest settings data:", validatedData.error.format());
+        toast.error("Failed to load digest settings");
+        setError("Invalid settings data received from server");
+        return;
+      }
+
+      setSettings(validatedData.data);
+      setLocalAdminEmail(validatedData.data.admin_email);
+      setError(null);
+    } catch (err) {
+      console.error("Error fetching digest settings:", err);
       toast.error("Failed to load digest settings");
+      setError("Failed to load settings. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -67,8 +104,8 @@ export function DigestSettingsForm() {
       if (!response.ok) throw new Error("Failed to save settings");
 
       toast.success("Digest settings saved successfully");
-    } catch (error) {
-      console.error("Error saving digest settings:", error);
+    } catch (err) {
+      console.error("Error saving digest settings:", err);
       toast.error("Failed to save digest settings");
     } finally {
       setSaving(false);
@@ -87,8 +124,8 @@ export function DigestSettingsForm() {
       const data = await response.json();
       toast.success(`Digest sent to ${data.recipientEmail}`);
       fetchSettings();
-    } catch (error) {
-      console.error("Error sending manual digest:", error);
+    } catch (err) {
+      console.error("Error sending manual digest:", err);
       toast.error("Failed to send digest");
     } finally {
       setSending(false);
@@ -103,7 +140,20 @@ export function DigestSettingsForm() {
     );
   }
 
-  if (!settings) return null;
+  if (error || !settings) {
+    return (
+      <div className="max-w-3xl">
+        <div className="p-6 border rounded-lg bg-destructive/10 text-destructive-foreground">
+          <AlertCircle className="h-5 w-5 mb-4" />
+          <h3 className="font-semibold text-lg">Failed to Load Settings</h3>
+          <p className="text-sm mt-2">{error || "Unable to load digest settings."}</p>
+          <Button onClick={fetchSettings} variant="outline" className="mt-4">
+            Retry
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -154,10 +204,8 @@ export function DigestSettingsForm() {
             <Input
               id="adminEmail"
               type="email"
-              value={settings.admin_email}
-              onChange={(e) =>
-                setSettings({ ...settings, admin_email: e.target.value })
-              }
+              value={localAdminEmail}
+              onChange={(e) => setLocalAdminEmail(e.target.value)}
               placeholder="admin@example.com"
             />
             <p className="text-xs text-muted-foreground">

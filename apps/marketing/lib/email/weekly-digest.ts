@@ -11,6 +11,14 @@ function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n]/g, "").replace(/[\x00-\x1F\x7F]/g, "");
 }
 
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 interface WaitlistSignup {
   instructorName: string;
   mentorshipType: "one-on-one" | "group";
@@ -65,14 +73,6 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
 } {
   const { periodStart, periodEnd } = data;
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
   const periodRange = `${formatDate(periodStart)} - ${formatDate(periodEnd)}`;
   const subject = `Weekly Digest: ${periodRange}`;
 
@@ -80,7 +80,6 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
     "Huckleberry Mentorships Weekly Digest",
     "",
     `${periodRange}`,
-    "",
     `Waitlist Signups: ${data.waitlistSignups.length} new`,
     `Emails Sent: ${data.notificationsSent.reduce((sum, n) => sum + n.count, 0)}`,
     `Conversions: ${data.conversions.length} waitlist users purchased`,
@@ -100,42 +99,6 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
     ),
   ].join("\n");
 
-  const inventoryStatusHtml = data.inventoryStatus.length > 0
-    ? `
-    <div style="margin-bottom:32px">
-      <div style="font-weight:700;margin-bottom:12px;font-size:16px;color:#111827">Current Inventory Status</div>
-      <table style="width:100%;border-collapse:collapse">
-        <thead>
-          <tr style="border-bottom:2px solid #E5E7EB">
-            <th style="text-align:left;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">Instructor</th>
-            <th style="text-align:center;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">1-on-1</th>
-            <th style="text-align:center;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">Group</th>
-            <th style="text-align:center;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${data.inventoryStatus.map((inv) => {
-            const isOutOfStock = inv.oneOnOneInventory === 0 && inv.groupInventory === 0;
-            return `
-              <tr style="border-bottom:1px solid #F3F4F6">
-                <td style="padding:12px 8px;color:#111827;font-weight:500">${escapeHtml(inv.instructorName)}</td>
-                <td style="text-align:center;padding:12px 8px;color:#111827">${inv.oneOnOneInventory}</td>
-                <td style="text-align:center;padding:12px 8px;color:#111827">${inv.groupInventory}</td>
-                <td style="text-align:center;padding:12px 8px">
-                  ${isOutOfStock
-                    ? '<span style="display:inline-block;padding:4px 12px;background:#FEF2F2;color:#DC2626;border-radius:9999px;font-size:12px;font-weight:600">Waitlist Active</span>'
-                    : '<span style="display:inline-block;padding:4px 12px;background:#ECFDF5;color:#059669;border-radius:9999px;font-size:12px;font-weight:600">Available</span>'
-                  }
-                </td>
-              </tr>
-            `;
-          }).join("")}
-        </tbody>
-      </table>
-    </div>
-    `
-    : "";
-
   const waitlistSignupsHtml = data.waitlistSignups.length > 0
     ? `
     <div style="margin-bottom:32px">
@@ -143,8 +106,8 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
         Waitlist Signups (${data.waitlistSignups.length} new)
       </div>
       <div style="background:#F9FAFB;border-radius:8px;padding:16px">
-        ${data.waitlistSignups.slice(0, 10).map((signup) => `
-          <div style="padding:8px 0;border-bottom:1px solid #E5E7EB:last-child{border-bottom:none}">
+        ${data.waitlistSignups.map((signup, index) => `
+          <div style="padding:8px 0;${index === data.waitlistSignups.length - 1 ? '' : 'border-bottom:1px solid #E5E7EB'}">
             <div style="font-weight:500;color:#111827">${escapeHtml(signup.email)}</div>
             <div style="font-size:13px;color:#6B7280">
               ${escapeHtml(signup.instructorName)} • ${signup.mentorshipType === "one-on-one" ? "1-on-1" : "Group"} • ${formatDate(signup.createdAt)}
@@ -166,8 +129,8 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
       <div style="font-weight:700;margin-bottom:12px;font-size:16px;color:#111827">
         Notifications Sent (${data.notificationsSent.reduce((sum, n) => sum + n.count, 0)} emails)
       </div>
-      ${data.notificationsSent.map((notif) => `
-        <div style="padding:12px 0;border-bottom:1px solid #E5E7EB:last-child{border-bottom:none}">
+      ${data.notificationsSent.map((notif, index) => `
+        <div style="padding:12px 0;${index === data.notificationsSent.length - 1 ? '' : 'border-bottom:1px solid #E5E7EB'}">
           <div style="font-weight:500;color:#111827">${escapeHtml(notif.instructorName)} • ${notif.mentorshipType === "one-on-one" ? "1-on-1" : "Group"}</div>
           <div style="font-size:13px;color:#6B7280">${notif.count} waitlist users notified • ${formatDate(notif.sentAt)}</div>
         </div>
@@ -182,12 +145,12 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
       <div style="font-weight:700;margin-bottom:12px;font-size:16px;color:#111827">
         Inventory Changes (${data.inventoryChanges.length} events)
       </div>
-      ${data.inventoryChanges.map((change) => {
+      ${data.inventoryChanges.map((change, index) => {
         const typeLabel = change.type === "manual_update" ? "Manual Update" : "Kajabi Purchase";
         const changeColor = change.after > change.before ? "#059669" : change.after < change.before ? "#DC2626" : "#6B7280";
         const changeArrow = change.after > change.before ? "↑" : change.after < change.before ? "↓" : "→";
         return `
-          <div style="padding:12px 0;border-bottom:1px solid #E5E7EB:last-child{border-bottom:none}">
+          <div style="padding:12px 0;${index === data.inventoryChanges.length - 1 ? '' : 'border-bottom:1px solid #E5E7EB'}">
             <div style="font-weight:500;color:#111827">${escapeHtml(change.instructorName)} ${change.mentorshipType ? `(${change.mentorshipType === "one-on-one" ? "1-on-1" : "Group"})` : ""}</div>
             <div style="font-size:13px;color:#6B7280">
               ${typeLabel} • ${change.before} <span style="color:${changeColor};font-weight:600">${changeArrow}</span> ${change.after} • ${formatDate(change.changedAt)}
@@ -205,14 +168,50 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
       <div style="font-weight:700;margin-bottom:12px;font-size:16px;color:#111827">
         Conversions (${data.conversions.length} waitlist users purchased)
       </div>
-      ${data.conversions.map((conv) => `
-        <div style="padding:12px 0;border-bottom:1px solid #E5E7EB:last-child{border-bottom:none}">
+      ${data.conversions.map((conv, index) => `
+        <div style="padding:12px 0;${index === data.conversions.length - 1 ? '' : 'border-bottom:1px solid #E5E7EB'}">
           <div style="font-weight:500;color:#111827">${escapeHtml(conv.instructorName)} • ${conv.mentorshipType === "one-on-one" ? "1-on-1" : "Group"}</div>
           <div style="font-size:13px;color:#6B7280">
             Waitlisted for ${conv.waitlistDuration} days • Purchased ${formatDate(conv.purchasedAt)}
           </div>
         </div>
       `).join("")}
+    </div>
+    `
+    : "";
+
+  const inventoryStatusHtml = data.inventoryStatus.length > 0
+    ? `
+    <div style="margin-bottom:32px">
+      <div style="font-weight:700;margin-bottom:12px;font-size:16px;color:#111827">Current Inventory Status</div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:2px solid #E5E7EB">
+            <th style="text-align:left;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">Instructor</th>
+            <th style="text-align:center;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">1-on-1</th>
+            <th style="text-align:center;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">Group</th>
+            <th style="text-align:center;padding:12px 8px;color:#6B7280;font-weight:600;font-size:13px">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.inventoryStatus.map((inv, index) => {
+            const isOutOfStock = inv.oneOnOneInventory === 0 && inv.groupInventory === 0;
+            return `
+              <tr style="border-bottom:1px solid #F3F4F6">
+                <td style="padding:12px 8px;color:#111827;font-weight:500">${escapeHtml(inv.instructorName)}</td>
+                <td style="text-align:center;padding:12px 8px;color:#111827">${inv.oneOnOneInventory}</td>
+                <td style="text-align:center;padding:12px 8px;color:#111827">${inv.groupInventory}</td>
+                <td style="text-align:center;padding:12px 8px">
+                  ${isOutOfStock
+                    ? '<span style="display:inline-block;padding:4px 12px;background:#FEF2F2;color:#DC2626;border-radius:9999px;font-size:12px;font-weight:600">Waitlist Active</span>'
+                    : '<span style="display:inline-block;padding:4px 12px;background:#ECFDF5;color:#059669;border-radius:9999px;font-size:12px;font-weight:600">Available</span>'
+                  }
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
     </div>
     `
     : "";

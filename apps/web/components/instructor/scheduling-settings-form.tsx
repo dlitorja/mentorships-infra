@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "sonner";
 import { updateInstructorSettings } from "@/lib/queries/api-client";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
@@ -88,15 +89,14 @@ export function SchedulingSettingsForm({
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructorSettings"] });
+      toast.success("Settings saved successfully");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to save settings");
     },
   });
 
   const saving = saveMutation.isPending;
-  const message = saveMutation.isSuccess
-    ? "Saved."
-    : saveMutation.error instanceof Error
-      ? saveMutation.error.message
-      : null;
 
   function handleDayToggle(day: number, enabled: boolean, start: string, end: string) {
     const dayKey = String(day);
@@ -204,7 +204,6 @@ export function SchedulingSettingsForm({
           <Button type="button" onClick={save} disabled={saving}>
             {saving ? "Saving…" : "Save settings"}
           </Button>
-          {message && <p className="text-sm text-muted-foreground">{message}</p>}
         </div>
       </CardContent>
     </Card>

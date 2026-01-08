@@ -1,35 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import { buildWeeklyDigestEmail } from "@/lib/email/weekly-digest";
 import { getWeeklyDigestData, getPeriodForDigest } from "@/lib/digest-data";
+import { getResendClient, getFromAddress } from "@/lib/email/client";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-function getResendClient(): Resend | null {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("RESEND_API_KEY is not set (required in production)");
-    }
-    return null;
-  }
-
-  return new Resend(apiKey);
-}
-
-function getFromAddress(): string | null {
-  const from = process.env.EMAIL_FROM;
-  if (!from) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("EMAIL_FROM is not set (required in production)");
-    }
-    return null;
-  }
-  return from;
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,6 +60,14 @@ export async function POST(request: NextRequest) {
       headers: emailContent.headers,
     });
 
+    if (sendResult.error) {
+      console.error("Failed to send digest email:", sendResult.error);
+      return NextResponse.json(
+        { error: "Failed to send digest email", details: sendResult.error },
+        { status: 500 }
+      );
+    }
+
     const { error: updateError } = await supabase
       .from("admin_digest_settings")
       .update({
@@ -104,7 +89,7 @@ export async function POST(request: NextRequest) {
       newSignups: digestData.waitlistSignups.length,
       emailsSent: digestData.notificationsSent.reduce((sum, n) => sum + n.count, 0),
       conversions: digestData.conversions.length,
-      emailId: sendResult.data?.id || sendResult.error?.message,
+      emailId: sendResult.data?.id,
     });
   } catch (error) {
     console.error("Error in POST /api/admin/digest-send:", error);

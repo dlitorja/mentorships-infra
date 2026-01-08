@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { queryKeys } from "@/lib/queries/query-keys";
+import { toast } from "sonner";
 import { fetchMentorAvailability, bookSession } from "@/lib/queries/api-client";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
@@ -117,14 +118,14 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });
       setShouldLoadSlots(false);
+      toast.success("Session booked successfully!");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to book session");
     },
   });
 
   const booking = bookSessionMutation.isPending;
-  const bookingError =
-    bookSessionMutation.error instanceof Error
-      ? bookSessionMutation.error.message
-      : null;
 
   function loadSlots() {
     setShouldLoadSlots(true);
@@ -190,7 +191,6 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
             {availabilityErrorMessage && (
               <p className="text-sm text-red-600">{availabilityErrorMessage}</p>
             )}
-            {bookingError && <p className="text-sm text-red-600">{bookingError}</p>}
 
             {availableSlots.length > 0 && (
               <div className="space-y-2">

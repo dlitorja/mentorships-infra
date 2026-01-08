@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CheckCircle2, ArrowLeft } from "lucide-react";
 import { Form, FormField } from "@/components/form";
 import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
+import { toast } from "sonner";
 import { z } from "zod";
 
 const waitlistResponseSchema = z.object({
@@ -29,12 +30,10 @@ function WaitlistPageContent(): React.JSX.Element {
   })();
 
   const [isSuccess, setIsSuccess] = useState(false);
-  const [error, setError] = useState("");
 
   async function handleSubmit(data: WaitlistFormInput): Promise<void> {
-    setError("");
     if (!instructorSlug || !type) {
-      setError("Instructor and type are required");
+      toast.error("Instructor and type are required");
       return;
     }
 
@@ -59,12 +58,18 @@ function WaitlistPageContent(): React.JSX.Element {
       const result = parsed.data;
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to join waitlist");
+        if (result.error?.includes("already on the waitlist")) {
+          toast.info("You're already on the waitlist for this instructor!");
+        } else {
+          throw new Error(result.error || "Failed to join waitlist");
+        }
+        return;
       }
 
       setIsSuccess(true);
+      toast.success("You've been added to the waitlist!");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      toast.error(err instanceof Error ? err.message : "An error occurred");
     }
   }
 
@@ -165,13 +170,7 @@ function WaitlistPageContent(): React.JSX.Element {
                         disabled={form.state.isSubmitting}
                       />
                     )}
-                  </FormField>
-
-                  {error && (
-                    <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                      {error}
-                    </div>
-                  )}
+                   </FormField>
 
                   <Button
                     type="submit"

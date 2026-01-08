@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Toaster } from "sonner";
 
 import { Header } from "@/components/navigation/header";
 import { Footer } from "@/components/navigation/footer";
@@ -27,6 +28,7 @@ export default function RootLayout({
           <Header />
           {children}
           <Footer />
+          <Toaster />
         </body>
       </html>
     </ClerkProvider>

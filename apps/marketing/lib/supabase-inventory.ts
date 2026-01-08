@@ -78,12 +78,11 @@ export async function updateInventory(
           inventory: updates.group_inventory!,
         },
       });
-    } catch (notifyError) {
+   } catch (notifyError) {
       console.error(`Failed to send group notification for ${slug}:`, notifyError);
-    }
-  }
+     }
+   }
 
-  const logs = [];
   if (current && updates.one_on_one_inventory !== undefined && current.one_on_one_inventory !== updates.one_on_one_inventory) {
     await logInventoryChange({
       instructorSlug: slug,
@@ -93,7 +92,6 @@ export async function updateInventory(
       newValue: updates.one_on_one_inventory,
       changedBy: updatedBy,
     });
-    logs.push({ type: "one-on-one", old: current.one_on_one_inventory, new: updates.one_on_one_inventory });
   }
   if (current && updates.group_inventory !== undefined && current.group_inventory !== updates.group_inventory) {
     await logInventoryChange({
@@ -104,7 +102,6 @@ export async function updateInventory(
       newValue: updates.group_inventory,
       changedBy: updatedBy,
     });
-    logs.push({ type: "group", old: current.group_inventory, new: updates.group_inventory });
   }
 
   return data;
@@ -119,7 +116,7 @@ interface InventoryChangeLog {
   changedBy?: string;
 }
 
-export async function logInventoryChange(log: InventoryChangeLog) {
+export async function logInventoryChange(log: InventoryChangeLog): Promise<void> {
   const { error } = await supabase
     .from("inventory_change_log")
     .insert({

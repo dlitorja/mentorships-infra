@@ -2,33 +2,13 @@ import { inngest } from "../client";
 import { createClient } from "@supabase/supabase-js";
 import { instructors, getInstructorBySlug } from "@/lib/instructors";
 import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notification";
-import { Resend } from "resend";
+import { getResendClient, getFromAddress } from "@/lib/email/client";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-function getResendClient(): Resend | null {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("RESEND_API_KEY is not set (required in production)");
-    }
-    return null;
-  }
-
-  return new Resend(apiKey);
-}
-
-function getFromAddress(): string | null {
-  const from = process.env.EMAIL_FROM;
-  if (!from) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error("EMAIL_FROM is not set (required in production)");
-    }
-    return null;
-  }
-  return from;
-}
+const mentorshipTypeSchema = z.enum(["one-on-one", "group"]);
 
 export const handleInventoryAvailable = inngest.createFunction(
   {
@@ -57,12 +37,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     const { instructorSlug, type } = event.data;
 
-    const validTypes = ["one-on-one", "group"] as const;
-    if (!validTypes.includes(type as typeof validTypes[number])) {
-      throw new Error(`Invalid mentorship type: ${type}`);
-    }
-
-    const mentorshipType = type as "one-on-one" | "group";
+    const parsedType = mentorshipTypeSchema.parse(type);
 
     const instructor = await step.run("get-instructor-details", async () => {
       return getInstructorBySlug(instructorSlug);
@@ -74,7 +49,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     }
 
     const offer = instructor.offers.find((o) => {
-      const offerKind = type === "one-on-one" ? "oneOnOne" : "group";
+      const offerKind = parsedType === "one-on-one" ? "oneOnOne" : "group";
       return o.kind === offerKind && o.active !== false;
     });
 
@@ -96,7 +71,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         .from("marketing_waitlist")
         .select("id, email")
         .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type)
+        .eq("mentorship_type", parsedType)
         .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo}`);
 
       if (error) {
@@ -114,14 +89,14 @@ export const handleInventoryAvailable = inngest.createFunction(
         message: "No entries to notify (all notified within last 7 days)",
         count: 0,
         instructorSlug,
-        type,
+        type: parsedType,
       };
     }
 
     const emailContent = await step.run("build-email-content", async () => {
       return buildWaitlistNotificationEmail({
         instructorName: instructor.name,
-        mentorshipType,
+        mentorshipType: parsedType,
         purchaseUrl: offer.url,
       });
     });
@@ -154,23 +129,38 @@ export const handleInventoryAvailable = inngest.createFunction(
       return { successful, failed, results };
     });
 
-    const idsToUpdate = await step.run("fetch-matching-rows", async () => {
+    const successfulIds = await step.run("fetch-matching-rows", async () => {
       const { data: matchingRows, error: selectError } = await supabase
         .from("marketing_waitlist")
         .select("id")
         .in("email", uniqueEmails)
         .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type);
+        .eq("mentorship_type", parsedType);
 
       if (selectError) {
         console.error("Error fetching matching rows:", selectError);
         throw selectError;
       }
 
-      return matchingRows?.map((row) => row.id).filter(Boolean) || [];
+      const emailToIdMap = new Map<string, string>();
+      matchingRows?.forEach((row: { email: string; id: string }) => {
+        emailToIdMap.set(row.email, row.id);
+      });
+
+      const successfulEmails: string[] = [];
+      results.forEach((result) => {
+        if (result.status === "fulfilled") {
+          const sentEmail = (result.value as any)?.to;
+          if (sentEmail && emailToIdMap.has(sentEmail)) {
+            successfulEmails.push(emailToIdMap.get(sentEmail)!);
+          }
+        }
+      });
+
+      return successfulEmails.filter(Boolean);
     });
 
-    if (idsToUpdate.length > 0) {
+    if (successfulIds.length > 0) {
       await step.run("mark-notified", async () => {
         const { error: updateError } = await supabase
           .from("marketing_waitlist")
@@ -179,7 +169,7 @@ export const handleInventoryAvailable = inngest.createFunction(
             last_notification_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .in("id", idsToUpdate);
+          .in("id", successfulIds);
 
         if (updateError) {
           console.error("Error updating waitlist entries:", updateError);
@@ -193,7 +183,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       count: sendResults.successful,
       failed: sendResults.failed,
       instructorSlug,
-      type,
+      type: parsedType,
       notifiedEmails: uniqueEmails.slice(0, 5),
       totalEmails: uniqueEmails.length,
     };

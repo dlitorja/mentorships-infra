@@ -3,11 +3,22 @@ import { requireAdmin } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { z } from "zod";
 
-const digestSettingsSchema = z.object({
+const digestSettingsResponseSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  admin_email: z.string().email(),
+  last_sent_at: z.string().nullable(),
+  updated_at: z.string(),
+});
+
+const digestSettingsUpdateSchema = z.object({
   enabled: z.boolean(),
   frequency: z.enum(["daily", "weekly", "monthly"]),
   adminEmail: z.string().email(),
 });
+
+
 
 export async function GET() {
   try {
@@ -27,7 +38,16 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data);
+    const validatedData = digestSettingsResponseSchema.safeParse(data);
+    if (!validatedData.success) {
+      console.error("Invalid digest settings data:", validatedData.error.format());
+      return NextResponse.json(
+        { error: "Invalid digest settings data" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(validatedData.data);
   } catch (error) {
     console.error("Error in GET /api/admin/digest-settings:", error);
     if (error instanceof Error && error.message === "Unauthorized") {
@@ -45,7 +65,7 @@ export async function PUT(request: NextRequest) {
     await requireAdmin();
 
     const body = await request.json();
-    const validatedData = digestSettingsSchema.parse(body);
+    const validatedData = digestSettingsUpdateSchema.parse(body);
 
     const { data, error } = await supabase
       .from("admin_digest_settings")
