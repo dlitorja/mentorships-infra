@@ -102,7 +102,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     });
 
     const sendResults = await step.run("send-emails", async () => {
-      const sendResults = await Promise.allSettled(
+      const results = await Promise.allSettled(
         uniqueEmails.map((email) =>
           resend.emails.send({
             from,
@@ -115,10 +115,10 @@ export const handleInventoryAvailable = inngest.createFunction(
         )
       );
 
-      const successful = sendResults.filter((r) => r.status === "fulfilled").length;
-      const failed = sendResults.filter((r) => r.status === "rejected").length;
+      const successful = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.filter((r) => r.status === "rejected").length;
 
-      sendResults.forEach((result, index) => {
+      results.forEach((result, index) => {
         if (result.status === "rejected") {
           const email = uniqueEmails[index];
           const reason = (result as PromiseRejectedResult).reason || "Unknown error";
@@ -126,7 +126,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         }
       });
 
-      return { successful, failed, results: sendResults };
+      return { successful, failed, results };
     });
 
     const successfulIds = await step.run("fetch-matching-rows", async () => {
