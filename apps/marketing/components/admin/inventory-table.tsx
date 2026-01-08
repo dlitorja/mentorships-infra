@@ -57,6 +57,9 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
   const [selectedEmails, setSelectedEmails] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
+  // TanStack Form generics use `any` because ReactFormExtendedApi requires 12 type arguments
+  // and our InventoryValues type cannot satisfy the complex generic constraints.
+  // The form's actual typing is enforced through inventorySchema validation.
   const editForm = useForm<InventoryValues, any, any, any, any, any, any, any, any, any, any, any>({
     defaultValues: {
       oneOnOne: 0,
@@ -64,9 +67,6 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
     },
     validators: {
       onChange: inventorySchema,
-    },
-    onSubmit: async ({ value }) => {
-      return value;
     },
   });
 
@@ -246,183 +246,209 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
 
   return (
     <>
-      <editForm.Subscribe selector={(state) => state.values}>
-        {(values) => (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {Object.values(inventory).map((item) => (
-              <Card key={item.id} className="w-full">
-                <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center justify-between text-base">
-                    <span>{item.instructor_name}</span>
-                    {editing === item.instructor_slug ? (
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={handleCancel}>
-                          Cancel
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => handleSave(item.instructor_slug)}
-                          disabled={saving === item.instructor_slug}
-                        >
-                          {saving === item.instructor_slug && (
-                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                          )}
-                          Save
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEdit(item.instructor_slug)}
-                      >
-                        Edit
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {Object.values(inventory).map((item) => {
+          const isEditing = editing === item.instructor_slug;
+
+          return (
+            <Card key={item.id} className="w-full">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center justify-between text-base">
+                  <span>{item.instructor_name}</span>
+                  {isEditing ? (
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={handleCancel}>
+                        Cancel
                       </Button>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="grid grid-cols-2 gap-3">
-                    {item.has_pricing_one_on_one && (
-                      <div className="flex flex-col items-center p-2 bg-muted/20 rounded">
-                        <span className="text-xs font-medium">1-on-1</span>
-                        <span className={`text-xl font-bold ${getStatusColor(
-                          editing === item.instructor_slug ? values.oneOnOne : item.one_on_one_inventory
-                        )}`}>
-                          {editing === item.instructor_slug ? values.oneOnOne : item.one_on_one_inventory}
-                        </span>
-                        {editing === item.instructor_slug ? (
-                          <div className="flex items-center gap-1 mt-1">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => adjustInventory("oneOnOne", -1)}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <Input
-                              type="number"
-                              value={values.oneOnOne}
-                              onChange={(e) =>
-                                editForm.setFieldValue("oneOnOne", parseInt(e.target.value) || 0)
-                              }
-                              className="h-6 w-10 text-center text-xs"
-                              min={0}
-                            />
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => adjustInventory("oneOnOne", 1)}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : item.one_on_one_inventory > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-xs"
-                              onClick={() => notifyWaitlist(item.instructor_name, "one-on-one")}
-                            >
-                              <Bell className="h-3 w-3 mr-1" />
-                              Notify Waitlist
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-xs text-muted-foreground"
-                              onClick={() => openWaitlistModal(item.instructor_name, "one-on-one")}
-                            >
-                              View Waitlist
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
+                      <Button
+                        size="sm"
+                        onClick={() => handleSave(item.instructor_slug)}
+                        disabled={saving === item.instructor_slug}
+                      >
+                        {saving === item.instructor_slug && (
+                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        )}
+                        Save
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleEdit(item.instructor_slug)}
+                    >
+                      Edit
+                    </Button>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-2 gap-3">
+                  {item.has_pricing_one_on_one && (
+                    <div className="flex flex-col items-center p-2 bg-muted/20 rounded">
+                      <span className="text-xs font-medium">1-on-1</span>
+                      {isEditing ? (
+                        <editForm.Subscribe
+                          selector={(state) => state.values.oneOnOne}
+                        >
+                          {(oneOnOne) => (
+                            <>
+                              <span className={`text-xl font-bold ${getStatusColor(oneOnOne)}`}>
+                                {oneOnOne}
+                              </span>
+                              <div className="flex items-center gap-1 mt-1">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => adjustInventory("oneOnOne", -1)}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                <Input
+                                  type="number"
+                                  value={oneOnOne}
+                                  onChange={(e) =>
+                                    editForm.setFieldValue("oneOnOne", parseInt(e.target.value) || 0)
+                                  }
+                                  className="h-6 w-10 text-center text-xs"
+                                  min={0}
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => adjustInventory("oneOnOne", 1)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </editForm.Subscribe>
+                      ) : (
+                        <>
+                          <span className={`text-xl font-bold ${getStatusColor(item.one_on_one_inventory)}`}>
+                            {item.one_on_one_inventory}
+                          </span>
+                          {item.one_on_one_inventory > 0 && (
+                            <div className="flex flex-col gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() => notifyWaitlist(item.instructor_name, "one-on-one")}
+                              >
+                                <Bell className="h-3 w-3 mr-1" />
+                                Notify Waitlist
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs text-muted-foreground"
+                                onClick={() => openWaitlistModal(item.instructor_name, "one-on-one")}
+                              >
+                                View Waitlist
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
 
-                    {item.has_pricing_group && (
-                      <div className="flex flex-col items-center p-2 bg-muted/20 rounded">
-                        <span className="text-xs font-medium">Group</span>
-                        <span className={`text-xl font-bold ${getStatusColor(
-                          editing === item.instructor_slug ? values.group : item.group_inventory
-                        )}`}>
-                          {editing === item.instructor_slug ? values.group : item.group_inventory}
-                        </span>
-                        {editing === item.instructor_slug ? (
-                          <div className="flex items-center gap-1 mt-1">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => adjustInventory("group", -1)}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                            <Input
-                              type="number"
-                              value={values.group}
-                              onChange={(e) =>
-                                editForm.setFieldValue("group", parseInt(e.target.value) || 0)
-                              }
-                              className="h-6 w-10 text-center text-xs"
-                              min={0}
-                            />
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => adjustInventory("group", 1)}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : item.group_inventory > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-xs"
-                              onClick={() => notifyWaitlist(item.instructor_name, "group")}
-                            >
-                              <Bell className="h-3 w-3 mr-1" />
-                              Notify Waitlist
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 text-xs text-muted-foreground"
-                              onClick={() => openWaitlistModal(item.instructor_name, "group")}
-                            >
-                              View Waitlist
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
+                  {item.has_pricing_group && (
+                    <div className="flex flex-col items-center p-2 bg-muted/20 rounded">
+                      <span className="text-xs font-medium">Group</span>
+                      {isEditing ? (
+                        <editForm.Subscribe
+                          selector={(state) => state.values.group}
+                        >
+                          {(group) => (
+                            <>
+                              <span className={`text-xl font-bold ${getStatusColor(group)}`}>
+                                {group}
+                              </span>
+                              <div className="flex items-center gap-1 mt-1">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => adjustInventory("group", -1)}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                <Input
+                                  type="number"
+                                  value={group}
+                                  onChange={(e) =>
+                                    editForm.setFieldValue("group", parseInt(e.target.value) || 0)
+                                  }
+                                  className="h-6 w-10 text-center text-xs"
+                                  min={0}
+                                />
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-6 w-6"
+                                  onClick={() => adjustInventory("group", 1)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </editForm.Subscribe>
+                      ) : (
+                        <>
+                          <span className={`text-xl font-bold ${getStatusColor(item.group_inventory)}`}>
+                            {item.group_inventory}
+                          </span>
+                          {item.group_inventory > 0 && (
+                            <div className="flex flex-col gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs"
+                                onClick={() => notifyWaitlist(item.instructor_name, "group")}
+                              >
+                                <Bell className="h-3 w-3 mr-1" />
+                                Notify Waitlist
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs text-muted-foreground"
+                                onClick={() => openWaitlistModal(item.instructor_name, "group")}
+                              >
+                                View Waitlist
+                              </Button>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
 
-                    {!item.has_pricing_one_on_one && !item.has_pricing_group && (
-                      <p className="text-sm text-muted-foreground col-span-2 text-center">
-                        No mentorship types configured for this instructor.
-                      </p>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  {!item.has_pricing_one_on_one && !item.has_pricing_group && (
+                    <p className="text-sm text-muted-foreground col-span-2 text-center">
+                      No mentorship types configured for this instructor.
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
 
-            {Object.values(inventory).length === 0 && (
-              <Card className="col-span-2">
-                <CardContent className="py-8 text-center text-muted-foreground">
-                  No instructors found.
-                </CardContent>
-              </Card>
-            )}
-          </div>
+        {Object.values(inventory).length === 0 && (
+          <Card className="col-span-2">
+            <CardContent className="py-8 text-center text-muted-foreground">
+              No instructors found.
+            </CardContent>
+          </Card>
         )}
-      </editForm.Subscribe>
+      </div>
 
       {showWaitlistModal && selectedWaitlistInstructor && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
