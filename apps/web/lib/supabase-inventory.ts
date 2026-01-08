@@ -1,7 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ytxtlscmxyqomxhripki.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    "Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set"
+  );
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -60,7 +66,7 @@ export async function decrementInventory(
 
   if (error) {
     console.error("Error decrementing inventory:", error);
-    return false;
+    return null;
   }
 
   return data;
@@ -140,7 +146,7 @@ export async function getAllInstructorsWithInventory() {
 
   if (error) {
     console.error("Error fetching all inventory:", error);
-    return [];
+    return null;
   }
 
   return data;
@@ -177,8 +183,8 @@ export async function getWaitlistForInstructor(
 
   if (error) {
     console.error("Error fetching waitlist:", error);
-    return [];
+    return null;
   }
 
-  return data || [];
+  return data ?? [];
 }

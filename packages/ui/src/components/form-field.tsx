@@ -20,7 +20,7 @@ export function FormField<T>({
   type = "text",
   validator,
   children,
-}: FormFieldProps<T>) {
+}: FormFieldProps<T>): React.ReactNode {
   return (
     <form.Field name={name} validators={validator}>
       {(field) => (
@@ -34,7 +34,7 @@ export function FormField<T>({
             <input
               id={field.name}
               type={type}
-              value={field.state.value as string}
+              value={typeof field.state.value === "string" ? field.state.value : ""}
               onChange={(e) => field.handleChange(e.target.value as T)}
               onBlur={field.handleBlur}
               placeholder={placeholder}
@@ -52,16 +52,23 @@ export function FormField<T>({
 
 interface FormProps<T> {
   defaultValues: T;
-  validators?: { onChange: z.ZodSchema<T> };
+  validator?: { onChange: z.ZodSchema<T> };
   onSubmit: (values: T) => Promise<void>;
   children: ReactNode | ((form: ReturnType<typeof useForm<T>>) => ReactNode);
 }
 
-export function Form<T>({ defaultValues, validators, onSubmit, children }: FormProps<T>) {
+export function Form<T>({
+  defaultValues,
+  validator,
+  onSubmit,
+  children,
+}: FormProps<T>): React.ReactNode {
   const form = useForm<T>({
     defaultValues,
-    validators,
-    onSubmit,
+    validator,
+    onSubmit: async ({ value }) => {
+      await onSubmit(value);
+    },
   });
 
   return (

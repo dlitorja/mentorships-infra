@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
@@ -8,21 +7,30 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle2, ArrowLeft } from "lucide-react";
 import { Form, FormField } from "@/components/form";
-import { waitlistFormSchema } from "@/lib/validators";
+import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
+import { z } from "zod";
 
-interface WaitlistFormData {
-  email: string;
-}
+const waitlistResponseSchema = z.object({
+  success: z.boolean().optional(),
+  message: z.string().optional(),
+  error: z.string().optional(),
+});
 
 function WaitlistPageContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const instructorSlug = searchParams.get("instructor");
-  const type = searchParams.get("type") as "one-on-one" | "group" | null;
+  const typeParam = searchParams.get("type");
+  const type: "one-on-one" | "group" | null = (() => {
+    if (typeParam === "one-on-one" || typeParam === "group") {
+      return typeParam;
+    }
+    return null;
+  })();
 
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSubmit(data: WaitlistFormData) {
+  async function handleSubmit(data: WaitlistFormInput) {
     setError("");
     if (!instructorSlug || !type) {
       setError("Instructor and type are required");
@@ -40,7 +48,14 @@ function WaitlistPageContent(): React.JSX.Element {
         }),
       });
 
-      const result = await response.json();
+      const rawResult = await response.json();
+      const parsed = waitlistResponseSchema.safeParse(rawResult);
+
+      if (!parsed.success) {
+        throw new Error("Invalid response from server");
+      }
+
+      const result = parsed.data;
 
       if (!response.ok) {
         throw new Error(result.error || "Failed to join waitlist");
@@ -125,9 +140,9 @@ function WaitlistPageContent(): React.JSX.Element {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Form<WaitlistFormData>
+            <Form<WaitlistFormInput>
               defaultValues={{ email: "" }}
-              validators={{ onChange: waitlistFormSchema }}
+              validator={{ onChange: waitlistFormSchema }}
               onSubmit={handleSubmit}
             >
               {(form) => (

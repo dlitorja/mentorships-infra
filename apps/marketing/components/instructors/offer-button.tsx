@@ -6,7 +6,7 @@ import { Loader2, Mail, X } from "lucide-react";
 import { toast } from "sonner";
 import { addToWaitlist } from "@/lib/supabase-inventory";
 import { Form, FormField } from "@/components/form";
-import { waitlistFormSchema } from "@/lib/validators";
+import { waitlistFormSchema, WaitlistFormInput } from "@/lib/validators";
 
 interface InventoryStatus {
   oneOnOne: number;
@@ -21,17 +21,13 @@ interface OfferButtonProps {
   instructorSlug: string;
 }
 
-interface WaitlistFormData {
-  email: string;
-}
-
 export function OfferButton({ kind, label, url, inventory, instructorSlug }: OfferButtonProps) {
   const [showWaitlist, setShowWaitlist] = useState(false);
   const [joined, setJoined] = useState(false);
 
   const available = inventory[kind] > 0;
 
-  async function handleWaitlistSubmit(data: WaitlistFormData) {
+  async function handleWaitlistSubmit(data: WaitlistFormInput) {
     try {
       const result = await addToWaitlist(
         data.email,
@@ -99,9 +95,9 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
     }
 
     return (
-      <Form<WaitlistFormData>
+      <Form<WaitlistFormInput>
         defaultValues={{ email: "" }}
-        validators={{ onChange: waitlistFormSchema }}
+        validator={{ onChange: waitlistFormSchema }}
         onSubmit={handleWaitlistSubmit}
       >
         {(form) => (
