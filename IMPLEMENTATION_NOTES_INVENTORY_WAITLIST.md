@@ -40,10 +40,12 @@ This document tracks the implementation of an authenticated admin dashboard in a
 ## Current State
 
 - **PR #48**: Phase 2 merged
-- **Phase 3**: Completed (Kajabi webhook with Inngest integration)
+- **PR #50**: Phase 3 merged
+- **PR #51**: Form migrations merged (all 5 forms)
 - **Build Status**: ✅ Both apps build successfully
-- **TanStack Form**: Uses `any` types workaround (see Known Issues)
+- **TanStack Form**: All forms use TanStack Form + Zod with typed parameters
 - **Middleware**: Renamed to `proxy.ts` (Next.js 16 requirement)
+- **Deployment**: ✅ Production deployed
 
 ## Form Standards
 
@@ -266,18 +268,25 @@ When apps/marketing develops features ahead of apps/web:
 
 | Status | Count |
 |--------|-------|
-| Already using TanStack Form | 4 |
-| Using manual state (MIGRATED) | 5 |
+| Using TanStack Form + Zod | 9 |
 | Using react-hook-form | 0 |
+| Using manual state | 0 |
 
-**Migrations Completed (feat/tanstack-form-migrations):**
+**Migrations Completed (PR #51):**
 1. ✅ MenteeOnboardingForm (HIGH - core flow)
 2. ✅ BookSessionForm (HIGH - core flow)
 3. ✅ SchedulingSettingsForm (MEDIUM - complex nested state)
 4. ✅ Checkout page (LOW - simple)
 5. ✅ InventoryTable (LOW - admin only)
 
-**Note:** Forms now use `useForm` directly from `@tanstack/react-form` instead of `@mentorships/ui` due to workspace package resolution issues with Next.js/Turbopack. The ui package exports are available but not used in the migrated forms.
+**Key Improvements in PR #51:**
+- Added full 12-type-parameter generic signature to `TypedFormApi` with documented justification for `any` usage
+- Memoized FormContext.Provider value to prevent unnecessary re-renders
+- Added explicit return type to `useAppForm` to maintain type inference
+- Removed no-op `onSubmit` handlers and `throw error` statements to prevent unhandled rejections
+- Optimized InventoryTable rendering: moved `editForm.Subscribe` inside each Card so only editing card re-renders
+- Added inline comments explaining TanStack Form generic constraints where `any` is used
+- Forms use direct `useForm` imports from `@tanstack/react-form` due to Next.js/Turbopack workspace resolution
 
 ---
 
@@ -392,7 +401,7 @@ When apps/marketing develops features ahead of apps/web:
 **Phase 2: Unified Waitlist with Supabase + TanStack Form**
 - GitHub PR: https://github.com/dlitorja/mentorships-infra/pull/48
 - Branch: `feat/phase2-waitlist-supabase`
-- Status: In review
+- Status: ✅ Merged
 
 Key changes:
 - Created `@mentorships/schemas` package with shared Zod schemas
@@ -400,6 +409,27 @@ Key changes:
 - Consolidated waitlist storage to Supabase (single source of truth)
 - Migrated marketing waitlist forms to TanStack Form + Zod
 - Renamed `middleware.ts` → `proxy.ts` (Next.js 16)
+
+**Phase 3: Kajabi Webhook + Inngest**
+- GitHub PR: https://github.com/dlitorja/mentorships-infra/pull/50
+- Branch: `feat/phase3-kajabi-inngest`
+- Status: ✅ Merged
+
+Key changes:
+- Created Kajabi webhook endpoint with offer mapping verification
+- Integrated Inngest for background inventory change processing
+- Set up waitlist notification triggers when inventory becomes available
+
+**Form Migrations to TanStack Form**
+- GitHub PR: https://github.com/dlitorja/mentorships-infra/pull/51
+- Branch: `feat/tanstack-form-migrations`
+- Status: ✅ Merged
+
+Key changes:
+- Migrated 5 remaining forms to TanStack Form + Zod
+- Improved type safety with documented `any` usage for generic parameters
+- Optimized InventoryTable rendering with targeted subscriptions
+- Fixed error handling to prevent unhandled promise rejections
 
 ---
 
@@ -421,39 +451,38 @@ Key changes:
 
 ## Known Issues / Limitations
 
-1. **Main DB migration not applied**: The main database (PostgreSQL) doesn't have the inventory columns yet. The marketing app uses Supabase as the source of truth for inventory.
+1. **Main DB migration not applied**: The main database (PostgreSQL) doesn't have inventory columns yet. The marketing app uses Supabase as source of truth for inventory.
 
 2. **React peer dependency warnings**: Clerk shows warnings for React 19 but works fine.
 
 3. **Email notifications not implemented**: Phase 4 not yet complete.
 
-4. **TanStack Form v1.27 type complexity**: Uses `any` types in FormContext due to FormApi requiring 11-12 type arguments. Uses `ReactFormExtendedApi<any, ...>` pattern for typed forms.
-
-5. **Forms migration complete**: All 5 forms migrated to TanStack Form + Zod. Forms use direct `useForm` imports from `@tanstack/react-form` due to Next.js/Turbopack workspace package resolution issues.
-
-6. **Middleware deprecated**: Renamed `middleware.ts` to `proxy.ts` per Next.js 16 requirements.
+4. **TanStack Form type complexity**: `TypedFormApi` uses documented `any` for 11 of 12 generic parameters to avoid complexity. Justified in form-field.tsx lines 13-20.
 
 ---
 
 ## Next Session Tasks
 
-1. **Phase 4: Waitlist Notifications**
-   - Email template for waitlist notifications
-   - Inngest function for processing notifications (extend existing)
-   - Resend integration for sending emails
-   - Weekly digest cron job
+1. **Phase 4: Waitlist Notifications** (~8 hours)
+   - [ ] Email template for waitlist notifications
+   - [ ] Inngest function for processing notifications (extend existing)
+   - [ ] Resend integration for sending emails
+   - [ ] Weekly digest cron job
+   - [ ] Email frequency tracking (max once/week)
 
-2. **Form Migrations - COMPLETED**
-   - ✅ MenteeOnboardingForm (file upload flow)
-   - ✅ BookSessionForm (query-based slots)
-   - ✅ SchedulingSettingsForm (nested state)
-   - ✅ Checkout page (simple form)
-   - ✅ InventoryTable (admin UI)
+2. **Phase 5: UI Polish** (~4 hours)
+   - [ ] Loading states across all forms
+   - [ ] Toast notifications for success/error feedback
+   - [ ] Error handling improvements
+   - [ ] Mobile responsive design verification
 
-3. **Known Issues to Address**
-   - [ ] Update FormContext types when TanStack Form releases stable generics
-   - [ ] Remove middleware.ts → proxy.ts rename note (done)
-   - [ ] Add PR reference for Phase 2 changes
+3. **Database Migration**
+   - [ ] Apply main DB migration to add inventory columns to mentors table
+   - [ ] Update apps to use main DB for inventory (instead of Supabase)
+
+4. **Optional Improvements**
+   - [ ] Consider removing `useForm` direct imports if Next.js/Turbopack workspace resolution improves
+   - [ ] Revisit TanStack Form types when stable generics are released
 
 ---
 
@@ -464,6 +493,7 @@ Key changes:
 | Phase 1: Database & Admin Foundation | ✅ | - |
 | Phase 2: Unified Waitlist + TanStack Form | ✅ | #48 |
 | Phase 3: Kajabi Webhook + Inngest | ✅ | #50 |
-| Form Migrations (5 forms) | ✅ | #51 |
+| Form Migrations (9 forms) | ✅ | #51 |
 | Phase 4: Waitlist Notifications | ⏳ Pending | - |
 | Phase 5: UI Polish | ⏳ Pending | - |
+| Main DB Migration | ⏳ Pending | - |
