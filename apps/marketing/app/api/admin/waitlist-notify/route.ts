@@ -55,7 +55,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { instructorSlug, type } = parsed.data;
 
-    await inngest.send({
+    const inngestResult = await inngest.send({
       name: "waitlist/notify-users",
       data: {
         instructorSlug,
@@ -64,9 +64,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
 
+    if (!inngestResult || !inngestResult.ids || inngestResult.ids.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Failed to queue notification job",
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      message: "Notification job queued",
+      message: "Notification job queued successfully",
     });
   } catch (error) {
     console.error("Error sending notifications:", error);
