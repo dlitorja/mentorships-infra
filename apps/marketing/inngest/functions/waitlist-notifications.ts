@@ -143,6 +143,14 @@ export const processWaitlistNotifications = inngest.createFunction(
       const successful = results.filter((r) => r.status === "fulfilled").length;
       const failed = results.filter((r) => r.status === "rejected").length;
 
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          const email = uniqueEmails[index];
+          const reason = (result as PromiseRejectedResult).reason || "Unknown error";
+          console.error(`Failed to send email to ${email}: ${reason}`);
+        }
+      });
+
       return { successful, failed, results };
     });
 
