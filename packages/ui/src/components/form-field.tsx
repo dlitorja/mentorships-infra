@@ -128,7 +128,7 @@ export function useAppForm<T>(opts: {
     onSubmit?: z.ZodSchema<T>;
   };
   onSubmit?: (values: T) => Promise<void>;
-}) {
+}): ReturnType<typeof useTanStackForm> {
   return useTanStackForm<T, any, any, any, any, any, any, any, any, any, any, any>(opts as any);
 }
 
