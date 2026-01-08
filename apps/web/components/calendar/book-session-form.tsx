@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { queryKeys } from "@/lib/queries/query-keys";
 import { fetchMentorAvailability, bookSession } from "@/lib/queries/api-client";
+import { useForm } from "@tanstack/react-form";
+import { z } from "zod";
 
 type PackOption = {
   id: string;
@@ -19,29 +21,39 @@ function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+const bookSessionSchema = z.object({
+  selectedPackId: z.string().min(1, "Please select a pack"),
+});
+
 export function BookSessionForm({ packs }: { packs: PackOption[] }) {
-  const eligiblePacks = useMemo(
+  const queryClient = useQueryClient();
+  
+  const form = useForm({
+    defaultValues: {
+      selectedPackId: "",
+    },
+    validators: {
+      onChange: bookSessionSchema,
+    },
+  });
+
+  const eligiblePacks = React.useMemo(
     () => packs.filter((p) => p.status === "active" && p.remainingSessions > 0),
     [packs]
   );
 
-  const [selectedPackId, setSelectedPackId] = useState<string>(
-    eligiblePacks[0]?.id ?? ""
-  );
+  const selectedPackId = form.getFieldValue("selectedPackId") as string;
   const selectedPack = eligiblePacks.find((p) => p.id === selectedPackId) ?? null;
 
   const [shouldLoadSlots, setShouldLoadSlots] = useState(false);
-  const queryClient = useQueryClient();
 
-  // Calculate date range for availability
-  const dateRange = useMemo(() => {
+  const dateRange = React.useMemo(() => {
     if (!selectedPack || !shouldLoadSlots) return null;
     const start = new Date();
     const end = addDays(start, 7);
     return { start: start.toISOString(), end: end.toISOString() };
   }, [selectedPack, shouldLoadSlots]);
 
-  // Fetch availability
   const {
     data: availabilityData,
     isLoading: loadingSlots,
@@ -65,7 +77,7 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
   const availableSlots = availabilityData?.availableSlots ?? [];
   const error =
     availabilityError instanceof Error ? availabilityError.message : null;
-  const info = useMemo(() => {
+  const info = React.useMemo(() => {
     if (availabilityData?.truncated) {
       return "Showing the first 500 available slots (range truncated).";
     }
@@ -75,20 +87,19 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
     return null;
   }, [availabilityData, availableSlots.length, loadingSlots, shouldLoadSlots]);
 
-  // Handle availability errors
-  const availabilityErrorMessage = useMemo(() => {
+  const availabilityErrorMessage = React.useMemo(() => {
     if (
       availabilityError &&
       availabilityError instanceof Error &&
       ((availabilityError as Error & { code?: string }).code === "GOOGLE_CALENDAR_NOT_CONNECTED" ||
         availabilityError.message.includes("GOOGLE_CALENDAR_NOT_CONNECTED"))
     ) {
-      return null; // This becomes info, not error
+      return null;
     }
     return error;
   }, [error, availabilityError]);
 
-  const availabilityInfo = useMemo(() => {
+  const availabilityInfo = React.useMemo(() => {
     if (
       availabilityError &&
       availabilityError instanceof Error &&
@@ -100,15 +111,12 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
     return info;
   }, [error, info, availabilityError]);
 
-  // Book session mutation
   const bookSessionMutation = useMutation({
     mutationFn: (scheduledAtIso: string) =>
       bookSession({ sessionPackId: selectedPack!.id, scheduledAt: scheduledAtIso }),
     onSuccess: () => {
-      // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });
-      // Refresh page to show the newly created session in the server component list
-      window.location.reload();
+      setShouldLoadSlots(false);
     },
   });
 
@@ -127,38 +135,40 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
     bookSessionMutation.mutate(scheduledAtIso);
   }
 
+  function handlePackChange(packId: string) {
+    form.setFieldValue("selectedPackId", packId);
+    setShouldLoadSlots(false);
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Book a Session</CardTitle>
         <CardDescription>
-          Availability is checked against the mentor’s Google Calendar before booking.
+          Availability is checked against the mentor's Google Calendar before booking.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {eligiblePacks.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            You don’t have any active packs with remaining sessions.
+            You don't have any active packs with remaining sessions.
           </p>
         ) : (
           <>
             <div className="space-y-2">
               <label className="text-sm font-medium">Session pack</label>
-              <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                value={selectedPackId}
-                onChange={(e) => {
-                  setSelectedPackId(e.target.value);
-                  // Reset availability loading when pack changes
-                  setShouldLoadSlots(false);
-                }}
-              >
-                {eligiblePacks.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.remainingSessions} remaining (expires {new Date(p.expiresAt).toLocaleDateString()})
-                  </option>
-                ))}
-              </select>
+                <select
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={selectedPackId}
+                  onChange={(e) => handlePackChange(e.target.value)}
+                >
+                  <option value="">Select a pack...</option>
+                  {eligiblePacks.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.remainingSessions} remaining (expires {new Date(p.expiresAt).toLocaleDateString()})
+                    </option>
+                  ))}
+                </select>
             </div>
 
             <div className="flex gap-2">
@@ -220,4 +230,3 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
     </Card>
   );
 }
-

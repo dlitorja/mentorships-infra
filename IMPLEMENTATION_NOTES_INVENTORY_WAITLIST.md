@@ -267,15 +267,17 @@ When apps/marketing develops features ahead of apps/web:
 | Status | Count |
 |--------|-------|
 | Already using TanStack Form | 4 |
-| Using manual state (TO MIGRATE) | 5 |
+| Using manual state (MIGRATED) | 5 |
 | Using react-hook-form | 0 |
 
-**Migration Order:**
-1. MenteeOnboardingForm (HIGH - core flow)
-2. BookSessionForm (HIGH - core flow)
-3. SchedulingSettingsForm (MEDIUM - complex nested state)
-4. Checkout page (LOW - simple)
-5. InventoryTable (LOW - admin only)
+**Migrations Completed (feat/tanstack-form-migrations):**
+1. ✅ MenteeOnboardingForm (HIGH - core flow)
+2. ✅ BookSessionForm (HIGH - core flow)
+3. ✅ SchedulingSettingsForm (MEDIUM - complex nested state)
+4. ✅ Checkout page (LOW - simple)
+5. ✅ InventoryTable (LOW - admin only)
+
+**Note:** Forms now use `useForm` directly from `@tanstack/react-form` instead of `@mentorships/ui` due to workspace package resolution issues with Next.js/Turbopack. The ui package exports are available but not used in the migrated forms.
 
 ---
 
@@ -425,9 +427,9 @@ Key changes:
 
 3. **Email notifications not implemented**: Phase 4 not yet complete.
 
-4. **TanStack Form v1.27 type complexity**: Uses `any` types in FormContext due to FormApi requiring 11-12 type arguments. TODO: Replace with strict interface when TanStack Form exposes stable types.
+4. **TanStack Form v1.27 type complexity**: Uses `any` types in FormContext due to FormApi requiring 11-12 type arguments. Uses `ReactFormExtendedApi<any, ...>` pattern for typed forms.
 
-5. **Forms using manual state**: 5 forms need migration to TanStack Form + Zod (see Forms Audit Summary).
+5. **Forms migration complete**: All 5 forms migrated to TanStack Form + Zod. Forms use direct `useForm` imports from `@tanstack/react-form` due to Next.js/Turbopack workspace package resolution issues.
 
 6. **Middleware deprecated**: Renamed `middleware.ts` to `proxy.ts` per Next.js 16 requirements.
 
@@ -441,14 +443,27 @@ Key changes:
    - Resend integration for sending emails
    - Weekly digest cron job
 
-2. **Complete Form Migrations**
-   - MenteeOnboardingForm (file upload flow)
-   - BookSessionForm (query-based slots)
-   - SchedulingSettingsForm (nested state)
-   - Checkout page (simple form)
-   - InventoryTable (admin UI)
+2. **Form Migrations - COMPLETED**
+   - ✅ MenteeOnboardingForm (file upload flow)
+   - ✅ BookSessionForm (query-based slots)
+   - ✅ SchedulingSettingsForm (nested state)
+   - ✅ Checkout page (simple form)
+   - ✅ InventoryTable (admin UI)
 
 3. **Known Issues to Address**
    - [ ] Update FormContext types when TanStack Form releases stable generics
    - [ ] Remove middleware.ts → proxy.ts rename note (done)
    - [ ] Add PR reference for Phase 2 changes
+
+---
+
+## Implementation Progress
+
+| Milestone | Status | PR |
+|-----------|--------|-----|
+| Phase 1: Database & Admin Foundation | ✅ | - |
+| Phase 2: Unified Waitlist + TanStack Form | ✅ | #48 |
+| Phase 3: Kajabi Webhook + Inngest | ✅ | #50 |
+| Form Migrations (5 forms) | ✅ | #51 |
+| Phase 4: Waitlist Notifications | ⏳ Pending | - |
+| Phase 5: UI Polish | ⏳ Pending | - |

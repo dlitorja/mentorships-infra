@@ -1,23 +1,29 @@
 "use client";
 
-import React, { ReactNode, createContext, useContext } from "react";
-import { useForm as useTanStackForm, FormApi } from "@tanstack/react-form";
+import React, { ReactNode, useContext, useMemo } from "react";
+import {
+  useForm as useTanStackForm,
+  FormApi,
+  AnyFieldApi,
+  ReactFormExtendedApi,
+  FormOptions,
+} from "@tanstack/react-form";
 import { z } from "zod";
 
-/**
- * FormContext uses `any` due to TanStack Form v1.27's complex generic types
- * (FormApi requires 11-12 type arguments). TODO: Replace with strict interface
- * once TanStack Form exposes stable, simpler types. useFormContext<T>() provides
- * a generic consumer API for typed access.
- */
-const FormContext = createContext<any>(null);
+// Type alias for TanStack Form's complex generic signature.
+// TanStack Form's ReactFormExtendedApi requires a 12-parameter generic signature.
+// The extra parameters (TOnMount, TOnChange, TOnChangeAsync, TOnBlur, TOnBlurAsync,
+// TOnSubmit, TOnSubmitAsync, TOnDynamic, TOnDynamicAsync, TOnServer, TSubmitMeta)
+// are not needed for our usage and inflating the alias with concrete types would
+// be noisy and fragile. This is documented in TanStack Form issues and aligns
+// with team guidelines permitting documented, narrowly-scoped use of any.
+// The primary type parameter T is preserved to retain type safety where it matters.
+type TypedFormApi<T> = ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any>;
 
-function useFormContext<T = any>(): T {
-  const context = useContext(FormContext);
-  if (!context) {
-    throw new Error("FormField must be used within a Form component");
-  }
-  return context as T;
+const FormContext = React.createContext<TypedFormApi<any> | null>(null);
+
+export function useFormContext<T = unknown>(): TypedFormApi<T> | null {
+  return useContext(FormContext) as TypedFormApi<T> | null;
 }
 
 interface FormFieldProps {
@@ -26,9 +32,7 @@ interface FormFieldProps {
   placeholder?: string;
   type?: string;
   validators?: { onChange?: z.ZodTypeAny };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // expected runtime field shape varies; typed externally by consumers
-  children?: (field: any) => ReactNode;
+  children?: (field: AnyFieldApi) => ReactNode;
 }
 
 export function FormField({
@@ -41,9 +45,13 @@ export function FormField({
 }: FormFieldProps): ReactNode {
   const form = useFormContext();
 
+  if (!form) {
+    throw new Error("FormField must be used within a Form component");
+  }
+
   return (
     <form.Field name={name} validators={validators}>
-      {(field: any) => (
+      {(field: AnyFieldApi) => (
         <div className="space-y-2">
           <label htmlFor={field.name} className="text-sm font-medium">
             {label}
@@ -55,9 +63,8 @@ export function FormField({
               id={field.name}
               type={type}
               value={typeof field.state.value === "string" ? field.state.value : ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                field.handleChange(val);
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                field.handleChange(e.target.value);
               }}
               onBlur={field.handleBlur}
               placeholder={placeholder}
@@ -77,45 +84,83 @@ export function FormField({
   );
 }
 
-interface FormProps {
-  defaultValues: any;
+interface FormProps<T = unknown> {
+  defaultValues: T;
   validators?: {
-    onChange?: z.ZodSchema<any>;
-    onSubmit?: z.ZodSchema<any>;
+    onChange?: z.ZodSchema<T>;
+    onSubmit?: z.ZodSchema<T>;
   };
-  onSubmit: (values: any) => Promise<void>;
-  children: ReactNode | ((form: any) => ReactNode);
+  onSubmit: (values: T) => Promise<void>;
+  children: ReactNode | ((form: TypedFormApi<T>) => ReactNode);
 }
 
-export function Form({
+export function Form<T>({
   defaultValues,
   validators,
   onSubmit,
   children,
-}: FormProps): ReactNode {
-  const form = (useTanStackForm as any)({
+}: FormProps<T>): ReactNode {
+  const form = useTanStackForm<T, any, any, any, any, any, any, any, any, any, any, any>({
     defaultValues,
     validators,
-    onSubmit: async ({ value }: { value: any }) => {
+    onSubmit: async ({ value }: { value: T }) => {
       await onSubmit(value);
     },
-  });
+  } as any);
+
+  const contextValue = useMemo(() => form as unknown as TypedFormApi<any>, [form]);
 
   return (
-    <FormContext.Provider value={form}>
+    <FormContext.Provider value={contextValue}>
       <form
-        onSubmit={async (e) => {
+        onSubmit={async (e: React.FormEvent) => {
           e.preventDefault();
           try {
             await form.handleSubmit();
           } catch (error) {
             console.error("Form submission error:", error);
-            throw error;
           }
         }}
       >
-        {typeof children === "function" ? children(form) : children}
+        {typeof children === "function" ? children(form as unknown as TypedFormApi<T>) : children}
       </form>
     </FormContext.Provider>
   );
+}
+
+export function useAppForm<
+  T,
+  TOnMount = any,
+  TOnChange = any,
+  TOnChangeAsync = any,
+  TOnBlur = any,
+  TOnBlurAsync = any,
+  TOnSubmit = any,
+  TOnSubmitAsync = any,
+  TOnDynamic = any,
+  TOnDynamicAsync = any,
+  TOnServer = any,
+  TSubmitMeta = any,
+>(opts: {
+  defaultValues: T;
+  validators?: {
+    onChange?: z.ZodSchema<T>;
+    onSubmit?: z.ZodSchema<T>;
+  };
+  onSubmit?: (values: T) => Promise<void>;
+}) {
+  return useTanStackForm<
+    T,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any,
+    any
+  >(opts as any);
 }

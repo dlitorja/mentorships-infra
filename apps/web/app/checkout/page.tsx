@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState } from "react";
+import React, { Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -12,24 +12,46 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { queryKeys } from "@/lib/queries/query-keys";
 import { fetchProduct, createCheckoutSession } from "@/lib/queries/api-client";
+import { useForm } from "@tanstack/react-form";
+import { z } from "zod";
 
-// Force dynamic rendering to prevent static generation issues with useSearchParams
-export const dynamic = "force-dynamic";
+const checkoutSchema = z.object({
+  packId: z.string().min(1, "Product ID is required"),
+});
+
+type CheckoutValues = z.infer<typeof checkoutSchema>;
+
+const productSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  price: z.number(),
+  sessionsPerPack: z.number(),
+  validityDays: z.number(),
+  stripePriceId: z.string().nullable(),
+});
+
+type Product = z.infer<typeof productSchema>;
 
 function CheckoutContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
   const instructorSlug = searchParams.get("instructor");
-  const packIdParam = searchParams.get("packId");
 
-  const [packId, setPackId] = useState(packIdParam || "");
+  const form = useForm({
+    defaultValues: {
+      packId: searchParams.get("packId") || "",
+    },
+    validators: {
+      onChange: checkoutSchema,
+    },
+  });
 
-  // Fetch product using TanStack Query
+  const packId = form.getFieldValue("packId") as string;
+
   const {
     data: product,
     isLoading: isLoadingProduct,
@@ -41,11 +63,9 @@ function CheckoutContent(): React.JSX.Element {
     enabled: !!packId && packId.trim() !== "",
   });
 
-  // Checkout mutation
   const checkoutMutation = useMutation({
     mutationFn: (data: { packId: string }) => createCheckoutSession(data),
     onSuccess: (data) => {
-      // Redirect to Stripe checkout
       if (data.url) {
         window.location.href = data.url;
       } else {
@@ -55,10 +75,6 @@ function CheckoutContent(): React.JSX.Element {
   });
 
   const handleCheckout = () => {
-    if (!packId.trim()) {
-      return;
-    }
-
     if (!product) {
       return;
     }
@@ -70,7 +86,6 @@ function CheckoutContent(): React.JSX.Element {
     checkoutMutation.mutate({ packId: product.id });
   };
 
-  // Determine error message
   const error =
     productError instanceof Error
       ? productError.message
@@ -92,38 +107,48 @@ function CheckoutContent(): React.JSX.Element {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Product ID Input */}
-          <div className="space-y-2">
-            <Label htmlFor="packId">Product ID</Label>
-            <div className="flex gap-2">
-              <Input
-                id="packId"
-                value={packId}
-                onChange={(e) => setPackId(e.target.value)}
-                placeholder="Enter product ID (UUID)"
-                disabled={loading}
-              />
-              <Button
-                onClick={() => refetchProduct()}
-                disabled={!packId.trim() || loading || isLoadingProduct}
-                variant="outline"
-              >
-                {isLoadingProduct ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  "Load"
+          <form.Field name="packId">
+            {(field) => (
+              <div className="space-y-2">
+                <label htmlFor={field.name} className="text-sm font-medium">
+                  Product ID
+                </label>
+                <div className="flex gap-2">
+                  <Input
+                    id={field.name}
+                    value={field.state.value as string}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    placeholder="Enter product ID (UUID)"
+                    disabled={loading}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={!packId.trim() || loading || isLoadingProduct}
+                    onClick={() => refetchProduct()}
+                  >
+                    {isLoadingProduct ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      "Load"
+                    )}
+                  </Button>
+                </div>
+                {field.state.meta.errors.length > 0 && (
+                  <p className="text-sm text-red-600">
+                    {field.state.meta.errors[0]?.message}
+                  </p>
                 )}
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Enter the product ID from your database to load product details
-            </p>
-          </div>
+                <p className="text-sm text-muted-foreground">
+                  Enter the product ID from your database to load product details
+                </p>
+              </div>
+            )}
+          </form.Field>
 
-          {/* Product Details */}
           {product && (
             <div className="border rounded-lg p-4 space-y-3 bg-muted/50">
               <h3 className="font-semibold text-lg">Product Details</h3>
@@ -154,14 +179,12 @@ function CheckoutContent(): React.JSX.Element {
             </div>
           )}
 
-          {/* Error Message */}
           {error && (
             <div className="bg-destructive/10 text-destructive p-3 rounded-md text-sm">
               {error}
             </div>
           )}
 
-          {/* Checkout Button */}
           <div className="flex gap-2">
             <Button
               onClick={handleCheckout}
@@ -187,7 +210,6 @@ function CheckoutContent(): React.JSX.Element {
             </Button>
           </div>
 
-          {/* Help Text */}
           <div className="text-sm text-muted-foreground space-y-1">
             <p>
               <strong>Testing:</strong> Use Stripe test card{" "}
@@ -198,7 +220,6 @@ function CheckoutContent(): React.JSX.Element {
             </p>
           </div>
 
-          {/* Back Link */}
           {instructorSlug && (
             <div className="pt-4 border-t">
               <Link
@@ -238,4 +259,3 @@ export default function CheckoutPage(): React.JSX.Element {
     </Suspense>
   );
 }
-
