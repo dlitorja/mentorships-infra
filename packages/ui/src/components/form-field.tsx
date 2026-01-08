@@ -1,17 +1,17 @@
 "use client";
 
 import React, { ReactNode, createContext, useContext } from "react";
-import { FieldApi, useForm, FormApi } from "@tanstack/react-form";
+import { FieldApi, useForm } from "@tanstack/react-form";
 import { z } from "zod";
 
-const FormContext = createContext<FormApi<any> | null>(null);
+const FormContext = createContext<unknown>(null);
 
-function useFormContext<T>(): FormApi<T> {
+function useFormContext<T>(): unknown {
   const context = useContext(FormContext);
   if (!context) {
     throw new Error("FormField must be used within a Form component");
   }
-  return context as FormApi<T>;
+  return context;
 }
 
 interface FormFieldProps<T> {
@@ -31,7 +31,7 @@ export function FormField<T>({
   validator,
   children,
 }: FormFieldProps<T>): ReactNode {
-  const form = useFormContext<T>();
+  const _form = useFormContext<T>();
 
   return (
     <form.Field name={name} validators={validator}>
@@ -69,7 +69,7 @@ interface FormProps<T> {
   defaultValues: T;
   validator?: { onChange: z.ZodSchema<T> };
   onSubmit: (values: T) => Promise<void>;
-  children: ReactNode | ((form: FormApi<T>) => ReactNode);
+  children: ReactNode | ((form: ReturnType<typeof useForm<T>>) => ReactNode);
 }
 
 export function Form<T>({
