@@ -7,22 +7,6 @@ import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notificatio
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-function getBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_URL) {
-    return process.env.NEXT_PUBLIC_URL;
-  }
-
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("NEXT_PUBLIC_URL or VERCEL_URL must be set in production");
-  }
-
-  return "http://localhost:3000";
-}
-
 function getResendClient(): Resend | null {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -72,6 +56,13 @@ export const processWaitlistNotifications = inngest.createFunction(
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     const { instructorSlug, type } = event.data;
+
+    const validTypes = ["one-on-one", "group"] as const;
+    if (!validTypes.includes(type as typeof validTypes[number])) {
+      throw new Error(`Invalid mentorship type: ${type}`);
+    }
+
+    const mentorshipType = type as "one-on-one" | "group";
 
     const instructor = await step.run("get-instructor-details", async () => {
       return getInstructorBySlug(instructorSlug);
@@ -130,7 +121,7 @@ export const processWaitlistNotifications = inngest.createFunction(
     const emailContent = await step.run("build-email-content", async () => {
       return buildWaitlistNotificationEmail({
         instructorName: instructor.name,
-        mentorshipType: type,
+        mentorshipType,
         purchaseUrl: offer.url,
       });
     });
@@ -167,7 +158,21 @@ export const processWaitlistNotifications = inngest.createFunction(
       throw selectError;
     }
 
-    const idsToUpdate = matchingRows?.map((row) => row.id).filter(Boolean) || [];
+    const idsToUpdate = await step.run("fetch-matching-rows", async () => {
+      const { data: matchingRows, error: selectError } = await supabase
+        .from("marketing_waitlist")
+        .select("id")
+        .in("email", uniqueEmails)
+        .eq("instructor_slug", instructorSlug)
+        .eq("mentorship_type", type);
+
+      if (selectError) {
+        console.error("Error fetching matching rows:", selectError);
+        throw selectError;
+      }
+
+      return matchingRows?.map((row) => row.id).filter(Boolean) || [];
+    });
 
     if (idsToUpdate.length > 0) {
       await step.run("mark-notified", async () => {

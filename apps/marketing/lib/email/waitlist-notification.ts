@@ -4,6 +4,18 @@ export interface WaitlistNotificationData {
   purchaseUrl: string;
 }
 
+function sanitizeUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "#";
+    }
+    return parsed.href;
+  } catch {
+    return "#";
+  }
+}
+
 export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): {
   subject: string;
   html: string;
@@ -27,17 +39,17 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
   const html = `
     <div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:640px;margin:0 auto;padding:24px;color:#111827">
       <div style="font-size:18px;font-weight:700;margin-bottom:12px">Huckleberry Mentorships</div>
-      <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
+        <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
         <div style="font-weight:700;margin-bottom:12px;font-size:16px">Spot Available</div>
         <div style="color:#374151;line-height:1.6;margin-bottom:16px">
           Great news! A spot has opened up for <strong>${escapeHtml(instructorName)}</strong>'s <strong>${escapeHtml(typeLabel)}</strong>.
         </div>
 
-        <a href="${escapeHtml(purchaseUrl)}" style="display:inline-block;padding:14px 20px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">Book Now</a>
+        <a href="${sanitizeUrl(purchaseUrl)}" style="display:inline-block;padding:14px 20px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">Book Now</a>
 
         <p style="margin:16px 0 0 0;color:#6B7280;font-size:12px">
-          If the button doesn't work, copy/paste this link:<br/>
-          <div>${escapeHtml(purchaseUrl)}</div>
+          If button doesn't work, copy/paste this link:<br/>
+          <span style="display:block;font-family:monospace;background:#f3f4f6;padding:4px 8px;margin-top:4px">${escapeHtml(purchaseUrl)}</span>
         </p>
       </div>
     </div>
@@ -49,8 +61,8 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
     text,
     headers: {
       "X-Notification-Type": "waitlist-availability",
-      "X-Instructor-Name": instructorName,
-      "X-Mentorship-Type": mentorshipType,
+      "X-Instructor-Name": sanitizeHeaderValue(instructorName),
+      "X-Mentorship-Type": sanitizeHeaderValue(mentorshipType),
     },
   };
 }
@@ -62,4 +74,8 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]/g, "").replace(/[\x00-\x1F\x7F]/g, "");
 }

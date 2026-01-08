@@ -55,7 +55,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const { instructorSlug, type } = parsed.data;
 
-    const result = await inngest.send({
+    const inngestResult = await inngest.send({
       name: "waitlist/notify-users",
       data: {
         instructorSlug,
@@ -64,30 +64,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
 
-    if (result) {
-      return NextResponse.json({
-        success: false,
-        error: "Failed to queue notification job",
-      });
+    if (!inngestResult || !inngestResult.ids || inngestResult.ids.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Failed to queue notification job",
+        },
+        { status: 500 }
+      );
     }
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    const { data: entries } = await supabase
-      .from("marketing_waitlist")
-      .select("email")
-      .eq("instructor_slug", instructorSlug)
-      .eq("mentorship_type", type)
-      .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo}`);
-
-    const uniqueEmails = [...new Set(entries?.map((e) => e.email) || [])];
 
     return NextResponse.json({
       success: true,
-      message: `${uniqueEmails.length} notifications queued`,
-      notifiedEmails: uniqueEmails.slice(0, 10),
-      totalEmails: uniqueEmails.length,
+      message: "Notification job queued successfully",
     });
   } catch (error) {
     console.error("Error sending notifications:", error);
