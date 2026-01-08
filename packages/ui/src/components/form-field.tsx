@@ -1,23 +1,29 @@
 "use client";
 
-import React, { ReactNode, createContext, useContext } from "react";
-import { useForm as useTanStackForm, FormApi } from "@tanstack/react-form";
+import React, { ReactNode, useContext } from "react";
+import {
+  useForm as useTanStackForm,
+  FormApi,
+  AnyFieldApi,
+  ReactFormExtendedApi,
+} from "@tanstack/react-form";
 import { z } from "zod";
 
-/**
- * FormContext uses `any` due to TanStack Form v1.27's complex generic types
- * (FormApi requires 11-12 type arguments). TODO: Replace with strict interface
- * once TanStack Form exposes stable, simpler types. useFormContext<T>() provides
- * a generic consumer API for typed access.
- */
-const FormContext = createContext<any>(null);
+const FormContext = React.createContext<ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any> | null>(null);
 
-function useFormContext<T = any>(): T {
-  const context = useContext(FormContext);
-  if (!context) {
-    throw new Error("FormField must be used within a Form component");
-  }
-  return context as T;
+export function useFormContext<T = unknown>(): ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any> | null {
+  return useContext(FormContext) as ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any> | null;
+}
+
+export function useAppForm<T>(opts: {
+  defaultValues: T;
+  validators?: {
+    onChange?: z.ZodSchema<T>;
+    onSubmit?: z.ZodSchema<T>;
+  };
+  onSubmit?: (values: T) => Promise<void>;
+}) {
+  return useTanStackForm<T, any, any, any, any, any, any, any, any, any, any, any>(opts as any);
 }
 
 interface FormFieldProps {
@@ -26,9 +32,7 @@ interface FormFieldProps {
   placeholder?: string;
   type?: string;
   validators?: { onChange?: z.ZodTypeAny };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // expected runtime field shape varies; typed externally by consumers
-  children?: (field: any) => ReactNode;
+  children?: (field: AnyFieldApi) => ReactNode;
 }
 
 export function FormField({
@@ -41,9 +45,13 @@ export function FormField({
 }: FormFieldProps): ReactNode {
   const form = useFormContext();
 
+  if (!form) {
+    throw new Error("FormField must be used within a Form component");
+  }
+
   return (
     <form.Field name={name} validators={validators}>
-      {(field: any) => (
+      {(field: AnyFieldApi) => (
         <div className="space-y-2">
           <label htmlFor={field.name} className="text-sm font-medium">
             {label}
@@ -55,9 +63,8 @@ export function FormField({
               id={field.name}
               type={type}
               value={typeof field.state.value === "string" ? field.state.value : ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                field.handleChange(val);
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                field.handleChange(e.target.value);
               }}
               onBlur={field.handleBlur}
               placeholder={placeholder}
@@ -77,34 +84,34 @@ export function FormField({
   );
 }
 
-interface FormProps {
-  defaultValues: any;
+interface FormProps<T = unknown> {
+  defaultValues: T;
   validators?: {
-    onChange?: z.ZodSchema<any>;
-    onSubmit?: z.ZodSchema<any>;
+    onChange?: z.ZodSchema<T>;
+    onSubmit?: z.ZodSchema<T>;
   };
-  onSubmit: (values: any) => Promise<void>;
-  children: ReactNode | ((form: any) => ReactNode);
+  onSubmit: (values: T) => Promise<void>;
+  children: ReactNode | ((form: ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any>) => ReactNode);
 }
 
-export function Form({
+export function Form<T>({
   defaultValues,
   validators,
   onSubmit,
   children,
-}: FormProps): ReactNode {
-  const form = (useTanStackForm as any)({
+}: FormProps<T>): ReactNode {
+  const form = useTanStackForm<T, any, any, any, any, any, any, any, any, any, any, any>({
     defaultValues,
     validators,
-    onSubmit: async ({ value }: { value: any }) => {
+    onSubmit: async ({ value }: { value: T }) => {
       await onSubmit(value);
     },
-  });
+  } as any);
 
   return (
-    <FormContext.Provider value={form}>
+    <FormContext.Provider value={form as unknown as ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>}>
       <form
-        onSubmit={async (e) => {
+        onSubmit={async (e: React.FormEvent) => {
           e.preventDefault();
           try {
             await form.handleSubmit();
@@ -114,7 +121,7 @@ export function Form({
           }
         }}
       >
-        {typeof children === "function" ? children(form) : children}
+        {typeof children === "function" ? children(form as ReactFormExtendedApi<T, any, any, any, any, any, any, any, any, any, any, any>) : children}
       </form>
     </FormContext.Provider>
   );

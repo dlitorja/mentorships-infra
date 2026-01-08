@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { uploadOnboardingImages, submitOnboarding } from "@/lib/queries/api-client";
+import { useForm } from "@tanstack/react-form";
+import { z } from "zod";
 
 type PackOption = {
   sessionPackId: string;
@@ -16,13 +18,29 @@ type PackOption = {
 
 type UploadedImage = { path: string; mimeType: string; sizeBytes: number };
 
+const onboardingSchema = z.object({
+  sessionPackId: z.string().min(1, "Please select a mentorship pack"),
+  goals: z.string().min(10, "Please describe your goals (at least 10 characters)"),
+});
+
 export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
-  const [sessionPackId, setSessionPackId] = useState<string>(packs[0]?.sessionPackId ?? "");
-  const [goals, setGoals] = useState<string>("");
+  const form = useForm({
+    defaultValues: {
+      sessionPackId: "",
+      goals: "",
+    },
+    validators: {
+      onChange: onboardingSchema,
+    },
+  });
+
   const [files, setFiles] = useState<File[]>([]);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+
+  const sessionPackId = form.getFieldValue("sessionPackId") as string;
+  const goals = form.getFieldValue("goals") as string;
 
   const uploadImagesMutation = useMutation({
     mutationFn: (formData: FormData) => uploadOnboardingImages(formData),
@@ -75,10 +93,10 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     setMessage(null);
     if (!canUpload) return;
 
-    const form = new FormData();
-    for (const f of files) form.append("files", f);
+    const formData = new FormData();
+    for (const f of files) formData.append("files", f);
 
-    uploadImagesMutation.mutate(form);
+    uploadImagesMutation.mutate(formData);
   }
 
   async function submit() {
@@ -91,6 +109,13 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     submitOnboardingMutation.mutate();
   }
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = e.target.files;
+    if (selectedFiles) {
+      setFiles(Array.from(selectedFiles));
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -100,36 +125,51 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="pack">Mentorship pack</Label>
-          <select
-            id="pack"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={sessionPackId}
-            onChange={(e) => setSessionPackId(e.target.value)}
-          >
-            {packs.map((p) => (
-              <option key={p.sessionPackId} value={p.sessionPackId}>
-                {p.instructorLabel}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground">
-            If you have multiple instructors, pick the one this onboarding is for.
-          </p>
-        </div>
+        <form.Field name="sessionPackId">
+          {(field) => (
+            <div className="space-y-2">
+              <Label htmlFor={field.name}>Mentorship pack</Label>
+              <select
+                id={field.name}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={field.state.value as string}
+                onChange={(e) => field.handleChange(e.target.value)}
+              >
+                <option value="">Select a pack...</option>
+                {packs.map((p) => (
+                  <option key={p.sessionPackId} value={p.sessionPackId}>
+                    {p.instructorLabel}
+                  </option>
+                ))}
+              </select>
+              {field.state.meta.errors.length > 0 && (
+                <p className="text-sm text-red-600">{field.state.meta.errors[0]?.message}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                If you have multiple instructors, pick the one this onboarding is for.
+              </p>
+            </div>
+          )}
+        </form.Field>
 
-        <div className="space-y-2">
-          <Label htmlFor="goals">Your goals</Label>
-          <Textarea
-            id="goals"
-            value={goals}
-            onChange={(e) => setGoals(e.target.value)}
-            placeholder="Example: I want portfolio feedback for game art roles, help with composition, and a weekly plan to improve anatomy."
-            rows={8}
-          />
-          <p className="text-xs text-muted-foreground">Minimum 10 characters.</p>
-        </div>
+        <form.Field name="goals">
+          {(field) => (
+            <div className="space-y-2">
+              <Label htmlFor={field.name}>Your goals</Label>
+              <Textarea
+                id={field.name}
+                value={field.state.value as string}
+                onChange={(e) => field.handleChange(e.target.value)}
+                placeholder="Example: I want portfolio feedback for game art roles, help with composition, and a weekly plan to improve anatomy."
+                rows={8}
+              />
+              {field.state.meta.errors.length > 0 && (
+                <p className="text-sm text-red-600">{field.state.meta.errors[0]?.message}</p>
+              )}
+              <p className="text-xs text-muted-foreground">Minimum 10 characters.</p>
+            </div>
+          )}
+        </form.Field>
 
         <div className="space-y-2">
           <Label htmlFor="images">Work images (2–4)</Label>
@@ -138,7 +178,7 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
             type="file"
             multiple
             accept="image/jpeg,image/png,image/webp"
-            onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
+            onChange={handleFileChange}
           />
           <p className="text-xs text-muted-foreground">{fileHelp}</p>
           <div className="flex items-center gap-2">

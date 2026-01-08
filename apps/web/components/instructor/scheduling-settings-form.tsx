@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { updateInstructorSettings } from "@/lib/queries/api-client";
+import { useForm } from "@tanstack/react-form";
+import { z } from "zod";
 
 type WorkingHoursInterval = { start: string; end: string };
 type WorkingHours = Partial<Record<0 | 1 | 2 | 3 | 4 | 5 | 6, WorkingHoursInterval[]>>;
@@ -20,7 +22,6 @@ const dayLabels: Record<0 | 1 | 2 | 3 | 4 | 5 | 6, string> = {
 };
 
 function getTimeZones(): string[] {
-  // Supported in modern browsers
   const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
     .supportedValuesOf;
   if (typeof fn === "function") {
@@ -44,6 +45,16 @@ function normalizeWorkingHours(input: WorkingHours): Record<string, WorkingHours
   return out;
 }
 
+const settingsSchema = z.object({
+  timeZone: z.string().optional(),
+  workingHours: z.record(z.string(), z.array(z.object({
+    start: z.string(),
+    end: z.string(),
+  }))).optional(),
+});
+
+type SettingsValues = z.infer<typeof settingsSchema>;
+
 export function SchedulingSettingsForm({
   initialTimeZone,
   initialWorkingHours,
@@ -52,24 +63,27 @@ export function SchedulingSettingsForm({
   initialWorkingHours: WorkingHours | null;
 }) {
   const timeZones = useMemo(() => getTimeZones(), []);
-  const [timeZone, setTimeZone] = useState<string>(initialTimeZone ?? "");
 
-  const [workingHours, setWorkingHours] = useState<WorkingHours>(
-    initialWorkingHours ?? {
-      1: [{ start: "09:00", end: "17:00" }],
-      2: [{ start: "09:00", end: "17:00" }],
-      3: [{ start: "09:00", end: "17:00" }],
-      4: [{ start: "09:00", end: "17:00" }],
-      5: [{ start: "09:00", end: "17:00" }],
-    }
-  );
+  const defaultValues: SettingsValues = {
+    timeZone: initialTimeZone || "",
+    workingHours: initialWorkingHours ? normalizeWorkingHours(initialWorkingHours) : {},
+  };
 
-  // Save settings mutation
+  const form = useForm({
+    defaultValues,
+    validators: {
+      onChange: settingsSchema,
+    },
+  });
+
+  const timeZone = form.getFieldValue("timeZone") as string;
+  const workingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
+
   const saveMutation = useMutation({
     mutationFn: () =>
       updateInstructorSettings({
         timeZone: timeZone || null,
-        workingHours: normalizeWorkingHours(workingHours),
+        workingHours: workingHours || {},
       }),
     onSuccess: () => {
       // Settings saved successfully
@@ -82,6 +96,25 @@ export function SchedulingSettingsForm({
     : saveMutation.error instanceof Error
       ? saveMutation.error.message
       : null;
+
+  function handleDayToggle(day: number, enabled: boolean, start: string, end: string) {
+    const dayKey = String(day);
+    const current = (workingHours || {})[dayKey] || [];
+    
+    if (enabled) {
+      form.setFieldValue(`workingHours.${dayKey}`, [{ start, end }]);
+    } else {
+      form.setFieldValue(`workingHours.${dayKey}`, []);
+    }
+  }
+
+  function handleTimeChange(day: number, field: 'start' | 'end', value: string) {
+    const dayKey = String(day);
+    const current = (workingHours || {})[dayKey] || [];
+    const currentInterval = current[0] || { start: "09:00", end: "17:00" };
+    
+    form.setFieldValue(`workingHours.${dayKey}`, [{ ...currentInterval, [field]: value }]);
+  }
 
   function save() {
     saveMutation.mutate();
@@ -97,30 +130,34 @@ export function SchedulingSettingsForm({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Time zone</label>
-          <select
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={timeZone}
-            onChange={(e) => setTimeZone(e.target.value)}
-          >
-            <option value="">(not set)</option>
-            {timeZones.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground">
-            Use an IANA timezone (e.g. <code>America/Los_Angeles</code>).
-          </p>
-        </div>
+        <form.Field name="timeZone">
+          {(field) => (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Time zone</label>
+              <select
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={field.state.value as string}
+                onChange={(e) => field.handleChange(e.target.value)}
+              >
+                <option value="">(not set)</option>
+                {timeZones.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Use an IANA timezone (e.g. <code>America/Los_Angeles</code>).
+              </p>
+            </div>
+          )}
+        </form.Field>
 
         <div className="space-y-3">
           <div className="text-sm font-medium">Working hours</div>
           <div className="grid gap-3">
             {([0, 1, 2, 3, 4, 5, 6] as const).map((day) => {
-              const intervals = workingHours[day] ?? [];
+              const intervals = (workingHours || {})[String(day)] || [];
               const enabled = intervals.length > 0;
               const start = intervals[0]?.start ?? "09:00";
               const end = intervals[0]?.end ?? "17:00";
@@ -131,12 +168,7 @@ export function SchedulingSettingsForm({
                     <input
                       type="checkbox"
                       checked={enabled}
-                      onChange={(e) => {
-                        setWorkingHours((prev) => ({
-                          ...prev,
-                          [day]: e.target.checked ? [{ start, end }] : [],
-                        }));
-                      }}
+                      onChange={(e) => handleDayToggle(day, e.target.checked, start, end)}
                     />
                     <span className="text-sm">{dayLabels[day]}</span>
                   </label>
@@ -146,13 +178,7 @@ export function SchedulingSettingsForm({
                       type="time"
                       disabled={!enabled}
                       value={start}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setWorkingHours((prev) => ({
-                          ...prev,
-                          [day]: [{ start: v, end }],
-                        }));
-                      }}
+                      onChange={(e) => handleTimeChange(day, 'start', e.target.value)}
                       className="rounded-md border bg-background px-2 py-1 text-sm"
                     />
                     <span className="text-sm text-muted-foreground">to</span>
@@ -160,13 +186,7 @@ export function SchedulingSettingsForm({
                       type="time"
                       disabled={!enabled}
                       value={end}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setWorkingHours((prev) => ({
-                          ...prev,
-                          [day]: [{ start, end: v }],
-                        }));
-                      }}
+                      onChange={(e) => handleTimeChange(day, 'end', e.target.value)}
                       className="rounded-md border bg-background px-2 py-1 text-sm"
                     />
                   </div>
@@ -189,4 +209,3 @@ export function SchedulingSettingsForm({
     </Card>
   );
 }
-
