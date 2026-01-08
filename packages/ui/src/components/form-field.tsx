@@ -19,7 +19,7 @@ interface FormFieldProps<T> {
   label: string;
   placeholder?: string;
   type?: string;
-  validator?: { onChange: z.ZodTypeAny };
+  validators?: { onChange?: z.ZodTypeAny };
   children?: (field: FieldApi<T, unknown>) => ReactNode;
 }
 
@@ -28,13 +28,13 @@ export function FormField<T>({
   label,
   placeholder,
   type = "text",
-  validator,
+  validators,
   children,
 }: FormFieldProps<T>): ReactNode {
   const _form = useFormContext<T>();
 
   return (
-    <form.Field name={name} validators={validator}>
+    <form.Field name={name} validators={validators}>
       {(field) => (
         <div className="space-y-2">
           <label htmlFor={field.name} className="text-sm font-medium">
