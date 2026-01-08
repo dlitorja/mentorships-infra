@@ -1,33 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { inngest } from "@/lib/inngest";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const kajabiApiKey = process.env.KAJABI_API_KEY;
-const kajabiApiSecret = process.env.KAJABI_API_SECRET;
-const webhookToken = process.env.KAJABI_WEBHOOK_TOKEN;
 
-interface KajabiPayload {
-  event: string;
-  offer?: {
-    id: string;
-    title?: string;
-    internal_title?: string;
-    type?: string;
-  };
-  member?: {
-    email?: string;
-    name?: string;
-  };
-  transaction?: {
-    quantity?: number;
-  };
-  payment_transaction?: {
-    quantity?: number;
-  };
-}
+const kajabiPayloadSchema = z.object({
+  event: z.string(),
+  offer: z.object({
+    id: z.string(),
+    title: z.string().optional(),
+    internal_title: z.string().optional(),
+    type: z.string().optional(),
+  }).optional(),
+  member: z.object({
+    email: z.string().optional(),
+    name: z.string().optional(),
+  }).optional(),
+  transaction: z.object({
+    quantity: z.number().optional(),
+  }).optional(),
+  payment_transaction: z.object({
+    quantity: z.number().optional(),
+  }).optional(),
+});
 
-async function getOfferMapping(supabase: any, offerId: string) {
+type KajabiPayload = z.infer<typeof kajabiPayloadSchema>;
+
+const offerMappingSchema = z.object({
+  instructor_slug: z.string(),
+  mentorship_type: z.enum(["one-on-one", "group"]),
+});
+
+type OfferMapping = z.infer<typeof offerMappingSchema>;
+
+async function getOfferMapping(
+  supabase: SupabaseClient,
+  offerId: string
+): Promise<OfferMapping | null> {
   const { data, error } = await supabase
     .from("kajabi_offer_mappings")
     .select("instructor_slug, mentorship_type")
@@ -39,51 +50,57 @@ async function getOfferMapping(supabase: any, offerId: string) {
     return null;
   }
 
-  return data;
-}
-
-async function verifyOfferInKajabi(offerId: string): Promise<boolean> {
-  if (!kajabiApiKey || !kajabiApiSecret) {
-    return true;
+  const parsed = offerMappingSchema.safeParse(data);
+  if (!parsed.success) {
+    console.error("Invalid offer mapping data:", parsed.error.format());
+    return null;
   }
 
-  try {
-    const response = await fetch(`https://api.kajabi.com/v1/offers/${offerId}`, {
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${kajabiApiKey}:${kajabiApiSecret}`).toString("base64")}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    return response.ok;
-  } catch (error) {
-    console.error("Error verifying offer in Kajabi:", error);
-    return false;
-  }
+  return parsed.data;
 }
 
-async function decrementInventory(
-  supabase: any,
+async function getInventory(
+  supabase: SupabaseClient,
   instructorSlug: string,
-  type: "one-on-one" | "group",
-  quantity: number
-) {
+  type: "one-on-one" | "group"
+): Promise<number | null> {
   const column = type === "one-on-one" ? "one_on_one_inventory" : "group_inventory";
+  
+  const { data, error } = await supabase
+    .from("instructor_inventory")
+    .select(column)
+    .eq("instructor_slug", instructorSlug)
+    .single();
 
-  for (let i = 0; i < quantity; i++) {
-    const { error } = await supabase.rpc("decrement_inventory", {
-      slug_param: instructorSlug,
-      inventory_column: column,
-      decrement_by: 1,
-    });
-
-    if (error) {
-      console.error("Error decrementing inventory:", error);
-      return false;
-    }
+  if (error || !data) {
+    console.error("Error fetching current inventory:", error);
+    return null;
   }
 
-  return true;
+  const dataAny = data as Record<string, unknown>;
+  const value = dataAny[column];
+  if (typeof value !== "number") {
+    console.error("Invalid inventory value:", value);
+    return null;
+  }
+
+  return value;
+}
+
+async function verifyAndGetMapping(
+  supabase: SupabaseClient,
+  request: NextRequest,
+  offerId: string
+): Promise<OfferMapping | null> {
+  const userAgent = request.headers.get("user-agent") || "";
+  const userAgentValid = userAgent.includes("Kajabi") || userAgent.includes("kajabi");
+  
+  if (!userAgentValid) {
+    console.warn(`Suspicious request - User-Agent: ${userAgent}`);
+    return null;
+  }
+
+  return getOfferMapping(supabase, offerId);
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -96,19 +113,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     const payload = await request.text();
-    const userAgent = request.headers.get("user-agent") || "";
-
-    if (!userAgent.includes("Kajabi") && !userAgent.includes("kajabi")) {
-      console.warn(`Unexpected User-Agent: ${userAgent}`);
+    
+    const parseResult = kajabiPayloadSchema.safeParse(JSON.parse(payload));
+    if (!parseResult.success) {
+      console.error("Invalid webhook payload:", parseResult.error.format());
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
-    const event: KajabiPayload = JSON.parse(payload);
+    const event = parseResult.data;
+    const relevantEvents = ["purchase.created", "payment.succeeded", "order.created"];
     
-    if (
-      event.event !== "purchase.created" &&
-      event.event !== "payment.succeeded" &&
-      event.event !== "order.created"
-    ) {
+    if (!relevantEvents.includes(event.event)) {
       return NextResponse.json({ received: true, message: `Event type ${event.event} not processed` });
     }
 
@@ -117,9 +132,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "No offer ID in payload" }, { status: 400 });
     }
 
-    const isValidOffer = await verifyOfferInKajabi(offerId);
-    if (!isValidOffer) {
-      console.warn(`Offer ${offerId} not found in Kajabi or verification failed`);
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const mapping = await verifyAndGetMapping(supabase, request, offerId);
+
+    if (!mapping) {
+      return NextResponse.json({ error: "Invalid request: offer not found or invalid User-Agent" }, { status: 400 });
     }
 
     const quantity = event.event === "order.created"
@@ -128,32 +145,55 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         ? (event.transaction?.quantity || 1)
         : (event.payment_transaction?.quantity || 1);
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const mapping = await getOfferMapping(supabase, offerId);
+    const column = mapping.mentorship_type === "one-on-one" ? "one_on_one_inventory" : "group_inventory";
+    
+    const { data: decrementResult, error: rpcError } = await supabase.rpc("decrement_inventory", {
+      slug_param: mapping.instructor_slug,
+      inventory_column: column,
+      decrement_by: quantity,
+    });
 
-    if (!mapping) {
-      console.warn(`No mapping found for offer ID: ${offerId}`);
-      return NextResponse.json({ received: true, message: "Offer mapping not found" });
-    }
-
-    const success = await decrementInventory(
-      supabase,
-      mapping.instructor_slug,
-      mapping.mentorship_type as "one-on-one" | "group",
-      quantity
-    );
-
-    if (success) {
-      return NextResponse.json({
-        received: true,
-        message: `Inventory decremented by ${quantity}`,
-        instructor: mapping.instructor_slug,
-        type: mapping.mentorship_type,
-        quantity,
-      });
-    } else {
+    if (rpcError) {
+      console.error("Error decrementing inventory:", rpcError);
       return NextResponse.json({ error: "Failed to decrement inventory" }, { status: 500 });
     }
+
+    const success = decrementResult as boolean;
+    if (!success) {
+      return NextResponse.json({ error: "Insufficient inventory" }, { status: 400 });
+    }
+
+    const newInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
+    if (newInventory === null) {
+      console.warn("Could not fetch new inventory after decrement, using calculated value");
+    }
+
+    const finalNewInventory = newInventory !== null ? newInventory : -1;
+
+    const inngestError = await inngest.send({
+      name: "inventory/changed",
+      data: {
+        instructorSlug: mapping.instructor_slug,
+        type: mapping.mentorship_type,
+        previousInventory: 0,
+        newInventory: finalNewInventory,
+        quantity,
+      },
+    });
+
+    if (inngestError) {
+      console.error("Failed to send Inngest event:", inngestError);
+    }
+
+    return NextResponse.json({
+      received: true,
+      message: `Inventory decremented by ${quantity}`,
+      instructor: mapping.instructor_slug,
+      type: mapping.mentorship_type,
+      quantity,
+      previousInventory: 0,
+      newInventory: finalNewInventory,
+    });
   } catch (error) {
     console.error("Error processing webhook:", error);
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });

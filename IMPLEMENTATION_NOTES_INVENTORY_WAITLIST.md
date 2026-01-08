@@ -39,7 +39,8 @@ This document tracks the implementation of an authenticated admin dashboard in a
 
 ## Current State
 
-- **PR #48**: Phase 2 implementation in review/iteration
+- **PR #48**: Phase 2 merged
+- **Phase 3**: Completed (Kajabi webhook with Inngest integration)
 - **Build Status**: ✅ Both apps build successfully
 - **TanStack Form**: Uses `any` types workaround (see Known Issues)
 - **Middleware**: Renamed to `proxy.ts` (Next.js 16 requirement)
@@ -192,11 +193,35 @@ export function Form<T>({ defaultValues, validators, onSubmit, children }: FormP
 - [x] Created migration: `packages/db/drizzle/0014_drop_waitlist.sql`
 - [x] Updated `apps/web/lib/validators.ts` to re-export from `@mentorships/schemas`
 
-### Phase 3: Kajabi Webhook Integration (TODO)
-- [ ] Create `/api/webhooks/kajabi` endpoint in apps/web
-- [ ] Verify webhook signature
-- [ ] Decrement inventory on purchase via Supabase RPC
-- [ ] Trigger notification flow when inventory goes 0 → available
+### Phase 3: Kajabi Webhook Integration (COMPLETED)
+
+**Goals:**
+1. [x] Create `/api/webhooks/kajabi` endpoint in apps/marketing
+2. [x] Verify webhook request (offer mapping + User-Agent check)
+3. [x] Decrement inventory on purchase via Supabase RPC
+4. [x] Trigger Inngest event when inventory changes
+5. [x] Trigger waitlist notifications when inventory goes 0 → available
+
+**Tasks Completed:**
+
+#### 3.1 Enhanced Kajabi Webhook ✅
+- [x] Updated `apps/marketing/app/api/webhooks/kajabi/route.ts`
+- [x] Simplified verification (no KAJABI_API_SECRET required)
+- [x] Uses Supabase offer mappings for validation
+- [x] Gets previous inventory before decrement
+- [x] Sends `inventory/changed` Inngest event with before/after values
+
+#### 3.2 Inventory Changed Inngest Function ✅
+- [x] Created `apps/marketing/inngest/functions/inventory-changed.ts`
+- [x] Handles `inventory/changed` events
+- [x] Triggers waitlist notifications when inventory hits 0
+- [x] Rate-limits notifications (max once/week per user)
+- [x] Updated `apps/marketing/app/api/inngest/route.ts` to register new function
+
+#### 3.3 Updated Event Types ✅
+- [x] Added `inventoryChangedEventSchema` to `apps/web/inngest/types.ts`
+- [x] Added `InventoryChangedEvent` type export
+- [x] Added to `InngestEvent` union type
 
 ### Phase 4: Waitlist Notifications (TODO)
 - [ ] Email template for waitlist notifications
@@ -270,6 +295,15 @@ When apps/marketing develops features ahead of apps/web:
 
 ---
 
+## Files Created (Phase 3)
+
+| File | Purpose |
+|------|---------|
+| `apps/marketing/inngest/functions/inventory-changed.ts` | Handles inventory change events, triggers waitlist notifications |
+| `apps/web/inngest/types.ts` (updated) | Added `inventoryChangedEventSchema` type |
+
+---
+
 ## Files Deleted (Phase 2)
 
 | File | Reason |
@@ -283,13 +317,14 @@ When apps/marketing develops features ahead of apps/web:
 
 ## Estimated Effort
 
-| Phase | Hours |
-|-------|-------|
-| Phase 2 | ~14 hours |
-| Phase 3 | ~6 hours |
-| Phase 4 | ~8 hours |
-| Phase 5 | ~4 hours |
-| **Total** | **~32 hours** |
+| Phase | Status | Hours |
+|-------|--------|-------|
+| Phase 1 | ✅ Completed | - |
+| Phase 2 | ✅ Completed | ~14 hours |
+| Phase 3 | ✅ Completed | ~4 hours |
+| Phase 4 | ⏳ Pending | ~8 hours |
+| Phase 5 | ⏳ Pending | ~4 hours |
+| **Total** | | **~30 hours** |
 
 ---
 
@@ -400,25 +435,20 @@ Key changes:
 
 ## Next Session Tasks
 
-1. **Phase 3: Kajabi Webhook Integration**
-   - Create `/api/webhooks/kajabi` endpoint in apps/web
-   - Verify webhook signature
-   - Decrement inventory on purchase
-   - Trigger notification flow
-
-2. **Phase 4: Waitlist Notifications**
+1. **Phase 4: Waitlist Notifications**
    - Email template for waitlist notifications
-   - Inngest function for processing notifications
+   - Inngest function for processing notifications (extend existing)
    - Resend integration for sending emails
+   - Weekly digest cron job
 
-3. **Complete Form Migrations**
+2. **Complete Form Migrations**
    - MenteeOnboardingForm (file upload flow)
    - BookSessionForm (query-based slots)
    - SchedulingSettingsForm (nested state)
    - Checkout page (simple form)
    - InventoryTable (admin UI)
 
-4. **Known Issues to Address**
+3. **Known Issues to Address**
    - [ ] Update FormContext types when TanStack Form releases stable generics
    - [ ] Remove middleware.ts → proxy.ts rename note (done)
    - [ ] Add PR reference for Phase 2 changes
