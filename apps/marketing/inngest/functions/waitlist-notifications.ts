@@ -176,12 +176,13 @@ export const processWaitlistNotifications = inngest.createFunction(
 
     if (idsToUpdate.length > 0) {
       await step.run("mark-notified", async () => {
+        const now = new Date().toISOString();
         const { error: updateError } = await supabase
           .from("marketing_waitlist")
           .update({
             notified: true,
-            last_notification_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            last_notification_at: now,
+            updated_at: now,
           })
           .in("id", idsToUpdate);
 
