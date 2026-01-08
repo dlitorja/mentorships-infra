@@ -16,6 +16,19 @@ function sanitizeUrl(url: string): string {
   }
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]/g, "").replace(/[\x00-\x1F\x7F]/g, "");
+}
+
 export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): {
   subject: string;
   html: string;
@@ -54,7 +67,7 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
         ${sanitizedPurchaseUrl === "#"
           ? `<p style="margin:16px 0 0 0;color:#6B7280;font-size:12px">Visit your dashboard to book your mentorship.</p>`
           : `
-            <a href="${sanitizedPurchaseUrl}" style="display:inline-block;padding:14px 20px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">Book Now</a>
+            <a href="${escapeHtml(sanitizedPurchaseUrl)}" style="display:inline-block;padding:14px 20px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">Book Now</a>
 
             <p style="margin:16px 0 0 0;color:#6B7280;font-size:12px">
               If button doesn't work, copy/paste this link:<br/>
@@ -75,17 +88,4 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
       "X-Mentorship-Type": sanitizeHeaderValue(mentorshipType),
     },
   };
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n]/g, "").replace(/[\x00-\x1F\x7F]/g, "");
 }
