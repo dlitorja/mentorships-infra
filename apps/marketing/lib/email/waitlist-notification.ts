@@ -24,7 +24,8 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
 } {
   const { instructorName, mentorshipType, purchaseUrl } = data;
   const typeLabel = mentorshipType === "one-on-one" ? "1-on-1 Mentorship" : "Group Mentorship";
-  const subject = `Spot available: ${instructorName}'s ${typeLabel}`;
+  const sanitizedInstructorName = sanitizeHeaderValue(instructorName);
+  const subject = `Spot available: ${sanitizedInstructorName}'s ${typeLabel}`;
 
   const sanitizedPurchaseUrl = sanitizeUrl(purchaseUrl);
   const urlFallbackMessage = sanitizedPurchaseUrl === "#"
@@ -47,7 +48,7 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
       <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
         <div style="font-weight:700;margin-bottom:12px;font-size:16px">Spot Available</div>
         <div style="color:#374151;line-height:1.6;margin-bottom:16px">
-          Great news! A spot has opened up for <strong>${escapeHtml(instructorName)}</strong>'s <strong>${escapeHtml(typeLabel)}</strong>.
+          Great news! A spot has opened up for <strong>${escapeHtml(sanitizedInstructorName)}</strong>'s <strong>${escapeHtml(typeLabel)}</strong>.
         </div>
 
         ${sanitizedPurchaseUrl === "#"
@@ -70,7 +71,7 @@ export function buildWaitlistNotificationEmail(data: WaitlistNotificationData): 
     text,
     headers: {
       "X-Notification-Type": "waitlist-availability",
-      "X-Instructor-Name": sanitizeHeaderValue(instructorName),
+      "X-Instructor-Name": sanitizedInstructorName,
       "X-Mentorship-Type": sanitizeHeaderValue(mentorshipType),
     },
   };

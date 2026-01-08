@@ -4,6 +4,28 @@ import { Resend } from "resend";
 import { instructors, getInstructorBySlug } from "@/lib/instructors";
 import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notification";
 
+interface WaitlistNotificationResult {
+  message: string;
+  count?: number;
+  failed?: number;
+  instructorSlug: string;
+  type: string;
+  skipped?: boolean;
+  notifiedEmails?: string[];
+  totalEmails?: number;
+}
+
+interface SendEmailsResult {
+  successful: number;
+  failed: number;
+  results: PromiseSettledResult<any>[];
+}
+
+interface WaitlistEntry {
+  id: number;
+  email: string;
+}
+
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -30,13 +52,17 @@ function getFromAddress(): string | null {
   return from;
 }
 
+function isMentorshipType(value: unknown): value is "one-on-one" | "group" {
+  return value === "one-on-one" || value === "group";
+}
+
 export const processWaitlistNotifications = inngest.createFunction(
   {
     id: "process-waitlist-notifications",
     retries: 3,
   },
   { event: "waitlist/notify-users" },
-  async ({ event, step }) => {
+  async ({ event, step }): Promise<WaitlistNotificationResult> => {
     if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error("Supabase not configured");
     }
@@ -57,14 +83,13 @@ export const processWaitlistNotifications = inngest.createFunction(
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     const { instructorSlug, type } = event.data;
 
-    const validTypes = ["one-on-one", "group"] as const;
-    if (!validTypes.includes(type as typeof validTypes[number])) {
+    if (!isMentorshipType(type)) {
       throw new Error(`Invalid mentorship type: ${type}`);
     }
 
-    const mentorshipType = type as "one-on-one" | "group";
+    const mentorshipType: "one-on-one" | "group" = type;
 
-    const instructor = await step.run("get-instructor-details", async () => {
+    const instructor = await step.run("get-instructor-details", async (): Promise<import("@/lib/instructors").Instructor | undefined> => {
       return getInstructorBySlug(instructorSlug);
     });
 
@@ -91,7 +116,7 @@ export const processWaitlistNotifications = inngest.createFunction(
 
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const waitlistEntries = await step.run("fetch-waitlist-entries", async () => {
+    const waitlistEntries = await step.run("fetch-waitlist-entries", async (): Promise<WaitlistEntry[]> => {
       const { data, error } = await supabase
         .from("marketing_waitlist")
         .select("id, email")
@@ -118,7 +143,7 @@ export const processWaitlistNotifications = inngest.createFunction(
       };
     }
 
-    const emailContent = await step.run("build-email-content", async () => {
+    const emailContent = await step.run("build-email-content", async (): Promise<ReturnType<typeof buildWaitlistNotificationEmail>> => {
       return buildWaitlistNotificationEmail({
         instructorName: instructor.name,
         mentorshipType,
@@ -126,7 +151,7 @@ export const processWaitlistNotifications = inngest.createFunction(
       });
     });
 
-    const sendResults = await step.run("send-emails", async () => {
+    const sendResults = await step.run("send-emails", async (): Promise<SendEmailsResult> => {
       const results = await Promise.allSettled(
         uniqueEmails.map((email) =>
           resend.emails.send({
@@ -143,6 +168,12 @@ export const processWaitlistNotifications = inngest.createFunction(
       const successful = results.filter((r) => r.status === "fulfilled").length;
       const failed = results.filter((r) => r.status === "rejected").length;
 
+      results.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error(`Failed to send email to ${uniqueEmails[index]}:`, result.reason);
+        }
+      });
+
       return { successful, failed, results };
     });
 
@@ -158,7 +189,7 @@ export const processWaitlistNotifications = inngest.createFunction(
       throw selectError;
     }
 
-    const idsToUpdate = await step.run("fetch-matching-rows", async () => {
+    const idsToUpdate = await step.run("fetch-matching-rows", async (): Promise<number[]> => {
       const { data: matchingRows, error: selectError } = await supabase
         .from("marketing_waitlist")
         .select("id")
@@ -175,7 +206,7 @@ export const processWaitlistNotifications = inngest.createFunction(
     });
 
     if (idsToUpdate.length > 0) {
-      await step.run("mark-notified", async () => {
+      await step.run("mark-notified", async (): Promise<void> => {
         const now = new Date().toISOString();
         const { error: updateError } = await supabase
           .from("marketing_waitlist")
