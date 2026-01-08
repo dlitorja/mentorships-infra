@@ -31,7 +31,7 @@ function WaitlistPageContent(): React.JSX.Element {
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSubmit(data: WaitlistFormInput) {
+  async function handleSubmit(data: WaitlistFormInput): Promise<void> {
     setError("");
     if (!instructorSlug || !type) {
       setError("Instructor and type are required");

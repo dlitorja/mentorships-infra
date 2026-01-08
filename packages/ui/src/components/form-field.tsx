@@ -6,12 +6,12 @@ import { z } from "zod";
 
 const FormContext = createContext<any>(null);
 
-function useFormContext<T>(): any {
+function useFormContext<T = any>(): T {
   const context = useContext(FormContext);
   if (!context) {
     throw new Error("FormField must be used within a Form component");
   }
-  return context;
+  return context as T;
 }
 
 interface FormFieldProps {

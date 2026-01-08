@@ -44,7 +44,7 @@ export async function updateInventory(
   slug: string,
   updates: { one_on_one_inventory?: number; group_inventory?: number },
   updatedBy?: string
-) {
+): Promise<InstructorInventory | null> {
   const { data, error } = await supabase
     .from("instructor_inventory")
     .update({
@@ -53,7 +53,7 @@ export async function updateInventory(
       updated_by: updatedBy,
     })
     .eq("instructor_slug", slug)
-    .select()
+    .select("one_on_one_inventory, group_inventory")
     .single();
 
   if (error) {
@@ -61,14 +61,22 @@ export async function updateInventory(
     return null;
   }
 
-  return data;
+  const parsed = instructorInventorySchema.safeParse(data);
+  if (!parsed.success) {
+    console.error("Validation error for updated inventory:", parsed.error.format());
+    return null;
+  }
+
+  return parsed.data;
 }
+
+const decrementInventoryResultSchema = z.record(z.any());
 
 export async function decrementInventory(
   slug: string,
   type: "one-on-one" | "group",
   quantity: number = 1
-) {
+): Promise<z.infer<typeof decrementInventoryResultSchema> | null> {
   const column = type === "one-on-one" ? "one_on_one_inventory" : "group_inventory";
 
   const { data, error } = await supabase
@@ -186,10 +194,10 @@ export async function getKajabiOfferMapping(offerId: string): Promise<KajabiOffe
   return parsed.data;
 }
 
-export async function getAllInstructorsWithInventory() {
+export async function getAllInstructorsWithInventory(): Promise<InstructorInventory[] | null> {
   const { data, error } = await supabase
     .from("instructor_inventory")
-    .select("*")
+    .select("id, instructor_slug, one_on_one_inventory, group_inventory")
     .order("instructor_slug");
 
   if (error) {
@@ -197,13 +205,23 @@ export async function getAllInstructorsWithInventory() {
     return null;
   }
 
-  return data;
+  if (!data) {
+    return null;
+  }
+
+  const parsed = instructorInventorySchema.array().safeParse(data);
+  if (!parsed.success) {
+    console.error("Validation error for all inventory:", parsed.error.format());
+    return null;
+  }
+
+  return parsed.data;
 }
 
 export async function triggerWaitlistNotifications(
   instructorSlug: string,
   type: "one-on-one" | "group"
-) {
+): Promise<unknown | null> {
   const { data, error } = await supabase
     .rpc("trigger_waitlist_notifications", {
       slug_param: instructorSlug,
@@ -221,7 +239,7 @@ export async function triggerWaitlistNotifications(
 export async function getWaitlistForInstructor(
   instructorSlug: string,
   type: "one-on-one" | "group"
-) {
+): Promise<WaitlistEntry[] | null> {
   const { data, error } = await supabase
     .from("marketing_waitlist")
     .select("id, email, instructor_slug, mentorship_type, notified, created_at")
@@ -234,5 +252,15 @@ export async function getWaitlistForInstructor(
     return null;
   }
 
-  return data ?? [];
+  if (!data) {
+    return null;
+  }
+
+  const parsed = waitlistEntrySchema.array().safeParse(data);
+  if (!parsed.success) {
+    console.error("Validation error for instructor waitlist:", parsed.error.format());
+    return null;
+  }
+
+  return parsed.data;
 }
