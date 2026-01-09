@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth";
+import { requireAdmin, UnauthorizedError } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { rateLimit } from "@/lib/utils";
 import { z } from "zod";
@@ -49,7 +49,7 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.json(validatedData.data);
   } catch (error) {
     console.error("Error in GET /api/admin/digest-settings:", error);
-    if (error instanceof Error && error.message === "Unauthorized") {
+    if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json(
@@ -112,7 +112,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
-    if (error instanceof Error && error.message === "Unauthorized") {
+    if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     return NextResponse.json(

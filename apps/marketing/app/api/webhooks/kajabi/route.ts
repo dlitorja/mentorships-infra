@@ -170,15 +170,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Insufficient inventory" }, { status: 400 });
     }
 
-    await logInventoryChange({
-      instructorSlug: mapping.instructor_slug,
-      mentorshipType: mapping.mentorship_type,
-      changeType: "kajabi_purchase",
-      oldValue: previousInventory,
-      newValue: previousInventory - quantity,
-      changedBy: `kajabi:${event.offer?.id}`,
-    });
-
     const newInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
     if (newInventory === null) {
       console.error("Could not determine new inventory, skipping Inngest event");
@@ -191,6 +182,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         previousInventory,
       });
     }
+
+    await logInventoryChange({
+      instructorSlug: mapping.instructor_slug,
+      mentorshipType: mapping.mentorship_type,
+      changeType: "kajabi_purchase",
+      oldValue: previousInventory,
+      newValue: newInventory,
+      changedBy: `kajabi:${event.offer?.id}`,
+    });
 
     const inngestError = await inngest.send({
       name: "inventory/changed",

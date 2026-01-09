@@ -1,6 +1,13 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
+export class UnauthorizedError extends Error {
+  constructor(message: string = "Unauthorized") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
 const DEFAULT_ADMIN_EMAILS = ["admin@huckleberry.art"];
 
 export function getAdminEmails(): string[] {
@@ -32,7 +39,7 @@ export async function requireAdmin() {
   const isAdmin = userEmail ? adminEmails.includes(userEmail) : false;
 
   if (!isAdmin) {
-    throw new Error("Forbidden: Admin access required");
+    throw new UnauthorizedError("Admin access required");
   }
 
   return userId;
