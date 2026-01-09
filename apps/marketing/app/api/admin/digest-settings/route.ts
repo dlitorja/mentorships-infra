@@ -63,7 +63,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   try {
     const adminId = await requireAdmin();
 
-    const rateLimitResult = rateLimit(`admin:${adminId}`, 10, 60000);
+    const rateLimitResult = await rateLimit(`admin:${adminId}`, 10, 60000);
     if (!rateLimitResult.success) {
       return NextResponse.json(
         { error: "Too many requests", resetAt: rateLimitResult.resetAt },
