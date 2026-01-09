@@ -26,6 +26,21 @@ interface RateLimitResult {
 
 const rateLimitMap = new Map<string, { count: number; resetAt: Date }>();
 
+function cleanupExpiredEntries(): void {
+  const now = new Date();
+  for (const [key, record] of rateLimitMap.entries()) {
+    if (record.resetAt < now) {
+      rateLimitMap.delete(key);
+    }
+  }
+}
+
+const cleanupInterval = setInterval(cleanupExpiredEntries, 60000);
+
+if (typeof process !== "undefined" && process.on) {
+  process.on("beforeExit", () => clearInterval(cleanupInterval));
+}
+
 export function rateLimit(
   key: string,
   maxRequests: number = 10,

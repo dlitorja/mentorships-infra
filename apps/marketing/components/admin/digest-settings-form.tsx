@@ -48,13 +48,14 @@ export function DigestSettingsForm() {
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      if (settings && localAdminEmail !== settings.admin_email) {
-        setSettings({ ...settings, admin_email: localAdminEmail });
-      }
+      setSettings((prev) => {
+        if (!prev || localAdminEmail === prev.admin_email) return prev;
+        return { ...prev, admin_email: localAdminEmail };
+      });
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [localAdminEmail, settings]);
+  }, [localAdminEmail]);
 
   async function fetchSettings() {
     try {
@@ -125,7 +126,7 @@ export function DigestSettingsForm() {
       }
 
       toast.success(`Digest sent to ${validatedData.data.recipientEmail}`);
-      fetchSettings();
+      await fetchSettings();
     } catch (err) {
       console.error("Error sending manual digest:", err);
       toast.error("Failed to send digest");

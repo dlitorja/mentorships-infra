@@ -31,6 +31,8 @@ export const handleInventoryAvailable = inngest.createFunction(
     notifiedEmails?: string[];
     totalEmails?: number;
   }> => {
+    let failed = 0;
+
     if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error("Supabase not configured");
     }
@@ -88,7 +90,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         .select("id, email")
         .eq("instructor_slug", instructorSlug)
         .eq("mentorship_type", parsedType)
-        .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo}`);
+        .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo},last_notification_at.is.null`);
 
       if (error) {
         console.error("Error fetching waitlist:", error);
@@ -117,7 +119,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       });
     });
 
-    const sendResults = await step.run("send-emails", async () => {
+    const sendResultsSettled = await step.run("send-emails", async () => {
       const sendResults = await Promise.allSettled(
         uniqueEmails.map((email) =>
           resend.emails.send({
@@ -136,45 +138,46 @@ export const handleInventoryAvailable = inngest.createFunction(
           const email = uniqueEmails[index];
           const reason = (result as PromiseRejectedResult).reason || "Unknown error";
           console.error(`Failed to send email to ${email}: ${reason}`);
+          failed++;
         }
       });
 
-      const matchingRows = await step.run("fetch-matching-rows", async () => {
-        const { data: matchingRows, error: selectError } = await supabase
-          .from("marketing_waitlist")
-          .select("id, email")
-          .in("email", uniqueEmails)
-          .eq("instructor_slug", instructorSlug)
-          .eq("mentorship_type", parsedType);
-
-        if (selectError) {
-          console.error("Error fetching matching rows:", selectError);
-          throw selectError;
-        }
-
-        return matchingRows || [];
-      });
-
-      const emailToIdMap = new Map<string, string>();
-      matchingRows.forEach((row) => {
-        emailToIdMap.set(row.email, row.id);
-      });
-
-      const successfulIds: string[] = [];
-      sendResults.forEach((result, index) => {
-        if (result.status === "fulfilled") {
-          const sentEmail = uniqueEmails[index];
-          const id = emailToIdMap.get(sentEmail);
-          if (id) {
-            successfulIds.push(id);
-          }
-        }
-      });
-
-      return successfulIds;
+      return sendResults;
     });
 
-    if (sendResults.length > 0) {
+    const matchingRows = await step.run("fetch-matching-rows", async () => {
+      const { data: matchingRows, error: selectError } = await supabase
+        .from("marketing_waitlist")
+        .select("id, email")
+        .in("email", uniqueEmails)
+        .eq("instructor_slug", instructorSlug)
+        .eq("mentorship_type", parsedType);
+
+      if (selectError) {
+        console.error("Error fetching matching rows:", selectError);
+        throw selectError;
+      }
+
+      return matchingRows || [];
+    });
+
+    const emailToIdMap = new Map<string, string>();
+    matchingRows.forEach((row) => {
+      emailToIdMap.set(row.email, row.id);
+    });
+
+    const successfulIds: string[] = [];
+    sendResultsSettled.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        const sentEmail = uniqueEmails[index];
+        const id = emailToIdMap.get(sentEmail);
+        if (id) {
+          successfulIds.push(id);
+        }
+      }
+    });
+
+    if (successfulIds.length > 0) {
       await step.run("mark-notified", async () => {
         const { error: updateError } = await supabase
           .from("marketing_waitlist")
@@ -183,7 +186,7 @@ export const handleInventoryAvailable = inngest.createFunction(
             last_notification_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .in("id", sendResults);
+          .in("id", successfulIds);
 
         if (updateError) {
           console.error("Error updating waitlist entries:", updateError);
@@ -193,8 +196,9 @@ export const handleInventoryAvailable = inngest.createFunction(
     }
 
     return {
-      message: `Sent ${sendResults.length} emails to waitlist`,
-      count: sendResults.length,
+      message: `Marked ${successfulIds.length} emails as sent (attempted ${uniqueEmails.length})`,
+      count: successfulIds.length,
+      failed,
       instructorSlug,
       type: parsedType,
       notifiedEmails: uniqueEmails.slice(0, 5),
