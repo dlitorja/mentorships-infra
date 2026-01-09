@@ -34,6 +34,15 @@ const sendDigestResponseSchema = z.object({
   recipientEmail: z.string().email(),
 });
 
+const saveSettingsResponseSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  admin_email: z.string().email(),
+  last_sent_at: z.string().nullable(),
+  updated_at: z.string(),
+});
+
 export function DigestSettingsForm() {
   const [settings, setSettings] = useState<DigestSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +52,7 @@ export function DigestSettingsForm() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchSettings = useCallback(async (): Promise<void> => {
+    setLoading(true);
     try {
       const response = await fetch("/api/admin/digest-settings");
       if (!response.ok) throw new Error("Failed to fetch settings");
@@ -99,6 +109,14 @@ export function DigestSettingsForm() {
 
       if (!response.ok) throw new Error("Failed to save settings");
 
+      const data = await response.json();
+      const validatedData = saveSettingsResponseSchema.safeParse(data);
+      if (!validatedData.success) {
+        console.error("Invalid save settings response:", validatedData.error.format());
+        toast.error("Failed to parse save settings response");
+        return;
+      }
+
       toast.success("Digest settings saved successfully");
     } catch (err) {
       console.error("Error saving digest settings:", err);
@@ -133,7 +151,7 @@ export function DigestSettingsForm() {
     } finally {
       setSending(false);
     }
-  }
+  }, [setSending, fetchSettings, toast, sendDigestResponseSchema]);
 
   if (loading) {
     return (

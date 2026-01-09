@@ -12,7 +12,7 @@ const mentorshipTypeSchema = z.enum(["one-on-one", "group"]);
 
 const inventoryEventSchema = z.object({
   instructorSlug: z.string(),
-  type: z.string(),
+  type: mentorshipTypeSchema,
 });
 
 const waitlistEntrySchema = z.object({
@@ -60,8 +60,6 @@ export const handleInventoryAvailable = inngest.createFunction(
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     const { instructorSlug, type } = parsedEvent;
 
-    const parsedType = mentorshipTypeSchema.parse(type);
-
     const instructor = await step.run("get-instructor-details", async () => {
       return getInstructorBySlug(instructorSlug);
     });
@@ -72,7 +70,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     }
 
     const offer = instructor.offers.find((o) => {
-      const offerKind = parsedType === "one-on-one" ? "oneOnOne" : "group";
+      const offerKind = type === "one-on-one" ? "oneOnOne" : "group";
       return o.kind === offerKind && o.active !== false;
     });
 
@@ -156,7 +154,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         .select("id, email")
         .in("email", uniqueEmails)
         .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", parsedType);
+        .eq("mentorship_type", type);
 
       if (selectError) {
         console.error("Error fetching matching rows:", selectError);
