@@ -3,9 +3,19 @@ import { createClient } from "@supabase/supabase-js";
 import { buildWeeklyDigestEmail } from "@/lib/email/weekly-digest";
 import { getWeeklyDigestData, getPeriodForDigest } from "@/lib/digest-data";
 import { getResendClient, getFromAddress } from "@/lib/email/client";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+const digestSettingsSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  admin_email: z.string().email(),
+  last_sent_at: z.string().nullable(),
+  updated_at: z.string(),
+});
 
 export const sendScheduledDigestByFrequency = inngest.createFunction(
   {
@@ -42,7 +52,7 @@ export const sendScheduledDigestByFrequency = inngest.createFunction(
         throw error;
       }
 
-      return data;
+      return digestSettingsSchema.parse(data);
     });
 
     if (!settings || !settings.enabled) {
@@ -163,7 +173,7 @@ export const sendWeeklyDigest = inngest.createFunction(
         throw error;
       }
 
-      return data;
+      return digestSettingsSchema.parse(data);
     });
 
     if (!settings || !settings.enabled) {

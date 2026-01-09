@@ -42,6 +42,12 @@ export async function getWeeklyDigestData(
     groupInventory: inv.group_inventory ?? 0,
   }));
 
+  const slugToInstructorMap = new Map<string, typeof inventoryStatus[0]>();
+  inventoryStatus.forEach((inv) => {
+    const slug = inv.instructorName.toLowerCase().replace(/\s+/g, "-");
+    slugToInstructorMap.set(slug, inv);
+  });
+
   const waitlistSignups = await supabase
     .from("marketing_waitlist")
     .select("instructor_slug, mentorship_type, email, created_at")
@@ -55,9 +61,7 @@ export async function getWeeklyDigestData(
   }
 
   const formattedSignups = (waitlistSignups.data || []).map((signup) => {
-    const instructor = inventoryStatus.find((inv) =>
-      signup.instructor_slug.includes(inv.instructorName.toLowerCase().replace(/\s+/g, "-"))
-    );
+    const instructor = slugToInstructorMap.get(signup.instructor_slug);
     return {
       instructorName: instructor?.instructorName || signup.instructor_slug,
       mentorshipType: signup.mentorship_type,
@@ -115,17 +119,24 @@ export async function getWeeklyDigestData(
   });
 
   const formattedNotifications = Array.from(notificationsByInstructor.entries()).map(([key, data]) => {
-    const [instructorSlug, mentorshipType] = key.split("|") as [string, "one-on-one" | "group"];
-    const instructor = inventoryStatus.find((inv) =>
-      instructorSlug.includes(inv.instructorName.toLowerCase().replace(/\s+/g, "-"))
-    );
+    const parts = key.split("|");
+    if (parts.length !== 2) {
+      console.warn(`Invalid notification key: ${key}`);
+      return null;
+    }
+    const [instructorSlug, rawMentorshipType] = parts;
+    const validMentorshipTypes: Array<"one-on-one" | "group"> = ["one-on-one", "group"];
+    const mentorshipType = validMentorshipTypes.includes(rawMentorshipType as any)
+      ? (rawMentorshipType as "one-on-one" | "group")
+      : "one-on-one";
+    const instructor = slugToInstructorMap.get(instructorSlug);
     return {
       instructorName: instructor?.instructorName || instructorSlug,
       mentorshipType,
       count: data.count,
       sentAt: data.sentAt,
     };
-  });
+  }).filter((item): item is NonNullable<typeof item> => item !== null);
 
   const conversions: WeeklyDigestData["conversions"] = [];
 

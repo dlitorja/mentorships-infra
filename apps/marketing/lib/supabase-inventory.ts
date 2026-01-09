@@ -1,8 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ytxtlscmxyqomxhripki.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be configured");
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -78,10 +82,10 @@ export async function updateInventory(
           inventory: updates.group_inventory!,
         },
       });
-   } catch (notifyError) {
+    } catch (notifyError) {
       console.error(`Failed to send group notification for ${slug}:`, notifyError);
-     }
-   }
+    }
+  }
 
   if (current && updates.one_on_one_inventory !== undefined && current.one_on_one_inventory !== updates.one_on_one_inventory) {
     await logInventoryChange({
@@ -116,7 +120,7 @@ interface InventoryChangeLog {
   changedBy?: string;
 }
 
-export async function logInventoryChange(log: InventoryChangeLog): Promise<void> {
+export async function logInventoryChange(log: InventoryChangeLog): Promise<boolean> {
   const { error } = await supabase
     .from("inventory_change_log")
     .insert({
@@ -130,7 +134,9 @@ export async function logInventoryChange(log: InventoryChangeLog): Promise<void>
 
   if (error) {
     console.error("Error logging inventory change:", error);
+    return false;
   }
+  return true;
 }
 
 export async function decrementInventory(

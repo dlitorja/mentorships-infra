@@ -90,7 +90,7 @@ export function DigestSettingsForm() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-    }, [localAdminEmail]);
+  }, [localAdminEmail]);
 
   const saveSettings = useCallback(async (): Promise<void> => {
     if (!settings) return;
@@ -117,6 +117,8 @@ export function DigestSettingsForm() {
         return;
       }
 
+      setSettings(validatedData.data);
+      setLocalAdminEmail(validatedData.data.admin_email);
       toast.success("Digest settings saved successfully");
     } catch (err) {
       console.error("Error saving digest settings:", err);
@@ -182,7 +184,7 @@ export function DigestSettingsForm() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="h-5 w-5" />
-            Weekly Digest Settings
+            Digest Settings
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -190,7 +192,7 @@ export function DigestSettingsForm() {
             <div className="space-y-0.5">
               <Label>Enable Digest</Label>
               <p className="text-sm text-muted-foreground">
-                Automatically send weekly digest emails
+                Automatically send digest emails based on frequency
               </p>
             </div>
             <Switch

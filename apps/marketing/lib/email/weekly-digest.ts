@@ -106,8 +106,8 @@ export function buildWeeklyDigestEmail(data: WeeklyDigestData): {
         Waitlist Signups (${data.waitlistSignups.length} new)
       </div>
       <div style="background:#F9FAFB;border-radius:8px;padding:16px">
-        ${data.waitlistSignups.map((signup, index) => `
-          <div style="padding:8px 0;${index === data.waitlistSignups.length - 1 ? '' : 'border-bottom:1px solid #E5E7EB'}">
+        ${data.waitlistSignups.slice(0, 10).map((signup, index) => `
+          <div style="padding:8px 0;${index === Math.min(data.waitlistSignups.length - 1, 9) ? '' : 'border-bottom:1px solid #E5E7EB'}">
             <div style="font-weight:500;color:#111827">${escapeHtml(signup.email)}</div>
             <div style="font-size:13px;color:#6B7280">
               ${escapeHtml(signup.instructorName)} • ${signup.mentorshipType === "one-on-one" ? "1-on-1" : "Group"} • ${formatDate(signup.createdAt)}

@@ -41,21 +41,23 @@ async function applyMigration() {
       "utf-8"
     );
 
-    await sql.unsafe(migrationSQL);
-    console.log("✅ Migration 0016 applied successfully");
+    await sql.begin(async (tx) => {
+      await tx.unsafe(migrationSQL);
+      console.log("✅ Migration 0016 applied successfully");
 
-    const tables = await sql`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-      AND table_name = 'inventory_change_log'
-    `;
+      const tables = await tx`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'inventory_change_log'
+      `;
 
-    if (tables.length > 0) {
-      console.log("✅ inventory_change_log table verified");
-    } else {
-      console.log("❌ inventory_change_log table not found");
-    }
+      if (tables.length > 0) {
+        console.log("✅ inventory_change_log table verified");
+      } else {
+        console.log("❌ inventory_change_log table not found");
+      }
+    });
   } catch (error) {
     console.error("Error applying migration:", error);
     process.exit(1);

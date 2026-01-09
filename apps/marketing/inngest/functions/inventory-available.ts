@@ -5,14 +5,9 @@ import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notificatio
 import { getResendClient, getFromAddress } from "@/lib/email/client";
 import { z } from "zod";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-const mentorshipTypeSchema = z.enum(["one-on-one", "group"]);
-
 const inventoryEventSchema = z.object({
   instructorSlug: z.string(),
-  type: mentorshipTypeSchema,
+  type: z.enum(["one-on-one", "group"]),
 });
 
 const waitlistEntrySchema = z.object({
@@ -36,16 +31,18 @@ export const handleInventoryAvailable = inngest.createFunction(
     notifiedEmails?: string[];
     totalEmails?: number;
   }> => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
     if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error("Supabase not configured");
     }
-
-    let failedCount = 0;
 
     const resend = getResendClient();
     const from = getFromAddress();
 
     const parsedEvent = inventoryEventSchema.parse(event.data);
+    const { instructorSlug, type } = parsedEvent;
 
     if (!resend || !from) {
       return {
@@ -58,9 +55,6 @@ export const handleInventoryAvailable = inngest.createFunction(
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const { instructorSlug, type } = parsedEvent;
-
-    const parsedType = mentorshipTypeSchema.parse(type);
 
     const instructor = await step.run("get-instructor-details", async () => {
       return getInstructorBySlug(instructorSlug);
@@ -112,7 +106,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         message: "No entries to notify (all notified within last 7 days)",
         count: 0,
         instructorSlug,
-        type: parsedType,
+        type,
       };
     }
 
@@ -138,17 +132,29 @@ export const handleInventoryAvailable = inngest.createFunction(
         )
       );
 
+      let failedCount = 0;
+      const resendErrorEmails = new Set<string>();
+
       sendResults.forEach((result, index) => {
         if (result.status === "rejected") {
           const email = uniqueEmails[index];
           const reason = result.reason?.toString() || "Unknown error";
           console.error(`Failed to send email to ${email}: ${reason}`);
           failedCount++;
+        } else if (result.status === "fulfilled") {
+          const email = uniqueEmails[index];
+          if (result.value.error || result.value.data === null) {
+            console.error(`API error sending email to ${email}:`, result.value.error);
+            failedCount++;
+            resendErrorEmails.add(email);
+          }
         }
       });
 
-      return sendResults;
+      return { sendResults, failedCount, resendErrorEmails };
     });
+
+    const { sendResults, failedCount, resendErrorEmails } = sendResultsSettled;
 
     const matchingRows = await step.run("fetch-matching-rows", async () => {
       const { data, error: selectError } = await supabase
@@ -172,8 +178,8 @@ export const handleInventoryAvailable = inngest.createFunction(
     });
 
     const successfulIds: string[] = [];
-    sendResultsSettled.forEach((result, index) => {
-      if (result.status === "fulfilled") {
+    sendResults.forEach((result, index) => {
+      if (result.status === "fulfilled" && !resendErrorEmails.has(uniqueEmails[index])) {
         const sentEmail = uniqueEmails[index];
         const id = emailToIdMap.get(sentEmail);
         if (id) {

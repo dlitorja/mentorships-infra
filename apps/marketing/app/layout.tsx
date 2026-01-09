@@ -28,7 +28,7 @@ export default function RootLayout({
           <Header />
           {children}
           <Footer />
-          <Toaster />
+          <Toaster position="top-right" duration={4000} richColors />
         </body>
       </html>
     </ClerkProvider>

@@ -4,12 +4,21 @@ import { createClient } from "@supabase/supabase-js";
 import { buildWeeklyDigestEmail } from "@/lib/email/weekly-digest";
 import { getWeeklyDigestData, getPeriodForDigest } from "@/lib/digest-data";
 import { getResendClient, getFromAddress } from "@/lib/email/client";
+import { rateLimit } from "@/lib/utils";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<Response> {
   try {
+    const rateLimitResult = await rateLimit("digest-send", 5, 60000);
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: "Too many requests", resetAt: rateLimitResult.resetAt },
+        { status: 429 }
+      );
+    }
+
     await requireAdmin();
 
     if (!supabaseUrl || !supabaseAnonKey) {

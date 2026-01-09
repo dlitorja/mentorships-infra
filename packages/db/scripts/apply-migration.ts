@@ -17,7 +17,9 @@ function loadDatabaseUrlFromEnvFiles(): string | undefined {
       for (const line of env.split(/\r?\n/)) {
         const m = line.match(/^DATABASE_URL=(.*)$/);
         if (m) {
-          return m[1]?.trim();
+          let value = m[1]?.trim() || "";
+          value = value.replace(/^["']|["']$/g, "");
+          return value;
         }
       }
     } catch {
