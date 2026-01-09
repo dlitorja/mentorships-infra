@@ -21,7 +21,15 @@ const digestSettingsUpdateSchema = z.object({
 
 export async function GET(): Promise<NextResponse> {
   try {
-    await requireAdmin();
+    const adminId = await requireAdmin();
+
+    const rateLimitResult = await rateLimit(`admin:${adminId}`, 10, 60000);
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: "Too many requests", resetAt: rateLimitResult.resetAt },
+        { status: 429 }
+      );
+    }
 
     const { data, error } = await supabase
       .from("admin_digest_settings")

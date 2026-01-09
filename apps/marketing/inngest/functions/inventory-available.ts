@@ -41,8 +41,12 @@ export const handleInventoryAvailable = inngest.createFunction(
     const resend = getResendClient();
     const from = getFromAddress();
 
-    const parsedEvent = inventoryEventSchema.parse(event.data);
-    const { instructorSlug, type } = parsedEvent;
+    const eventParseResult = inventoryEventSchema.safeParse(event.data);
+    if (!eventParseResult.success) {
+      console.error("Invalid inventory event data:", eventParseResult.error.format());
+      throw new Error(`Invalid inventory event: ${eventParseResult.error.message}`);
+    }
+    const { instructorSlug, type } = eventParseResult.data;
 
     if (!resend || !from) {
       return {
@@ -99,7 +103,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       return z.array(waitlistEntrySchema).parse(data || []);
     });
 
-    const uniqueEmails = [...new Set(waitlistEntries.map((entry) => entry.email) || [])];
+    const uniqueEmails = [...new Set(waitlistEntries.map((entry) => entry.email))];
 
     if (uniqueEmails.length === 0) {
       return {
@@ -172,18 +176,21 @@ export const handleInventoryAvailable = inngest.createFunction(
       return z.array(waitlistEntrySchema).parse(data || []);
     });
 
-    const emailToIdMap = new Map<string, string>();
+    const emailToIdMap = new Map<string, string[]>();
     matchingRows.forEach((row) => {
-      emailToIdMap.set(row.email, row.id);
+      if (!emailToIdMap.has(row.email)) {
+        emailToIdMap.set(row.email, []);
+      }
+      emailToIdMap.get(row.email)!.push(row.id);
     });
 
     const successfulIds: string[] = [];
     sendResults.forEach((result, index) => {
       if (result.status === "fulfilled" && !resendErrorEmails.includes(uniqueEmails[index])) {
         const sentEmail = uniqueEmails[index];
-        const id = emailToIdMap.get(sentEmail);
-        if (id) {
-          successfulIds.push(id);
+        const ids = emailToIdMap.get(sentEmail);
+        if (ids) {
+          successfulIds.push(...ids);
         }
       }
     });
