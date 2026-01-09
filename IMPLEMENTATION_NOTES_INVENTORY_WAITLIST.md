@@ -1175,6 +1175,17 @@ Key changes:
 
 ## Files Modified (Phase 6 & 7 - Code Review Fixes)
 
+## Files Modified (Phase 6 & 7 - Code Review Fixes - Additional)
+
+| File | Changes |
+|------|---------|
+| `apps/marketing/app/api/admin/digest-settings/route.ts` | Added rate limiting to GET handler (same pattern as PUT) |
+| `apps/marketing/inngest/functions/inventory-available.ts` | Removed redundant || [] fallback from uniqueEmails |
+| `apps/marketing/inngest/functions/inventory-available.ts` | Changed inventoryEventSchema.parse to safeParse with explicit error handling |
+| `apps/marketing/inngest/functions/inventory-available.ts` | Fixed emailToIdMap to handle duplicate emails (Map<string, string[]>) |
+| `apps/marketing/inngest/functions/inventory-available.ts` | Collect all IDs for duplicate emails when building successfulIds |
+
+
 | File | Changes |
 |------|---------|
 | `apps/marketing/app/api/admin/digest-send/route.ts` | Use shared email client, check sendResult.error before updating database |
