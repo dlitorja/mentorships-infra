@@ -52,8 +52,8 @@ export const handleInventoryAvailable = inngest.createFunction(
       return {
         message: "Email provider not configured, skipping send",
         count: 0,
-        instructorSlug: parsedEvent.instructorSlug,
-        type: parsedEvent.type,
+        instructorSlug,
+        type,
         skipped: true,
       };
     }
