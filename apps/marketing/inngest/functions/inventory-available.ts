@@ -84,7 +84,6 @@ export const handleInventoryAvailable = inngest.createFunction(
         skipped: true,
       };
     }
-
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const waitlistEntries = await step.run("fetch-waitlist-entries", async (): Promise<z.infer<typeof z.array(waitlistEntrySchema)>> => {
