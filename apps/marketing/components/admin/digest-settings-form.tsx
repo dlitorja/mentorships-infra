@@ -28,6 +28,15 @@ const digestSettingsSchema = z.object({
 
 type DigestSettings = z.infer<typeof digestSettingsSchema>;
 
+const saveSettingsResponseSchema = z.object({
+  id: z.string(),
+  enabled: z.boolean(),
+  frequency: z.enum(["daily", "weekly", "monthly"]),
+  admin_email: z.string().email(),
+  last_sent_at: z.string().nullable(),
+  updated_at: z.string(),
+});
+
 const sendDigestResponseSchema = z.object({
   success: z.boolean(),
   message: z.string(),

@@ -60,6 +60,8 @@ export const handleInventoryAvailable = inngest.createFunction(
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
     const { instructorSlug, type } = parsedEvent;
 
+    const parsedType = mentorshipTypeSchema.parse(type);
+
     const instructor = await step.run("get-instructor-details", async () => {
       return getInstructorBySlug(instructorSlug);
     });
