@@ -1,6 +1,6 @@
 import { inngest } from "../client";
 import { createClient } from "@supabase/supabase-js";
-import { instructors, getInstructorBySlug } from "@/lib/instructors";
+import { getInstructorBySlug } from "@/lib/instructors";
 import { buildWaitlistNotificationEmail } from "@/lib/email/waitlist-notification";
 import { getResendClient, getFromAddress } from "@/lib/email/client";
 import { z } from "zod";
@@ -10,13 +10,27 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 const mentorshipTypeSchema = z.enum(["one-on-one", "group"]);
 
+const inventoryEventSchema = z.object({
+  instructorSlug: z.string(),
+  type: z.string(),
+});
+
 export const handleInventoryAvailable = inngest.createFunction(
   {
     id: "handle-inventory-available",
     retries: 3,
   },
   { event: "inventory/available" },
-  async ({ event, step }) => {
+  async ({ event, step }): Promise<{
+    message: string;
+    count: number;
+    failed?: number;
+    instructorSlug?: string;
+    type?: string;
+    skipped?: boolean;
+    notifiedEmails?: string[];
+    totalEmails?: number;
+  }> => {
     if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error("Supabase not configured");
     }
@@ -24,18 +38,20 @@ export const handleInventoryAvailable = inngest.createFunction(
     const resend = getResendClient();
     const from = getFromAddress();
 
+    const parsedEvent = inventoryEventSchema.parse(event.data);
+
     if (!resend || !from) {
       return {
         message: "Email provider not configured, skipping send",
         count: 0,
-        instructorSlug: event.data.instructorSlug,
-        type: event.data.type,
+        instructorSlug: parsedEvent.instructorSlug,
+        type: parsedEvent.type,
         skipped: true,
       };
     }
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
-    const { instructorSlug, type } = event.data;
+    const { instructorSlug, type } = parsedEvent;
 
     const parsedType = mentorshipTypeSchema.parse(type);
 
@@ -102,7 +118,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     });
 
     const sendResults = await step.run("send-emails", async () => {
-      const results = await Promise.allSettled(
+      const sendResults = await Promise.allSettled(
         uniqueEmails.map((email) =>
           resend.emails.send({
             from,
@@ -115,10 +131,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         )
       );
 
-      const successful = results.filter((r) => r.status === "fulfilled").length;
-      const failed = results.filter((r) => r.status === "rejected").length;
-
-      results.forEach((result, index) => {
+      sendResults.forEach((result, index) => {
         if (result.status === "rejected") {
           const email = uniqueEmails[index];
           const reason = (result as PromiseRejectedResult).reason || "Unknown error";
@@ -126,41 +139,42 @@ export const handleInventoryAvailable = inngest.createFunction(
         }
       });
 
-      return { successful, failed, results };
-    });
+      const matchingRows = await step.run("fetch-matching-rows", async () => {
+        const { data: matchingRows, error: selectError } = await supabase
+          .from("marketing_waitlist")
+          .select("id, email")
+          .in("email", uniqueEmails)
+          .eq("instructor_slug", instructorSlug)
+          .eq("mentorship_type", parsedType);
 
-    const successfulIds = await step.run("fetch-matching-rows", async () => {
-      const { data: matchingRows, error: selectError } = await supabase
-        .from("marketing_waitlist")
-        .select("id")
-        .in("email", uniqueEmails)
-        .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", parsedType);
+        if (selectError) {
+          console.error("Error fetching matching rows:", selectError);
+          throw selectError;
+        }
 
-      if (selectError) {
-        console.error("Error fetching matching rows:", selectError);
-        throw selectError;
-      }
+        return matchingRows || [];
+      });
 
       const emailToIdMap = new Map<string, string>();
-      matchingRows?.forEach((row: any) => {
+      matchingRows.forEach((row) => {
         emailToIdMap.set(row.email, row.id);
       });
 
-      const successfulEmails: string[] = [];
-      results.forEach((result) => {
+      const successfulIds: string[] = [];
+      sendResults.forEach((result, index) => {
         if (result.status === "fulfilled") {
-          const sentEmail = (result.value as any)?.to;
-          if (sentEmail && emailToIdMap.has(sentEmail)) {
-            successfulEmails.push(emailToIdMap.get(sentEmail)!);
+          const sentEmail = uniqueEmails[index];
+          const id = emailToIdMap.get(sentEmail);
+          if (id) {
+            successfulIds.push(id);
           }
         }
       });
 
-      return successfulEmails.filter(Boolean);
+      return successfulIds;
     });
 
-    if (successfulIds.length > 0) {
+    if (sendResults.length > 0) {
       await step.run("mark-notified", async () => {
         const { error: updateError } = await supabase
           .from("marketing_waitlist")
@@ -169,7 +183,7 @@ export const handleInventoryAvailable = inngest.createFunction(
             last_notification_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .in("id", successfulIds);
+          .in("id", sendResults);
 
         if (updateError) {
           console.error("Error updating waitlist entries:", updateError);
@@ -179,9 +193,8 @@ export const handleInventoryAvailable = inngest.createFunction(
     }
 
     return {
-      message: `Sent ${sendResults.successful} emails to waitlist`,
-      count: sendResults.successful,
-      failed: sendResults.failed,
+      message: `Sent ${sendResults.length} emails to waitlist`,
+      count: sendResults.length,
       instructorSlug,
       type: parsedType,
       notifiedEmails: uniqueEmails.slice(0, 5),

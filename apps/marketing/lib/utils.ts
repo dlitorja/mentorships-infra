@@ -18,3 +18,34 @@ export function shuffleArray<T>(array: T[]): T[] {
   }
   return shuffled;
 }
+
+interface RateLimitResult {
+  success: boolean;
+  resetAt?: Date;
+}
+
+const rateLimitMap = new Map<string, { count: number; resetAt: Date }>();
+
+export function rateLimit(
+  key: string,
+  maxRequests: number = 10,
+  windowMs: number = 60000
+): RateLimitResult {
+  const now = new Date();
+  const record = rateLimitMap.get(key);
+
+  if (!record || record.resetAt < now) {
+    rateLimitMap.set(key, {
+      count: 1,
+      resetAt: new Date(now.getTime() + windowMs),
+    });
+    return { success: true };
+  }
+
+  if (record.count >= maxRequests) {
+    return { success: false, resetAt: record.resetAt };
+  }
+
+  record.count++;
+  return { success: true };
+}

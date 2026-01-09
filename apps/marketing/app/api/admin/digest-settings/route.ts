@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
+import { rateLimit } from "@/lib/utils";
 import { z } from "zod";
 
 const digestSettingsResponseSchema = z.object({
@@ -12,15 +13,13 @@ const digestSettingsResponseSchema = z.object({
   updated_at: z.string(),
 });
 
-});
-
 const digestSettingsUpdateSchema = z.object({
   enabled: z.boolean(),
   frequency: z.enum(["daily", "weekly", "monthly"]),
   adminEmail: z.string().email(),
 });
 
-export async function GET() {
+export async function GET(): Promise<NextResponse> {
   try {
     await requireAdmin();
 
@@ -59,48 +58,18 @@ export async function GET() {
     );
   }
 }
+
+export async function PUT(request: NextRequest): Promise<NextResponse> {
   try {
-    await requireAdmin();
+    const adminId = await requireAdmin();
 
-    const { data, error } = await supabase
-      .from("admin_digest_settings")
-      .select("*")
-      .eq("id", "default")
-      .single();
-
-    if (error) {
-      console.error("Error fetching digest settings:", error);
+    const rateLimitResult = rateLimit(`admin:${adminId}`, 10, 60000);
+    if (!rateLimitResult.success) {
       return NextResponse.json(
-        { error: "Failed to fetch digest settings" },
-        { status: 500 }
+        { error: "Too many requests", resetAt: rateLimitResult.resetAt },
+        { status: 429 }
       );
     }
-
-    const validatedData = digestSettingsResponseSchema.safeParse(data);
-    if (!validatedData.success) {
-      console.error("Invalid digest settings data:", validatedData.error.format());
-      return NextResponse.json(
-        { error: "Invalid digest settings data" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json(validatedData.data);
-  } catch (error) {
-    console.error("Error in GET /api/admin/digest-settings:", error);
-    if (error instanceof Error && error.message === "Unauthorized") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
-
-export async function PUT(request: NextRequest) {
-  try {
-    await requireAdmin();
 
     const body = await request.json();
     const validatedData = digestSettingsUpdateSchema.parse(body);
@@ -125,7 +94,16 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(data);
+    const validatedResponse = digestSettingsResponseSchema.safeParse(data);
+    if (!validatedResponse.success) {
+      console.error("Invalid digest settings response:", validatedResponse.error.format());
+      return NextResponse.json(
+        { error: "Invalid response from database" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json(validatedResponse.data);
   } catch (error) {
     console.error("Error in PUT /api/admin/digest-settings:", error);
     if (error instanceof z.ZodError) {
