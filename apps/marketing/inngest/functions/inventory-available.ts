@@ -133,7 +133,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       );
 
       let failedCount = 0;
-      const resendErrorEmails = new Set<string>();
+      const resendErrorEmails: string[] = [];
 
       sendResults.forEach((result, index) => {
         if (result.status === "rejected") {
@@ -146,7 +146,7 @@ export const handleInventoryAvailable = inngest.createFunction(
           if (result.value.error || result.value.data === null) {
             console.error(`API error sending email to ${email}:`, result.value.error);
             failedCount++;
-            resendErrorEmails.add(email);
+            resendErrorEmails.push(email);
           }
         }
       });
@@ -179,7 +179,7 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     const successfulIds: string[] = [];
     sendResults.forEach((result, index) => {
-      if (result.status === "fulfilled" && !resendErrorEmails.has(uniqueEmails[index])) {
+      if (result.status === "fulfilled" && !resendErrorEmails.includes(uniqueEmails[index])) {
         const sentEmail = uniqueEmails[index];
         const id = emailToIdMap.get(sentEmail);
         if (id) {
