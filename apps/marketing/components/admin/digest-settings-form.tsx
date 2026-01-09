@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -42,22 +42,7 @@ export function DigestSettingsForm() {
   const [localAdminEmail, setLocalAdminEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setSettings((prev) => {
-        if (!prev || localAdminEmail === prev.admin_email) return prev;
-        return { ...prev, admin_email: localAdminEmail };
-      });
-    }, 500);
-
-    return () => clearTimeout(timeoutId);
-  }, [localAdminEmail]);
-
-  async function fetchSettings() {
+  const fetchSettings = useCallback(async (): Promise<void> => {
     try {
       const response = await fetch("/api/admin/digest-settings");
       if (!response.ok) throw new Error("Failed to fetch settings");
@@ -80,9 +65,24 @@ export function DigestSettingsForm() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  async function saveSettings() {
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setSettings((prev) => {
+        if (!prev || localAdminEmail === prev.admin_email) return prev;
+        return { ...prev, admin_email: localAdminEmail };
+      });
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
+  }, [localAdminEmail, setSettings]);
+
+  const saveSettings = useCallback(async (): Promise<void> => {
     if (!settings) return;
 
     setSaving(true);
@@ -106,9 +106,9 @@ export function DigestSettingsForm() {
     } finally {
       setSaving(false);
     }
-  }
+  }, [settings]);
 
-  async function sendManualDigest() {
+  const sendManualDigest = useCallback(async (): Promise<void> => {
     setSending(true);
     try {
       const response = await fetch("/api/admin/digest-send", {

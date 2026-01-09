@@ -15,6 +15,11 @@ const inventoryEventSchema = z.object({
   type: z.string(),
 });
 
+const waitlistEntrySchema = z.object({
+  id: z.string(),
+  email: z.string().email(),
+});
+
 export const handleInventoryAvailable = inngest.createFunction(
   {
     id: "handle-inventory-available",
@@ -97,7 +102,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         throw error;
       }
 
-      return data || [];
+      return z.array(waitlistEntrySchema).parse(data || []);
     });
 
     const uniqueEmails = [...new Set(waitlistEntries.map((entry) => entry.email) || [])];
@@ -136,7 +141,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       sendResults.forEach((result, index) => {
         if (result.status === "rejected") {
           const email = uniqueEmails[index];
-          const reason = (result as PromiseRejectedResult).reason || "Unknown error";
+          const reason = result.reason?.toString() || "Unknown error";
           console.error(`Failed to send email to ${email}: ${reason}`);
           failed++;
         }
@@ -146,7 +151,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     });
 
     const matchingRows = await step.run("fetch-matching-rows", async () => {
-      const { data: matchingRows, error: selectError } = await supabase
+      const { data, error: selectError } = await supabase
         .from("marketing_waitlist")
         .select("id, email")
         .in("email", uniqueEmails)
@@ -158,7 +163,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         throw selectError;
       }
 
-      return matchingRows || [];
+      return z.array(waitlistEntrySchema).parse(data || []);
     });
 
     const emailToIdMap = new Map<string, string>();
