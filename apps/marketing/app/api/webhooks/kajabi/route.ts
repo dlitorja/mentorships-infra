@@ -181,10 +181,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const newInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
     if (newInventory === null) {
-      console.warn("Could not fetch new inventory after decrement, using calculated value");
+      console.error("Could not determine new inventory, skipping Inngest event");
+      return NextResponse.json({
+        received: true,
+        message: `Inventory decremented by ${quantity} (event notification skipped)`,
+        instructor: mapping.instructor_slug,
+        type: mapping.mentorship_type,
+        quantity,
+        previousInventory,
+      });
     }
-
-    const finalNewInventory = newInventory !== null ? newInventory : -1;
 
     const inngestError = await inngest.send({
       name: "inventory/changed",
@@ -192,7 +198,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         instructorSlug: mapping.instructor_slug,
         type: mapping.mentorship_type,
         previousInventory,
-        newInventory: finalNewInventory,
+        newInventory,
         quantity,
       },
     });
@@ -208,7 +214,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       type: mapping.mentorship_type,
       quantity,
       previousInventory,
-      newInventory: finalNewInventory,
+      newInventory,
     });
   } catch (error) {
     console.error("Error processing webhook:", error);
