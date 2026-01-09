@@ -87,7 +87,7 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const waitlistEntries = await step.run("fetch-waitlist-entries", async () => {
+    const waitlistEntries = await step.run("fetch-waitlist-entries", async (): Promise<z.infer<typeof z.array(waitlistEntrySchema)>> => {
       const { data, error } = await supabase
         .from("marketing_waitlist")
         .select("id, email")
@@ -114,7 +114,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       };
     }
 
-    const emailContent = await step.run("build-email-content", async () => {
+    const emailContent = await step.run("build-email-content", async (): Promise<ReturnType<typeof buildWaitlistNotificationEmail>> => {
       return buildWaitlistNotificationEmail({
         instructorName: instructor.name,
         mentorshipType: type,
@@ -122,7 +122,7 @@ export const handleInventoryAvailable = inngest.createFunction(
       });
     });
 
-    const sendResultsSettled = await step.run("send-emails", async () => {
+    const sendResultsSettled = await step.run("send-emails", async (): Promise<{sendResults: any[]; failedCount: number; resendErrorEmails: string[]}> => {
       const sendResults = await Promise.allSettled(
         uniqueEmails.map((email) =>
           resend.emails.send({
@@ -160,7 +160,7 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     const { sendResults, failedCount, resendErrorEmails } = sendResultsSettled;
 
-    const matchingRows = await step.run("fetch-matching-rows", async () => {
+    const matchingRows = await step.run("fetch-matching-rows", async (): Promise<z.infer<typeof z.array(waitlistEntrySchema)>> => {
       const { data, error: selectError } = await supabase
         .from("marketing_waitlist")
         .select("id, email")
@@ -196,7 +196,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     });
 
     if (successfulIds.length > 0) {
-      await step.run("mark-notified", async () => {
+      await step.run("mark-notified", async (): Promise<void> => {
         const { error: updateError } = await supabase
           .from("marketing_waitlist")
           .update({
