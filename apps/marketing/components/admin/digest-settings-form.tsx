@@ -34,15 +34,6 @@ const sendDigestResponseSchema = z.object({
   recipientEmail: z.string().email(),
 });
 
-const saveSettingsResponseSchema = z.object({
-  id: z.string(),
-  enabled: z.boolean(),
-  frequency: z.enum(["daily", "weekly", "monthly"]),
-  admin_email: z.string().email(),
-  last_sent_at: z.string().nullable(),
-  updated_at: z.string(),
-});
-
 export function DigestSettingsForm() {
   const [settings, setSettings] = useState<DigestSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -90,7 +81,7 @@ export function DigestSettingsForm() {
     }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [localAdminEmail, setSettings]);
+    }, [localAdminEmail]);
 
   const saveSettings = useCallback(async (): Promise<void> => {
     if (!settings) return;
@@ -151,7 +142,7 @@ export function DigestSettingsForm() {
     } finally {
       setSending(false);
     }
-  }, [setSending, fetchSettings, toast, sendDigestResponseSchema]);
+    }, [fetchSettings]);
 
   if (loading) {
     return (

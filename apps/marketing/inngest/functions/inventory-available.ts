@@ -36,11 +36,11 @@ export const handleInventoryAvailable = inngest.createFunction(
     notifiedEmails?: string[];
     totalEmails?: number;
   }> => {
-    let failed = 0;
-
     if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error("Supabase not configured");
     }
+
+    let failedCount = 0;
 
     const resend = getResendClient();
     const from = getFromAddress();
@@ -92,7 +92,7 @@ export const handleInventoryAvailable = inngest.createFunction(
         .from("marketing_waitlist")
         .select("id, email")
         .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", parsedType)
+        .eq("mentorship_type", type)
         .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo},last_notification_at.is.null`);
 
       if (error) {
@@ -117,7 +117,7 @@ export const handleInventoryAvailable = inngest.createFunction(
     const emailContent = await step.run("build-email-content", async () => {
       return buildWaitlistNotificationEmail({
         instructorName: instructor.name,
-        mentorshipType: parsedType,
+        mentorshipType: type,
         purchaseUrl: offer.url,
       });
     });
@@ -141,7 +141,7 @@ export const handleInventoryAvailable = inngest.createFunction(
           const email = uniqueEmails[index];
           const reason = result.reason?.toString() || "Unknown error";
           console.error(`Failed to send email to ${email}: ${reason}`);
-          failed++;
+          failedCount++;
         }
       });
 
@@ -201,9 +201,9 @@ export const handleInventoryAvailable = inngest.createFunction(
     return {
       message: `Marked ${successfulIds.length} emails as sent (attempted ${uniqueEmails.length})`,
       count: successfulIds.length,
-      failed,
+      failed: failedCount,
       instructorSlug,
-      type: parsedType,
+      type,
       notifiedEmails: uniqueEmails.slice(0, 5),
       totalEmails: uniqueEmails.length,
     };

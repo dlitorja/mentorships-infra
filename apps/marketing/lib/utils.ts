@@ -36,6 +36,7 @@ function cleanupExpiredEntries(): void {
 }
 
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+let cleanupListenerRegistered = false;
 
 /**
  * Rate limiting utility for API requests
@@ -44,8 +45,8 @@ let cleanupInterval: ReturnType<typeof setInterval> | null = null;
  * resets after windowMs, and returns a RateLimitResult indicating success and
  * optional resetAt.
  *
- * @param key - Unique identifier for the rate limit (e.g., user ID or IP)
- * @param maxRequests - Maximum number of requests allowed in the time window (default: 10)
+ * @param key - Unique identifier for rate limit (e.g., user ID or IP)
+ * @param maxRequests - Maximum number of requests allowed in time window (default: 10)
  * @param windowMs - Time window in milliseconds (default: 60000 = 1 minute)
  * @returns RateLimitResult with success status and optional resetAt timestamp
  *
@@ -62,63 +63,16 @@ export function rateLimit(
     cleanupInterval = setInterval(cleanupExpiredEntries, cleanupIntervalMs);
   }
 
-  if (typeof process !== "undefined" && process.on) {
+  if (!cleanupListenerRegistered && typeof process !== "undefined" && process.on) {
     process.on("beforeExit", () => {
       if (cleanupInterval) {
         clearInterval(cleanupInterval);
         cleanupInterval = null;
       }
     });
+    cleanupListenerRegistered = true;
   }
 
-  const now = new Date();
-  const record = rateLimitMap.get(key);
-
-  if (!record || record.resetAt < now) {
-    rateLimitMap.set(key, {
-      count: 1,
-      resetAt: new Date(now.getTime() + windowMs),
-    });
-    return { success: true };
-  }
-
-  if (record.count >= maxRequests) {
-    return { success: false, resetAt: record.resetAt };
-  }
-
-  record.count++;
-  return { success: true };
-}
-  return shuffled;
-}
-
-interface RateLimitResult {
-  success: boolean;
-  resetAt?: Date;
-}
-
-const rateLimitMap = new Map<string, { count: number; resetAt: Date }>();
-
-function cleanupExpiredEntries(): void {
-  const now = new Date();
-  for (const [key, record] of rateLimitMap.entries()) {
-    if (record.resetAt < now) {
-      rateLimitMap.delete(key);
-    }
-  }
-}
-
-const cleanupInterval = setInterval(cleanupExpiredEntries, 60000);
-
-if (typeof process !== "undefined" && process.on) {
-  process.on("beforeExit", () => clearInterval(cleanupInterval));
-}
-
-export function rateLimit(
-  key: string,
-  maxRequests: number = 10,
-  windowMs: number = 60000
-): RateLimitResult {
   const now = new Date();
   const record = rateLimitMap.get(key);
 
