@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
+import { logInventoryChange } from "@/lib/supabase-inventory";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -146,7 +147,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         : (event.payment_transaction?.quantity || 1);
 
     const column = mapping.mentorship_type === "one-on-one" ? "one_on_one_inventory" : "group_inventory";
-    
+
+    const previousInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
+    if (previousInventory === null) {
+      console.warn("Could not fetch current inventory before decrement");
+      return NextResponse.json({ error: "Failed to get current inventory" }, { status: 500 });
+    }
+
     const { data: decrementResult, error: rpcError } = await supabase.rpc("decrement_inventory", {
       slug_param: mapping.instructor_slug,
       inventory_column: column,
@@ -165,18 +172,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const newInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
     if (newInventory === null) {
-      console.warn("Could not fetch new inventory after decrement, using calculated value");
+      console.error("Could not determine new inventory, skipping Inngest event");
+      return NextResponse.json({
+        received: true,
+        message: `Inventory decremented by ${quantity} (event notification skipped)`,
+        instructor: mapping.instructor_slug,
+        type: mapping.mentorship_type,
+        quantity,
+        previousInventory,
+      });
     }
 
-    const finalNewInventory = newInventory !== null ? newInventory : -1;
+    await logInventoryChange({
+      instructorSlug: mapping.instructor_slug,
+      mentorshipType: mapping.mentorship_type,
+      changeType: "kajabi_purchase",
+      oldValue: previousInventory,
+      newValue: newInventory,
+      changedBy: `kajabi:${event.offer?.id}`,
+    });
 
     const inngestError = await inngest.send({
       name: "inventory/changed",
       data: {
         instructorSlug: mapping.instructor_slug,
         type: mapping.mentorship_type,
-        previousInventory: 0,
-        newInventory: finalNewInventory,
+        previousInventory,
+        newInventory,
         quantity,
       },
     });
@@ -191,8 +213,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       instructor: mapping.instructor_slug,
       type: mapping.mentorship_type,
       quantity,
-      previousInventory: 0,
-      newInventory: finalNewInventory,
+      previousInventory,
+      newInventory,
     });
   } catch (error) {
     console.error("Error processing webhook:", error);

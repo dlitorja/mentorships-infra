@@ -1,7 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import { inngest } from "@/lib/inngest";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ytxtlscmxyqomxhripki.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be configured");
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -25,6 +30,8 @@ export async function updateInventory(
   updates: { one_on_one_inventory?: number; group_inventory?: number },
   updatedBy?: string
 ) {
+  const current = await getInstructorInventory(slug);
+
   const { data, error } = await supabase
     .from("instructor_inventory")
     .update({
@@ -41,7 +48,95 @@ export async function updateInventory(
     return null;
   }
 
+  const shouldNotifyOneOnOne =
+    current?.one_on_one_inventory === 0 &&
+    updates.one_on_one_inventory !== undefined &&
+    updates.one_on_one_inventory > 0;
+  const shouldNotifyGroup =
+    current?.group_inventory === 0 &&
+    updates.group_inventory !== undefined &&
+    updates.group_inventory > 0;
+
+  if (shouldNotifyOneOnOne) {
+    try {
+      await inngest.send({
+        name: "inventory/available",
+        data: {
+          instructorSlug: slug,
+          type: "one-on-one",
+          inventory: updates.one_on_one_inventory!,
+        },
+      });
+    } catch (notifyError) {
+      console.error(`Failed to send one-on-one notification for ${slug}:`, notifyError);
+    }
+  }
+
+  if (shouldNotifyGroup) {
+    try {
+      await inngest.send({
+        name: "inventory/available",
+        data: {
+          instructorSlug: slug,
+          type: "group",
+          inventory: updates.group_inventory!,
+        },
+      });
+    } catch (notifyError) {
+      console.error(`Failed to send group notification for ${slug}:`, notifyError);
+    }
+  }
+
+  if (current && updates.one_on_one_inventory !== undefined && current.one_on_one_inventory !== updates.one_on_one_inventory) {
+    await logInventoryChange({
+      instructorSlug: slug,
+      mentorshipType: "one-on-one",
+      changeType: "manual_update",
+      oldValue: current.one_on_one_inventory,
+      newValue: updates.one_on_one_inventory,
+      changedBy: updatedBy,
+    });
+  }
+  if (current && updates.group_inventory !== undefined && current.group_inventory !== updates.group_inventory) {
+    await logInventoryChange({
+      instructorSlug: slug,
+      mentorshipType: "group",
+      changeType: "manual_update",
+      oldValue: current.group_inventory,
+      newValue: updates.group_inventory,
+      changedBy: updatedBy,
+    });
+  }
+
   return data;
+}
+
+interface InventoryChangeLog {
+  instructorSlug: string;
+  mentorshipType: "one-on-one" | "group";
+  changeType: "manual_update" | "kajabi_purchase";
+  oldValue: number;
+  newValue: number;
+  changedBy?: string;
+}
+
+export async function logInventoryChange(log: InventoryChangeLog): Promise<boolean> {
+  const { error } = await supabase
+    .from("inventory_change_log")
+    .insert({
+      instructor_slug: log.instructorSlug,
+      mentorship_type: log.mentorshipType,
+      change_type: log.changeType,
+      old_value: log.oldValue,
+      new_value: log.newValue,
+      changed_by: log.changedBy,
+    });
+
+  if (error) {
+    console.error("Error logging inventory change:", error);
+    return false;
+  }
+  return true;
 }
 
 export async function decrementInventory(

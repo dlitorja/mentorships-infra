@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import { uploadOnboardingImages, submitOnboarding } from "@/lib/queries/api-client";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
@@ -37,7 +38,6 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
   const [files, setFiles] = useState<File[]>([]);
   const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
-  const [message, setMessage] = useState<string | null>(null);
 
   const sessionPackId = form.getFieldValue("sessionPackId") as string;
   const goals = form.getFieldValue("goals") as string;
@@ -47,10 +47,10 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
     onSuccess: (data) => {
       setSubmissionId(data.submissionId);
       setUploadedImages(data.images);
-      setMessage("Images uploaded. You can now submit onboarding.");
+      toast.success("Images uploaded. You can now submit onboarding.");
     },
-    onError: () => {
-      setMessage("Upload failed");
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Upload failed");
     },
   });
 
@@ -63,10 +63,10 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
         imageObjects: uploadedImages,
       }),
     onSuccess: () => {
-      setMessage("Submitted! Your instructor will be notified.");
+      toast.success("Submitted! Your instructor will be notified.");
     },
     onError: (error) => {
-      setMessage(error instanceof Error ? error.message : "Submission failed");
+      toast.error(error instanceof Error ? error.message : "Submission failed");
     },
   });
 
@@ -90,7 +90,6 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
   }, [files.length]);
 
   async function uploadImages() {
-    setMessage(null);
     if (!canUpload) return;
 
     const formData = new FormData();
@@ -100,9 +99,8 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
   }
 
   async function submit() {
-    setMessage(null);
     if (!canSubmit || !submissionId) {
-      setMessage("Please upload images first");
+      toast.error("Please upload images first");
       return;
     }
 
@@ -201,8 +199,6 @@ export function MenteeOnboardingForm({ packs }: { packs: PackOption[] }) {
             <span className="text-xs text-muted-foreground">Submission ID: {submissionId}</span>
           ) : null}
         </div>
-
-        {message ? <p className="text-sm">{message}</p> : null}
       </CardContent>
     </Card>
   );

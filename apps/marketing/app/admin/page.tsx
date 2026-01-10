@@ -2,7 +2,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getAllInstructorsWithInventory } from "@/lib/supabase-inventory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-import { Package } from "lucide-react";
+import { Package, Bell } from "lucide-react";
 
 type InventorySummary = {
   oneOnOne: number;
@@ -85,6 +85,21 @@ export default async function AdminDashboard(): Promise<React.ReactElement> {
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 Adjust inventory counts, set up waitlists, and configure offer mappings.
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+        <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
+          <Link href="/admin/digest">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="h-5 w-5" />
+                Digest Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                Configure weekly digest emails with waitlist statistics and insights.
               </p>
             </CardContent>
           </Link>
