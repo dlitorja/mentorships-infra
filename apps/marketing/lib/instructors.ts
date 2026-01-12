@@ -90,13 +90,14 @@ background: ["Gaming", "Indie"],
         url: "https://www.instagram.com/crookednosedelf/?hl=en"
       }
     ],
-    profileImage: "/instructors/cameron-nissen/profile.jpg",
+    profileImage: "/instructors/cameron-nissen/work-6.jpg",
     workImages: [
       "/instructors/cameron-nissen/work-1.jpg",
       "/instructors/cameron-nissen/work-2.jpg",
       "/instructors/cameron-nissen/work-3.jpg",
       "/instructors/cameron-nissen/work-4.jpg",
       "/instructors/cameron-nissen/work-5.jpg",
+      "/instructors/cameron-nissen/work-6.jpg",
     ],
     pricing: { oneOnOne: 375 },
     offers: [
