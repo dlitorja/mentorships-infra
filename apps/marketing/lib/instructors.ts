@@ -363,8 +363,8 @@ background: ["Gaming", "Indie"],
     background: ["Gaming", "TV", "Film"],
     socials: [
       {
-        platform: "Website",
-        url: "https://www.jordanjardine.com"
+        platform: "X",
+        url: "https://x.com/anearbycat"
       }
     ],
     profileImage: "/instructors/ash-kirk/profile.jpg",
