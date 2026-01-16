@@ -72,19 +72,21 @@ export async function updateInventory(
     }
   }
 
-  const { data, error } = await supabase
-    .from("instructor_inventory")
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString(),
-      updated_by: updatedBy,
-    })
-    .eq("instructor_slug", slug)
-    .select()
-    .single();
+  // Use API route with service role to bypass RLS
+  const response = await fetch("/api/admin/inventory", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      slug,
+      one_on_one_inventory: updates.one_on_one_inventory,
+      group_inventory: updates.group_inventory,
+    }),
+  });
 
-  if (error) {
-    console.error("Error updating inventory:", error);
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error("Error updating inventory:", data);
     return null;
   }
 
