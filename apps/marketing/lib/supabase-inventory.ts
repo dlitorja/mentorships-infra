@@ -50,11 +50,6 @@ export async function updateInventory(
     return null;
   }
 
-  if (error) {
-    console.error("Error updating inventory:", error);
-    return null;
-  }
-
   const shouldNotifyOneOnOne =
     current?.one_on_one_inventory === 0 &&
     updates.one_on_one_inventory !== undefined &&
