@@ -47,12 +47,29 @@ export async function updateInventory(
       .single();
 
     if (insertError) {
-      console.error("Error creating inventory record:", insertError);
-      return null;
+      if (insertError.code === "23505") {
+        // Duplicate key error - record was created by another process, refetch it
+        const { data: refetchedData, error: refetchError } = await supabase
+          .from("instructor_inventory")
+          .select()
+          .eq("instructor_slug", slug)
+          .single();
+        
+        if (refetchError) {
+          console.error("Error refetching inventory record after duplicate:", refetchError);
+          return null;
+        }
+        
+        // Set current to refetched record so downstream checks work properly
+        current = refetchedData;
+      } else {
+        console.error("Error creating inventory record:", insertError);
+        return null;
+      }
+    } else {
+      // Set current to inserted record so downstream checks work properly
+      current = insertData;
     }
-    
-    // Set current to inserted record so downstream checks work properly
-    current = insertData;
   }
 
   const { data, error } = await supabase
