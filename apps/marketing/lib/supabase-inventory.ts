@@ -72,21 +72,19 @@ export async function updateInventory(
     }
   }
 
-  // Use API route with service role to bypass RLS
-  const response = await fetch("/api/admin/inventory", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      slug,
-      one_on_one_inventory: updates.one_on_one_inventory,
-      group_inventory: updates.group_inventory,
-    }),
-  });
+  const { data, error } = await supabase
+    .from("instructor_inventory")
+    .update({
+      ...updates,
+      updated_at: new Date().toISOString(),
+      updated_by: updatedBy,
+    })
+    .eq("instructor_slug", slug)
+    .select()
+    .single();
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    console.error("Error updating inventory:", data);
+  if (error) {
+    console.error("Error updating inventory:", error);
     return null;
   }
 
