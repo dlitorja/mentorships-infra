@@ -57,6 +57,7 @@ export async function PATCH(request: Request): Promise<Response> {
         group_inventory: group_inventory ?? 0,
         updated_at: new Date().toISOString(),
       })
+      .onConflict("instructor_slug")
       .select()
       .single();
 
