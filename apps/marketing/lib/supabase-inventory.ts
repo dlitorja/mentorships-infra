@@ -30,7 +30,7 @@ export async function updateInventory(
   updates: { one_on_one_inventory?: number; group_inventory?: number },
   updatedBy?: string
 ) {
-  const current = await getInstructorInventory(slug);
+  let current = await getInstructorInventory(slug);
 
   // If no record exists, create it first
   if (!current) {
