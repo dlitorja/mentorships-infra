@@ -1,11 +1,30 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export async function PATCH(request: Request) {
+const updateInventorySchema = z.object({
+  slug: z.string().min(1),
+  one_on_one_inventory: z.number().int().nonnegative().optional(),
+  group_inventory: z.number().int().nonnegative().optional(),
+});
+
+const inventoryRecordSchema = z.object({
+  id: z.string(),
+  instructor_slug: z.string(),
+  one_on_one_inventory: z.number().int().nonnegative(),
+  group_inventory: z.number().int().nonnegative(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  updated_by: z.string().nullable(),
+});
+
+const inventoryListSchema = z.array(inventoryRecordSchema);
+
+export async function PATCH(request: Request): Promise<Response> {
   if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json(
       { error: "Supabase configuration missing" },
@@ -14,75 +33,43 @@ export async function PATCH(request: Request) {
   }
 
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
     await requireAdmin();
 
     const body = await request.json();
-    const { slug, one_on_one_inventory, group_inventory } = body;
+    const parseResult = updateInventorySchema.safeParse(body);
 
-    if (!slug) {
+    if (!parseResult.success) {
       return NextResponse.json(
-        { error: "Missing instructor slug" },
+        { error: "Invalid request body", details: parseResult.error.flatten() },
         { status: 400 }
       );
     }
 
-    // Check if record exists, if not create it
-    const { data: existing } = await supabaseAdmin
+    const { slug, one_on_one_inventory, group_inventory } = parseResult.data;
+
+    const { data, error } = await supabaseAdmin
       .from("instructor_inventory")
-      .select("*")
-      .eq("instructor_slug", slug)
+      .upsert({
+        instructor_slug: slug,
+        one_on_one_inventory: one_on_one_inventory ?? 0,
+        group_inventory: group_inventory ?? 0,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
       .single();
 
-    let result;
-
-    if (existing) {
-      // Update existing record
-      const { data, error } = await supabaseAdmin
-        .from("instructor_inventory")
-        .update({
-          one_on_one_inventory,
-          group_inventory,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("instructor_slug", slug)
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Error updating inventory:", error);
-        return NextResponse.json(
-          { error: error.message },
-          { status: 500 }
-        );
-      }
-
-      result = data;
-    } else {
-      // Create new record
-      const { data, error } = await supabaseAdmin
-        .from("instructor_inventory")
-        .insert({
-          instructor_slug: slug,
-          one_on_one_inventory: one_on_one_inventory ?? 0,
-          group_inventory: group_inventory ?? 0,
-          updated_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error("Error creating inventory:", error);
-        return NextResponse.json(
-          { error: error.message },
-          { status: 500 }
-        );
-      }
-
-      result = data;
+    if (error) {
+      console.error("Error upserting inventory:", error);
+      return NextResponse.json(
+        { error: error.message },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json(result);
+    const validatedData = inventoryRecordSchema.parse(data);
+    return NextResponse.json(validatedData);
   } catch (error) {
     console.error("Inventory update error:", error);
     return NextResponse.json(
@@ -92,7 +79,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(): Promise<Response> {
   if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json(
       { error: "Supabase configuration missing" },
@@ -118,7 +105,8 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data);
+    const validatedData = inventoryListSchema.parse(data);
+    return NextResponse.json(validatedData);
   } catch (error) {
     console.error("Inventory fetch error:", error);
     return NextResponse.json(
