@@ -50,6 +50,9 @@ export async function updateInventory(
       console.error("Error creating inventory record:", insertError);
       return null;
     }
+    
+    // Set current to inserted record so downstream checks work properly
+    current = insertData;
   }
 
   const { data, error } = await supabase
