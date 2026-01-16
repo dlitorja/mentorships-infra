@@ -32,6 +32,26 @@ export async function updateInventory(
 ) {
   const current = await getInstructorInventory(slug);
 
+  // If no record exists, create it first
+  if (!current) {
+    const { data: insertData, error: insertError } = await supabase
+      .from("instructor_inventory")
+      .insert({
+        instructor_slug: slug,
+        one_on_one_inventory: 0,
+        group_inventory: 0,
+        updated_at: new Date().toISOString(),
+        updated_by: updatedBy,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error("Error creating inventory record:", insertError);
+      return null;
+    }
+  }
+
   const { data, error } = await supabase
     .from("instructor_inventory")
     .update({
