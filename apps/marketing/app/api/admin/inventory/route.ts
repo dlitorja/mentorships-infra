@@ -51,13 +51,16 @@ export async function PATCH(request: Request): Promise<Response> {
 
     const { data, error } = await supabaseAdmin
       .from("instructor_inventory")
-      .upsert({
-        instructor_slug: slug,
-        one_on_one_inventory: one_on_one_inventory ?? 0,
-        group_inventory: group_inventory ?? 0,
-        updated_at: new Date().toISOString(),
-      })
-      .onConflict("instructor_slug")
+      .upsert(
+        {
+          instructor_slug: slug,
+          one_on_one_inventory: one_on_one_inventory ?? 0,
+          group_inventory: group_inventory ?? 0,
+          updated_at: new Date().toISOString(),
+          updated_by: "admin",
+        },
+        { onConflict: "instructor_slug" }
+      )
       .select()
       .single();
 
