@@ -154,7 +154,17 @@ CREATE POLICY "Public read waitlist" ON marketing_waitlist FOR SELECT USING (tru
 INSERT INTO instructor_inventory (instructor_slug, one_on_one_inventory, group_inventory) VALUES
   ('jordan-jardine', 3, 0),
   ('rakasa', 5, 8),
-  ('lily-ghost', 2, 0)
+  ('lily-ghost', 2, 0),
+  ('cameron-nissen', 0, 0),
+  ('nino-vecia', 0, 0),
+  ('oliver-titley', 0, 0),
+  ('malina-dowling', 0, 0),
+  ('amanda-kiefer', 0, 0),
+  ('neil-gray', 0, 0),
+  ('ash-kirk', 0, 0),
+  ('andrea-sipl', 0, 0),
+  ('kimea-zizzari', 0, 0),
+  ('keven-mallqui', 0, 0)
 ON CONFLICT (instructor_slug) DO NOTHING;
 
 -- Insert sample offer mappings (update with real Kajabi offer IDs)
