@@ -30,58 +30,25 @@ export async function updateInventory(
   updates: { one_on_one_inventory?: number; group_inventory?: number },
   updatedBy?: string
 ) {
-  let current = await getInstructorInventory(slug);
+  const current = await getInstructorInventory(slug);
 
-  // If no record exists, create it first
-  if (!current) {
-    const { data: insertData, error: insertError } = await supabase
-      .from("instructor_inventory")
-      .insert({
-        instructor_slug: slug,
-        one_on_one_inventory: 0,
-        group_inventory: 0,
-        updated_at: new Date().toISOString(),
-        updated_by: updatedBy,
-      })
-      .select()
-      .single();
+  // Use API route with service role to bypass RLS
+  const response = await fetch("/api/admin/inventory", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      slug,
+      one_on_one_inventory: updates.one_on_one_inventory,
+      group_inventory: updates.group_inventory,
+    }),
+  });
 
-    if (insertError) {
-      if (insertError.code === "23505") {
-        // Duplicate key error - record was created by another process, refetch it
-        const { data: refetchedData, error: refetchError } = await supabase
-          .from("instructor_inventory")
-          .select()
-          .eq("instructor_slug", slug)
-          .single();
-        
-        if (refetchError) {
-          console.error("Error refetching inventory record after duplicate:", refetchError);
-          return null;
-        }
-        
-        // Set current to refetched record so downstream checks work properly
-        current = refetchedData;
-      } else {
-        console.error("Error creating inventory record:", insertError);
-        return null;
-      }
-    } else {
-      // Set current to inserted record so downstream checks work properly
-      current = insertData;
-    }
+  const data = await response.json();
+
+  if (!response.ok) {
+    console.error("Error updating inventory:", data);
+    return null;
   }
-
-  const { data, error } = await supabase
-    .from("instructor_inventory")
-    .update({
-      ...updates,
-      updated_at: new Date().toISOString(),
-      updated_by: updatedBy,
-    })
-    .eq("instructor_slug", slug)
-    .select()
-    .single();
 
   if (error) {
     console.error("Error updating inventory:", error);
