@@ -24,6 +24,12 @@ test.afterAll(async () => {
   }
 });
 
+test.describe("Waitlist Functionality", () => {
+  beforeEach(async ({ page }) => {
+    await page.goto(`/instructors/${TEST_INSTRUCTOR_SLUG}`);
+    await page.waitForLoadState("networkidle");
+  });
+
   test("should display Sold Out button when inventory is 0", async ({ page }) => {
     const soldOutButton = page.locator("button:has-text('Sold Out')");
     await expect(soldOutButton).toBeVisible({ timeout: 10000 });
@@ -95,16 +101,4 @@ test.afterAll(async () => {
     await expect(page.locator("h1:has-text('Test Instructor')")).toBeVisible({ timeout: 10000 });
     await expect(page.locator("text=TEST INSTRUCTOR - Hidden for waitlist testing")).toBeVisible();
   });
-});
-
-test.afterAll(async () => {
-  const cleanupUrl = process.env.PLAYWRIGHT_TEST_BASE_URL
-    ? `${process.env.PLAYWRIGHT_TEST_BASE_URL}/api/admin/waitlist-cleanup?instructor=${TEST_INSTRUCTOR_SLUG}`
-    : `http://localhost:3000/api/admin/waitlist-cleanup?instructor=${TEST_INSTRUCTOR_SLUG}`;
-
-  try {
-    await fetch(cleanupUrl, { method: "DELETE" });
-  } catch (error) {
-    console.error("Failed to cleanup test data:", error);
-  }
 });
