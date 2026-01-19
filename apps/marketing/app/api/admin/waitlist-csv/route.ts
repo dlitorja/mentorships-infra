@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdmin } from "@/lib/auth";
 import { z } from "zod";
+import { rateLimit } from "@/lib/utils";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -12,11 +13,27 @@ const WaitlistQuerySchema = z.object({
   type: z.string().min(1),
 });
 
+function sanitizeCell(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("=") || trimmed.startsWith("+") || trimmed.startsWith("-") || trimmed.startsWith("@")) {
+    return "'" + trimmed;
+  }
+  return trimmed.replace(/"/g, '""');
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
       { error: "Server configuration error: Supabase not configured" },
       { status: 500 }
+    );
+  }
+
+  const rateLimitResult = await rateLimit("waitlist-csv", 10, 60000);
+  if (!rateLimitResult.success) {
+    return NextResponse.json(
+      { error: "Too many requests", resetAt: rateLimitResult.resetAt },
+      { status: 429 }
     );
   }
 
@@ -73,11 +90,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const csvHeader = "email,instructor_slug,mentorship_type,notified,created_at\n";
     const csvRows = (entries || []).map((entry) =>
       [
-        `"${entry.email}"`,
-        `"${entry.instructor_slug}"`,
-        `"${entry.mentorship_type}"`,
+        `"${sanitizeCell(entry.email)}"`,
+        `"${sanitizeCell(entry.instructor_slug)}"`,
+        `"${sanitizeCell(entry.mentorship_type)}"`,
         entry.notified ? "true" : "false",
-        entry.created_at,
+        sanitizeCell(entry.created_at),
       ].join(",")
     ).join("\n");
 

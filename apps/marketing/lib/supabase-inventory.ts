@@ -324,7 +324,12 @@ export async function getWaitlistForInstructor(
   return data || [];
 }
 
-export async function getWaitlistCounts() {
+interface WaitlistCountEntry {
+  instructor_slug: string;
+  mentorship_type: string;
+}
+
+export async function getWaitlistCounts(): Promise<Record<string, { one_on_one: number; group: number }>> {
   const { data, error } = await supabase
     .from("marketing_waitlist")
     .select("instructor_slug, mentorship_type");
@@ -335,8 +340,8 @@ export async function getWaitlistCounts() {
   }
 
   const counts: Record<string, { one_on_one: number; group: number }> = {};
-  
-  (data || []).forEach((entry) => {
+
+  (data || []).forEach((entry: WaitlistCountEntry) => {
     const key = entry.instructor_slug;
     if (!counts[key]) {
       counts[key] = { one_on_one: 0, group: 0 };

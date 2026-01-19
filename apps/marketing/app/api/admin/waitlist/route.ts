@@ -62,7 +62,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       .eq("mentorship_type", type)
       .order("created_at", { ascending: false });
 
-    const { count } = await supabase
+    const { count, error: countError } = await supabase
       .from("marketing_waitlist")
       .select("*", { count: "exact", head: true })
       .eq("instructor_slug", instructorSlug)
@@ -76,7 +76,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    return NextResponse.json({ entries: entries || [], totalCount: count || 0 });
+    const totalCount = countError === null ? (count || 0) : (entries?.length || 0);
+
+    return NextResponse.json({ entries: entries || [], totalCount });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
