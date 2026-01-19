@@ -59,19 +59,9 @@ export async function PATCH(request: Request): Promise<Response> {
       instructor_slug: slug,
       updated_at: new Date().toISOString(),
       updated_by: "admin",
+      one_on_one_inventory: one_on_one_inventory ?? existingData?.one_on_one_inventory ?? 0,
+      group_inventory: group_inventory ?? existingData?.group_inventory ?? 0,
     };
-
-    if (one_on_one_inventory !== undefined) {
-      upsertPayload.one_on_one_inventory = one_on_one_inventory;
-    } else if (existingData) {
-      upsertPayload.one_on_one_inventory = existingData.one_on_one_inventory;
-    }
-
-    if (group_inventory !== undefined) {
-      upsertPayload.group_inventory = group_inventory;
-    } else if (existingData) {
-      upsertPayload.group_inventory = existingData.group_inventory;
-    }
 
     const { data, error } = await supabaseAdmin
       .from("instructor_inventory")

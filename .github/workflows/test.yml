@@ -135,10 +135,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
-      - name: Install Playwright browsers
+       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps
       
-       - name: Build Marketing App
+      - name: Build Marketing App
         run: pnpm --filter @mentorships/marketing build
         env:
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
@@ -151,7 +151,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       
-       - name: Run E2E tests for marketing app
+      - name: Run E2E tests for marketing app
         run: pnpm exec playwright test tests/e2e/waitlist.spec.ts --project=chromium --project=firefox --project=webkit
         env:
           PLAYWRIGHT_TEST_BASE_URL: http://localhost:3000

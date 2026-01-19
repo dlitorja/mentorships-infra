@@ -1,6 +1,28 @@
 import { test, expect, beforeEach, afterAll } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
 
 const TEST_INSTRUCTOR_SLUG = "test-instructor-waitlist";
+
+test.afterAll(async () => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error("Missing Supabase environment variables for cleanup");
+    return;
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+  try {
+    await supabaseAdmin
+      .from("marketing_waitlist")
+      .delete()
+      .eq("instructor_slug", TEST_INSTRUCTOR_SLUG);
+  } catch (error) {
+    console.error("Failed to cleanup test data:", error);
+  }
+});
 
 test.describe("Waitlist Functionality", () => {
   beforeEach(async ({ page }) => {
@@ -79,16 +101,4 @@ test.describe("Waitlist Functionality", () => {
     await expect(page.locator("h1:has-text('Test Instructor')")).toBeVisible({ timeout: 10000 });
     await expect(page.locator("text=TEST INSTRUCTOR - Hidden for waitlist testing")).toBeVisible();
   });
-});
-
-test.afterAll(async () => {
-  const cleanupUrl = process.env.PLAYWRIGHT_TEST_BASE_URL
-    ? `${process.env.PLAYWRIGHT_TEST_BASE_URL}/api/admin/waitlist-cleanup?instructor=${TEST_INSTRUCTOR_SLUG}`
-    : `http://localhost:3000/api/admin/waitlist-cleanup?instructor=${TEST_INSTRUCTOR_SLUG}`;
-
-  try {
-    await fetch(cleanupUrl, { method: "DELETE" });
-  } catch (error) {
-    console.error("Failed to cleanup test data:", error);
-  }
 });

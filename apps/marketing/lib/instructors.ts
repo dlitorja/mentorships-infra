@@ -39,10 +39,8 @@ const KAJABI_PLACEHOLDER = "https://huckleberryart.kajabi.com/offers/REPLACE_ME"
 
 const TEST_INSTRUCTOR_SLUG = process.env.NEXT_PUBLIC_TEST_INSTRUCTOR_WAITLIST_SLUG || "test-instructor-waitlist";
 
-const testInstructors: Instructor[] = [];
-
-if (process.env.NODE_ENV !== "production") {
-  testInstructors.push({
+const testInstructors: Instructor[] = [
+  {
     id: TEST_INSTRUCTOR_SLUG,
     name: "Test Instructor - Waitlist",
     slug: TEST_INSTRUCTOR_SLUG,
@@ -61,8 +59,8 @@ if (process.env.NODE_ENV !== "production") {
         url: "https://example.com/checkout",
       },
     ],
-  });
-}
+  },
+];
 
 export const instructors: Instructor[] = [
   {

@@ -50,11 +50,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./apps/web"),
-      "@marketing": path.resolve(__dirname, "./apps/marketing"),
-      "@marketing/lib/instructors": path.resolve(__dirname, "./apps/marketing/lib/instructors.ts"),
-      "@marketing/lib/supabase-inventory": path.resolve(__dirname, "./apps/marketing/lib/supabase-inventory.ts"),
-      "@marketing/lib/validators": path.resolve(__dirname, "./apps/marketing/lib/validators.ts"),
-      "@marketing/components/form": path.resolve(__dirname, "./apps/marketing/components/form.tsx"),
       "@mentorships/marketing": path.resolve(__dirname, "./apps/marketing"),
       "@mentorships/db": path.resolve(__dirname, "./packages/db/src"),
       "@mentorships/payments": path.resolve(__dirname, "./packages/payments/src"),
