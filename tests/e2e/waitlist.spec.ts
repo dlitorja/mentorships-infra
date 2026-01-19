@@ -1,12 +1,28 @@
 import { test, expect, beforeEach, afterAll } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
 
 const TEST_INSTRUCTOR_SLUG = "test-instructor-waitlist";
 
-test.describe("Waitlist Functionality", () => {
-  beforeEach(async ({ page }) => {
-    await page.goto(`/instructors/${TEST_INSTRUCTOR_SLUG}`);
-    await page.waitForLoadState("networkidle");
-  });
+test.afterAll(async () => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error("Missing Supabase environment variables for cleanup");
+    return;
+  }
+
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+  try {
+    await supabaseAdmin
+      .from("marketing_waitlist")
+      .delete()
+      .eq("instructor_slug", TEST_INSTRUCTOR_SLUG);
+  } catch (error) {
+    console.error("Failed to cleanup test data:", error);
+  }
+});
 
   test("should display Sold Out button when inventory is 0", async ({ page }) => {
     const soldOutButton = page.locator("button:has-text('Sold Out')");

@@ -219,7 +219,7 @@ export async function addToWaitlist(
     const result = await response.json();
 
     if (!response.ok) {
-      if (result.message?.includes("already on the waitlist")) {
+      if (result.alreadyOnWaitlist === true || result.message?.includes("already on the waitlist")) {
         return { alreadyOnWaitlist: true };
       }
       console.error("Error adding to waitlist:", result);

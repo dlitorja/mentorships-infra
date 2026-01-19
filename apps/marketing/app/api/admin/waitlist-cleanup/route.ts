@@ -52,7 +52,7 @@ export async function DELETE(request: Request) {
     if (error) {
       console.error("Error cleaning up waitlist:", error);
       return NextResponse.json(
-        { error: error.message },
+        { error: "Failed to clean up waitlist" },
         { status: 500 }
       );
     }
@@ -64,7 +64,7 @@ export async function DELETE(request: Request) {
   } catch (error) {
     console.error("Waitlist cleanup error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }
