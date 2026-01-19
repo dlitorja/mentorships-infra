@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "@/lib/auth";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const TEST_INSTRUCTOR_SLUG = process.env.TEST_INSTRUCTOR_WAITLIST_SLUG || "test-instructor-waitlist";
+const TEST_INSTRUCTOR_SLUG = process.env.NEXT_PUBLIC_TEST_INSTRUCTOR_WAITLIST_SLUG || "test-instructor-waitlist";
+
+const instructorSlugSchema = z.string().trim().nonempty();
 
 export async function DELETE(request: Request) {
   if (!supabaseUrl || !supabaseServiceKey) {
@@ -21,14 +24,18 @@ export async function DELETE(request: Request) {
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     const { searchParams } = new URL(request.url);
-    const instructorSlug = searchParams.get("instructor");
+    const rawInstructorSlug = searchParams.get("instructor");
 
-    if (!instructorSlug) {
+    const parseResult = instructorSlugSchema.safeParse(rawInstructorSlug);
+
+    if (!parseResult.success) {
       return NextResponse.json(
         { error: "Missing instructor parameter" },
         { status: 400 }
       );
     }
+
+    const instructorSlug = parseResult.data;
 
     if (instructorSlug !== TEST_INSTRUCTOR_SLUG) {
       return NextResponse.json(

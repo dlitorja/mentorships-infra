@@ -37,20 +37,22 @@ export interface Instructor {
 
 const KAJABI_PLACEHOLDER = "https://huckleberryart.kajabi.com/offers/REPLACE_ME";
 
+const TEST_INSTRUCTOR_SLUG = process.env.NEXT_PUBLIC_TEST_INSTRUCTOR_WAITLIST_SLUG || "test-instructor-waitlist";
+
 const testInstructors: Instructor[] = [];
 
 if (process.env.NODE_ENV !== "production") {
   testInstructors.push({
-    id: "test-instructor-waitlist",
+    id: TEST_INSTRUCTOR_SLUG,
     name: "Test Instructor - Waitlist",
-    slug: "test-instructor-waitlist",
+    slug: TEST_INSTRUCTOR_SLUG,
     isHidden: true,
     tagline: "TEST INSTRUCTOR - Hidden for waitlist testing",
     bio: "This is a hidden test instructor used for testing waitlist functionality. Do not use for production.",
     specialties: ["Testing", "Waitlist", "QA"],
     background: ["Testing"],
-    profileImage: "/instructors/test-instructor-waitlist/profile.svg",
-    workImages: ["/instructors/test-instructor-waitlist/work-1.svg"],
+    profileImage: `/instructors/${TEST_INSTRUCTOR_SLUG}/profile.svg`,
+    workImages: [`/instructors/${TEST_INSTRUCTOR_SLUG}/work-1.svg`],
     pricing: { oneOnOne: 100 },
     offers: [
       {
