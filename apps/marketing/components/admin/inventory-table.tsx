@@ -331,27 +331,26 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
                           <span className={`text-xl font-bold ${getStatusColor(item.one_on_one_inventory)}`}>
                             {item.one_on_one_inventory}
                           </span>
-                          {item.one_on_one_inventory > 0 && (
-                            <div className="flex flex-col gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 text-xs"
-                                onClick={() => notifyWaitlist(item.instructor_name, "one-on-one")}
-                              >
-                                <Bell className="h-3 w-3 mr-1" />
-                                Notify Waitlist
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 text-xs text-muted-foreground"
-                                onClick={() => openWaitlistModal(item.instructor_name, "one-on-one")}
-                              >
-                                View Waitlist
-                              </Button>
-                            </div>
-                          )}
+                          <div className="flex flex-col gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs"
+                              onClick={() => notifyWaitlist(item.instructor_name, "one-on-one")}
+                              disabled={item.one_on_one_inventory === 0}
+                            >
+                              <Bell className="h-3 w-3 mr-1" />
+                              Notify Waitlist
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs text-muted-foreground"
+                              onClick={() => openWaitlistModal(item.instructor_name, "one-on-one")}
+                            >
+                              View Waitlist
+                            </Button>
+                          </div>
                         </>
                       )}
                     </div>
@@ -404,27 +403,26 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
                           <span className={`text-xl font-bold ${getStatusColor(item.group_inventory)}`}>
                             {item.group_inventory}
                           </span>
-                          {item.group_inventory > 0 && (
-                            <div className="flex flex-col gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 text-xs"
-                                onClick={() => notifyWaitlist(item.instructor_name, "group")}
-                              >
-                                <Bell className="h-3 w-3 mr-1" />
-                                Notify Waitlist
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 text-xs text-muted-foreground"
-                                onClick={() => openWaitlistModal(item.instructor_name, "group")}
-                              >
-                                View Waitlist
-                              </Button>
-                            </div>
-                          )}
+                          <div className="flex flex-col gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs"
+                              onClick={() => notifyWaitlist(item.instructor_name, "group")}
+                              disabled={item.group_inventory === 0}
+                            >
+                              <Bell className="h-3 w-3 mr-1" />
+                              Notify Waitlist
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs text-muted-foreground"
+                              onClick={() => openWaitlistModal(item.instructor_name, "group")}
+                            >
+                              View Waitlist
+                            </Button>
+                          </div>
                         </>
                       )}
                     </div>

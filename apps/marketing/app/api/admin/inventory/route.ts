@@ -32,10 +32,10 @@ export async function PATCH(request: Request): Promise<Response> {
     );
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
     await requireAdmin();
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     const body = await request.json();
     const parseResult = updateInventorySchema.safeParse(body);
@@ -49,18 +49,33 @@ export async function PATCH(request: Request): Promise<Response> {
 
     const { slug, one_on_one_inventory, group_inventory } = parseResult.data;
 
+    const { data: existingData } = await supabaseAdmin
+      .from("instructor_inventory")
+      .select("one_on_one_inventory, group_inventory")
+      .eq("instructor_slug", slug)
+      .single();
+
+    const upsertPayload: Record<string, unknown> = {
+      instructor_slug: slug,
+      updated_at: new Date().toISOString(),
+      updated_by: "admin",
+    };
+
+    if (one_on_one_inventory !== undefined) {
+      upsertPayload.one_on_one_inventory = one_on_one_inventory;
+    } else if (existingData) {
+      upsertPayload.one_on_one_inventory = existingData.one_on_one_inventory;
+    }
+
+    if (group_inventory !== undefined) {
+      upsertPayload.group_inventory = group_inventory;
+    } else if (existingData) {
+      upsertPayload.group_inventory = existingData.group_inventory;
+    }
+
     const { data, error } = await supabaseAdmin
       .from("instructor_inventory")
-      .upsert(
-        {
-          instructor_slug: slug,
-          one_on_one_inventory: one_on_one_inventory ?? 0,
-          group_inventory: group_inventory ?? 0,
-          updated_at: new Date().toISOString(),
-          updated_by: "admin",
-        },
-        { onConflict: "instructor_slug" }
-      )
+      .upsert(upsertPayload, { onConflict: "instructor_slug" })
       .select()
       .single();
 
@@ -91,10 +106,10 @@ export async function GET(): Promise<Response> {
     );
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
     await requireAdmin();
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
     const { data, error } = await supabaseAdmin
       .from("instructor_inventory")

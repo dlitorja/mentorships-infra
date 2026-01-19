@@ -32,7 +32,6 @@ export async function updateInventory(
 ) {
   let current = await getInstructorInventory(slug);
 
-  // If no record exists, create it first
   if (!current) {
     const { data: insertData, error: insertError } = await supabase
       .from("instructor_inventory")
@@ -48,7 +47,6 @@ export async function updateInventory(
 
     if (insertError) {
       if (insertError.code === "23505") {
-        // Duplicate key error - record was created by another process, refetch it
         const { data: refetchedData, error: refetchError } = await supabase
           .from("instructor_inventory")
           .select()
@@ -60,19 +58,16 @@ export async function updateInventory(
           return null;
         }
         
-        // Set current to refetched record so downstream checks work properly
         current = refetchedData;
       } else {
         console.error("Error creating inventory record:", insertError);
         return null;
       }
     } else {
-      // Set current to inserted record so downstream checks work properly
       current = insertData;
     }
   }
 
-  // Use API route with service role to bypass RLS
   const response = await fetch("/api/admin/inventory", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -208,25 +203,34 @@ export async function addToWaitlist(
   instructorSlug: string,
   type: "one-on-one" | "group"
 ) {
-  const { data, error } = await supabase
-    .from("marketing_waitlist")
-    .insert({
-      email,
-      instructor_slug: instructorSlug,
-      mentorship_type: type,
-    })
-    .select()
-    .single();
+  try {
+    const response = await fetch("/api/waitlist", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        instructorSlug,
+        type,
+      }),
+    });
 
-  if (error) {
-    if (error.code === "23505") {
-      return { alreadyOnWaitlist: true };
+    const result = await response.json();
+
+    if (!response.ok) {
+      if (result.message?.includes("already on the waitlist")) {
+        return { alreadyOnWaitlist: true };
+      }
+      console.error("Error adding to waitlist:", result);
+      return null;
     }
+
+    return result;
+  } catch (error) {
     console.error("Error adding to waitlist:", error);
     return null;
   }
-
-  return data;
 }
 
 export async function getWaitlistStatus(

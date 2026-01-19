@@ -28,6 +28,7 @@ export interface Instructor {
   offers: InstructorOffer[];
   testimonials?: Testimonial[];
   isNew?: boolean;
+  isHidden?: boolean;
   socials?: {
     platform: string;
     url: string;
@@ -35,6 +36,33 @@ export interface Instructor {
 }
 
 const KAJABI_PLACEHOLDER = "https://huckleberryart.kajabi.com/offers/REPLACE_ME";
+
+const TEST_INSTRUCTOR_SLUG = process.env.NEXT_PUBLIC_TEST_INSTRUCTOR_WAITLIST_SLUG || "test-instructor-waitlist";
+
+const testInstructors: Instructor[] = [];
+
+if (process.env.NODE_ENV !== "production") {
+  testInstructors.push({
+    id: TEST_INSTRUCTOR_SLUG,
+    name: "Test Instructor - Waitlist",
+    slug: TEST_INSTRUCTOR_SLUG,
+    isHidden: true,
+    tagline: "TEST INSTRUCTOR - Hidden for waitlist testing",
+    bio: "This is a hidden test instructor used for testing waitlist functionality. Do not use for production.",
+    specialties: ["Testing", "Waitlist", "QA"],
+    background: ["Testing"],
+    profileImage: `/instructors/${TEST_INSTRUCTOR_SLUG}/profile.svg`,
+    workImages: [`/instructors/${TEST_INSTRUCTOR_SLUG}/work-1.svg`],
+    pricing: { oneOnOne: 100 },
+    offers: [
+      {
+        kind: "oneOnOne",
+        label: "Buy 1-on-1 mentorship",
+        url: "https://example.com/checkout",
+      },
+    ],
+  });
+}
 
 export const instructors: Instructor[] = [
   {
@@ -537,6 +565,7 @@ background: ["Gaming", "Indie"],
       },
     ],
   },
+  ...testInstructors,
 ];
 
 export function getInstructorBySlug(slug: string): Instructor | undefined {
@@ -544,7 +573,9 @@ export function getInstructorBySlug(slug: string): Instructor | undefined {
 }
 
 export function getAlphabeticalInstructors(): Instructor[] {
-  return [...instructors].sort((a, b) => a.name.localeCompare(b.name));
+  return getVisibleInstructors().slice().sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
 }
 
 export function getInstructorNavigation(
@@ -562,10 +593,10 @@ export function getInstructorNavigation(
   let mode: 'custom' | 'alphabetical';
 
   if (customOrder && customOrder.length > 0) {
-    // Use custom order if provided
+    // Use custom order if provided, filtering out hidden instructors
     const customInstructors = customOrder
       .map((slug) => instructors.find((inst) => inst.slug === slug))
-      .filter((inst): inst is Instructor => inst !== undefined);
+      .filter((inst): inst is Instructor => inst !== undefined && !inst.isHidden);
     
     if (customInstructors.length > 0) {
       order = customInstructors;
@@ -611,4 +642,13 @@ export function getNextInstructor(currentSlug: string): Instructor | undefined {
 
 export function getPreviousInstructor(currentSlug: string): Instructor | undefined {
   return getInstructorNavigation(currentSlug).previous;
+}
+
+/**
+ * Returns all Instructor objects that are not hidden.
+ *
+ * @returns {Instructor[]} Array of visible instructors (isHidden !== true)
+ */
+export function getVisibleInstructors(): Instructor[] {
+  return instructors.filter((instructor) => !instructor.isHidden);
 }

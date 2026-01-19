@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { Instructor } from "@/lib/instructors";
-import { instructors } from "@/lib/instructors";
+import { getVisibleInstructors } from "@/lib/instructors";
 import { shuffleArray } from "@/lib/utils";
 
 export function InstructorCarousel(): React.JSX.Element | null {
@@ -23,8 +23,9 @@ export function InstructorCarousel(): React.JSX.Element | null {
   const [api, setApi] = useState<CarouselApi>();
 
   useEffect(() => {
-    // Randomize instructors on mount to ensure equal exposure
-    const shuffled = shuffleArray(instructors);
+    // Randomize visible instructors on mount to ensure equal exposure
+    const visibleInstructors = getVisibleInstructors();
+    const shuffled = shuffleArray(visibleInstructors);
     setRandomizedInstructors(shuffled);
   }, []);
 

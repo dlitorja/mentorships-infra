@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const waitlistPostSchema = z.object({
   email: z.string().email(),
@@ -16,10 +19,19 @@ const waitlistResponseSchema = z.object({
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return NextResponse.json(
+        { error: "Supabase configuration missing" },
+        { status: 500 }
+      );
+    }
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
     const body = await request.json();
     const validated = waitlistPostSchema.parse(body);
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("marketing_waitlist")
       .insert({
         email: validated.email,
