@@ -30,9 +30,44 @@ export async function updateInventory(
   updates: { one_on_one_inventory?: number; group_inventory?: number },
   updatedBy?: string
 ) {
-  const current = await getInstructorInventory(slug);
+  let current = await getInstructorInventory(slug);
 
-  // Use API route with service role to bypass RLS
+  if (!current) {
+    const { data: insertData, error: insertError } = await supabase
+      .from("instructor_inventory")
+      .insert({
+        instructor_slug: slug,
+        one_on_one_inventory: 0,
+        group_inventory: 0,
+        updated_at: new Date().toISOString(),
+        updated_by: updatedBy,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      if (insertError.code === "23505") {
+        const { data: refetchedData, error: refetchError } = await supabase
+          .from("instructor_inventory")
+          .select()
+          .eq("instructor_slug", slug)
+          .single();
+        
+        if (refetchError) {
+          console.error("Error refetching inventory record after duplicate:", refetchError);
+          return null;
+        }
+        
+        current = refetchedData;
+      } else {
+        console.error("Error creating inventory record:", insertError);
+        return null;
+      }
+    } else {
+      current = insertData;
+    }
+  }
+
   const response = await fetch("/api/admin/inventory", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

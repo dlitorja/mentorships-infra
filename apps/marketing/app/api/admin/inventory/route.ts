@@ -25,9 +25,6 @@ const inventoryRecordSchema = z.object({
 const inventoryListSchema = z.array(inventoryRecordSchema);
 
 export async function PATCH(request: Request): Promise<Response> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json(
       { error: "Supabase configuration missing" },
@@ -102,9 +99,6 @@ export async function PATCH(request: Request): Promise<Response> {
 }
 
 export async function GET(): Promise<Response> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json(
       { error: "Supabase configuration missing" },
