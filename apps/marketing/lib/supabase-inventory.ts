@@ -323,3 +323,35 @@ export async function getWaitlistForInstructor(
 
   return data || [];
 }
+
+interface WaitlistCountEntry {
+  instructor_slug: string;
+  mentorship_type: string;
+}
+
+export async function getWaitlistCounts(): Promise<Record<string, { one_on_one: number; group: number }>> {
+  const { data, error } = await supabase
+    .from("marketing_waitlist")
+    .select("instructor_slug, mentorship_type");
+
+  if (error) {
+    console.error("Error fetching waitlist counts:", error);
+    return {};
+  }
+
+  const counts: Record<string, { one_on_one: number; group: number }> = {};
+
+  (data || []).forEach((entry: WaitlistCountEntry) => {
+    const key = entry.instructor_slug;
+    if (!counts[key]) {
+      counts[key] = { one_on_one: 0, group: 0 };
+    }
+    if (entry.mentorship_type === "one-on-one") {
+      counts[key].one_on_one++;
+    } else if (entry.mentorship_type === "group") {
+      counts[key].group++;
+    }
+  });
+
+  return counts;
+}

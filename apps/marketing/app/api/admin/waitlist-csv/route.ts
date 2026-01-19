@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isAdmin } from "@/lib/auth";
 import { z } from "zod";
+import { rateLimit } from "@/lib/utils";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -12,6 +13,14 @@ const WaitlistQuerySchema = z.object({
   type: z.string().min(1),
 });
 
+function sanitizeCell(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("=") || trimmed.startsWith("+") || trimmed.startsWith("-") || trimmed.startsWith("@")) {
+    return "'" + trimmed;
+  }
+  return trimmed.replace(/"/g, '""');
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
@@ -20,11 +29,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  const rateLimitResult = await rateLimit("waitlist-csv", 10, 60000);
+  if (!rateLimitResult.success) {
+    return NextResponse.json(
+      { error: "Too many requests", resetAt: rateLimitResult.resetAt },
+      { status: 429 }
+    );
+  }
+
   let user = null;
   try {
     user = await currentUser();
   } catch (e) {
-    console.error("[waitlist] Auth error:", e);
+    console.error("[waitlist-csv] Auth error:", e);
     return NextResponse.json({ error: "Authentication error" }, { status: 401 });
   }
 
@@ -57,28 +74,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const { data: entries, error } = await supabase
       .from("marketing_waitlist")
-      .select("id, email, instructor_slug, mentorship_type, notified, created_at")
+      .select("email, instructor_slug, mentorship_type, notified, created_at")
       .eq("instructor_slug", instructorSlug)
       .eq("mentorship_type", type)
       .order("created_at", { ascending: false });
 
-    const { count, error: countError } = await supabase
-      .from("marketing_waitlist")
-      .select("*", { count: "exact", head: true })
-      .eq("instructor_slug", instructorSlug)
-      .eq("mentorship_type", type);
-
     if (error) {
-      console.error("Error fetching waitlist:", error);
+      console.error("Error fetching waitlist for CSV:", error);
       return NextResponse.json(
         { error: "Failed to fetch waitlist" },
         { status: 500 }
       );
     }
 
-    const totalCount = countError === null ? (count || 0) : (entries?.length || 0);
+    const csvHeader = "email,instructor_slug,mentorship_type,notified,created_at\n";
+    const csvRows = (entries || []).map((entry) =>
+      [
+        `"${sanitizeCell(entry.email)}"`,
+        `"${sanitizeCell(entry.instructor_slug)}"`,
+        `"${sanitizeCell(entry.mentorship_type)}"`,
+        entry.notified ? "true" : "false",
+        sanitizeCell(entry.created_at),
+      ].join(",")
+    ).join("\n");
 
-    return NextResponse.json({ entries: entries || [], totalCount });
+    const csvContent = csvHeader + csvRows;
+
+    return new NextResponse(csvContent, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="waitlist-${instructorSlug}-${type}.csv"`,
+      },
+    });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(
