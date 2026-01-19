@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/lib/auth";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const TEST_INSTRUCTOR_SLUG = process.env.TEST_INSTRUCTOR_WAITLIST_SLUG || "test-instructor-waitlist";
 
 export async function DELETE(request: Request) {
   if (!supabaseUrl || !supabaseServiceKey) {
@@ -12,9 +15,11 @@ export async function DELETE(request: Request) {
     );
   }
 
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
+    await requireAdmin();
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
     const { searchParams } = new URL(request.url);
     const instructorSlug = searchParams.get("instructor");
 
@@ -25,7 +30,7 @@ export async function DELETE(request: Request) {
       );
     }
 
-    if (instructorSlug !== "test-instructor-waitlist") {
+    if (instructorSlug !== TEST_INSTRUCTOR_SLUG) {
       return NextResponse.json(
         { error: "Only test instructor cleanup is allowed" },
         { status: 403 }

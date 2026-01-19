@@ -37,6 +37,31 @@ export interface Instructor {
 
 const KAJABI_PLACEHOLDER = "https://huckleberryart.kajabi.com/offers/REPLACE_ME";
 
+const testInstructors: Instructor[] = [];
+
+if (process.env.NODE_ENV !== "production") {
+  testInstructors.push({
+    id: "test-instructor-waitlist",
+    name: "Test Instructor - Waitlist",
+    slug: "test-instructor-waitlist",
+    isHidden: true,
+    tagline: "TEST INSTRUCTOR - Hidden for waitlist testing",
+    bio: "This is a hidden test instructor used for testing waitlist functionality. Do not use for production.",
+    specialties: ["Testing", "Waitlist", "QA"],
+    background: ["Testing"],
+    profileImage: "/instructors/test-instructor-waitlist/profile.svg",
+    workImages: ["/instructors/test-instructor-waitlist/work-1.svg"],
+    pricing: { oneOnOne: 100 },
+    offers: [
+      {
+        kind: "oneOnOne",
+        label: "Buy 1-on-1 mentorship",
+        url: "https://example.com/checkout",
+      },
+    ],
+  });
+}
+
 export const instructors: Instructor[] = [
   {
     id: "jordan-jardine",
@@ -538,26 +563,7 @@ background: ["Gaming", "Indie"],
       },
     ],
   },
-  {
-    id: "test-instructor-waitlist",
-    name: "Test Instructor - Waitlist",
-    slug: "test-instructor-waitlist",
-    isHidden: true,
-    tagline: "TEST INSTRUCTOR - Hidden for waitlist testing",
-    bio: "This is a hidden test instructor used for testing waitlist functionality. Do not use for production.",
-    specialties: ["Testing", "Waitlist", "QA"],
-    background: ["Testing"],
-    profileImage: "/instructors/test-instructor-waitlist/profile.svg",
-    workImages: ["/instructors/test-instructor-waitlist/work-1.svg"],
-    pricing: { oneOnOne: 100 },
-    offers: [
-      {
-        kind: "oneOnOne",
-        label: "Buy 1-on-1 mentorship",
-        url: "https://example.com/checkout",
-      },
-    ],
-  },
+  ...testInstructors,
 ];
 
 export function getInstructorBySlug(slug: string): Instructor | undefined {
@@ -636,6 +642,11 @@ export function getPreviousInstructor(currentSlug: string): Instructor | undefin
   return getInstructorNavigation(currentSlug).previous;
 }
 
+/**
+ * Returns all Instructor objects that are not hidden.
+ *
+ * @returns {Instructor[]} Array of visible instructors (isHidden !== true)
+ */
 export function getVisibleInstructors(): Instructor[] {
   return instructors.filter((instructor) => !instructor.isHidden);
 }
