@@ -50,21 +50,16 @@ export function OfferButton({ kind, label, url, inventory, instructorSlug }: Off
 
   if (!available && !showWaitlist) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-red-500 uppercase tracking-wide">
+          Sold Out
+        </p>
         <Button
           size="lg"
-          className="vibrant-gradient-button transition-all gap-2 w-full"
-          disabled
-        >
-          <span className="text-muted-foreground">Sold Out</span>
-        </Button>
-        <Button
-          variant="outline"
-          size="lg"
-          className="w-full"
+          className="vibrant-gradient-button transition-all gap-2 w-full font-semibold"
           onClick={() => setShowWaitlist(true)}
         >
-          <Mail className="h-4 w-4 mr-2" />
+          <Mail className="h-5 w-5" />
           Join Waitlist
         </Button>
       </div>

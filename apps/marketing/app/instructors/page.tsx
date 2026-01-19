@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { instructors } from "@/lib/instructors";
+import { getVisibleInstructors } from "@/lib/instructors";
 
 // Force dynamic rendering to ensure random order on each page load
 export const dynamic = "force-dynamic";
@@ -20,13 +20,14 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 export default function InstructorsPage(): React.JSX.Element {
-  // Randomize instructors order on each page load
-  const randomizedInstructors = shuffleArray(instructors);
+  // Get visible instructors and randomize their order on each page load
+  const visibleInstructors = getVisibleInstructors();
+  const randomizedInstructors = shuffleArray(visibleInstructors);
 
-  // Deterministically select first 6 instructors alphabetically for priority loading
+  // Deterministically select first 6 visible instructors alphabetically for priority loading
   // This ensures the same images are prioritized regardless of shuffle order
   const priorityInstructorIds = new Set(
-    [...instructors]
+    visibleInstructors
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, 6)
       .map((inst) => inst.id)

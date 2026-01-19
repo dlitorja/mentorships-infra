@@ -168,25 +168,34 @@ export async function addToWaitlist(
   instructorSlug: string,
   type: "one-on-one" | "group"
 ) {
-  const { data, error } = await supabase
-    .from("marketing_waitlist")
-    .insert({
-      email,
-      instructor_slug: instructorSlug,
-      mentorship_type: type,
-    })
-    .select()
-    .single();
+  try {
+    const response = await fetch("/api/waitlist", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email,
+        instructorSlug,
+        type,
+      }),
+    });
 
-  if (error) {
-    if (error.code === "23505") {
-      return { alreadyOnWaitlist: true };
+    const result = await response.json();
+
+    if (!response.ok) {
+      if (result.message?.includes("already on the waitlist")) {
+        return { alreadyOnWaitlist: true };
+      }
+      console.error("Error adding to waitlist:", result);
+      return null;
     }
+
+    return result;
+  } catch (error) {
     console.error("Error adding to waitlist:", error);
     return null;
   }
-
-  return data;
 }
 
 export async function getWaitlistStatus(

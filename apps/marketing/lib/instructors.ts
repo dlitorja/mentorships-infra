@@ -28,6 +28,7 @@ export interface Instructor {
   offers: InstructorOffer[];
   testimonials?: Testimonial[];
   isNew?: boolean;
+  isHidden?: boolean;
   socials?: {
     platform: string;
     url: string;
@@ -537,6 +538,26 @@ background: ["Gaming", "Indie"],
       },
     ],
   },
+  {
+    id: "test-instructor-waitlist",
+    name: "Test Instructor - Waitlist",
+    slug: "test-instructor-waitlist",
+    isHidden: true,
+    tagline: "TEST INSTRUCTOR - Hidden for waitlist testing",
+    bio: "This is a hidden test instructor used for testing waitlist functionality. Do not use for production.",
+    specialties: ["Testing", "Waitlist", "QA"],
+    background: ["Testing"],
+    profileImage: "/instructors/test-instructor-waitlist/profile.svg",
+    workImages: ["/instructors/test-instructor-waitlist/work-1.svg"],
+    pricing: { oneOnOne: 100 },
+    offers: [
+      {
+        kind: "oneOnOne",
+        label: "Buy 1-on-1 mentorship",
+        url: "https://example.com/checkout",
+      },
+    ],
+  },
 ];
 
 export function getInstructorBySlug(slug: string): Instructor | undefined {
@@ -544,7 +565,9 @@ export function getInstructorBySlug(slug: string): Instructor | undefined {
 }
 
 export function getAlphabeticalInstructors(): Instructor[] {
-  return [...instructors].sort((a, b) => a.name.localeCompare(b.name));
+  return [...instructors]
+    .filter((instructor) => !instructor.isHidden)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function getInstructorNavigation(
@@ -562,10 +585,10 @@ export function getInstructorNavigation(
   let mode: 'custom' | 'alphabetical';
 
   if (customOrder && customOrder.length > 0) {
-    // Use custom order if provided
+    // Use custom order if provided, filtering out hidden instructors
     const customInstructors = customOrder
       .map((slug) => instructors.find((inst) => inst.slug === slug))
-      .filter((inst): inst is Instructor => inst !== undefined);
+      .filter((inst): inst is Instructor => inst !== undefined && !inst.isHidden);
     
     if (customInstructors.length > 0) {
       order = customInstructors;
@@ -611,4 +634,8 @@ export function getNextInstructor(currentSlug: string): Instructor | undefined {
 
 export function getPreviousInstructor(currentSlug: string): Instructor | undefined {
   return getInstructorNavigation(currentSlug).previous;
+}
+
+export function getVisibleInstructors(): Instructor[] {
+  return instructors.filter((instructor) => !instructor.isHidden);
 }
