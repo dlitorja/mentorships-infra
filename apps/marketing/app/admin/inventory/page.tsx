@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/auth";
-import { getAllInstructorsWithInventory } from "@/lib/supabase-inventory";
+import { getAllInstructorsWithInventory, getWaitlistCounts } from "@/lib/supabase-inventory";
 import { InventoryTable } from "@/components/admin/inventory-table";
 import { instructors } from "@/lib/instructors";
 import { createHash } from "crypto";
@@ -20,6 +20,13 @@ export default async function InventoryPage(): Promise<React.ReactElement> {
     console.error("Error fetching inventory:", error);
     inventoryData = [];
   }
+
+  let waitlistCounts: Awaited<ReturnType<typeof getWaitlistCounts>> = {};
+  try {
+    waitlistCounts = await getWaitlistCounts();
+  } catch (error) {
+    console.error("Error fetching waitlist counts:", error);
+  }
   
   const inventoryMap = new Map(
     inventoryData.map((i) => [i.instructor_slug, i])
@@ -29,6 +36,7 @@ export default async function InventoryPage(): Promise<React.ReactElement> {
     const inventory = inventoryMap.get(instructor.slug);
     const hasOneOnOneOffer = instructor.offers.some(o => o.kind === "oneOnOne" && o.active !== false);
     const hasGroupOffer = instructor.offers.some(o => o.kind === "group" && o.active !== false);
+    const counts = waitlistCounts[instructor.slug] || { one_on_one: 0, group: 0 };
     return {
       id: inventory?.id || generateDeterministicId(instructor.slug),
       instructor_slug: instructor.slug,
@@ -37,6 +45,7 @@ export default async function InventoryPage(): Promise<React.ReactElement> {
       group_inventory: inventory?.group_inventory ?? 0,
       has_pricing_one_on_one: hasOneOnOneOffer,
       has_pricing_group: hasGroupOffer,
+      waitlist_counts: counts,
     };
   });
 

@@ -24,7 +24,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     user = await currentUser();
   } catch (e) {
-    console.error("[waitlist] Auth error:", e);
+    console.error("[waitlist-csv] Auth error:", e);
     return NextResponse.json({ error: "Authentication error" }, { status: 401 });
   }
 
@@ -57,26 +57,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const { data: entries, error } = await supabase
       .from("marketing_waitlist")
-      .select("id, email, instructor_slug, mentorship_type, notified, created_at")
+      .select("email, instructor_slug, mentorship_type, notified, created_at")
       .eq("instructor_slug", instructorSlug)
       .eq("mentorship_type", type)
       .order("created_at", { ascending: false });
 
-    const { count } = await supabase
-      .from("marketing_waitlist")
-      .select("*", { count: "exact", head: true })
-      .eq("instructor_slug", instructorSlug)
-      .eq("mentorship_type", type);
-
     if (error) {
-      console.error("Error fetching waitlist:", error);
+      console.error("Error fetching waitlist for CSV:", error);
       return NextResponse.json(
         { error: "Failed to fetch waitlist" },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ entries: entries || [], totalCount: count || 0 });
+    const csvHeader = "email,instructor_slug,mentorship_type,notified,created_at\n";
+    const csvRows = (entries || []).map((entry) =>
+      [
+        `"${entry.email}"`,
+        `"${entry.instructor_slug}"`,
+        `"${entry.mentorship_type}"`,
+        entry.notified ? "true" : "false",
+        entry.created_at,
+      ].join(",")
+    ).join("\n");
+
+    const csvContent = csvHeader + csvRows;
+
+    return new NextResponse(csvContent, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="waitlist-${instructorSlug}-${type}.csv"`,
+      },
+    });
   } catch (error) {
     console.error("Error:", error);
     return NextResponse.json(

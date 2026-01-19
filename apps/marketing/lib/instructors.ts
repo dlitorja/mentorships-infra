@@ -56,7 +56,7 @@ const testInstructors: Instructor[] = [
       {
         kind: "oneOnOne",
         label: "Buy 1-on-1 mentorship",
-        url: "https://example.com/checkout",
+        url: "https://home.huckleberry.art/offers/qiVLyfkZ/checkout",
       },
     ],
   },

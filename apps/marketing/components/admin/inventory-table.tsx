@@ -5,7 +5,7 @@ import { updateInventory } from "@/lib/supabase-inventory";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Minus, Plus, Bell, Loader2, Trash2, CheckSquare, Square, X } from "lucide-react";
+import { Minus, Plus, Bell, Loader2, Trash2, CheckSquare, Square, X, Download } from "lucide-react";
 import { toast } from "sonner";
 import { useForm, ReactFormExtendedApi } from "@tanstack/react-form";
 import { z } from "zod";
@@ -53,6 +53,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
     type: string;
   } | null>(null);
   const [waitlistData, setWaitlistData] = useState<WaitlistEntry[]>([]);
+  const [waitlistTotalCount, setWaitlistTotalCount] = useState(0);
   const [loadingWaitlist, setLoadingWaitlist] = useState(false);
   const [selectedEmails, setSelectedEmails] = useState<Set<number>>(new Set());
   const [deleting, setDeleting] = useState(false);
@@ -181,13 +182,16 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
       const data = await response.json();
       if (data.entries) {
         setWaitlistData(data.entries);
+        setWaitlistTotalCount(data.totalCount || 0);
       } else {
         setWaitlistData([]);
+        setWaitlistTotalCount(0);
       }
     } catch (error) {
       console.error("Error fetching waitlist:", error);
       toast.error("Failed to fetch waitlist. Please try again.");
       setWaitlistData([]);
+      setWaitlistTotalCount(0);
     } finally {
       setLoadingWaitlist(false);
     }
@@ -348,7 +352,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
                               className="h-6 text-xs text-muted-foreground"
                               onClick={() => openWaitlistModal(item.instructor_name, "one-on-one")}
                             >
-                              View Waitlist
+                              View Waitlist ({item.waitlist_counts?.one_on_one || 0})
                             </Button>
                           </div>
                         </>
@@ -420,7 +424,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
                               className="h-6 text-xs text-muted-foreground"
                               onClick={() => openWaitlistModal(item.instructor_name, "group")}
                             >
-                              View Waitlist
+                              View Waitlist ({item.waitlist_counts?.group || 0})
                             </Button>
                           </div>
                         </>
@@ -458,17 +462,31 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
                     Waitlist: {selectedWaitlistInstructor.name}
                   </CardTitle>
                   <p className="text-xs text-muted-foreground capitalize">
-                    {selectedWaitlistInstructor.type.replace("-", " ")}
+                    {selectedWaitlistInstructor.type.replace("-", " ")} ({waitlistData.length})
                   </p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={closeWaitlistModal}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={() => {
+                      const url = `/api/admin/waitlist-csv?instructor=${selectedWaitlistInstructor.slug}&type=${selectedWaitlistInstructor.type}`;
+                      window.open(url, "_blank");
+                    }}
+                  >
+                    <Download className="h-3 w-3 mr-1" />
+                    CSV
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={closeWaitlistModal}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto p-0">
