@@ -573,9 +573,9 @@ export function getInstructorBySlug(slug: string): Instructor | undefined {
 }
 
 export function getAlphabeticalInstructors(): Instructor[] {
-  return [...instructors]
-    .filter((instructor) => !instructor.isHidden)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return getVisibleInstructors().slice().sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
 }
 
 export function getInstructorNavigation(
