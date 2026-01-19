@@ -18,6 +18,10 @@ interface InstructorInventory {
   group_inventory: number;
   has_pricing_one_on_one: boolean;
   has_pricing_group: boolean;
+  waitlist_counts?: {
+    one_on_one: number;
+    group: number;
+  };
 }
 
 interface WaitlistEntry {
