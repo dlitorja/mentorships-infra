@@ -21,6 +21,16 @@ function sanitizeCell(value: string): string {
   return trimmed.replace(/"/g, '""');
 }
 
+function sanitizeFilename(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .substring(0, 100);
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!supabaseUrl || !supabaseAnonKey) {
     return NextResponse.json(
@@ -100,11 +110,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const csvContent = csvHeader + csvRows;
 
+    const safeSlug = sanitizeFilename(instructorSlug);
+    const safeType = sanitizeFilename(type);
+    const filename = `waitlist-${safeSlug}-${safeType}.csv`;
+
     return new NextResponse(csvContent, {
       status: 200,
       headers: {
         "Content-Type": "text/csv",
-        "Content-Disposition": `attachment; filename="waitlist-${instructorSlug}-${type}.csv"`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });
   } catch (error) {
