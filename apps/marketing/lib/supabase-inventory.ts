@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest";
+import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -218,10 +219,11 @@ export async function addToWaitlist(
 
     const result = await response.json();
 
+    if (result.success === true && result.message?.includes("already on")) {
+      return { alreadyOnWaitlist: true };
+    }
+
     if (!response.ok) {
-      if (result.alreadyOnWaitlist === true || result.message?.includes("already on the waitlist")) {
-        return { alreadyOnWaitlist: true };
-      }
       console.error("Error adding to waitlist:", result);
       return null;
     }
@@ -329,6 +331,11 @@ interface WaitlistCountEntry {
   mentorship_type: string;
 }
 
+const waitlistCountEntrySchema = z.object({
+  instructor_slug: z.string(),
+  mentorship_type: z.string(),
+});
+
 export async function getWaitlistCounts(): Promise<Record<string, { one_on_one: number; group: number }>> {
   const { data, error } = await supabase
     .from("marketing_waitlist")
@@ -339,9 +346,15 @@ export async function getWaitlistCounts(): Promise<Record<string, { one_on_one: 
     return {};
   }
 
+  const parseResult = waitlistCountEntrySchema.array().safeParse(data || []);
+  if (!parseResult.success) {
+    console.error("Invalid waitlist count data:", parseResult.error);
+    return {};
+  }
+
   const counts: Record<string, { one_on_one: number; group: number }> = {};
 
-  (data || []).forEach((entry: WaitlistCountEntry) => {
+  parseResult.data.forEach((entry) => {
     const key = entry.instructor_slug;
     if (!counts[key]) {
       counts[key] = { one_on_one: 0, group: 0 };
