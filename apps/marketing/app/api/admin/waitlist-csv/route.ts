@@ -22,13 +22,19 @@ function sanitizeCell(value: string): string {
 }
 
 function sanitizeFilename(value: string): string {
-  return value
+  const sanitized = value
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9-_]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "")
     .substring(0, 100);
+
+  if (sanitized === "") {
+    return "waitlist";
+  }
+
+  return sanitized;
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
