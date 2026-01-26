@@ -5,14 +5,14 @@ import { isAdmin } from "@/lib/auth";
 import { z } from "zod";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const WaitlistDeleteSchema = z.object({
   ids: z.array(z.string()).nonempty(),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json(
       { error: "Server configuration error: Supabase not configured" },
       { status: 500 }
@@ -47,41 +47,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const { ids } = parsed.data;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const deleteResult = await supabase
       .from("marketing_waitlist")
       .delete()
-      .in("id", ids);
-
-    const SupabaseDeleteResponseSchema = z.object({
-      error: z.any().optional(),
-      count: z.number().optional(),
-    });
-
-    const parsedResult = SupabaseDeleteResponseSchema.safeParse(deleteResult);
-
-    if (!parsedResult.success) {
-      console.error("Supabase response validation failed:", deleteResult);
-      return NextResponse.json(
-        { error: "Invalid response from database" },
-        { status: 500 }
-      );
-    }
-
-    const { error, count } = parsedResult.data;
-
-    if (error) {
-      console.error("Error deleting waitlist entries:", error);
-      return NextResponse.json(
-        { error: "Failed to delete entries" },
-        { status: 500 }
-      );
-    }
+      .in("id", ids)
+      .select()
+      .throwOnError();
 
     return NextResponse.json({
       success: true,
-      deletedCount: count || 0,
+      deletedCount: deleteResult.data?.length || 0,
     });
   } catch (error) {
     console.error("Error:", error);
