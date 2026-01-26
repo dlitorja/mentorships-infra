@@ -28,6 +28,7 @@ export interface Instructor {
     facebook?: string;
     behance?: string;
   };
+  isHidden?: boolean;
 }
 
 // Mock instructor data based on the reference site
@@ -130,6 +131,7 @@ export const mockInstructors: Instructor[] = [
     id: "malina-dowling",
     name: "Malina Dowling",
     slug: "malina-dowling",
+    isHidden: true,
     tagline: "Midwest-based Independent Watercolor Artist",
     bio: "Malina Dowling is a Midwest-based independent artist that works primarily in watercolors. She has traveled the country working and learning the ins and outs of the convention circuit for the better part of a decade.",
     specialties: ["Watercolor", "Traditional Art", "Convention Art"],
@@ -273,11 +275,11 @@ export const mockInstructors: Instructor[] = [
 import { shuffle } from "./utils/shuffle";
 
 /**
- * Get a randomized array of instructors
+ * Get a randomized array of visible instructors
  * This ensures equal exposure on the landing page
  */
 export function getRandomizedInstructors(): Instructor[] {
-  return shuffle(mockInstructors);
+  return shuffle(mockInstructors.filter((instructor) => !instructor.isHidden));
 }
 
 /**
@@ -293,7 +295,7 @@ export function getInstructorBySlug(slug: string): Instructor | undefined {
  * instructors with more available spots will be prioritized towards the top
  */
 export function getAvailableInstructors(): Instructor[] {
-  const instructors = [...mockInstructors];
+  const instructors = [...mockInstructors].filter((instructor) => !instructor.isHidden);
   
   // TODO: When live data is available, fetch available spots for each instructor
   // Then sort by available spots (descending) - instructors with more spots first
@@ -317,7 +319,7 @@ export function getAvailableInstructors(): Instructor[] {
  * Used for profile page navigation to ensure consistent ordering
  */
 export function getAlphabeticalInstructors(): Instructor[] {
-  const instructors = [...mockInstructors];
+  const instructors = [...mockInstructors].filter((instructor) => !instructor.isHidden);
   return instructors.sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -340,10 +342,10 @@ export function getInstructorNavigation(
   let mode: 'custom' | 'alphabetical';
 
   if (customOrder && customOrder.length > 0) {
-    // Use custom order if provided
+    // Use custom order if provided, filtering out hidden instructors
     const customInstructors = customOrder
       .map((slug) => mockInstructors.find((inst) => inst.slug === slug))
-      .filter((inst): inst is Instructor => inst !== undefined);
+      .filter((inst): inst is Instructor => inst !== undefined && !inst.isHidden);
     
     if (customInstructors.length > 0) {
       order = customInstructors;
