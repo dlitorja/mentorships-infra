@@ -14,8 +14,15 @@ const WaitlistDeleteSchema = z.object({
   }, z.array(z.string()).nonempty()),
 });
 
+const WaitlistItemSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  instructor_slug: z.string(),
+  mentorship_type: z.string(),
+});
+
 const DeleteResponseSchema = z.object({
-  data: z.array(z.any()),
+  data: z.array(WaitlistItemSchema),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
