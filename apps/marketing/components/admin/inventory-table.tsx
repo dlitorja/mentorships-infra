@@ -25,7 +25,7 @@ interface InstructorInventory {
 }
 
 interface WaitlistEntry {
-  id: number;
+  id: string;
   email: string;
   instructor_slug: string;
   mentorship_type: string;
@@ -59,7 +59,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
   const [waitlistData, setWaitlistData] = useState<WaitlistEntry[]>([]);
   const [waitlistTotalCount, setWaitlistTotalCount] = useState(0);
   const [loadingWaitlist, setLoadingWaitlist] = useState(false);
-  const [selectedEmails, setSelectedEmails] = useState<Set<number>>(new Set());
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
   // TanStack Form generics use `any` because ReactFormExtendedApi requires 12 type arguments
@@ -216,7 +216,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
     }
   };
 
-  const toggleEmail = (id: number) => {
+  const toggleEmail = (id: string) => {
     const newSelected = new Set(selectedEmails);
     if (newSelected.has(id)) {
       newSelected.delete(id);
