@@ -8,7 +8,21 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const WaitlistDeleteSchema = z.object({
-  ids: z.array(z.string()).nonempty(),
+  ids: z.preprocess((val) => {
+    const arr = z.array(z.union([z.string(), z.number()])).parse(val);
+    return arr.map((id) => String(id));
+  }, z.array(z.string()).nonempty()),
+});
+
+const WaitlistItemSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  instructor_slug: z.string(),
+  mentorship_type: z.string(),
+});
+
+const DeleteResponseSchema = z.object({
+  data: z.array(WaitlistItemSchema),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -56,9 +70,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .select()
       .throwOnError();
 
+    const deleteValidated = DeleteResponseSchema.safeParse(deleteResult);
+    if (!deleteValidated.success) {
+      console.error("Invalid delete response:", deleteValidated.error);
+      return NextResponse.json({ success: false, deletedCount: 0 }, { status: 500 });
+    }
+
     return NextResponse.json({
       success: true,
-      deletedCount: deleteResult.data?.length || 0,
+      deletedCount: deleteValidated.data.data.length,
     });
   } catch (error) {
     console.error("Error:", error);

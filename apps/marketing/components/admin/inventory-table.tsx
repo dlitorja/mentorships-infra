@@ -25,7 +25,7 @@ interface InstructorInventory {
 }
 
 interface WaitlistEntry {
-  id: number;
+  id: string;
   email: string;
   instructor_slug: string;
   mentorship_type: string;
@@ -38,9 +38,13 @@ interface InventoryTableProps {
 }
 
 const inventorySchema = z.object({
-  oneOnOne: z.number().min(0),
-  group: z.number().min(0),
-});
+   oneOnOne: z.number().min(0),
+   group: z.number().min(0),
+ });
+
+ const deletedCountSchema = z.object({
+   deletedCount: z.number().min(0),
+ });
 
 type InventoryValues = z.infer<typeof inventorySchema>;
 
@@ -59,7 +63,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
   const [waitlistData, setWaitlistData] = useState<WaitlistEntry[]>([]);
   const [waitlistTotalCount, setWaitlistTotalCount] = useState(0);
   const [loadingWaitlist, setLoadingWaitlist] = useState(false);
-  const [selectedEmails, setSelectedEmails] = useState<Set<number>>(new Set());
+  const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
 
   // TanStack Form generics use `any` because ReactFormExtendedApi requires 12 type arguments
@@ -216,7 +220,7 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
     }
   };
 
-  const toggleEmail = (id: number) => {
+  const toggleEmail = (id: string) => {
     const newSelected = new Set(selectedEmails);
     if (newSelected.has(id)) {
       newSelected.delete(id);
@@ -239,9 +243,31 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
 
       const data = await response.json();
       if (data.success) {
-        toast.success(`Deleted ${data.deletedCount} entries`);
+        const parsed = deletedCountSchema.safeParse(data);
+        if (!parsed.success) {
+          toast.error("Invalid response from server");
+          return;
+        }
+
+        const { deletedCount } = parsed.data;
+        toast.success(`Deleted ${deletedCount} entries`);
         setWaitlistData((prev) => prev.filter((e) => !selectedEmails.has(e.id)));
         setSelectedEmails(new Set());
+
+        if (selectedWaitlistInstructor) {
+          const { slug, type } = selectedWaitlistInstructor;
+          const waitlistTypeKey = type === "one-on-one" ? "one_on_one" : "group";
+          setInventory((prev) => ({
+            ...prev,
+            [slug]: {
+              ...prev[slug],
+              waitlist_counts: {
+                ...(prev[slug].waitlist_counts || { one_on_one: 0, group: 0 }),
+                [waitlistTypeKey]: Math.max(0, (prev[slug].waitlist_counts?.[waitlistTypeKey] || 0) - deletedCount),
+              },
+            },
+          }));
+        }
       } else {
         toast.error(data.error || "Failed to delete");
       }
