@@ -54,25 +54,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .delete()
       .in("id", ids);
 
-    const SupabaseDeleteResponseSchema = z.object({
-      error: z.any().optional(),
-      count: z.number().optional(),
-    });
-
-    const parsedResult = SupabaseDeleteResponseSchema.safeParse(deleteResult);
-
-    if (!parsedResult.success) {
-      console.error("Supabase response validation failed:", deleteResult);
-      return NextResponse.json(
-        { error: "Invalid response from database" },
-        { status: 500 }
-      );
-    }
-
-    const { error, count } = parsedResult.data;
-
-    if (error) {
-      console.error("Error deleting waitlist entries:", error);
+    if (deleteResult.error) {
+      console.error("Error deleting waitlist entries:", deleteResult.error);
       return NextResponse.json(
         { error: "Failed to delete entries" },
         { status: 500 }
@@ -81,7 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({
       success: true,
-      deletedCount: count || 0,
+      deletedCount: ids.length,
     });
   } catch (error) {
     console.error("Error:", error);
