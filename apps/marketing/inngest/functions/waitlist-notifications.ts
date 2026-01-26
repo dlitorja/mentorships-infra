@@ -89,15 +89,12 @@ export const processWaitlistNotifications = inngest.createFunction(
       };
     }
 
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
     const waitlistEntries = await step.run("fetch-waitlist-entries", async () => {
       const { data, error } = await supabase
         .from("marketing_waitlist")
         .select("id, email")
         .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type)
-        .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo}`);
+        .eq("mentorship_type", type);
 
       if (error) {
         console.error("Error fetching waitlist:", error);
@@ -111,7 +108,7 @@ export const processWaitlistNotifications = inngest.createFunction(
 
     if (uniqueEmails.length === 0) {
       return {
-        message: "No entries to notify (all notified within last 7 days)",
+        message: "No waitlist entries to notify",
         count: 0,
         instructorSlug,
         type,
@@ -126,50 +123,51 @@ export const processWaitlistNotifications = inngest.createFunction(
       });
     });
 
-    const sendResults = await step.run("send-emails", async () => {
-      const results = await Promise.allSettled(
-        uniqueEmails.map((email) =>
-          resend.emails.send({
+    type EmailSendResult = { status: "fulfilled"; value: { id: string } } | { status: "rejected"; reason: string };
+
+    const sendResults = await step.run("send-emails", async (): Promise<EmailSendResult[]> => {
+      const results: EmailSendResult[] = [];
+      const REQUESTS_PER_SECOND = 2;
+      const delayMs = 1000 / REQUESTS_PER_SECOND;
+
+      for (let i = 0; i < uniqueEmails.length; i++) {
+        const email = uniqueEmails[i];
+        try {
+          const result = await resend.emails.send({
             from,
             to: email,
             subject: emailContent.subject,
             html: emailContent.html,
             text: emailContent.text,
             headers: emailContent.headers,
-          })
-        )
-      );
-
-      const successful = results.filter((r) => r.status === "fulfilled").length;
-      const failed = results.filter((r) => r.status === "rejected").length;
-
-      results.forEach((result, index) => {
-        if (result.status === "rejected") {
-          const email = uniqueEmails[index];
-          const reason = (result as PromiseRejectedResult).reason || "Unknown error";
-          console.error(`Failed to send email to ${email}: ${reason}`);
+          });
+          if (result.error || result.data === null) {
+            console.error(`API error sending email to ${email}:`, result.error);
+            results.push({ status: "rejected", reason: String(result.error) || "Unknown error" });
+          } else {
+            results.push({ status: "fulfilled", value: result.data });
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error) || "Unknown error";
+          results.push({ status: "rejected", reason });
+          console.error(`Failed to send email to ${email}:`, reason);
         }
-      });
 
-      return { successful, failed, results };
+        if (i < uniqueEmails.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+
+      return results;
     });
 
-    const { data: matchingRows, error: selectError } = await supabase
-      .from("marketing_waitlist")
-      .select("id")
-      .in("email", uniqueEmails)
-      .eq("instructor_slug", instructorSlug)
-      .eq("mentorship_type", type);
+    const successful = sendResults.filter((r) => r.status === "fulfilled").length;
+    const failed = sendResults.filter((r) => r.status === "rejected").length;
 
-    if (selectError) {
-      console.error("Error fetching matching rows:", selectError);
-      throw selectError;
-    }
-
-    const idsToUpdate = await step.run("fetch-matching-rows", async () => {
-      const { data: matchingRows, error: selectError } = await supabase
+    const matchingRows = await step.run("fetch-matching-rows", async () => {
+      const { data, error: selectError } = await supabase
         .from("marketing_waitlist")
-        .select("id")
+        .select("id, email")
         .in("email", uniqueEmails)
         .eq("instructor_slug", instructorSlug)
         .eq("mentorship_type", type);
@@ -179,10 +177,29 @@ export const processWaitlistNotifications = inngest.createFunction(
         throw selectError;
       }
 
-      return matchingRows?.map((row) => row.id).filter(Boolean) || [];
+      return data || [];
     });
 
-    if (idsToUpdate.length > 0) {
+    const emailToIdMap = new Map<string, string[]>();
+    matchingRows.forEach((row) => {
+      if (!emailToIdMap.has(row.email)) {
+        emailToIdMap.set(row.email, []);
+      }
+      emailToIdMap.get(row.email)!.push(row.id);
+    });
+
+    const successfulIds: string[] = [];
+    sendResults.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        const sentEmail = uniqueEmails[index];
+        const ids = emailToIdMap.get(sentEmail);
+        if (ids) {
+          successfulIds.push(...ids);
+        }
+      }
+    });
+
+    if (successfulIds.length > 0) {
       await step.run("mark-notified", async () => {
         const { error: updateError } = await supabase
           .from("marketing_waitlist")
@@ -191,7 +208,7 @@ export const processWaitlistNotifications = inngest.createFunction(
             last_notification_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .in("id", idsToUpdate);
+          .in("id", successfulIds);
 
         if (updateError) {
           console.error("Error updating waitlist entries:", updateError);
@@ -201,9 +218,9 @@ export const processWaitlistNotifications = inngest.createFunction(
     }
 
     return {
-      message: `Sent ${sendResults.successful} emails to waitlist`,
-      count: sendResults.successful,
-      failed: sendResults.failed,
+      message: `Sent ${successful} emails to waitlist`,
+      count: successful,
+      failed,
       instructorSlug,
       type,
       notifiedEmails: uniqueEmails.slice(0, 5),

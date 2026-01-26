@@ -85,15 +85,12 @@ export const handleInventoryAvailable = inngest.createFunction(
       };
     }
 
-    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
     const waitlistEntries = await step.run("fetch-waitlist-entries", async () => {
       const { data, error } = await supabase
         .from("marketing_waitlist")
         .select("id, email")
         .eq("instructor_slug", instructorSlug)
-        .eq("mentorship_type", type)
-        .or(`notified.eq.false,last_notification_at.lt.${oneWeekAgo},last_notification_at.is.null`);
+        .eq("mentorship_type", type);
 
       if (error) {
         console.error("Error fetching waitlist:", error);
@@ -107,7 +104,7 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     if (uniqueEmails.length === 0) {
       return {
-        message: "No entries to notify (all notified within last 7 days)",
+        message: "No waitlist entries to notify",
         count: 0,
         instructorSlug,
         type,
@@ -122,38 +119,45 @@ export const handleInventoryAvailable = inngest.createFunction(
       });
     });
 
-    const sendResultsSettled = await step.run("send-emails", async (): Promise<{sendResults: any[]; failedCount: number; resendErrorEmails: string[]}> => {
-      const sendResults = await Promise.allSettled(
-        uniqueEmails.map((email) =>
-          resend.emails.send({
+    type EmailSendResult = { status: "fulfilled"; value: { id: string } } | { status: "rejected"; reason: string };
+
+    const sendResultsSettled = await step.run("send-emails", async (): Promise<{sendResults: EmailSendResult[]; failedCount: number; resendErrorEmails: string[]}> => {
+      const sendResults: EmailSendResult[] = [];
+      const REQUESTS_PER_SECOND = 2;
+      const delayMs = 1000 / REQUESTS_PER_SECOND;
+      let failedCount = 0;
+      const resendErrorEmails: string[] = [];
+
+      for (let i = 0; i < uniqueEmails.length; i++) {
+        const email = uniqueEmails[i];
+        try {
+          const result = await resend.emails.send({
             from,
             to: email,
             subject: emailContent.subject,
             html: emailContent.html,
             text: emailContent.text,
             headers: emailContent.headers,
-          })
-        )
-      );
-
-      let failedCount = 0;
-      const resendErrorEmails: string[] = [];
-
-      sendResults.forEach((result, index) => {
-        if (result.status === "rejected") {
-          const email = uniqueEmails[index];
-          const reason = result.reason?.toString() || "Unknown error";
-          console.error(`Failed to send email to ${email}: ${reason}`);
-          failedCount++;
-        } else if (result.status === "fulfilled") {
-          const email = uniqueEmails[index];
-          if (result.value.error || result.value.data === null) {
-            console.error(`API error sending email to ${email}:`, result.value.error);
+          });
+          if (result.error || result.data === null) {
+            console.error(`API error sending email to ${email}:`, result.error);
+            sendResults.push({ status: "rejected", reason: String(result.error) || "Unknown error" });
             failedCount++;
             resendErrorEmails.push(email);
+          } else {
+            sendResults.push({ status: "fulfilled", value: result.data });
           }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error) || "Unknown error";
+          sendResults.push({ status: "rejected", reason });
+          console.error(`Failed to send email to ${email}:`, reason);
+          failedCount++;
         }
-      });
+
+        if (i < uniqueEmails.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
 
       return { sendResults, failedCount, resendErrorEmails };
     });
@@ -186,7 +190,7 @@ export const handleInventoryAvailable = inngest.createFunction(
 
     const successfulIds: string[] = [];
     sendResults.forEach((result, index) => {
-      if (result.status === "fulfilled" && !resendErrorEmails.includes(uniqueEmails[index])) {
+      if (result.status === "fulfilled") {
         const sentEmail = uniqueEmails[index];
         const ids = emailToIdMap.get(sentEmail);
         if (ids) {
