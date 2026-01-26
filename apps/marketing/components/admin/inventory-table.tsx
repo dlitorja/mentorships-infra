@@ -242,6 +242,21 @@ export function InventoryTable({ initialData }: InventoryTableProps) {
         toast.success(`Deleted ${data.deletedCount} entries`);
         setWaitlistData((prev) => prev.filter((e) => !selectedEmails.has(e.id)));
         setSelectedEmails(new Set());
+
+        if (selectedWaitlistInstructor) {
+          const { slug, type } = selectedWaitlistInstructor;
+          const waitlistTypeKey = type === "one-on-one" ? "one_on_one" : "group";
+          setInventory((prev) => ({
+            ...prev,
+            [slug]: {
+              ...prev[slug],
+              waitlist_counts: {
+                ...prev[slug].waitlist_counts,
+                [waitlistTypeKey]: Math.max(0, (prev[slug].waitlist_counts?.[waitlistTypeKey] || 0) - data.deletedCount),
+              },
+            },
+          }));
+        }
       } else {
         toast.error(data.error || "Failed to delete");
       }
