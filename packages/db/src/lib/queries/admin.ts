@@ -285,7 +285,7 @@ export type FullAdminReportRow = {
   totalSessions: number;
   remainingSessions: number;
   packStatus: SessionPackStatus;
-  packExpiresAt: Date;
+  packExpiresAt: Date | null;
   lastSessionDate: Date | null;
   completedSessionsCount: number;
   seatStatus: string;
