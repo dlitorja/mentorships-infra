@@ -2,7 +2,7 @@
 
 <<<<<<< HEAD
 **Last Updated**: February 3, 2026  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Instructor-Mentee Manual Association System Implemented**, **Date Serialization Bug Fixed**, **Clerk Deprecation Errors Fixed**, Ready for Discord Automation + Video Access Control
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, **Clerk Deprecation Errors Fixed**, Ready for Discord Automation + Video Access Control
 =======
 **Last Updated**: February 2, 2026  
 **Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, Ready for Discord Automation + Video Access Control
@@ -486,34 +486,4 @@ ls apps/web/app/api
     - `/apps/web/app/dashboard/page.tsx`
     - `/apps/web/app/instructor/dashboard/page.tsx`
   - Added `/apps/web/app/global-error.tsx` to handle uncaught server component errors in production
-   - All deprecated Clerk warning messages should now be resolved
-
-
- - ✅ **Instructor-Mentee Manual Association System** (February 3, 2026)
-   - **Purpose**: Manual test setup for instructors and mentees without Kajabi payment flow
-   - **Database Changes**:
-     - Made `expiresAt` nullable in `session_packs` table (no expiration required)
-     - Updated all query functions to handle null `expiresAt`
-   - **Database Query Functions** (`packages/db/src/lib/queries/`):
-     - `getOrCreateMentorByUserId()` - Auto-creates mentor record for instructors
-     - `createSessionPackWithoutPayment()` - Creates packs without payment
-     - `createInstructorMenteeAssociations()` - Bulk associate mentees with instructors
-   - **Admin API Endpoints** (`apps/marketing/app/api/admin/`):
-     - `POST /instructor-mentee-associations` - Create mentor-mentee associations
-       - Request: `{ mentorUserId, menteeUserIds: [], sessionsPerPack: 4 }`
-       - Auto-creates mentor record if not exists
-     - `POST /session-counts` - Increment/decrement sessions (admin + instructor access)
-   - **Web App API** (`apps/web/app/api/`):
-     - `POST /session-counts` - Session count updates for web app
-   - **Dashboard Pages**:
-     - `/dashboard/instructor` - Instructor dashboard showing all mentees with session controls
-     - `/_components/mentee-session-controls.tsx` - +/- buttons for session management
-   - **Admin Dashboard Updates** (`apps/marketing/components/admin/`):
-     - Added session count controls (+/- buttons) to mentees table
-     - Actions column for managing sessions directly
-   - **Usage for Testing**:
-     1. Create users in Clerk (instructors with `role: "mentor"`, mentees with `role: "student"`)
-     2. Call API to associate: `POST /api/admin/instructor-mentee-associations`
-     3. Test dashboards: `/dashboard/instructor`, `/dashboard`, `/admin/instructors`
-
-
+  - All deprecated Clerk warning messages should now be resolved
