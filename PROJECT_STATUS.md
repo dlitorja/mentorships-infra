@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: December 12, 2025  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Ready for Discord Automation + Video Access Control
+**Last Updated**: February 2, 2026  
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), Ready for Discord Automation + Video Access Control
 
 ---
 
@@ -219,6 +219,53 @@
 
 ---
 
+### 10. Instructor & Mentee Dashboards in apps/marketing (No Payment Integration)
+**Status**: ✅ **COMPLETED** - Instructor/mentee dashboards without Stripe/PayPal dependencies
+
+**Completed Tasks**:
+- [x] Database query functions for mentor-mentee session tracking (`packages/db/src/lib/queries/sessionPacks.ts`):
+  - [x] `getMentorMenteesWithSessionInfo()` - Get all mentees with session counts, last session date, expiration
+  - [x] `getMentorMenteesWithLowSessions()` - Get mentees with only 1 session remaining
+  - [x] `getUserInstructorsWithSessionInfo()` - Get all instructors for a mentee with session details
+  - [x] `getUserLowSessionPacks()` - Get session packs with 1 session remaining
+  - [x] `addSessionsToPack()` / `removeSessionsFromPack()` - Manual session management (admin use)
+- [x] Mentee Dashboard page (`/dashboard`):
+  - [x] Shows all instructors with session counts and last session dates
+  - [x] Amber alert banner when 1 session remaining with renewal reminder message
+  - [x] Stats: total sessions, active instructors, low session alerts
+  - [x] Quick actions to browse instructors or schedule sessions
+  - [x] Discord connection reminder if not connected
+- [x] Instructor Dashboard page (`/instructor/dashboard`):
+  - [x] Role-based access control (requires `mentor` role)
+  - [x] Shows all mentees with session counts and last session dates
+  - [x] Amber alert section highlighting mentees with 1 session remaining (sticky CTA for instructors to encourage renewals)
+  - [x] Stats: active mentees, low session alerts, total sessions used, sessions remaining across all mentees
+  - [x] Renewal encouragement prompts for instructors with 1-session-remaining mentees
+- [x] Authentication setup in apps/marketing:
+  - [x] Clerk authentication configured (already existed in layout)
+  - [x] Role-based auth helpers (`requireRole`, `requireDbUser`, etc.)
+  - [x] Discord linking indicator (via Clerk's external accounts)
+- [x] UI component updates:
+  - [x] Added `warning` variant to Badge component for amber alerts
+
+**Key Design Decisions**:
+- No payment integration - uses existing session/sessionPack tables only
+- Manual session management via `addSessionsToPack()` / `removeSessionsFromPack()` for admin use
+- Renewal reminders displayed prominently for both instructors and mentees
+- Instructors get specific mentee list to reach out to for renewals (sticky CTA)
+
+**Completed Components**:
+- ✅ Extended session pack queries (`packages/db/src/lib/queries/sessionPacks.ts`)
+- ✅ Mentee Dashboard (`apps/marketing/app/dashboard/page.tsx`)
+- ✅ Instructor Dashboard (`apps/marketing/app/instructor/dashboard/page.tsx`)
+- ✅ Auth helpers (`apps/marketing/lib/auth.ts`)
+- ✅ Badge warning variant (`apps/marketing/components/ui/badge.tsx`)
+- ✅ Path alias configured (`@mentorships/db` → `../../packages/db/src`)
+
+**Estimated Time**: 1 day (completed)
+
+---
+
 ## 🚧 In Progress / Next Steps
 
 ### Priority 1: Notifications & Automation (Discord + Email)
@@ -286,8 +333,10 @@ Based on the plan in `mentorship-platform-plan.md`:
 8. ✅ **Booking system + Google Calendar scheduling** - DONE (availability + booking + settings)
 9. ✅ **Platform-wide security/rate limiting** - DONE (Arcjet middleware policy matrix)
 10. ✅ **Observability** - DONE (Axiom + Better Stack)
-11. ⏳ **Notifications & automation** - NEXT (Discord; email complete)
-12. ⏳ **Video access control** - After #11 (Agora)
+11. ✅ **Notifications & automation** - DONE (email complete; Discord pending)
+12. ✅ **Instructor/Mentee Dashboards in apps/marketing** - DONE (no payment integration)
+13. ⏳ **Discord notification delivery** - NEXT (connect Discord bot to `notification/send` events)
+14. ⏳ **Video access control** - After Discord (Agora)
 
 ---
 
@@ -300,7 +349,9 @@ Based on the plan in `mentorship-platform-plan.md`:
 5. ✅ **Row Level Security (RLS) enabled** - All tables secured with proper policies
 6. ✅ **Arcjet platform-wide security/rate limiting** (middleware policy matrix)
 7. ✅ **Observability (Axiom + Better Stack)** (errors + Arcjet failures)
-8. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
+8. ✅ **Instructor/Mentee Dashboards in apps/marketing** (no payment integration) - COMPLETED
+9. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
+10. **Implement video access control** (Agora for video calls)
 
 ---
 
@@ -352,4 +403,15 @@ ls apps/web/app/api
   - Session management API with role-based authorization
   - Role-adaptive navigation system
   - Full type safety with Drizzle ORM and Zod validation
+
+### February 2026
+- ✅ **Instructor & Mentee Dashboards in apps/marketing** (This PR)
+  - Built instructor/mentee dashboards in apps/marketing without payment integration
+  - Database queries for mentor-mentee session tracking (mentees with session counts, last session dates)
+  - Mentee dashboard showing all instructors with session counts and 1-session renewal reminders
+  - Instructor dashboard showing all mentees with session counts and renewal CTAs for 1-session mentees
+  - Manual session management functions (addSessionsToPack, removeSessionsFromPack) for admin use
+  - Auth helpers configured for role-based access control
+  - Amber warning badges for low-session alerts
+  - All builds pass successfully
 

@@ -478,3 +478,364 @@ export async function getExpiredPacksNeedingSeatRelease(): Promise<
 
   return expiredPacks;
 }
+
+/**
+ * Mentee information with session pack and last session details
+ * Used by instructors to view all their mentees
+ */
+export type MenteeWithSessions = {
+  userId: string;
+  email: string;
+  sessionPackId: string;
+  totalSessions: number;
+  remainingSessions: number;
+  expiresAt: Date;
+  status: SessionPackStatus;
+  lastSessionCompletedAt: Date | null;
+  completedSessionCount: number;
+};
+
+/**
+ * Get all mentees for a mentor with their session pack information
+ * Includes last completed session date and session counts
+ */
+export async function getMentorMenteesWithSessionInfo(
+  mentorId: string
+): Promise<MenteeWithSessions[]> {
+  const now = new Date();
+
+  const results = await db
+    .select({
+      userId: users.id,
+      email: users.email,
+      sessionPackId: sessionPacks.id,
+      totalSessions: sessionPacks.totalSessions,
+      remainingSessions: sessionPacks.remainingSessions,
+      expiresAt: sessionPacks.expiresAt,
+      status: sessionPacks.status,
+      lastSessionCompletedAt: sql<Date | null>`(
+        SELECT MAX(${sessions.completedAt})
+        FROM ${sessions}
+        WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
+          AND ${sessions.status} = 'completed'
+      )`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+    })
+    .from(sessionPacks)
+    .innerJoin(users, eq(sessionPacks.userId, users.id))
+    .where(
+      and(
+        eq(sessionPacks.mentorId, mentorId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now)
+      )
+    )
+    .orderBy(desc(sessionPacks.createdAt));
+
+  return results.map((r) => ({
+    userId: r.userId,
+    email: r.email,
+    sessionPackId: r.sessionPackId,
+    totalSessions: r.totalSessions,
+    remainingSessions: r.remainingSessions,
+    expiresAt: r.expiresAt,
+    status: r.status,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
+    completedSessionCount: Number(r.completedSessionCount),
+  }));
+}
+
+/**
+ * Get mentees with only 1 session remaining (for instructor alerts)
+ */
+export async function getMentorMenteesWithLowSessions(
+  mentorId: string,
+  threshold: number = 1
+): Promise<MenteeWithSessions[]> {
+  const now = new Date();
+
+  const results = await db
+    .select({
+      userId: users.id,
+      email: users.email,
+      sessionPackId: sessionPacks.id,
+      totalSessions: sessionPacks.totalSessions,
+      remainingSessions: sessionPacks.remainingSessions,
+      expiresAt: sessionPacks.expiresAt,
+      status: sessionPacks.status,
+      lastSessionCompletedAt: sql<Date | null>`(
+        SELECT MAX(${sessions.completedAt})
+        FROM ${sessions}
+        WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
+          AND ${sessions.status} = 'completed'
+      )`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+    })
+    .from(sessionPacks)
+    .innerJoin(users, eq(sessionPacks.userId, users.id))
+    .where(
+      and(
+        eq(sessionPacks.mentorId, mentorId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now),
+        lte(sessionPacks.remainingSessions, threshold)
+      )
+    )
+    .orderBy(desc(sessionPacks.createdAt));
+
+  return results.map((r) => ({
+    userId: r.userId,
+    email: r.email,
+    sessionPackId: r.sessionPackId,
+    totalSessions: r.totalSessions,
+    remainingSessions: r.remainingSessions,
+    expiresAt: r.expiresAt,
+    status: r.status,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
+    completedSessionCount: Number(r.completedSessionCount),
+  }));
+}
+
+/**
+ * Instructor information with session pack details
+ * Used by mentees to view all their instructors
+ */
+export type InstructorWithSessions = {
+  mentorId: string;
+  mentorUserId: string;
+  instructorEmail: string;
+  mentorBio: string | null;
+  sessionPackId: string;
+  totalSessions: number;
+  remainingSessions: number;
+  expiresAt: Date;
+  status: SessionPackStatus;
+  lastSessionCompletedAt: Date | null;
+  completedSessionCount: number;
+};
+
+/**
+ * Get all instructors for a user with their session pack information
+ * Includes last completed session date and session counts
+ */
+export async function getUserInstructorsWithSessionInfo(
+  userId: string
+): Promise<InstructorWithSessions[]> {
+  const now = new Date();
+
+  const results = await db
+    .select({
+      mentorId: mentors.id,
+      mentorUserId: users.id,
+      instructorEmail: users.email,
+      mentorBio: mentors.bio,
+      sessionPackId: sessionPacks.id,
+      totalSessions: sessionPacks.totalSessions,
+      remainingSessions: sessionPacks.remainingSessions,
+      expiresAt: sessionPacks.expiresAt,
+      status: sessionPacks.status,
+      lastSessionCompletedAt: sql<Date | null>`(
+        SELECT MAX(${sessions.completedAt})
+        FROM ${sessions}
+        WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
+          AND ${sessions.status} = 'completed'
+      )`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+    })
+    .from(sessionPacks)
+    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(users, eq(mentors.userId, users.id))
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now)
+      )
+    )
+    .orderBy(desc(sessionPacks.createdAt));
+
+  return results.map((r) => ({
+    mentorId: r.mentorId,
+    mentorUserId: r.mentorUserId,
+    instructorEmail: r.instructorEmail,
+    mentorBio: r.mentorBio,
+    sessionPackId: r.sessionPackId,
+    totalSessions: r.totalSessions,
+    remainingSessions: r.remainingSessions,
+    expiresAt: r.expiresAt,
+    status: r.status,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
+    completedSessionCount: Number(r.completedSessionCount),
+  }));
+}
+
+/**
+ * Get user's session packs with low sessions (1 remaining)
+ */
+export async function getUserLowSessionPacks(
+  userId: string,
+  threshold: number = 1
+): Promise<InstructorWithSessions[]> {
+  const now = new Date();
+
+  const results = await db
+    .select({
+      mentorId: mentors.id,
+      mentorUserId: users.id,
+      instructorEmail: users.email,
+      mentorBio: mentors.bio,
+      sessionPackId: sessionPacks.id,
+      totalSessions: sessionPacks.totalSessions,
+      remainingSessions: sessionPacks.remainingSessions,
+      expiresAt: sessionPacks.expiresAt,
+      status: sessionPacks.status,
+      lastSessionCompletedAt: sql<Date | null>`(
+        SELECT MAX(${sessions.completedAt})
+        FROM ${sessions}
+        WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
+          AND ${sessions.status} = 'completed'
+      )`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+    })
+    .from(sessionPacks)
+    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(users, eq(mentors.userId, users.id))
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.status, "active"),
+        gte(sessionPacks.expiresAt, now),
+        lte(sessionPacks.remainingSessions, threshold)
+      )
+    )
+    .orderBy(desc(sessionPacks.createdAt));
+
+  return results.map((r) => ({
+    mentorId: r.mentorId,
+    mentorUserId: r.mentorUserId,
+    instructorEmail: r.instructorEmail,
+    mentorBio: r.mentorBio,
+    sessionPackId: r.sessionPackId,
+    totalSessions: r.totalSessions,
+    remainingSessions: r.remainingSessions,
+    expiresAt: r.expiresAt,
+    status: r.status,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
+    completedSessionCount: Number(r.completedSessionCount),
+  }));
+}
+
+/**
+ * Manually add sessions to a pack (for admin/instructor use without payment)
+ * This is a simple wrapper that calls incrementRemainingSessions
+ */
+export async function addSessionsToPack(
+  packId: string,
+  sessionsToAdd: number = 1
+): Promise<SessionPack> {
+  if (sessionsToAdd < 1) {
+    throw new Error("Must add at least 1 session");
+  }
+
+  const pack = await getSessionPackById(packId);
+  if (!pack) {
+    throw new Error(`Session pack ${packId} not found`);
+  }
+
+  const now = new Date();
+  const isExpired = new Date(pack.expiresAt) < now;
+  const isDepletedOrExpired = pack.status === "depleted" || pack.status === "expired";
+
+  const [updated] = await db
+    .update(sessionPacks)
+    .set({
+      remainingSessions: sql`${sessionPacks.remainingSessions} + ${sessionsToAdd}`,
+      totalSessions: sql`${sessionPacks.totalSessions} + ${sessionsToAdd}`,
+      status: sql`CASE 
+        WHEN (${sessionPacks.status} = 'depleted' OR ${sessionPacks.status} = 'expired') 
+          THEN 'active' 
+        WHEN (${sessionPacks.remainingSessions} + ${sessionsToAdd}) > 0 
+          THEN ${sessionPacks.status}
+        ELSE ${sessionPacks.status}
+      END`,
+      expiresAt: isDepletedOrExpired || isExpired ? sql`${sessionPacks.expiresAt}` : sessionPacks.expiresAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(sessionPacks.id, packId))
+    .returning();
+
+  if (!updated) {
+    throw new Error(`Session pack ${packId} not found`);
+  }
+
+  return updated;
+}
+
+/**
+ * Manually remove sessions from a pack (for admin/instructor use without payment)
+ * This decrements remaining sessions and updates status if depleted
+ */
+export async function removeSessionsFromPack(
+  packId: string,
+  sessionsToRemove: number = 1
+): Promise<SessionPack> {
+  if (sessionsToRemove < 1) {
+    throw new Error("Must remove at least 1 session");
+  }
+
+  return await db.transaction(async (tx) => {
+    const [pack] = await tx
+      .select()
+      .from(sessionPacks)
+      .where(eq(sessionPacks.id, packId))
+      .limit(1);
+
+    if (!pack) {
+      throw new Error(`Session pack ${packId} not found`);
+    }
+
+    if (pack.remainingSessions < sessionsToRemove) {
+      throw new Error(
+        `Cannot remove ${sessionsToRemove} sessions. Pack only has ${pack.remainingSessions} remaining.`
+      );
+    }
+
+    const completedSessions = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.sessionPackId, packId),
+          eq(sessions.status, "completed")
+        )
+      );
+    const completedCount = Number(completedSessions[0]?.count || 0);
+
+    if (pack.totalSessions - sessionsToRemove < completedCount) {
+      throw new Error(
+        `Cannot remove ${sessionsToRemove} sessions. Pack has ${completedCount} completed sessions and would have ${pack.totalSessions - sessionsToRemove} total, which is fewer than completed.`
+      );
+    }
+
+    const [updated] = await tx
+      .update(sessionPacks)
+      .set({
+        remainingSessions: sql`GREATEST(${sessionPacks.remainingSessions} - ${sessionsToRemove}, 0)`,
+        totalSessions: sql`GREATEST(${sessionPacks.totalSessions} - ${sessionsToRemove}, ${completedCount})`,
+        status: sql`CASE 
+          WHEN (${sessionPacks.remainingSessions} - ${sessionsToRemove}) <= 0 
+          THEN 'depleted' 
+          ELSE ${sessionPacks.status} 
+        END`,
+        updatedAt: new Date(),
+      })
+      .where(eq(sessionPacks.id, packId))
+      .returning();
+
+    if (!updated) {
+      throw new Error(`Session pack ${packId} not found`);
+    }
+
+    return updated;
+  });
+}
