@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
+import { reportError } from "@/lib/observability";
 
 export default function GlobalError({
   error,
@@ -8,9 +9,15 @@ export default function GlobalError({
 }: {
   error: Error & { digest?: string };
   reset: () => void;
-}) {
+}): ReactNode {
   useEffect(() => {
-    console.error("Global error caught:", error);
+    if (error) {
+      reportError({
+        source: "global-error",
+        error,
+        message: "Uncaught error in app",
+      }).catch(() => {});
+    }
   }, [error]);
 
   return (
@@ -19,7 +26,7 @@ export default function GlobalError({
         <div className="text-center p-8 max-w-md">
           <h1 className="text-2xl font-bold mb-4">Something went wrong</h1>
           <p className="text-muted-foreground mb-6">
-            We encountered an unexpected error. Our team has been notified.
+            An unexpected error occurred. Please try again or contact support.
           </p>
           {error.digest && (
             <p className="text-sm text-muted-foreground mb-4">
