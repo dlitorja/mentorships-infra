@@ -519,7 +519,7 @@ export async function getMentorMenteesWithSessionInfo(
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
           AND ${sessions.status} = 'completed'
       )`,
-      completedSessionCount: sql`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
@@ -541,7 +541,7 @@ export async function getMentorMenteesWithSessionInfo(
     expiresAt: r.expiresAt,
     status: r.status,
     lastSessionCompletedAt: r.lastSessionCompletedAt,
-    completedSessionCount: Number(r.completedSessionCount) || 0,
+    completedSessionCount: Number(r.completedSessionCount),
   }));
 }
 
@@ -569,7 +569,7 @@ export async function getMentorMenteesWithLowSessions(
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
           AND ${sessions.status} = 'completed'
       )`,
-      completedSessionCount: sql`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
@@ -592,7 +592,7 @@ export async function getMentorMenteesWithLowSessions(
     expiresAt: r.expiresAt,
     status: r.status,
     lastSessionCompletedAt: r.lastSessionCompletedAt,
-    completedSessionCount: Number(r.completedSessionCount) || 0,
+    completedSessionCount: Number(r.completedSessionCount),
   }));
 }
 
@@ -640,7 +640,7 @@ export async function getUserInstructorsWithSessionInfo(
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
           AND ${sessions.status} = 'completed'
       )`,
-      completedSessionCount: sql`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
     .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
@@ -665,7 +665,7 @@ export async function getUserInstructorsWithSessionInfo(
     expiresAt: r.expiresAt,
     status: r.status,
     lastSessionCompletedAt: r.lastSessionCompletedAt,
-    completedSessionCount: Number(r.completedSessionCount) || 0,
+    completedSessionCount: Number(r.completedSessionCount),
   }));
 }
 
@@ -695,7 +695,7 @@ export async function getUserLowSessionPacks(
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
           AND ${sessions.status} = 'completed'
       )`,
-      completedSessionCount: sql`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
     .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
@@ -721,7 +721,7 @@ export async function getUserLowSessionPacks(
     expiresAt: r.expiresAt,
     status: r.status,
     lastSessionCompletedAt: r.lastSessionCompletedAt,
-    completedSessionCount: Number(r.completedSessionCount) || 0,
+    completedSessionCount: Number(r.completedSessionCount),
   }));
 }
 
