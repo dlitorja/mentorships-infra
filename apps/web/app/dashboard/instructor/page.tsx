@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { getMentorByUserId, getMentorMenteesWithSessionInfo, requireDbUser } from "@mentorships/db";
+import { getMentorByUserId, getMentorMenteesWithSessionInfo } from "@mentorships/db";
+import { requireDbUser } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, Calendar, Clock, Plus, Minus } from "lucide-react";

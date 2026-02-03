@@ -2,7 +2,6 @@ import { eq, desc, sql, and, gte, lte, gt, isNull, or } from "drizzle-orm";
 import { db } from "../drizzle";
 import { sessionPacks, seatReservations, sessions, mentors, users } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
-import { v4 as uuidv4 } from "uuid";
 
 type SessionPack = typeof sessionPacks.$inferSelect;
 type SeatReservation = typeof seatReservations.$inferSelect;
@@ -63,7 +62,7 @@ export async function createSessionPackWithoutPayment(
     .values({
       userId,
       mentorId,
-      paymentId: uuidv4() as any,
+      paymentId: crypto.randomUUID() as any,
       expiresAt: null,
       totalSessions,
       remainingSessions: totalSessions,
@@ -148,7 +147,7 @@ export async function createInstructorMenteeAssociations(
           .values({
             userId: menteeUserId,
             mentorId: mentor[0].id,
-            paymentId: uuidv4() as any,
+            paymentId: crypto.randomUUID() as any,
             expiresAt: null,
             totalSessions: sessionsPerPack,
             remainingSessions: sessionsPerPack,

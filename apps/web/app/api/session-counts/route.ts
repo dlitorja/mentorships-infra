@@ -6,9 +6,8 @@ import {
   decrementRemainingSessions,
   getSessionPackById,
   getMentorByUserId,
-  getAdminEmails,
 } from "@mentorships/db";
-import { UnauthorizedError } from "@mentorships/db";
+import { getDbUser, UnauthorizedError } from "@/lib/auth";
 
 function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string | null {
   if (!user?.emailAddresses?.length) return null;
@@ -26,9 +25,9 @@ async function requireAdminOrMentor(sessionPackId: string) {
   }
 
   const user = await currentUser();
-  const adminEmails = getAdminEmails();
+  const dbUser = await getDbUser();
   const userEmail = getPrimaryEmail(user);
-  const isAdmin = userEmail ? adminEmails.includes(userEmail) : false;
+  const isAdmin = dbUser?.role === "admin";
 
   if (isAdmin) {
     return { userId, isAdmin: true };
@@ -70,7 +69,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const { sessionPackId, action } = parseResult.data;
 
-    const { isAdmin } = await requireAdminOrMentor(sessionPackId);
+    await requireAdminOrMentor(sessionPackId);
 
     if (action === "increment") {
       const updated = await incrementRemainingSessions(sessionPackId);
