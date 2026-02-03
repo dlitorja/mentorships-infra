@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { 
   LayoutDashboard, 
   Package,
+  Users,
   LogIn,
   LogOut
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { SignInButton, UserButton, useUser, useClerk } from "@clerk/nextjs";
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/inventory", label: "Inventory", icon: Package },
+  { href: "/admin/instructors", label: "Instructors", icon: Users },
 ];
 
 export function AdminSidebar() {

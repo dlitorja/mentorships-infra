@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
 **Last Updated**: February 2, 2026  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), Ready for Discord Automation + Video Access Control
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, Ready for Discord Automation + Video Access Control
 
 ---
 
@@ -266,6 +266,50 @@
 
 ---
 
+### 11. Admin Dashboard: Instructors & Mentees
+**Status**: ✅ **COMPLETED** - Admin oversight view for instructors and their mentees
+
+**Completed Tasks**:
+- [x] Database query functions for admin oversight (`packages/db/src/lib/queries/admin.ts`):
+  - [x] `getAllInstructorsWithStats()` - Get all instructors with mentee counts, completed sessions, inventory
+  - [x] `getInstructorWithMentees()` - Get detailed mentee info with session counts, last session dates, seat status
+  - [x] `getFullAdminCsvData()` - Export all instructor-mentee relationships for CSV reporting
+- [x] API routes for admin instructor management (`apps/marketing/app/api/admin/instructors/`):
+  - [x] `GET /api/admin/instructors` - List instructors with search, pagination, and stats
+  - [x] `GET /api/admin/instructors/[id]/mentees` - Get mentees for a specific instructor
+  - [x] `GET /api/admin/instructors/csv` - Export full CSV report of all instructor-mentee relationships
+- [x] Admin Instructors page (`/admin/instructors`):
+  - [x] Table showing: Instructor email, Active Mentees count, Total Sessions Completed, Inventory, Join Date
+  - [x] Expandable rows to view all mentees for each instructor
+  - [x] Mentee details: Email, Sessions (completed/total), Remaining Sessions, Pack Status, Last Session Date, Seat Status
+  - [x] Search by instructor email
+  - [x] Pagination support (for future scalability beyond 50 instructors)
+  - [x] CSV Export button for full report download
+- [x] Navigation updates:
+  - [x] Added "Instructors" link to admin sidebar
+  - [x] Added "View Instructors" quick action card on admin dashboard
+
+**Completed Components**:
+- ✅ Admin queries (`packages/db/src/lib/queries/admin.ts`)
+- ✅ Instructors list API (`apps/marketing/app/api/admin/instructors/route.ts`)
+- ✅ Instructor mentees API (`apps/marketing/app/api/admin/instructors/[id]/mentees/route.ts`)
+- ✅ CSV export API (`apps/marketing/app/api/admin/instructors/csv/route.ts`)
+- ✅ Instructors page (`apps/marketing/app/admin/instructors/page.tsx`)
+- ✅ Interactive table component (`apps/marketing/components/admin/instructors-table.tsx`)
+- ✅ Sidebar navigation update (`apps/marketing/components/admin/admin-sidebar.tsx`)
+- ✅ Dashboard quick link (`apps/marketing/app/admin/page.tsx`)
+
+**Features**:
+- Search instructors by email
+- View active mentee count and total completed sessions per instructor
+- Expand to see all mentees with remaining session counts and last session dates
+- Export full CSV report with instructor-mentee relationships
+- Pagination ready for future scalability
+
+**Estimated Time**: 0.5 days (completed)
+
+---
+
 ## 🚧 In Progress / Next Steps
 
 ### Priority 1: Notifications & Automation (Discord + Email)
@@ -335,8 +379,9 @@ Based on the plan in `mentorship-platform-plan.md`:
 10. ✅ **Observability** - DONE (Axiom + Better Stack)
 11. ✅ **Notifications & automation** - DONE (email complete; Discord pending)
 12. ✅ **Instructor/Mentee Dashboards in apps/marketing** - DONE (no payment integration)
-13. ⏳ **Discord notification delivery** - NEXT (connect Discord bot to `notification/send` events)
-14. ⏳ **Video access control** - After Discord (Agora)
+13. ✅ **Admin Dashboard: Instructors & Mentees** - DONE (oversight view with CSV export)
+14. ⏳ **Discord notification delivery** - NEXT (connect Discord bot to `notification/send` events)
+15. ⏳ **Video access control** - After Discord (Agora)
 
 ---
 
@@ -350,8 +395,9 @@ Based on the plan in `mentorship-platform-plan.md`:
 6. ✅ **Arcjet platform-wide security/rate limiting** (middleware policy matrix)
 7. ✅ **Observability (Axiom + Better Stack)** (errors + Arcjet failures)
 8. ✅ **Instructor/Mentee Dashboards in apps/marketing** (no payment integration) - COMPLETED
-9. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
-10. **Implement video access control** (Agora for video calls)
+9. ✅ **Admin Dashboard: Instructors & Mentees** - COMPLETED (oversight view with search, expand mentees, CSV export)
+10. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
+11. **Implement video access control** (Agora for video calls)
 
 ---
 
@@ -414,4 +460,14 @@ ls apps/web/app/api
   - Auth helpers configured for role-based access control
   - Amber warning badges for low-session alerts
   - All builds pass successfully
+
+- ✅ **Admin Dashboard: Instructors & Mentees** (February 2026)
+  - Admin oversight view for all instructors with their mentees
+  - Database queries for admin reporting (`getAllInstructorsWithStats`, `getInstructorWithMentees`, `getFullAdminCsvData`)
+  - API routes: list instructors with search/pagination, get instructor mentees, CSV export
+  - Interactive table with expandable rows showing all mentees per instructor
+  - Mentee details: sessions used/remaining, pack status, last session date, seat status
+  - CSV export of all instructor-mentee relationships
+  - Search by instructor email, pagination ready for future scalability
+  - Added to admin sidebar and dashboard quick actions
 
