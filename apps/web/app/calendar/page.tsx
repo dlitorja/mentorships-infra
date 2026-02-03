@@ -76,7 +76,9 @@ export default async function CalendarPage() {
                         {pack.remainingSessions} session{pack.remainingSessions !== 1 ? "s" : ""} remaining
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Expires: {new Date(pack.expiresAt).toLocaleDateString()}
+                        {pack.expiresAt
+                          ? `Expires: ${new Date(pack.expiresAt).toLocaleDateString()}`
+                          : "No expiration"}
                       </p>
                     </div>
                     <Button disabled={pack.remainingSessions === 0} variant="outline">
