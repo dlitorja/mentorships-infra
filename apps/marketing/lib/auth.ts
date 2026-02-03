@@ -1,8 +1,11 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { getOrCreateUser, UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError } from "@mentorships/db";
+import type { users } from "@mentorships/db";
 
 export { UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError };
+
+export type DbUser = typeof users.$inferSelect;
 
 const DEFAULT_ADMIN_EMAILS = ["admin@huckleberry.art"];
 
@@ -77,12 +80,12 @@ export async function requireAuth() {
   return userId;
 }
 
-export async function getDbUser() {
+export async function getDbUser(): Promise<DbUser> {
   const user = await getOrCreateUser();
   return user;
 }
 
-export async function requireDbUser() {
+export async function requireDbUser(): Promise<DbUser> {
   const user = await getOrCreateUser();
   return user;
 }
@@ -97,16 +100,16 @@ export async function requireAuthRedirect() {
   return userId;
 }
 
-export async function hasRole(role: "student" | "mentor" | "admin") {
+export async function hasRole(role: "student" | "mentor" | "admin"): Promise<boolean> {
   const { userId } = await auth();
   if (!userId) return false;
 
   const user = await getDbUser();
   
-  return user.role === role;
+  return user?.role === role;
 }
 
-export async function requireRole(role: "student" | "mentor" | "admin") {
+export async function requireRole(role: "student" | "mentor" | "admin"): Promise<DbUser> {
   const userId = await requireAuthRedirect();
   
   const user = await getDbUser();
@@ -118,7 +121,7 @@ export async function requireRole(role: "student" | "mentor" | "admin") {
   return user;
 }
 
-export async function requireRoleForApi(role: "student" | "mentor" | "admin") {
+export async function requireRoleForApi(role: "student" | "mentor" | "admin"): Promise<DbUser> {
   const { userId } = await auth();
   
   if (!userId) {

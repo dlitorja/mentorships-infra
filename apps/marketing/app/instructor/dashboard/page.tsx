@@ -1,4 +1,4 @@
-import { requireRole, getUser } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import {
@@ -43,7 +43,6 @@ export const dynamic = "force-dynamic";
 export default async function InstructorDashboardPage() {
   try {
     const user = await requireRole("mentor");
-    const clerkUser = await getUser();
     const mentor = await getMentorByUserId(user.id);
 
     if (!mentor) {

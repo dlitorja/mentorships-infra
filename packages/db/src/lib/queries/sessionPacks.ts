@@ -756,6 +756,10 @@ export async function addSessionsToPack(
     .where(eq(sessionPacks.id, packId))
     .returning();
 
+  if (!updated) {
+    throw new Error(`Session pack ${packId} not found`);
+  }
+
   return updated;
 }
 
