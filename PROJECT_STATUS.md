@@ -266,7 +266,8 @@
 
 ---
 
-<<<<<<< HEAD
+---
+
 ### 11. Admin Dashboard: Instructors & Mentees
 **Status**: ✅ **COMPLETED** - Admin oversight view for instructors and their mentees
 
@@ -311,8 +312,6 @@
 
 ---
 
-=======
->>>>>>> origin/main
 ## 🚧 In Progress / Next Steps
 
 ### Priority 1: Notifications & Automation (Discord + Email)
@@ -382,14 +381,8 @@ Based on the plan in `mentorship-platform-plan.md`:
 10. ✅ **Observability** - DONE (Axiom + Better Stack)
 11. ✅ **Notifications & automation** - DONE (email complete; Discord pending)
 12. ✅ **Instructor/Mentee Dashboards in apps/marketing** - DONE (no payment integration)
-<<<<<<< HEAD
-13. ✅ **Admin Dashboard: Instructors & Mentees** - DONE (oversight view with CSV export)
-14. ⏳ **Discord notification delivery** - NEXT (connect Discord bot to `notification/send` events)
-15. ⏳ **Video access control** - After Discord (Agora)
-=======
 13. ⏳ **Discord notification delivery** - NEXT (connect Discord bot to `notification/send` events)
 14. ⏳ **Video access control** - After Discord (Agora)
->>>>>>> origin/main
 
 ---
 
@@ -403,14 +396,8 @@ Based on the plan in `mentorship-platform-plan.md`:
 6. ✅ **Arcjet platform-wide security/rate limiting** (middleware policy matrix)
 7. ✅ **Observability (Axiom + Better Stack)** (errors + Arcjet failures)
 8. ✅ **Instructor/Mentee Dashboards in apps/marketing** (no payment integration) - COMPLETED
-<<<<<<< HEAD
-9. ✅ **Admin Dashboard: Instructors & Mentees** - COMPLETED (oversight view with search, expand mentees, CSV export)
-10. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
-11. **Implement video access control** (Agora for video calls)
-=======
 9. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
 10. **Implement video access control** (Agora for video calls)
->>>>>>> origin/main
 
 ---
 
@@ -474,16 +461,12 @@ ls apps/web/app/api
   - Amber warning badges for low-session alerts
   - All builds pass successfully
 
-<<<<<<< HEAD
-- ✅ **Admin Dashboard: Instructors & Mentees** (February 2026)
-  - Admin oversight view for all instructors with their mentees
-  - Database queries for admin reporting (`getAllInstructorsWithStats`, `getInstructorWithMentees`, `getFullAdminCsvData`)
-  - API routes: list instructors with search/pagination, get instructor mentees, CSV export
-  - Interactive table with expandable rows showing all mentees per instructor
-  - Mentee details: sessions used/remaining, pack status, last session date, seat status
-  - CSV export of all instructor-mentee relationships
-  - Search by instructor email, pagination ready for future scalability
-  - Added to admin sidebar and dashboard quick actions
 
-=======
->>>>>>> origin/main
+- ✅ **Database Migration Fix** (February 3, 2026)
+  - Fixed `/admin/instructors` page error caused by missing `one_on_one_inventory` and `group_inventory` columns
+  - Root cause: migrations table wasn't tracking applied migrations properly
+  - Created `__drizzle_migrations` table and populated with all 18 migration hashes
+  - Fixed migration `0007_breezy_betty_brant.sql` to use `ADD COLUMN IF NOT EXISTS` for idempotency
+  - Fixed migration `0013_melodic_black_widow.sql` to use `CREATE TABLE IF NOT EXISTS` and `ADD COLUMN IF NOT EXISTS`
+  - All migrations now apply successfully
+  - Admin instructors page now loads correctly
