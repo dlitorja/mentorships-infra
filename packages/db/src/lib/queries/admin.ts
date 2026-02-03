@@ -306,7 +306,7 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
           AND ${sessions.status} = 'completed'
       )`,
-      completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
+      completedSessionsCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
       seatStatus: seatReservations.status,
     })
     .from(sessionPacks)
