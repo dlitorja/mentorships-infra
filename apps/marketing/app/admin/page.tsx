@@ -2,7 +2,7 @@ import { requireAdmin } from "@/lib/auth";
 import { getAllInstructorsWithInventory } from "@/lib/supabase-inventory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-import { Package, Bell } from "lucide-react";
+import { Package, Bell, Users } from "lucide-react";
 
 type InventorySummary = {
   oneOnOne: number;
@@ -73,7 +73,7 @@ export default async function AdminDashboard(): Promise<React.ReactElement> {
       </div>
 
       <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
           <Link href="/admin/inventory">
             <CardHeader>
@@ -85,6 +85,21 @@ export default async function AdminDashboard(): Promise<React.ReactElement> {
             <CardContent>
               <p className="text-sm text-muted-foreground">
                 Adjust inventory counts, set up waitlists, and configure offer mappings.
+              </p>
+            </CardContent>
+          </Link>
+        </Card>
+        <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
+          <Link href="/admin/instructors">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                View Instructors
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                See all instructors, their mentees, and session details.
               </p>
             </CardContent>
           </Link>

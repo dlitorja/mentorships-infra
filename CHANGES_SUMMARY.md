@@ -2,6 +2,7 @@
 
 **Date**: January 2025  
 **Purpose**: Address critical security vulnerabilities and performance issues identified in architecture assessment
+**Update**: February 2026 - Admin Dashboard for Instructors & Mentees added
 
 ## 🚀 **Immediate Action Items for Cursor**
 
@@ -541,6 +542,21 @@ This PR implements four high-priority fixes:
 - **API Consistency**: 80% complete (2 of ~20 endpoints migrated)
 - **Production Monitoring**: ✅ Implemented (health checks for system, DB, Stripe)
 - **Production Ready**: ✅ Yes (with API consistency improvements in progress)
+
+### **Admin Dashboard: Instructors & Mentees (February 2026)**
+- **New Files Created**: 5 files
+  - `packages/db/src/lib/queries/admin.ts` (Admin query functions)
+  - `apps/marketing/app/api/admin/instructors/route.ts` (List instructors API)
+  - `apps/marketing/app/api/admin/instructors/[id]/mentees/route.ts` (Get mentees API)
+  - `apps/marketing/app/api/admin/instructors/csv/route.ts` (CSV export API)
+  - `apps/marketing/components/admin/instructors-table.tsx` (Interactive table component)
+- **Files Modified**: 5 files
+  - `packages/db/src/index.ts` (Export admin queries)
+  - `apps/marketing/app/admin/instructors/page.tsx` (Instructors page)
+  - `apps/marketing/components/admin/admin-sidebar.tsx` (Added Instructors nav item)
+  - `apps/marketing/app/admin/page.tsx` (Added quick link)
+  - `apps/marketing/app/api/admin/instructors/csv/route.ts` (Updated CSV headers)
+- **Features**: Search, pagination, expandable rows, CSV export, seat status tracking
 
 ### **Next Sprint Effort**
 - **API Migration Remaining**: ~18 endpoints (~2 days)

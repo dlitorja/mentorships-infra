@@ -35,6 +35,7 @@ export * from "./lib/queries/users";
 export * from "./lib/queries/sessions";
 export * from "./lib/queries/sessionPacks";
 export * from "./lib/queries/mentors";
+export * from "./lib/queries/admin";
 export * from "./lib/queries/orders";
 export * from "./lib/queries/payments";
 export * from "./lib/queries/products";
