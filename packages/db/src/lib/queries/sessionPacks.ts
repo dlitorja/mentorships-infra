@@ -513,7 +513,7 @@ export async function getMentorMenteesWithSessionInfo(
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,
-      lastSessionCompletedAt: sql`(
+      lastSessionCompletedAt: sql<Date | null>`(
         SELECT MAX(${sessions.completedAt})
         FROM ${sessions}
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
@@ -540,7 +540,7 @@ export async function getMentorMenteesWithSessionInfo(
     remainingSessions: r.remainingSessions,
     expiresAt: r.expiresAt,
     status: r.status,
-    lastSessionCompletedAt: r.lastSessionCompletedAt as Date | null,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
     completedSessionCount: Number(r.completedSessionCount) || 0,
   }));
 }
@@ -563,7 +563,7 @@ export async function getMentorMenteesWithLowSessions(
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,
-      lastSessionCompletedAt: sql`(
+      lastSessionCompletedAt: sql<Date | null>`(
         SELECT MAX(${sessions.completedAt})
         FROM ${sessions}
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
@@ -591,7 +591,7 @@ export async function getMentorMenteesWithLowSessions(
     remainingSessions: r.remainingSessions,
     expiresAt: r.expiresAt,
     status: r.status,
-    lastSessionCompletedAt: r.lastSessionCompletedAt as Date | null,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
     completedSessionCount: Number(r.completedSessionCount) || 0,
   }));
 }
@@ -634,7 +634,7 @@ export async function getUserInstructorsWithSessionInfo(
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,
-      lastSessionCompletedAt: sql`(
+      lastSessionCompletedAt: sql<Date | null>`(
         SELECT MAX(${sessions.completedAt})
         FROM ${sessions}
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
@@ -664,7 +664,7 @@ export async function getUserInstructorsWithSessionInfo(
     remainingSessions: r.remainingSessions,
     expiresAt: r.expiresAt,
     status: r.status,
-    lastSessionCompletedAt: r.lastSessionCompletedAt as Date | null,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
     completedSessionCount: Number(r.completedSessionCount) || 0,
   }));
 }
@@ -689,7 +689,7 @@ export async function getUserLowSessionPacks(
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,
-      lastSessionCompletedAt: sql`(
+      lastSessionCompletedAt: sql<Date | null>`(
         SELECT MAX(${sessions.completedAt})
         FROM ${sessions}
         WHERE ${sessions.sessionPackId} = ${sessionPacks.id}
@@ -720,7 +720,7 @@ export async function getUserLowSessionPacks(
     remainingSessions: r.remainingSessions,
     expiresAt: r.expiresAt,
     status: r.status,
-    lastSessionCompletedAt: r.lastSessionCompletedAt as Date | null,
+    lastSessionCompletedAt: r.lastSessionCompletedAt,
     completedSessionCount: Number(r.completedSessionCount) || 0,
   }));
 }
@@ -737,7 +737,7 @@ export async function addSessionsToPack(
     throw new Error("Must add at least 1 session");
   }
 
-  let pack = await getSessionPackById(packId);
+  const pack = await getSessionPackById(packId);
   if (!pack) {
     throw new Error(`Session pack ${packId} not found`);
   }
@@ -746,6 +746,7 @@ export async function addSessionsToPack(
     .update(sessionPacks)
     .set({
       remainingSessions: sql`${sessionPacks.remainingSessions} + ${sessionsToAdd}`,
+      totalSessions: sql`${sessionPacks.totalSessions} + ${sessionsToAdd}`,
       status: sql`CASE 
         WHEN ${sessionPacks.status} = 'depleted' AND (${sessionPacks.remainingSessions} + ${sessionsToAdd}) > 0 
         THEN 'active' 
@@ -786,10 +787,28 @@ export async function removeSessionsFromPack(
     );
   }
 
+  const completedSessions = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.sessionPackId, packId),
+        eq(sessions.status, "completed")
+      )
+    );
+  const completedCount = Number(completedSessions[0]?.count || 0);
+
+  if (pack.totalSessions - sessionsToRemove < completedCount) {
+    throw new Error(
+      `Cannot remove ${sessionsToRemove} sessions. Pack has ${completedCount} completed sessions and would have ${pack.totalSessions - sessionsToRemove} total, which is fewer than completed.`
+    );
+  }
+
   const [updated] = await db
     .update(sessionPacks)
     .set({
       remainingSessions: sql`GREATEST(${sessionPacks.remainingSessions} - ${sessionsToRemove}, 0)`,
+      totalSessions: sql`GREATEST(${sessionPacks.totalSessions} - ${sessionsToRemove}, ${completedCount})`,
       status: sql`CASE 
         WHEN (${sessionPacks.remainingSessions} - ${sessionsToRemove}) <= 0 
         THEN 'depleted' 
