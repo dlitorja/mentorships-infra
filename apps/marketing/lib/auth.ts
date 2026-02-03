@@ -1,12 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-
-export class UnauthorizedError extends Error {
-  constructor(message: string = "Unauthorized") {
-    super(message);
-    this.name = "UnauthorizedError";
-  }
-}
+import { getOrCreateUser, UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 
 const DEFAULT_ADMIN_EMAILS = ["admin@huckleberry.art"];
 
@@ -59,4 +53,83 @@ export function isAdmin(user: Awaited<ReturnType<typeof currentUser>>): boolean 
   const adminEmails = getAdminEmails();
   const userEmail = getPrimaryEmail(user);
   return userEmail ? adminEmails.includes(userEmail) : false;
+}
+
+export async function getUserId(): Promise<string> {
+  const { userId } = await auth();
+  if (!userId) {
+    throw new UnauthorizedError("Not authenticated");
+  }
+  return userId;
+}
+
+export async function getUser() {
+  return currentUser();
+}
+
+export async function requireAuth() {
+  const { userId } = await auth();
+  if (!userId) {
+    throw new UnauthorizedError("Not authenticated");
+  }
+  return userId;
+}
+
+export async function getDbUser() {
+  const userId = await getUserId();
+  const user = await getOrCreateUser(userId);
+  return user;
+}
+
+export async function requireDbUser() {
+  const userId = await getUserId();
+  const user = await getOrCreateUser(userId);
+  return user;
+}
+
+export async function requireAuthRedirect() {
+  const { userId } = await auth();
+  
+  if (!userId) {
+    redirect("/sign-in");
+  }
+  
+  return userId;
+}
+
+export async function hasRole(role: "student" | "mentor" | "admin") {
+  const { userId } = await auth();
+  if (!userId) return false;
+
+  const user = await getDbUser();
+  
+  return user.role === role;
+}
+
+export async function requireRole(role: "student" | "mentor" | "admin") {
+  const userId = await requireAuthRedirect();
+  
+  const user = await getDbUser();
+  
+  if (user.role !== role) {
+    redirect("/dashboard?error=insufficient_permissions");
+  }
+  
+  return user;
+}
+
+export async function requireRoleForApi(role: "student" | "mentor" | "admin") {
+  const { userId } = await auth();
+  
+  if (!userId) {
+    throw new UnauthorizedError("Authentication required");
+  }
+  
+  const user = await getDbUser();
+  
+  if (user.role !== role) {
+    throw new ForbiddenError(`Admin access required`);
+  }
+  
+  return user;
 }
