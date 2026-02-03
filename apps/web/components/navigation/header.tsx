@@ -38,7 +38,7 @@ const ClerkAuthButtons = lazy(() =>
             <Button asChild variant="ghost" size="sm">
               <Link href="/dashboard">Dashboard</Link>
             </Button>
-            <UserButton afterSignOutUrl="/" />
+            <UserButton />
           </SignedIn>
         </>
       );
@@ -80,7 +80,7 @@ const MobileClerkAuthButtons = lazy(() =>
               <Link href="/dashboard">Dashboard</Link>
             </Button>
             <div className="flex items-center justify-start">
-              <UserButton afterSignOutUrl="/" />
+              <UserButton />
             </div>
           </SignedIn>
         </>

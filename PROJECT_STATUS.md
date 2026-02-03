@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: February 2, 2026  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, Ready for Discord Automation + Video Access Control
+**Last Updated**: February 3, 2026  
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, **Clerk Deprecation Errors Fixed**, Ready for Discord Automation + Video Access Control
 
 ---
 
@@ -470,3 +470,15 @@ ls apps/web/app/api
   - Fixed migration `0013_melodic_black_widow.sql` to use `CREATE TABLE IF NOT EXISTS` and `ADD COLUMN IF NOT EXISTS`
   - All migrations now apply successfully
   - Admin instructors page now loads correctly
+
+
+- ✅ **Clerk Deprecation Errors Fixed** (February 3, 2026)
+  - Fixed Clerk deprecated `afterSignInUrl` prop warning by replacing with `fallbackRedirectUrl`:
+    - `/apps/web/app/sign-in/[[...sign-in]]/page.tsx`
+    - `/apps/web/app/sign-up/[[...sign-up]]/page.tsx`
+  - Removed deprecated `afterSignOutUrl` prop from all UserButton components:
+    - `/apps/web/components/navigation/header.tsx` (2 occurrences - desktop and mobile)
+    - `/apps/web/app/dashboard/page.tsx`
+    - `/apps/web/app/instructor/dashboard/page.tsx`
+  - Added `/apps/web/app/global-error.tsx` to handle uncaught server component errors in production
+  - All deprecated Clerk warning messages should now be resolved
