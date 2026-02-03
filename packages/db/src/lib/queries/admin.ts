@@ -204,7 +204,6 @@ export async function getInstructorWithMentees(
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .innerJoin(seatReservations, and(eq(seatReservations.sessionPackId, sessionPacks.id), eq(seatReservations.mentorId, mentorId)))
-    .leftJoin(sessions, eq(sessions.sessionPackId, sessionPacks.id))
     .where(eq(sessionPacks.mentorId, mentorId))
     .orderBy(desc(sessionPacks.createdAt));
 
@@ -262,7 +261,6 @@ export async function getInstructorMenteesForCsv(
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .innerJoin(seatReservations, and(eq(seatReservations.sessionPackId, sessionPacks.id), eq(seatReservations.mentorId, mentorId)))
-    .leftJoin(sessions, eq(sessions.sessionPackId, sessionPacks.id))
     .where(eq(sessionPacks.mentorId, mentorId))
     .orderBy(desc(sessionPacks.createdAt));
 
@@ -314,7 +312,7 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
-    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(mentors, and(eq(sessionPacks.mentorId, mentors.id), isNull(mentors.deletedAt)))
     .innerJoin(instructorUsers, eq(mentors.userId, instructorUsers.id))
     .orderBy(desc(sessionPacks.createdAt));
 
