@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { getAdminEmails } from "@/lib/auth";
 import {
   incrementRemainingSessions,
   decrementRemainingSessions,
   getSessionPackById,
   getMentorByUserId,
-  getAdminEmails,
 } from "@mentorships/db";
 import { UnauthorizedError } from "@mentorships/db";
 

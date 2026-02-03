@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Users, BookOpen, AlertTriangle, User } from "lucide-react";
 import Link from "next/link";
 
-function formatDate(date: Date | string): string {
+function formatDate(date: Date | string | null): string {
+  if (!date) return "N/A";
   const d = typeof date === "string" ? new Date(date) : date;
   return d.toLocaleDateString("en-US", {
     month: "short",
