@@ -205,6 +205,11 @@ export async function checkPackExpiration(packId: string): Promise<boolean> {
     throw new Error(`Session pack ${packId} not found`);
   }
 
+  // If expiresAt is null, pack never expires
+  if (!pack.expiresAt) {
+    return false;
+  }
+
   const now = new Date();
   return new Date(pack.expiresAt) < now;
 }
@@ -260,7 +265,8 @@ export async function canBookSession(packId: string): Promise<{
   }
 
   const now = new Date();
-  if (new Date(pack.expiresAt) < now) {
+  // If expiresAt is null, pack never expires
+  if (pack.expiresAt && new Date(pack.expiresAt) < now) {
     // Pack is expired, but check if there are scheduled sessions that should complete
     const scheduledSessions = await db
       .select({ count: sql<number>`count(*)` })
@@ -907,7 +913,8 @@ export async function addSessionsToPack(
   }
 
   const now = new Date();
-  const isExpired = new Date(pack.expiresAt) < now;
+  // If expiresAt is null, pack never expires
+  const isExpired = pack.expiresAt ? new Date(pack.expiresAt) < now : false;
   const isDepletedOrExpired = pack.status === "depleted" || pack.status === "expired";
 
   const [updated] = await db
