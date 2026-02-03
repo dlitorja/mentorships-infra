@@ -1,9 +1,9 @@
-import { eq, desc, sql, and, gte, ilike, or, isNull, alias } from "drizzle-orm";
+import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable } from "drizzle-orm";
 import { db } from "../drizzle";
 import { mentors, users, sessionPacks, sessions, seatReservations } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 
-const instructorUsers = alias(users, "instructor_users");
+const instructorUsers = aliasedTable(users, "instructor_users");
 
 export type InstructorWithStats = {
   mentorId: string;
