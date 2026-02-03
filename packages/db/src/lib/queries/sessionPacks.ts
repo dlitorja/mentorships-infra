@@ -578,7 +578,7 @@ export async function getMentorMenteesWithLowSessions(
         eq(sessionPacks.mentorId, mentorId),
         eq(sessionPacks.status, "active"),
         gte(sessionPacks.expiresAt, now),
-        eq(sessionPacks.remainingSessions, threshold)
+        lte(sessionPacks.remainingSessions, threshold)
       )
     )
     .orderBy(desc(sessionPacks.createdAt));
@@ -705,7 +705,7 @@ export async function getUserLowSessionPacks(
         eq(sessionPacks.userId, userId),
         eq(sessionPacks.status, "active"),
         gte(sessionPacks.expiresAt, now),
-        eq(sessionPacks.remainingSessions, threshold)
+        lte(sessionPacks.remainingSessions, threshold)
       )
     )
     .orderBy(desc(sessionPacks.createdAt));
@@ -742,16 +742,23 @@ export async function addSessionsToPack(
     throw new Error(`Session pack ${packId} not found`);
   }
 
+  const now = new Date();
+  const isExpired = new Date(pack.expiresAt) < now;
+  const isDepletedOrExpired = pack.status === "depleted" || pack.status === "expired";
+
   const [updated] = await db
     .update(sessionPacks)
     .set({
       remainingSessions: sql`${sessionPacks.remainingSessions} + ${sessionsToAdd}`,
       totalSessions: sql`${sessionPacks.totalSessions} + ${sessionsToAdd}`,
       status: sql`CASE 
-        WHEN ${sessionPacks.status} = 'depleted' AND (${sessionPacks.remainingSessions} + ${sessionsToAdd}) > 0 
-        THEN 'active' 
-        ELSE ${sessionPacks.status} 
+        WHEN (${sessionPacks.status} = 'depleted' OR ${sessionPacks.status} = 'expired') 
+          THEN 'active' 
+        WHEN (${sessionPacks.remainingSessions} + ${sessionsToAdd}) > 0 
+          THEN ${sessionPacks.status}
+        ELSE ${sessionPacks.status}
       END`,
+      expiresAt: isDepletedOrExpired || isExpired ? sql`${sessionPacks.expiresAt}` : sessionPacks.expiresAt,
       updatedAt: new Date(),
     })
     .where(eq(sessionPacks.id, packId))
@@ -776,52 +783,59 @@ export async function removeSessionsFromPack(
     throw new Error("Must remove at least 1 session");
   }
 
-  const pack = await getSessionPackById(packId);
-  if (!pack) {
-    throw new Error(`Session pack ${packId} not found`);
-  }
+  return await db.transaction(async (tx) => {
+    const [pack] = await tx
+      .select()
+      .from(sessionPacks)
+      .where(eq(sessionPacks.id, packId))
+      .limit(1);
 
-  if (pack.remainingSessions < sessionsToRemove) {
-    throw new Error(
-      `Cannot remove ${sessionsToRemove} sessions. Pack only has ${pack.remainingSessions} remaining.`
-    );
-  }
+    if (!pack) {
+      throw new Error(`Session pack ${packId} not found`);
+    }
 
-  const completedSessions = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(sessions)
-    .where(
-      and(
-        eq(sessions.sessionPackId, packId),
-        eq(sessions.status, "completed")
-      )
-    );
-  const completedCount = Number(completedSessions[0]?.count || 0);
+    if (pack.remainingSessions < sessionsToRemove) {
+      throw new Error(
+        `Cannot remove ${sessionsToRemove} sessions. Pack only has ${pack.remainingSessions} remaining.`
+      );
+    }
 
-  if (pack.totalSessions - sessionsToRemove < completedCount) {
-    throw new Error(
-      `Cannot remove ${sessionsToRemove} sessions. Pack has ${completedCount} completed sessions and would have ${pack.totalSessions - sessionsToRemove} total, which is fewer than completed.`
-    );
-  }
+    const completedSessions = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.sessionPackId, packId),
+          eq(sessions.status, "completed")
+        )
+      );
+    const completedCount = Number(completedSessions[0]?.count || 0);
 
-  const [updated] = await db
-    .update(sessionPacks)
-    .set({
-      remainingSessions: sql`GREATEST(${sessionPacks.remainingSessions} - ${sessionsToRemove}, 0)`,
-      totalSessions: sql`GREATEST(${sessionPacks.totalSessions} - ${sessionsToRemove}, ${completedCount})`,
-      status: sql`CASE 
-        WHEN (${sessionPacks.remainingSessions} - ${sessionsToRemove}) <= 0 
-        THEN 'depleted' 
-        ELSE ${sessionPacks.status} 
-      END`,
-      updatedAt: new Date(),
-    })
-    .where(eq(sessionPacks.id, packId))
-    .returning();
+    if (pack.totalSessions - sessionsToRemove < completedCount) {
+      throw new Error(
+        `Cannot remove ${sessionsToRemove} sessions. Pack has ${completedCount} completed sessions and would have ${pack.totalSessions - sessionsToRemove} total, which is fewer than completed.`
+      );
+    }
 
-  if (!updated) {
-    throw new Error(`Session pack ${packId} not found`);
-  }
+    const [updated] = await tx
+      .update(sessionPacks)
+      .set({
+        remainingSessions: sql`GREATEST(${sessionPacks.remainingSessions} - ${sessionsToRemove}, 0)`,
+        totalSessions: sql`GREATEST(${sessionPacks.totalSessions} - ${sessionsToRemove}, ${completedCount})`,
+        status: sql`CASE 
+          WHEN (${sessionPacks.remainingSessions} - ${sessionsToRemove}) <= 0 
+          THEN 'depleted' 
+          ELSE ${sessionPacks.status} 
+        END`,
+        updatedAt: new Date(),
+      })
+      .where(eq(sessionPacks.id, packId))
+      .returning();
 
-  return updated;
+    if (!updated) {
+      throw new Error(`Session pack ${packId} not found`);
+    }
+
+    return updated;
+  });
 }
