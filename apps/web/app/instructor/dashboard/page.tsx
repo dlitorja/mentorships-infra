@@ -74,7 +74,7 @@ export default async function InstructorDashboardPage() {
               Welcome back, {user.email}
             </p>
           </div>
-          <UserButton afterSignOutUrl="/" />
+          <UserButton />
         </div>
 
         {/* Stats Overview */}
