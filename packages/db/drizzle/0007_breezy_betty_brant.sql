@@ -1,1 +1,1 @@
-ALTER TABLE "seat_reservations" ADD COLUMN "final_warning_notification_sent_at" timestamp;
+ALTER TABLE "seat_reservations" ADD COLUMN IF NOT EXISTS "final_warning_notification_sent_at" timestamp;
