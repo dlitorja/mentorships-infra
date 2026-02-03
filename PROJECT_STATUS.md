@@ -1,7 +1,12 @@
 # Mentorship Platform - Project Status & Next Steps
 
+<<<<<<< HEAD
 **Last Updated**: February 3, 2026  
 **Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, **Clerk Deprecation Errors Fixed**, Ready for Discord Automation + Video Access Control
+=======
+**Last Updated**: February 2, 2026  
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, Ready for Discord Automation + Video Access Control
+>>>>>>> origin/main
 
 ---
 
