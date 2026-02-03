@@ -9,6 +9,11 @@ const searchSchema = z.object({
   pageSize: z.coerce.number().positive().max(100).optional().default(50),
 });
 
+function serializeDate(date: Date | null | undefined): string | null {
+  if (!date) return null;
+  return date.toISOString();
+}
+
 export async function GET(request: Request): Promise<Response> {
   try {
     await requireAdmin();
@@ -28,7 +33,10 @@ export async function GET(request: Request): Promise<Response> {
     const result = await getAllInstructorsWithStats(search, page, pageSize);
 
     return NextResponse.json({
-      instructors: result.instructors,
+      instructors: result.instructors.map((i) => ({
+        ...i,
+        createdAt: serializeDate(i.createdAt),
+      })),
       total: result.total,
       page,
       pageSize,

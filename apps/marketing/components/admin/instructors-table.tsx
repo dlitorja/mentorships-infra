@@ -17,7 +17,7 @@ type InstructorWithStats = {
   maxActiveStudents: number;
   activeMenteeCount: number;
   totalCompletedSessions: number;
-  createdAt: string;
+  createdAt: string | null;
 };
 
 type MenteeWithSessionInfo = {

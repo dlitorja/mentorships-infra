@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getInstructorWithMentees } from "@mentorships/db";
 
+function serializeDate(date: Date | null | undefined): string | null {
+  if (!date) return null;
+  return date.toISOString();
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -27,7 +32,18 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(instructor);
+    const serialized = {
+      ...instructor,
+      createdAt: serializeDate(instructor.createdAt),
+      mentees: instructor.mentees.map((m) => ({
+        ...m,
+        expiresAt: serializeDate(m.expiresAt),
+        lastSessionCompletedAt: serializeDate(m.lastSessionCompletedAt),
+        seatExpiresAt: serializeDate(m.seatExpiresAt),
+      })),
+    };
+
+    return NextResponse.json(serialized);
   } catch (error) {
     console.error("Error fetching instructor:", error);
     return NextResponse.json(
