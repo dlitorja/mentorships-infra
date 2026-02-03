@@ -14,7 +14,7 @@ type PackOption = {
   id: string;
   mentorId: string;
   remainingSessions: number;
-  expiresAt: string | Date;
+  expiresAt: string | Date | null;
   status: string;
 };
 
@@ -166,7 +166,8 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
                   <option value="">Select a pack...</option>
                   {eligiblePacks.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.remainingSessions} remaining (expires {new Date(p.expiresAt).toLocaleDateString()})
+                      {p.remainingSessions} remaining
+                      {p.expiresAt && ` (expires ${new Date(p.expiresAt).toLocaleDateString()})`}
                     </option>
                   ))}
                 </select>

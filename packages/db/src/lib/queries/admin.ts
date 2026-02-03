@@ -25,7 +25,7 @@ export type MenteeWithSessionInfo = {
   totalSessions: number;
   remainingSessions: number;
   status: SessionPackStatus;
-  expiresAt: Date;
+  expiresAt: Date | null;
   lastSessionCompletedAt: Date | null;
   completedSessionCount: number;
   seatStatus: "active" | "grace" | "released";
@@ -285,7 +285,7 @@ export type FullAdminReportRow = {
   totalSessions: number;
   remainingSessions: number;
   packStatus: SessionPackStatus;
-  packExpiresAt: Date;
+  packExpiresAt: Date | null;
   lastSessionDate: Date | null;
   completedSessionsCount: number;
   seatStatus: string;

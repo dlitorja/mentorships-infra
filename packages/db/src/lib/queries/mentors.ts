@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentors } from "../../schema";
+import { mentors, users } from "../../schema";
 import type { MentorWorkingHours } from "../../schema/mentors";
 import { encrypt, decrypt } from "../encryption";
 
@@ -25,6 +25,46 @@ export async function getMentorById(mentorId: string) {
     .select()
     .from(mentors)
     .where(eq(mentors.id, mentorId))
+    .limit(1);
+
+  return mentor || null;
+}
+
+/**
+ * Get or create mentor record by Clerk user ID
+ * Used when manually associating instructors without going through normal signup flow
+ */
+export async function getOrCreateMentorByUserId(userId: string) {
+  const existingMentor = await getMentorByUserId(userId);
+  if (existingMentor) {
+    return existingMentor;
+  }
+
+  const [newMentor] = await db
+    .insert(mentors)
+    .values({
+      userId,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    })
+    .returning();
+
+  return newMentor;
+}
+
+/**
+ * Get mentor with user info by Clerk user ID
+ */
+export async function getMentorWithUserByUserId(userId: string) {
+  const [mentor] = await db
+    .select({
+      mentor: mentors,
+      user: users,
+    })
+    .from(mentors)
+    .innerJoin(users, eq(mentors.userId, users.id))
+    .where(eq(mentors.userId, userId))
     .limit(1);
 
   return mentor || null;

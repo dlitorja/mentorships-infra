@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronRight, Download, Search, Users, ChevronLeft, ChevronRight as ChevronRightIcon } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Search, Users, ChevronLeft, ChevronRight as ChevronRightIcon, Plus, Minus, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +27,7 @@ type MenteeWithSessionInfo = {
   totalSessions: number;
   remainingSessions: number;
   status: string;
-  expiresAt: string;
+  expiresAt: string | null;
   lastSessionCompletedAt: string | null;
   completedSessionCount: number;
   seatStatus: "active" | "grace" | "released";
@@ -87,6 +87,61 @@ function getSeatStatusBadgeVariant(status: string): "default" | "secondary" | "d
   }
 }
 
+function MenteeSessionControls({ sessionPackId, currentRemaining }: { sessionPackId: string; currentRemaining: number }) {
+  const [remaining, setRemaining] = useState(currentRemaining);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleUpdate = async (action: "increment" | "decrement") => {
+    if (action === "decrement" && remaining <= 0) return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/admin/session-counts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionPackId, action }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setRemaining(data.remainingSessions);
+      } else {
+        const error = await response.json();
+        alert(error.error || "Failed to update sessions");
+      }
+    } catch (err) {
+      console.error("Error updating sessions:", err);
+      alert("Failed to update sessions");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => handleUpdate("decrement")}
+        disabled={isLoading || remaining <= 0}
+        className="h-7 px-2"
+      >
+        {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Minus className="h-3 w-3" />}
+      </Button>
+      <span className="w-6 text-center text-sm font-medium">{remaining}</span>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => handleUpdate("increment")}
+        disabled={isLoading}
+        className="h-7 px-2"
+      >
+        {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+      </Button>
+    </div>
+  );
+}
+
 function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
   if (mentees.length === 0) {
     return (
@@ -107,6 +162,7 @@ function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
             <th className="text-left p-3 font-medium">Status</th>
             <th className="text-left p-3 font-medium">Last Session</th>
             <th className="text-left p-3 font-medium">Seat Status</th>
+            <th className="text-left p-3 font-medium">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -143,6 +199,12 @@ function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
                     </span>
                   )}
                 </div>
+              </td>
+              <td className="p-3">
+                <MenteeSessionControls
+                  sessionPackId={mentee.sessionPackId}
+                  currentRemaining={mentee.remainingSessions}
+                />
               </td>
             </tr>
           ))}
@@ -231,10 +293,15 @@ function InstructorRow({
         <td className="p-4">
           {formatDate(instructor.createdAt)}
         </td>
+        <td className="p-4">
+          <Button variant="ghost" size="sm">
+            Manage
+          </Button>
+        </td>
       </tr>
       {isExpanded && (
         <tr className="bg-muted/30">
-          <td colSpan={6} className="p-0">
+          <td colSpan={7} className="p-0">
             <div className="p-4">
               <h4 className="font-medium mb-3">Mentees ({displayMentees.length})</h4>
               {loading ? (
@@ -399,12 +466,13 @@ export function InstructorsTable({
               <th className="text-left p-4 font-medium">Sessions Completed</th>
               <th className="text-left p-4 font-medium">Inventory</th>
               <th className="text-left p-4 font-medium">Joined</th>
+              <th className="text-left p-4 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && instructors.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center">
+                <td colSpan={7} className="p-8 text-center">
                   <div className="flex items-center justify-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                   </div>

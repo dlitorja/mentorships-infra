@@ -29,7 +29,7 @@ export const sessionPacks = pgTable(
     totalSessions: integer("total_sessions").notNull().default(4),
     remainingSessions: integer("remaining_sessions").notNull().default(4),
     purchasedAt: timestamp("purchased_at").notNull().defaultNow(),
-    expiresAt: timestamp("expires_at").notNull(),
+    expiresAt: timestamp("expires_at"),
     status: sessionPackStatusEnum("status").notNull().default("active"),
     paymentId: uuid("payment_id")
       .notNull()

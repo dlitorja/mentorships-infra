@@ -52,7 +52,8 @@ export async function validateBookingEligibility(
   const now = new Date();
 
   // Check if pack is expired (before status check to prevent race conditions)
-  if (pack.expiresAt < now) {
+  // If expiresAt is null, the pack never expires
+  if (pack.expiresAt && pack.expiresAt < now) {
     return {
       valid: false,
       error: "Session pack has expired. Bookings are no longer allowed.",
@@ -61,7 +62,8 @@ export async function validateBookingEligibility(
   }
 
   // Check if the desired scheduled time exceeds the pack expiration
-  if (scheduledAt && new Date(scheduledAt) > new Date(pack.expiresAt)) {
+  // If expiresAt is null, the pack never expires, so no need to check
+  if (scheduledAt && pack.expiresAt && new Date(scheduledAt) > new Date(pack.expiresAt)) {
     return {
       valid: false,
       error: "Session cannot be scheduled after the pack expires.",
