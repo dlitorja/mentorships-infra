@@ -1,7 +1,9 @@
-import { eq, desc, sql, and, gte, ilike, or, isNull } from "drizzle-orm";
+import { eq, desc, sql, and, gte, ilike, or, isNull, alias } from "drizzle-orm";
 import { db } from "../drizzle";
 import { mentors, users, sessionPacks, sessions, seatReservations } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
+
+const instructorUsers = alias(users, "instructor_users");
 
 export type InstructorWithStats = {
   mentorId: string;
@@ -294,7 +296,7 @@ export type FullAdminReportRow = {
 export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
   const results = await db
     .select({
-      instructorEmail: users.email,
+      instructorEmail: instructorUsers.email,
       menteeEmail: users.email,
       totalSessions: sessionPacks.totalSessions,
       remainingSessions: sessionPacks.remainingSessions,
@@ -313,8 +315,7 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
     .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
-    .innerJoin(users, eq(mentors.userId, users.id))
-    .leftJoin(sessions, eq(sessions.sessionPackId, sessionPacks.id))
+    .innerJoin(instructorUsers, eq(mentors.userId, instructorUsers.id))
     .orderBy(desc(sessionPacks.createdAt));
 
   return results.map((r) => ({
