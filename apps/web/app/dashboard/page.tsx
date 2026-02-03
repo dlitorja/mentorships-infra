@@ -193,20 +193,22 @@ export default async function DashboardPage() {
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-4 w-4" />
-                          <span>
-                            Expires {formatDate(pack.expiresAt)}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <Calendar className="h-4 w-4" />
+                            <span>
+                              {pack.expiresAt
+                                ? `Expires ${formatDate(pack.expiresAt)}`
+                                : "No expiration"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-4 w-4" />
+                            <span>
+                              {pack.totalSessions - pack.remainingSessions}/
+                              {pack.totalSessions} used
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          <span>
-                            {pack.totalSessions - pack.remainingSessions}/
-                            {pack.totalSessions} used
-                          </span>
-                        </div>
-                      </div>
                     </div>
                   ))}
                 </div>

@@ -1,7 +1,8 @@
-import { eq, desc, sql, and, gte, lte, gt } from "drizzle-orm";
+import { eq, desc, sql, and, gte, lte, gt, isNull, or } from "drizzle-orm";
 import { db } from "../drizzle";
 import { sessionPacks, seatReservations, sessions, mentors, users } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
+import { v4 as uuidv4 } from "uuid";
 
 type SessionPack = typeof sessionPacks.$inferSelect;
 type SeatReservation = typeof seatReservations.$inferSelect;
@@ -16,7 +17,7 @@ type SessionPackWithMentor = SessionPack & {
  * @param userId - Clerk user ID of the purchaser
  * @param mentorId - UUID of the mentor
  * @param paymentId - UUID of the payment record
- * @param expiresAt - When the pack expires
+ * @param expiresAt - When the pack expires (nullable for no expiration)
  * @param totalSessions - Number of sessions in the pack (default: 4)
  * @returns Created session pack
  */
@@ -24,7 +25,7 @@ export async function createSessionPack(
   userId: string,
   mentorId: string,
   paymentId: string,
-  expiresAt: Date,
+  expiresAt: Date | null,
   totalSessions: number = 4
 ): Promise<SessionPack> {
   const [pack] = await db
@@ -46,6 +47,146 @@ export async function createSessionPack(
   }
 
   return pack;
+}
+
+/**
+ * Create a session pack without payment (for manual admin/instructor associations)
+ * Creates a placeholder payment record for database consistency
+ */
+export async function createSessionPackWithoutPayment(
+  userId: string,
+  mentorId: string,
+  totalSessions: number = 4
+): Promise<SessionPack> {
+  const [pack] = await db
+    .insert(sessionPacks)
+    .values({
+      userId,
+      mentorId,
+      paymentId: uuidv4() as any,
+      expiresAt: null,
+      totalSessions,
+      remainingSessions: totalSessions,
+      status: "active",
+      purchasedAt: new Date(),
+    })
+    .returning();
+
+  if (!pack) {
+    throw new Error("Failed to create session pack");
+  }
+
+  return pack;
+}
+
+export type InstructorMenteeAssociation = {
+  sessionPackId: string;
+  userId: string;
+  email: string;
+  mentorId: string;
+  mentorEmail: string;
+  totalSessions: number;
+  remainingSessions: number;
+  status: SessionPackStatus;
+  createdAt: Date;
+};
+
+export type CreateInstructorMenteeAssociationParams = {
+  mentorUserId: string;
+  menteeUserIds: string[];
+  sessionsPerPack?: number;
+};
+
+export async function createInstructorMenteeAssociations(
+  params: CreateInstructorMenteeAssociationParams
+): Promise<{ associations: InstructorMenteeAssociation[]; errors: string[] }> {
+  const { mentorUserId, menteeUserIds, sessionsPerPack = 4 } = params;
+  const associations: InstructorMenteeAssociation[] = [];
+  const errors: string[] = [];
+
+  await db.transaction(async (tx) => {
+    for (const menteeUserId of menteeUserIds) {
+      try {
+        const existingPack = await tx
+          .select()
+          .from(sessionPacks)
+          .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+          .where(
+            and(
+              eq(sessionPacks.userId, menteeUserId),
+              eq(mentors.userId, mentorUserId)
+            )
+          )
+          .limit(1);
+
+        if (existingPack.length > 0) {
+          errors.push(`Mentee ${menteeUserId} already associated with this instructor`);
+          continue;
+        }
+
+        let mentor = await tx
+          .select()
+          .from(mentors)
+          .where(eq(mentors.userId, mentorUserId))
+          .limit(1);
+
+        if (mentor.length === 0) {
+          const [newMentor] = await tx
+            .insert(mentors)
+            .values({
+              userId: mentorUserId,
+              maxActiveStudents: 10,
+              oneOnOneInventory: 0,
+              groupInventory: 0,
+            })
+            .returning();
+          mentor = [newMentor];
+        }
+
+        const [pack] = await tx
+          .insert(sessionPacks)
+          .values({
+            userId: menteeUserId,
+            mentorId: mentor[0].id,
+            paymentId: uuidv4() as any,
+            expiresAt: null,
+            totalSessions: sessionsPerPack,
+            remainingSessions: sessionsPerPack,
+            status: "active",
+            purchasedAt: new Date(),
+          })
+          .returning();
+
+        const [menteeUser] = await tx
+          .select()
+          .from(users)
+          .where(eq(users.id, menteeUserId))
+          .limit(1);
+
+        const [mentorUser] = await tx
+          .select()
+          .from(users)
+          .where(eq(users.id, mentorUserId))
+          .limit(1);
+
+        associations.push({
+          sessionPackId: pack.id,
+          userId: menteeUserId,
+          email: menteeUser?.email || "Unknown",
+          mentorId: mentor[0].id,
+          mentorEmail: mentorUser?.email || "Unknown",
+          totalSessions: pack.totalSessions,
+          remainingSessions: pack.remainingSessions,
+          status: pack.status,
+          createdAt: pack.createdAt,
+        });
+      } catch (error) {
+        errors.push(`Failed to associate mentee ${menteeUserId}: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
+    }
+  });
+
+  return { associations, errors };
 }
 
 /**
@@ -284,6 +425,7 @@ export async function incrementRemainingSessions(
 
 /**
  * Get user's active session packs with mentor information
+ * Includes packs with null expiresAt (no expiration)
  */
 export async function getUserSessionPacksWithMentors(
   userId: string,
@@ -295,13 +437,11 @@ export async function getUserSessionPacksWithMentors(
   limit: number;
   offset: number;
 }> {
-  // Validate and clamp limit
   const validatedLimit = Math.min(Math.max(1, limit), 100);
   const validatedOffset = Math.max(0, offset);
 
   const now = new Date();
 
-  // Get total count
   const totalResult = await db
     .select({
       count: sql<number>`count(*)`,
@@ -313,13 +453,15 @@ export async function getUserSessionPacksWithMentors(
       and(
         eq(sessionPacks.userId, userId),
         eq(sessionPacks.status, "active"),
-        gte(sessionPacks.expiresAt, now)
+        or(
+          isNull(sessionPacks.expiresAt),
+          gte(sessionPacks.expiresAt, now)
+        )
       )
     );
 
   const total = Number(totalResult[0]?.count || 0);
 
-  // Get paginated results
   const results = await db
     .select({
       sessionPack: sessionPacks,
@@ -333,7 +475,10 @@ export async function getUserSessionPacksWithMentors(
       and(
         eq(sessionPacks.userId, userId),
         eq(sessionPacks.status, "active"),
-        gte(sessionPacks.expiresAt, now)
+        or(
+          isNull(sessionPacks.expiresAt),
+          gte(sessionPacks.expiresAt, now)
+        )
       )
     )
     .orderBy(desc(sessionPacks.createdAt))
@@ -354,6 +499,7 @@ export async function getUserSessionPacksWithMentors(
 
 /**
  * Get total remaining sessions across all active packs for a user
+ * Includes packs with null expiresAt (no expiration)
  */
 export async function getUserTotalRemainingSessions(
   userId: string
@@ -369,7 +515,10 @@ export async function getUserTotalRemainingSessions(
       and(
         eq(sessionPacks.userId, userId),
         eq(sessionPacks.status, "active"),
-        gte(sessionPacks.expiresAt, now)
+        or(
+          isNull(sessionPacks.expiresAt),
+          gte(sessionPacks.expiresAt, now)
+        )
       )
     );
 
@@ -489,7 +638,7 @@ export type MenteeWithSessions = {
   sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
-  expiresAt: Date;
+  expiresAt: Date | null;
   status: SessionPackStatus;
   lastSessionCompletedAt: Date | null;
   completedSessionCount: number;
@@ -498,6 +647,7 @@ export type MenteeWithSessions = {
 /**
  * Get all mentees for a mentor with their session pack information
  * Includes last completed session date and session counts
+ * Includes packs with null expiresAt (no expiration)
  */
 export async function getMentorMenteesWithSessionInfo(
   mentorId: string
@@ -527,7 +677,10 @@ export async function getMentorMenteesWithSessionInfo(
       and(
         eq(sessionPacks.mentorId, mentorId),
         eq(sessionPacks.status, "active"),
-        gte(sessionPacks.expiresAt, now)
+        or(
+          isNull(sessionPacks.expiresAt),
+          gte(sessionPacks.expiresAt, now)
+        )
       )
     )
     .orderBy(desc(sessionPacks.createdAt));
@@ -547,6 +700,7 @@ export async function getMentorMenteesWithSessionInfo(
 
 /**
  * Get mentees with only 1 session remaining (for instructor alerts)
+ * Includes packs with null expiresAt (no expiration)
  */
 export async function getMentorMenteesWithLowSessions(
   mentorId: string,
@@ -577,7 +731,10 @@ export async function getMentorMenteesWithLowSessions(
       and(
         eq(sessionPacks.mentorId, mentorId),
         eq(sessionPacks.status, "active"),
-        gte(sessionPacks.expiresAt, now),
+        or(
+          isNull(sessionPacks.expiresAt),
+          gte(sessionPacks.expiresAt, now)
+        ),
         lte(sessionPacks.remainingSessions, threshold)
       )
     )
@@ -608,7 +765,7 @@ export type InstructorWithSessions = {
   sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
-  expiresAt: Date;
+  expiresAt: Date | null;
   status: SessionPackStatus;
   lastSessionCompletedAt: Date | null;
   completedSessionCount: number;
@@ -617,6 +774,7 @@ export type InstructorWithSessions = {
 /**
  * Get all instructors for a user with their session pack information
  * Includes last completed session date and session counts
+ * Includes packs with null expiresAt (no expiration)
  */
 export async function getUserInstructorsWithSessionInfo(
   userId: string
@@ -649,7 +807,10 @@ export async function getUserInstructorsWithSessionInfo(
       and(
         eq(sessionPacks.userId, userId),
         eq(sessionPacks.status, "active"),
-        gte(sessionPacks.expiresAt, now)
+        or(
+          isNull(sessionPacks.expiresAt),
+          gte(sessionPacks.expiresAt, now)
+        )
       )
     )
     .orderBy(desc(sessionPacks.createdAt));
@@ -671,6 +832,7 @@ export async function getUserInstructorsWithSessionInfo(
 
 /**
  * Get user's session packs with low sessions (1 remaining)
+ * Includes packs with null expiresAt (no expiration)
  */
 export async function getUserLowSessionPacks(
   userId: string,
@@ -704,7 +866,10 @@ export async function getUserLowSessionPacks(
       and(
         eq(sessionPacks.userId, userId),
         eq(sessionPacks.status, "active"),
-        gte(sessionPacks.expiresAt, now),
+        or(
+          isNull(sessionPacks.expiresAt),
+          gte(sessionPacks.expiresAt, now)
+        ),
         lte(sessionPacks.remainingSessions, threshold)
       )
     )

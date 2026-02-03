@@ -25,7 +25,7 @@ export type MenteeWithSessionInfo = {
   totalSessions: number;
   remainingSessions: number;
   status: SessionPackStatus;
-  expiresAt: Date;
+  expiresAt: Date | null;
   lastSessionCompletedAt: Date | null;
   completedSessionCount: number;
   seatStatus: "active" | "grace" | "released";

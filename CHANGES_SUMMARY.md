@@ -2,7 +2,7 @@
 
 **Date**: January 2025  
 **Purpose**: Address critical security vulnerabilities and performance issues identified in architecture assessment
-**Update**: February 2026 - Admin Dashboard for Instructors & Mentees added
+**Update**: February 2026 - Admin Dashboard for Instructors & Mentees added, **Instructor-Mentee Manual Association System Added**
 
 ## 🚀 **Immediate Action Items for Cursor**
 
@@ -557,6 +557,29 @@ This PR implements four high-priority fixes:
   - `apps/marketing/app/admin/page.tsx` (Added quick link)
   - `apps/marketing/app/api/admin/instructors/csv/route.ts` (Updated CSV headers)
 - **Features**: Search, pagination, expandable rows, CSV export, seat status tracking
+
+### **Instructor-Mentee Manual Association System (February 2026)**
+- **Purpose**: Manual test setup for instructors and mentees without Kajabi payment flow
+- **New Files Created**: 7 files
+  - `apps/marketing/app/api/admin/instructor-mentee-associations/route.ts` (Create associations API)
+  - `apps/marketing/app/api/admin/session-counts/route.ts` (Increment/decrement sessions API)
+  - `apps/web/app/api/session-counts/route.ts` (Session counts API for web app)
+  - `apps/web/app/dashboard/instructor/page.tsx` (Instructor dashboard page)
+  - `apps/web/app/dashboard/instructor/_components/mentee-session-controls.tsx` (Session controls component)
+- **Files Modified**: 12 files
+  - `packages/db/src/schema/sessionPacks.ts` (Made expiresAt nullable)
+  - `packages/db/src/lib/queries/mentors.ts` (Added getOrCreateMentorByUserId)
+  - `packages/db/src/lib/queries/sessionPacks.ts` (Added association functions, updated null expiresAt handling)
+  - `packages/db/src/lib/queries/admin.ts` (Updated MenteeWithSessionInfo type)
+  - `apps/marketing/components/admin/instructors-table.tsx` (Added session count controls)
+  - `apps/web/app/dashboard/page.tsx` (Updated to handle null expiresAt)
+- **Features**:
+  - Admin API endpoint to manually associate mentees with instructors
+  - 4 sessions per pack by default (configurable)
+  - No expiration date (expiresAt nullable)
+  - Instructors can increment/decrement session counts via dashboard
+  - Admins can manage all session counts via admin panel
+  - Instructor dashboard shows all mentees with session counts and last session dates
 
 ### **Next Sprint Effort**
 - **API Migration Remaining**: ~18 endpoints (~2 days)
