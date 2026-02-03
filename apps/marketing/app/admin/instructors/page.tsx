@@ -14,7 +14,9 @@ export default async function AdminInstructorsPage({ searchParams }: PageProps):
 
   const resolvedSearchParams = await searchParams;
   const search = resolvedSearchParams?.search;
-  const page = resolvedSearchParams?.page ? parseInt(resolvedSearchParams.page, 10) : 1;
+  const rawPage = resolvedSearchParams?.page;
+  const parsedPage = rawPage ? parseInt(rawPage, 10) : 1;
+  const page = Number.isNaN(parsedPage) || parsedPage < 1 ? 1 : parsedPage;
 
   const result = await getAllInstructorsWithStats(search, page, 50);
 
