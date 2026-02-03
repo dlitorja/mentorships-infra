@@ -45,7 +45,7 @@ export default async function DashboardPage() {
     const user = await requireDbUser();
     const clerkUser = await getUser();
     const discordConnected = Boolean(
-      clerkUser?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
+      clerkUser?.externalAccounts?.some((a) => a.provider && typeof a.provider === 'string' && a.provider.toLowerCase().includes("discord"))
     );
 
     const [instructorsWithSessions, lowSessionPacks, totalSessions] = await Promise.all([

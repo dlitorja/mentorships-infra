@@ -2,6 +2,8 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { getOrCreateUser, UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 
+export { UnauthorizedError, ForbiddenError, isUnauthorizedError, isForbiddenError };
+
 const DEFAULT_ADMIN_EMAILS = ["admin@huckleberry.art"];
 
 export function getAdminEmails(): string[] {
@@ -76,14 +78,12 @@ export async function requireAuth() {
 }
 
 export async function getDbUser() {
-  const userId = await getUserId();
-  const user = await getOrCreateUser(userId);
+  const user = await getOrCreateUser();
   return user;
 }
 
 export async function requireDbUser() {
-  const userId = await getUserId();
-  const user = await getOrCreateUser(userId);
+  const user = await getOrCreateUser();
   return user;
 }
 
@@ -128,7 +128,7 @@ export async function requireRoleForApi(role: "student" | "mentor" | "admin") {
   const user = await getDbUser();
   
   if (user.role !== role) {
-    throw new ForbiddenError(`Admin access required`);
+    throw new ForbiddenError(`${role} access required`);
   }
   
   return user;

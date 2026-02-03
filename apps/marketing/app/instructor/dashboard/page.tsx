@@ -287,11 +287,7 @@ export default async function InstructorDashboardPage() {
       </div>
     );
   } catch (error) {
-    if (
-      error instanceof Error &&
-      (error.message.includes("Unauthorized") ||
-        error.message.includes("insufficient_permissions"))
-    ) {
+    if (error instanceof Error && error.message.includes("Unauthorized")) {
       redirect("/sign-in");
     }
     console.error("Instructor dashboard error:", error);

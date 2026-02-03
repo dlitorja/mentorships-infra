@@ -742,11 +742,21 @@ export async function addSessionsToPack(
     throw new Error(`Session pack ${packId} not found`);
   }
 
-  for (let i = 0; i < sessionsToAdd; i++) {
-    pack = await incrementRemainingSessions(packId);
-  }
+  const [updated] = await db
+    .update(sessionPacks)
+    .set({
+      remainingSessions: sql`${sessionPacks.remainingSessions} + ${sessionsToAdd}`,
+      status: sql`CASE 
+        WHEN ${sessionPacks.status} = 'depleted' AND (${sessionPacks.remainingSessions} + ${sessionsToAdd}) > 0 
+        THEN 'active' 
+        ELSE ${sessionPacks.status} 
+      END`,
+      updatedAt: new Date(),
+    })
+    .where(eq(sessionPacks.id, packId))
+    .returning();
 
-  return pack;
+  return updated;
 }
 
 /**
@@ -772,9 +782,23 @@ export async function removeSessionsFromPack(
     );
   }
 
-  for (let i = 0; i < sessionsToRemove; i++) {
-    await decrementRemainingSessions(packId);
+  const [updated] = await db
+    .update(sessionPacks)
+    .set({
+      remainingSessions: sql`GREATEST(${sessionPacks.remainingSessions} - ${sessionsToRemove}, 0)`,
+      status: sql`CASE 
+        WHEN (${sessionPacks.remainingSessions} - ${sessionsToRemove}) <= 0 
+        THEN 'depleted' 
+        ELSE ${sessionPacks.status} 
+      END`,
+      updatedAt: new Date(),
+    })
+    .where(eq(sessionPacks.id, packId))
+    .returning();
+
+  if (!updated) {
+    throw new Error(`Session pack ${packId} not found`);
   }
 
-  return getSessionPackById(packId) as Promise<SessionPack>;
+  return updated;
 }

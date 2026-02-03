@@ -23,7 +23,7 @@ const WaitlistItemSchema = z.object({
 
 const DeleteResponseSchema = z.object({
   data: z.array(WaitlistItemSchema),
-});
+}).passthrough();
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!supabaseUrl || !supabaseServiceKey) {
