@@ -564,6 +564,37 @@ background: ["Gaming", "Indie"],
       },
     ],
   },
+  {
+    id: "jeszika-le-vye",
+    name: "Jeszika Le Vye",
+    slug: "jeszika-le-vye",
+    isNew: true,
+    tagline: "Imaginative Realist Painter and Independent Artist",
+    bio: "Jeszika Le Vye is an imaginative realist painter, working as a professional independent artist. She has extensive experience building a creative career - from developing personal projects and individual artistic branding, to translating art into successful product lines. Her art business includes exhibiting at conventions across the country, online sales, and crowdfunding - with 9 successful campaigns to date. She has practical knowledge on growing creative business and building meaningful connections with audiences, collectors, and clients.\n\nAlongside her independent work, Jeszika is a freelance illustrator who has collaborated with publishers including DAW Books and Grim Oak Press. She was a founding member of Boneshaker Press, co-managing and crowdfunding three volumes of Encounters with the Imaginary, an anthology featuring over sixty artists. Her work has been juried into publications and exhibitions such as Light Grey Art Lab Gallery, Infected by Art, and ImagineFX, and was a guest artist at the Fantasy Art Workshop Illustration Intensive.\n\nWorking primarily as a digital painter while also drawing on decades of experience in oil painting, Jeszika offers technical mentorship across both mediums, with a strong emphasis on visual storytelling and developing a personal voice. She looks forward to connecting with you and helping you connect to what drives your creativity and vision - and helping you find ways to connect your work to the greater ecosystem of personal projects, engaged fans and professional opportunities.",
+    specialties: [
+      "Digital Painting",
+      "Oil Painting",
+      "Illustration",
+      "Visual Storytelling",
+      "Creative Business",
+      "Convention Circuit",
+      "Crowdfunding",
+    ],
+    background: ["Indie"],
+    profileImage: "/instructors/jeszika-le-vye/profile.jpg",
+    workImages: [
+      "/instructors/jeszika-le-vye/work-1.jpg",
+      "/instructors/jeszika-le-vye/work-2.jpg",
+      "/instructors/jeszika-le-vye/work-3.jpg",
+    ],
+    offers: [
+      {
+        kind: "oneOnOne",
+        label: "Buy 1-on-1 mentorship",
+        url: "https://home.huckleberry.art/offers/2jdobcAD",
+      },
+    ],
+  },
   ...testInstructors,
 ];
 

@@ -487,3 +487,12 @@ ls apps/web/app/api
     - `/apps/web/app/instructor/dashboard/page.tsx`
   - Added `/apps/web/app/global-error.tsx` to handle uncaught server component errors in production
   - All deprecated Clerk warning messages should now be resolved
+
+- ✅ **New Instructor Added: Jeszika Le Vye** (February 18, 2026)
+  - Added new instructor "Jeszika Le Vye" to the marketing site instructor roster
+  - Profile images organized in `/apps/marketing/public/instructors/jeszika-le-vye/`
+  - Renamed images following naming convention: `profile.jpg`, `work-1.jpg`, `work-2.jpg`, `work-3.jpg`
+  - Updated `apps/marketing/lib/instructors.ts` with full biography and profile information
+  - Set `isNew: true` flag for new instructor indicator
+  - Configured 1-on-1 mentorship purchase link: `https://home.huckleberry.art/offers/2jdobcAD`
+  - Specialties: Digital Painting, Oil Painting, Illustration, Visual Storytelling, Creative Business, Convention Circuit, Crowdfunding
