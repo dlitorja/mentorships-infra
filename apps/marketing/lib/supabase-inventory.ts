@@ -16,7 +16,7 @@ export async function getInstructorInventory(slug: string) {
     .from("instructor_inventory")
     .select("one_on_one_inventory, group_inventory")
     .eq("instructor_slug", slug)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error("Error fetching inventory:", error);
@@ -31,44 +31,11 @@ export async function updateInventory(
   updates: { one_on_one_inventory?: number; group_inventory?: number },
   updatedBy?: string
 ) {
-  let current = await getInstructorInventory(slug);
+  // Get current inventory (may be null if record doesn't exist yet)
+  const current = await getInstructorInventory(slug);
 
-  if (!current) {
-    const { data: insertData, error: insertError } = await supabase
-      .from("instructor_inventory")
-      .insert({
-        instructor_slug: slug,
-        one_on_one_inventory: 0,
-        group_inventory: 0,
-        updated_at: new Date().toISOString(),
-        updated_by: updatedBy,
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      if (insertError.code === "23505") {
-        const { data: refetchedData, error: refetchError } = await supabase
-          .from("instructor_inventory")
-          .select()
-          .eq("instructor_slug", slug)
-          .single();
-        
-        if (refetchError) {
-          console.error("Error refetching inventory record after duplicate:", refetchError);
-          return null;
-        }
-        
-        current = refetchedData;
-      } else {
-        console.error("Error creating inventory record:", insertError);
-        return null;
-      }
-    } else {
-      current = insertData;
-    }
-  }
-
+  // Call the API to update/create the inventory record
+  // The API uses service role key which can bypass RLS policies
   const response = await fetch("/api/admin/inventory", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -87,11 +54,11 @@ export async function updateInventory(
   }
 
   const shouldNotifyOneOnOne =
-    current?.one_on_one_inventory === 0 &&
+    (current?.one_on_one_inventory ?? 0) === 0 &&
     updates.one_on_one_inventory !== undefined &&
     updates.one_on_one_inventory > 0;
   const shouldNotifyGroup =
-    current?.group_inventory === 0 &&
+    (current?.group_inventory ?? 0) === 0 &&
     updates.group_inventory !== undefined &&
     updates.group_inventory > 0;
 
@@ -125,22 +92,22 @@ export async function updateInventory(
     }
   }
 
-  if (current && updates.one_on_one_inventory !== undefined && current.one_on_one_inventory !== updates.one_on_one_inventory) {
+  if (updates.one_on_one_inventory !== undefined && (current?.one_on_one_inventory ?? 0) !== updates.one_on_one_inventory) {
     await logInventoryChange({
       instructorSlug: slug,
       mentorshipType: "one-on-one",
       changeType: "manual_update",
-      oldValue: current.one_on_one_inventory,
+      oldValue: current?.one_on_one_inventory ?? 0,
       newValue: updates.one_on_one_inventory,
       changedBy: updatedBy,
     });
   }
-  if (current && updates.group_inventory !== undefined && current.group_inventory !== updates.group_inventory) {
+  if (updates.group_inventory !== undefined && (current?.group_inventory ?? 0) !== updates.group_inventory) {
     await logInventoryChange({
       instructorSlug: slug,
       mentorshipType: "group",
       changeType: "manual_update",
-      oldValue: current.group_inventory,
+      oldValue: current?.group_inventory ?? 0,
       newValue: updates.group_inventory,
       changedBy: updatedBy,
     });
