@@ -36,8 +36,22 @@ If you have existing unencrypted refresh tokens in the database:
 
 - **Algorithm**: AES-256-GCM (authenticated encryption)
 - **Key derivation**: scrypt (key stretching for security)
+- **Salt**: Random 32-byte salt per encryption (unique per ciphertext)
 - **IV (Initialization Vector)**: Unique per encryption (16 bytes)
-- **Storage format**: Base64-encoded (IV + encrypted data + auth tag)
+- **Storage format**: Base64-encoded (salt + IV + encrypted data + auth tag)
+
+## Format Versioning (February 2026)
+
+The encryption format was updated to use random salts:
+
+| Version | Format | Detection |
+|---------|--------|-----------|
+| **v1 (Legacy)** | IV + ciphertext + authTag | Length < 65 bytes |
+| **v2 (Current)** | salt + IV + ciphertext + authTag | Length >= 65 bytes |
+
+**Backward Compatibility**: The `decrypt()` function automatically detects format version and handles both v1 and v2 encrypted data. This allows gradual migration without re-encrypting existing data.
+
+**Key Rotation Support**: Random salts enable future key rotation - each ciphertext has its own salt, so keys can be rotated on a per-record basis if needed.
 
 ## Code Usage
 
