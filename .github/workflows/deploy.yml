@@ -28,11 +28,11 @@ jobs:
       
       - name: Build Marketing App
         run: pnpm --filter @mentorships/marketing build
-      
-        - name: Deploy to Vercel
-          uses: amondnet/vercel-action@v25
-          with:
-            vercel-token: ${{ secrets.VERCEL_TOKEN }}
-            vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-args: "--prod"
