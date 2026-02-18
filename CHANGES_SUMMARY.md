@@ -581,6 +581,22 @@ This PR implements four high-priority fixes:
   - Admins can manage all session counts via admin panel
   - Instructor dashboard shows all mentees with session counts and last session dates
 
+### **New Instructor: Jeszika Le Vye (February 18, 2026)**
+- **Purpose**: Add new instructor to the marketing site roster
+- **New Files Created**: 4 image files
+  - `apps/marketing/public/instructors/jeszika-le-vye/profile.jpg` (Profile image)
+  - `apps/marketing/public/instructors/jeszika-le-vye/work-1.jpg` (Portfolio work 1)
+  - `apps/marketing/public/instructors/jeszika-le-vye/work-2.jpg` (Portfolio work 2)
+  - `apps/marketing/public/instructors/jeszika-le-vye/work-3.jpg` (Portfolio work 3)
+- **Files Modified**: 1 file
+  - `apps/marketing/lib/instructors.ts` (Added Jeszika Le Vye instructor entry)
+- **Features**:
+  - Full biography with professional background
+  - Specialties: Digital Painting, Oil Painting, Illustration, Visual Storytelling, Creative Business, Convention Circuit, Crowdfunding
+  - `isNew: true` flag for new instructor indicator
+  - 1-on-1 mentorship purchase link: `https://home.huckleberry.art/offers/2jdobcAD`
+  - Background: Indie artist with 9 successful crowdfunding campaigns
+
 ### **Next Sprint Effort**
 - **API Migration Remaining**: ~18 endpoints (~2 days)
 - **Documentation**: OpenAPI/Swagger generation (~2-3 days)
