@@ -54,11 +54,11 @@ export async function updateInventory(
   }
 
   const shouldNotifyOneOnOne =
-    current?.one_on_one_inventory === 0 &&
+    (current?.one_on_one_inventory ?? 0) === 0 &&
     updates.one_on_one_inventory !== undefined &&
     updates.one_on_one_inventory > 0;
   const shouldNotifyGroup =
-    current?.group_inventory === 0 &&
+    (current?.group_inventory ?? 0) === 0 &&
     updates.group_inventory !== undefined &&
     updates.group_inventory > 0;
 
@@ -92,22 +92,22 @@ export async function updateInventory(
     }
   }
 
-  if (current && updates.one_on_one_inventory !== undefined && current.one_on_one_inventory !== updates.one_on_one_inventory) {
+  if (updates.one_on_one_inventory !== undefined && (current?.one_on_one_inventory ?? 0) !== updates.one_on_one_inventory) {
     await logInventoryChange({
       instructorSlug: slug,
       mentorshipType: "one-on-one",
       changeType: "manual_update",
-      oldValue: current.one_on_one_inventory,
+      oldValue: current?.one_on_one_inventory ?? 0,
       newValue: updates.one_on_one_inventory,
       changedBy: updatedBy,
     });
   }
-  if (current && updates.group_inventory !== undefined && current.group_inventory !== updates.group_inventory) {
+  if (updates.group_inventory !== undefined && (current?.group_inventory ?? 0) !== updates.group_inventory) {
     await logInventoryChange({
       instructorSlug: slug,
       mentorshipType: "group",
       changeType: "manual_update",
-      oldValue: current.group_inventory,
+      oldValue: current?.group_inventory ?? 0,
       newValue: updates.group_inventory,
       changedBy: updatedBy,
     });
