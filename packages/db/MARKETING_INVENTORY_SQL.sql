@@ -164,7 +164,8 @@ INSERT INTO instructor_inventory (instructor_slug, one_on_one_inventory, group_i
   ('ash-kirk', 0, 0),
   ('andrea-sipl', 0, 0),
   ('kimea-zizzari', 0, 0),
-  ('keven-mallqui', 0, 0)
+  ('keven-mallqui', 0, 0),
+  ('jeszika-le-vye', 0, 0)
 ON CONFLICT (instructor_slug) DO NOTHING;
 
 -- Insert sample offer mappings (update with real Kajabi offer IDs)
