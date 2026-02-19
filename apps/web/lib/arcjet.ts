@@ -418,7 +418,6 @@ export async function protectWithArcjet(
       }
     } catch (error) {
       // Arcjet is designed to fail open; keep this explicit so SDK/runtime issues don't 500 requests.
-      console.error("Arcjet protect error:", error);
       void reportError({
         source: "arcjet.middleware",
         error,

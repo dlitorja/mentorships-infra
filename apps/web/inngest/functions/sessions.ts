@@ -15,6 +15,7 @@ import {
   lte,
   sql,
 } from "@mentorships/db";
+import { reportError, reportInfo } from "@/lib/observability";
 
 /**
  * Handle session completion
@@ -238,8 +239,11 @@ export const handleRenewalReminder = inngest.createFunction(
       // Session 3: Reminder that 1 session remains
       await step.run("send-session-3-notification", async () => {
         // TODO: Integrate with Discord bot and email service
-        // For now, we'll just log the event
-        console.log(`Session 3 reminder for pack ${sessionPackId}, user ${userId}`);
+        await reportInfo({
+          source: "inngest/sessions",
+          message: `Session 3 reminder triggered`,
+          context: { sessionPackId, userId, sessionNumber: 3 },
+        });
         
         // Trigger Discord notification event
         await inngest.send({
@@ -256,9 +260,11 @@ export const handleRenewalReminder = inngest.createFunction(
     } else if (sessionNumber === 4) {
       // Session 4: Final reminder with grace period info
       await step.run("send-session-4-notification", async () => {
-        console.log(
-          `Session 4 reminder for pack ${sessionPackId}, user ${userId}, grace period ends: ${gracePeriodEndsAt}`
-        );
+        await reportInfo({
+          source: "inngest/sessions",
+          message: `Session 4 reminder triggered`,
+          context: { sessionPackId, userId, sessionNumber: 4, gracePeriodEndsAt },
+        });
 
         // Trigger Discord notification event
         await inngest.send({

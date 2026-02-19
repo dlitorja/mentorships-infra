@@ -2,6 +2,109 @@ import { clerkMiddleware, createRouteMatcher, type ClerkMiddlewareAuth } from "@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { protectWithArcjet, type ArcjetPolicy } from "@/lib/arcjet";
+import { reportError } from "@/lib/observability";
+
+/**
+ * Allowed origins for CSRF protection
+ * Validates Origin header on state-changing requests
+ */
+function getAllowedOrigins(): string[] {
+  const origins: string[] = [];
+  
+  // Primary app URL
+  if (process.env.NEXT_PUBLIC_URL) {
+    origins.push(process.env.NEXT_PUBLIC_URL);
+  }
+  
+  // Vercel deployment URLs
+  if (process.env.VERCEL_URL) {
+    origins.push(`https://${process.env.VERCEL_URL}`);
+  }
+  
+  // Additional allowed origins from environment
+  if (process.env.ALLOWED_ORIGINS) {
+    origins.push(...process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()));
+  }
+  
+  // Local development
+  if (process.env.NODE_ENV !== "production") {
+    origins.push("http://localhost:3000", "http://127.0.0.1:3000");
+  }
+  
+  return origins;
+}
+
+/**
+ * Check if request requires CSRF validation
+ * Only applies to state-changing methods on authenticated API routes
+ */
+function requiresCSRFValidation(req: NextRequest, isPublicRoute: boolean): boolean {
+  // Skip CSRF for public routes (webhooks, health checks, etc.)
+  if (isPublicRoute) return false;
+  
+  // Only validate state-changing methods
+  const stateChangingMethods = ["POST", "PUT", "PATCH", "DELETE"];
+  if (!stateChangingMethods.includes(req.method)) return false;
+  
+  // Only validate API routes
+  if (!req.nextUrl.pathname.startsWith("/api/")) return false;
+  
+  return true;
+}
+
+/**
+ * Validate Origin header for CSRF protection
+ * Returns null if valid, NextResponse if invalid
+ */
+async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null> {
+  const origin = req.headers.get("origin");
+  const allowedOrigins = getAllowedOrigins();
+  
+  // If no origin header, check for alternative indicators
+  if (!origin) {
+    // Allow requests without Origin header if they have a Referer from same site
+    const referer = req.headers.get("referer");
+    if (referer) {
+      try {
+        const refererOrigin = new URL(referer).origin;
+        if (allowedOrigins.includes(refererOrigin)) {
+          return null;
+        }
+      } catch {
+        // Malformed Referer — treat as missing, fall through to rejection
+      }
+    }
+
+    // Requests with Bearer token are CSRF-safe (token-based auth is inherently non-forgeable)
+    const authHeader = req.headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      return null;
+    }
+
+    // Reject state-changing requests without origin or referer
+    return NextResponse.json(
+      { error: "CSRF validation failed: Origin header required" },
+      { status: 403 }
+    );
+  }
+  
+  // Check if origin is in allowed list
+  if (!allowedOrigins.includes(origin)) {
+    await reportError({
+      source: "proxy.csrf",
+      error: new Error("Blocked request from unauthorized origin"),
+      message: "CSRF validation failed: Unauthorized origin",
+      level: "warn",
+      context: { origin, pathname: req.nextUrl.pathname, method: req.method },
+    });
+    return NextResponse.json(
+      { error: "CSRF validation failed: Unauthorized origin" },
+      { status: 403 }
+    );
+  }
+  
+  return null;
+}
 
 /**
  * Define protected routes that require authentication
@@ -125,6 +228,14 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
     return NextResponse.next();
   }
 
+  // CSRF Protection: Validate Origin header for state-changing API requests
+  if (requiresCSRFValidation(req, false)) {
+    const csrfError = await validateCSRFOrigin(req);
+    if (csrfError) {
+      return csrfError;
+    }
+  }
+
   // Allow public pages
   if (isPublicPage(req)) {
     return NextResponse.next();
@@ -211,6 +322,14 @@ export default hasClerkKey
         });
         if (arcjetResponse) {
           return arcjetResponse;
+        }
+      }
+
+      // CSRF Protection (mirrors the Clerk-enabled path)
+      if (requiresCSRFValidation(req, isPublicApiRoute(req))) {
+        const csrfError = await validateCSRFOrigin(req);
+        if (csrfError) {
+          return csrfError;
         }
       }
 

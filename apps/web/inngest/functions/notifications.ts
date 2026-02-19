@@ -1,6 +1,6 @@
 import { inngest } from "../client";
 import { notificationSendEventSchema } from "../types";
-import { reportError } from "../../lib/observability";
+import { reportError, reportInfo } from "../../lib/observability";
 import { getUserById } from "@mentorships/db";
 import { sendEmail } from "@/lib/email";
 import { buildNotificationEmail } from "@/lib/notifications/notification-email";
@@ -28,10 +28,8 @@ export const handleNotificationSend = inngest.createFunction(
       parsed.data;
 
     await step.run("report-notification", async () => {
-      await reportError({
+      await reportInfo({
         source: "inngest:notification/send",
-        error: null,
-        level: "info",
         message: `notification/send: ${type}`,
         context: {
           type,
@@ -52,9 +50,8 @@ export const handleNotificationSend = inngest.createFunction(
 
     if (!emailAddress) {
       await step.run("report-missing-email", async () => {
-        await reportError({
+        await reportInfo({
           source: "inngest:notification/send",
-          error: null,
           level: "warn",
           message: "Notification email skipped: user has no email in DB",
           context: { type, userId, sessionPackId },
@@ -86,23 +83,43 @@ export const handleNotificationSend = inngest.createFunction(
     await step.run("report-email-result", async () => {
       const wasSkipped = !sendResult.ok && "skipped" in sendResult && sendResult.skipped === true;
 
-      await reportError({
-        source: "inngest:notification/send",
-        error: sendResult.ok ? null : sendResult,
-        level: sendResult.ok ? "info" : wasSkipped ? "warn" : "error",
-        message: sendResult.ok
-          ? "Notification email sent"
-          : wasSkipped
-            ? "Notification email skipped (email not configured)"
-            : "Notification email failed",
-        context: {
-          type,
-          userId,
-          sessionPackId,
-          resendId: sendResult.ok ? sendResult.id : null,
-          skipped: wasSkipped,
-        },
-      });
+      if (sendResult.ok) {
+        await reportInfo({
+          source: "inngest:notification/send",
+          level: "info",
+          message: "Notification email sent",
+          context: {
+            type,
+            userId,
+            sessionPackId,
+            resendId: sendResult.id,
+          },
+        });
+      } else if (wasSkipped) {
+        await reportInfo({
+          source: "inngest:notification/send",
+          level: "warn",
+          message: "Notification email skipped (email not configured)",
+          context: {
+            type,
+            userId,
+            sessionPackId,
+            skipped: true,
+          },
+        });
+      } else {
+        await reportError({
+          source: "inngest:notification/send",
+          error: sendResult,
+          level: "error",
+          message: "Notification email failed",
+          context: {
+            type,
+            userId,
+            sessionPackId,
+          },
+        });
+      }
     });
 
     return {
