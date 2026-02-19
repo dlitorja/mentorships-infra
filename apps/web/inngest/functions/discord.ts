@@ -10,7 +10,7 @@ import {
   setDiscordActionStatus,
   userIdentities,
 } from "@mentorships/db";
-import { reportError } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 import { DiscordApiError, addGuildMemberRoleByName, addGuildMemberRole, sendDm } from "@/lib/discord";
 
 const assignMenteeRolePayloadSchema = z.object({
@@ -139,10 +139,8 @@ export const processDiscordActionQueue = inngest.createFunction(
     }
 
     await step.run("report-discord-queue-run", async () => {
-      await reportError({
+      await reportInfo({
         source: "inngest:discord_action_queue",
-        error: null,
-        level: processed === 0 ? "info" : failed > 0 ? "warn" : "info",
         message: "Processed discord_action_queue",
         context: {
           processed,

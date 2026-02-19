@@ -65,7 +65,7 @@ async function getOfferMapping(
       error: parsed.error,
       message: "Invalid offer mapping data",
       level: "error",
-      context: { offerId, data },
+      context: { offerId, receivedKeys: data ? Object.keys(data) : [] },
     });
     return null;
   }

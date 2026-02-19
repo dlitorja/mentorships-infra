@@ -56,7 +56,7 @@ function requiresCSRFValidation(req: NextRequest, isPublicRoute: boolean): boole
  * Validate Origin header for CSRF protection
  * Returns null if valid, NextResponse if invalid
  */
-function validateCSRFOrigin(req: NextRequest): NextResponse | null {
+async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null> {
   const origin = req.headers.get("origin");
   const allowedOrigins = getAllowedOrigins();
   
@@ -65,9 +65,13 @@ function validateCSRFOrigin(req: NextRequest): NextResponse | null {
     // Allow requests without Origin header if they have a Referer from same site
     const referer = req.headers.get("referer");
     if (referer) {
-      const refererOrigin = new URL(referer).origin;
-      if (allowedOrigins.includes(refererOrigin)) {
-        return null;
+      try {
+        const refererOrigin = new URL(referer).origin;
+        if (allowedOrigins.includes(refererOrigin)) {
+          return null;
+        }
+      } catch {
+        // Malformed Referer — treat as missing, fall through to rejection
       }
     }
     
@@ -220,7 +224,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
 
   // CSRF Protection: Validate Origin header for state-changing API requests
   if (requiresCSRFValidation(req, false)) {
-    const csrfError = validateCSRFOrigin(req);
+    const csrfError = await validateCSRFOrigin(req);
     if (csrfError) {
       return csrfError;
     }

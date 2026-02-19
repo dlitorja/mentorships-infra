@@ -6,7 +6,7 @@ import {
   parsePayPalWebhookEvent,
   getPayPalOrder,
 } from "@mentorships/payments";
-import { reportError } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 
 /**
  * Webhook handler that verifies PayPal signatures and sends events to Inngest
@@ -166,11 +166,9 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        await reportError({
+        await reportInfo({
           source: "webhooks/paypal",
-          error: null,
           message: `Sent PAYMENT.CAPTURE.COMPLETED event to Inngest for order ${orderId}`,
-          level: "info",
           context: { orderId, packId, captureId, eventId: parsedEvent.id },
         });
         return NextResponse.json({ received: true, eventId: parsedEvent.id });
@@ -225,22 +223,18 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        await reportError({
+        await reportInfo({
           source: "webhooks/paypal",
-          error: null,
           message: `Sent PAYMENT.CAPTURE.REFUNDED event to Inngest for capture ${captureId}`,
-          level: "info",
           context: { captureId, refundId, eventId: parsedEvent.id },
         });
         return NextResponse.json({ received: true, eventId: parsedEvent.id });
       }
 
       default:
-        await reportError({
+        await reportInfo({
           source: "webhooks/paypal",
-          error: null,
           message: `Unhandled PayPal event type: ${parsedEvent.eventType}`,
-          level: "info",
           context: { eventType: parsedEvent.eventType, eventId: parsedEvent.id },
         });
         return NextResponse.json({ received: true });

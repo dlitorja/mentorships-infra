@@ -10,6 +10,15 @@ type ObservabilityEvent = {
   context?: Record<string, JsonValue>;
 };
 
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const ac = new AbortController();
+  const id = setTimeout(() => ac.abort(new DOMException("Timeout", "TimeoutError")), ms);
+  return ac.signal;
+}
+
 function toJsonValue(value: unknown): JsonValue {
   if (value === null) return null;
   if (typeof value === "string") return value;
@@ -27,6 +36,10 @@ function toJsonValue(value: unknown): JsonValue {
 }
 
 function errorToContext(error: unknown): Record<string, JsonValue> {
+  if (error === null || error === undefined) {
+    return {};
+  }
+  
   if (error instanceof Error) {
     return {
       errorName: error.name,
@@ -53,6 +66,7 @@ async function sendToBetterStack(event: ObservabilityEvent): Promise<void> {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(event),
+    signal: timeoutSignal(3000),
   });
 }
 
@@ -82,7 +96,20 @@ async function sendToAxiom(event: ObservabilityEvent): Promise<void> {
         _time: event.timestamp,
       },
     ]),
+    signal: timeoutSignal(3000),
   });
+}
+
+/**
+ * Safe serialization helper that narrows the type properly
+ */
+function serializeContext(context: unknown): Record<string, JsonValue> {
+  const serialized = toJsonValue(context);
+  if (serialized !== null && typeof serialized === "object" && !Array.isArray(serialized)) {
+    return serialized as Record<string, JsonValue>;
+  }
+  // If context is not a proper object, wrap it
+  return { rawContext: serialized };
 }
 
 /**
@@ -101,7 +128,7 @@ export async function reportError(args: {
 
   const context: Record<string, JsonValue> = {
     ...errorToContext(args.error),
-    ...(args.context ? (toJsonValue(args.context) as Record<string, JsonValue>) : {}),
+    ...(args.context ? serializeContext(args.context) : {}),
   };
 
   const event: ObservabilityEvent = {
@@ -119,3 +146,29 @@ export async function reportError(args: {
   }
 }
 
+/**
+ * Info-level logging without error context.
+ * Use for successful operations that should still be tracked.
+ */
+export async function reportInfo(args: {
+  source: string;
+  message: string;
+  level?: "info" | "warn";
+  context?: Record<string, unknown>;
+}): Promise<void> {
+  const timestamp = new Date().toISOString();
+
+  const event: ObservabilityEvent = {
+    source: args.source,
+    message: args.message,
+    level: args.level ?? "info",
+    timestamp,
+    context: args.context ? serializeContext(args.context) : undefined,
+  };
+
+  try {
+    await Promise.allSettled([sendToBetterStack(event), sendToAxiom(event)]);
+  } catch {
+    // Fail closed: observability must never break production traffic.
+  }
+}

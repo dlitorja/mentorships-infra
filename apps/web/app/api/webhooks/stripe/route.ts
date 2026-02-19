@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { inngest } from "@/inngest/client";
 import { stripe } from "@/lib/stripe";
-import { reportError } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 
 /**
  * Webhook handler that verifies Stripe signatures and sends events to Inngest
@@ -83,11 +83,9 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        await reportError({
+        await reportInfo({
           source: "webhooks/stripe",
-          error: null,
           message: `Sent checkout.session.completed event to Inngest for order ${orderId}`,
-          level: "info",
           context: { orderId, sessionId: session.id },
         });
         return NextResponse.json({ received: true, eventId: event.id });
@@ -120,22 +118,18 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        await reportError({
+        await reportInfo({
           source: "webhooks/stripe",
-          error: null,
           message: `Sent charge.refunded event to Inngest for charge ${charge.id}`,
-          level: "info",
           context: { chargeId: charge.id, paymentIntentId },
         });
         return NextResponse.json({ received: true, eventId: event.id });
       }
 
       default:
-        await reportError({
+        await reportInfo({
           source: "webhooks/stripe",
-          error: null,
           message: `Unhandled event type: ${event.type}`,
-          level: "info",
           context: { eventType: event.type, eventId: event.id },
         });
         return NextResponse.json({ received: true });
