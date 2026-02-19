@@ -110,27 +110,28 @@ export function decrypt(encryptedBase64: string): string {
     const firstByte = combined[0];
     const isNewFormat = firstByte === VERSION_V2;
     
-    let salt: Buffer;
     let iv: Buffer;
     let encrypted: Buffer;
     let authTag: Buffer;
+    let key: Buffer;
     
     if (isNewFormat) {
       // v2 format: version (1) + salt (32) + IV (16) + data + tag (16)
-      salt = combined.subarray(1, 1 + SALT_LENGTH);
+      const salt = combined.subarray(1, 1 + SALT_LENGTH);
       iv = combined.subarray(1 + SALT_LENGTH, 1 + SALT_LENGTH + IV_LENGTH);
       authTag = combined.subarray(combined.length - TAG_LENGTH);
       encrypted = combined.subarray(1 + SALT_LENGTH + IV_LENGTH, combined.length - TAG_LENGTH);
+      // Derive key from random salt
+      key = deriveKey(encryptionKey, salt);
     } else {
       // v1 legacy format: IV (16) + data + tag (16)
-      // Use hardcoded salt for backward compatibility
-      salt = scryptSync(encryptionKey, "mentorships-encryption-salt", SALT_LENGTH);
+      // Use single-step derivation matching original implementation
       iv = combined.subarray(0, IV_LENGTH);
       authTag = combined.subarray(combined.length - TAG_LENGTH);
       encrypted = combined.subarray(IV_LENGTH, combined.length - TAG_LENGTH);
+      // Legacy: derive key directly with hardcoded salt string (single scrypt call)
+      key = scryptSync(encryptionKey, "mentorships-encryption-salt", KEY_LENGTH);
     }
-    
-    const key = deriveKey(encryptionKey, salt);
     
     const decipher = createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
