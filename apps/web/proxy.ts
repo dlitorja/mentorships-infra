@@ -74,7 +74,13 @@ async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null
         // Malformed Referer — treat as missing, fall through to rejection
       }
     }
-    
+
+    // Requests with Bearer token are CSRF-safe (token-based auth is inherently non-forgeable)
+    const authHeader = req.headers.get("authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      return null;
+    }
+
     // Reject state-changing requests without origin or referer
     return NextResponse.json(
       { error: "CSRF validation failed: Origin header required" },
