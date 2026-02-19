@@ -14,14 +14,17 @@ const paypalLinkSchema = z.object({
   href: z.string().optional(),
 });
 
-const captureResourceSchema = z.object({
+const paymentResourceSchema = z.object({
   id: z.string(),
   links: z.array(paypalLinkSchema).optional(),
 });
 
-const refundResourceSchema = z.object({
+const paypalWebhookEnvelopeSchema = z.object({
   id: z.string(),
-  links: z.array(paypalLinkSchema).optional(),
+  event_type: z.string(),
+  resource_type: z.string(),
+  summary: z.string(),
+  resource: z.record(z.string(), z.unknown()),
 });
 
 /**
@@ -67,9 +70,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
 
-    // parsePayPalWebhookEvent performs its own validation; the Zod schemas below validate resource shape at runtime
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parsedEvent = parsePayPalWebhookEvent(parsedJson as any);
+    const envelopeResult = paypalWebhookEnvelopeSchema.safeParse(parsedJson);
+    if (!envelopeResult.success) {
+      await reportError({
+        source: "webhooks/paypal",
+        error: envelopeResult.error,
+        message: "Invalid event envelope shape",
+        level: "error",
+      });
+      return NextResponse.json({ error: "Invalid event" }, { status: 400 });
+    }
+
+    const parsedEvent = parsePayPalWebhookEvent(envelopeResult.data);
 
     if (!parsedEvent) {
       await reportError({
@@ -84,7 +96,7 @@ export async function POST(req: NextRequest) {
     // Handle different event types
     switch (parsedEvent.eventType) {
       case "PAYMENT.CAPTURE.COMPLETED": {
-        const resourceResult = captureResourceSchema.safeParse(parsedEvent.resource);
+        const resourceResult = paymentResourceSchema.safeParse(parsedEvent.resource);
         if (!resourceResult.success) {
           await reportError({
             source: "webhooks/paypal",
@@ -211,7 +223,7 @@ export async function POST(req: NextRequest) {
       }
 
       case "PAYMENT.CAPTURE.REFUNDED": {
-        const resourceResult = refundResourceSchema.safeParse(parsedEvent.resource);
+        const resourceResult = paymentResourceSchema.safeParse(parsedEvent.resource);
         if (!resourceResult.success) {
           await reportError({
             source: "webhooks/paypal",
