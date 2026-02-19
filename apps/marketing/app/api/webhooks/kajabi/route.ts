@@ -145,8 +145,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     const payload = await request.text();
-    
-    const parseResult = kajabiPayloadSchema.safeParse(JSON.parse(payload));
+
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(payload);
+    } catch (jsonError) {
+      await reportError({
+        source: "webhooks/kajabi",
+        error: jsonError,
+        message: "Invalid JSON payload",
+        level: "warn",
+      });
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const parseResult = kajabiPayloadSchema.safeParse(parsedJson);
     if (!parseResult.success) {
       await reportError({
         source: "webhooks/kajabi",

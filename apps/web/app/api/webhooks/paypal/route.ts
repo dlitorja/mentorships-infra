@@ -38,8 +38,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Parse webhook event
-    const event = JSON.parse(body);
-    const parsedEvent = parsePayPalWebhookEvent(event);
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(body);
+    } catch (jsonError) {
+      await reportError({
+        source: "webhooks/paypal",
+        error: jsonError,
+        message: "Invalid JSON payload",
+        level: "warn",
+      });
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const parsedEvent = parsePayPalWebhookEvent(parsedJson as Parameters<typeof parsePayPalWebhookEvent>[0]);
 
     if (!parsedEvent) {
       await reportError({

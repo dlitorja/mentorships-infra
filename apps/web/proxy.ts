@@ -319,6 +319,14 @@ export default hasClerkKey
         }
       }
 
+      // CSRF Protection (mirrors the Clerk-enabled path)
+      if (requiresCSRFValidation(req, isPublicApiRoute(req))) {
+        const csrfError = await validateCSRFOrigin(req);
+        if (csrfError) {
+          return csrfError;
+        }
+      }
+
       // In production, failing open on auth configuration is dangerous. Fail loudly.
       if (process.env.NODE_ENV === "production") {
         if (req.nextUrl.pathname.startsWith("/api/") && !isPublicApiRoute(req)) {
