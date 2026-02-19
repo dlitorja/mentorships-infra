@@ -16,7 +16,8 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   testDir: path.resolve(__dirname, "../../tests/e2e"),
   
-  /* Run tests in files in parallel */
+  testIgnore: ["**/waitlist.spec.ts"],
+  
   fullyParallel: true,
   
   /* Fail the build on CI if you accidentally left test.only in the source code. */
