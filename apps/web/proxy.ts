@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher, type ClerkMiddlewareAuth } from "@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { protectWithArcjet, type ArcjetPolicy } from "@/lib/arcjet";
+import { reportError } from "@/lib/observability";
 
 /**
  * Allowed origins for CSRF protection
@@ -79,7 +80,13 @@ function validateCSRFOrigin(req: NextRequest): NextResponse | null {
   
   // Check if origin is in allowed list
   if (!allowedOrigins.includes(origin)) {
-    console.warn(`[CSRF] Blocked request from unauthorized origin: ${origin}`);
+    await reportError({
+      source: "proxy.csrf",
+      error: new Error("Blocked request from unauthorized origin"),
+      message: "CSRF validation failed: Unauthorized origin",
+      level: "warn",
+      context: { origin, pathname: req.nextUrl.pathname, method: req.method },
+    });
     return NextResponse.json(
       { error: "CSRF validation failed: Unauthorized origin" },
       { status: 403 }
