@@ -38,18 +38,18 @@ If you have existing unencrypted refresh tokens in the database:
 - **Key derivation**: scrypt (key stretching for security)
 - **Salt**: Random 32-byte salt per encryption (unique per ciphertext)
 - **IV (Initialization Vector)**: Unique per encryption (16 bytes)
-- **Storage format**: Base64-encoded (salt + IV + encrypted data + auth tag)
+- **Storage format**: Base64-encoded (version byte + salt + IV + encrypted data + auth tag)
 
 ## Format Versioning (February 2026)
 
-The encryption format was updated to use random salts:
+The encryption format was updated to use random salts with an explicit version prefix:
 
 | Version | Format | Detection |
 |---------|--------|-----------|
-| **v1 (Legacy)** | IV + ciphertext + authTag | Length < 65 bytes |
-| **v2 (Current)** | salt + IV + ciphertext + authTag | Length >= 65 bytes |
+| **v1 (Legacy)** | IV (16) + ciphertext + authTag (16) | First byte is NOT 0x02 |
+| **v2 (Current)** | version (1: 0x02) + salt (32) + IV (16) + ciphertext + authTag (16) | First byte IS 0x02 |
 
-**Backward Compatibility**: The `decrypt()` function automatically detects format version and handles both v1 and v2 encrypted data. This allows gradual migration without re-encrypting existing data.
+**Backward Compatibility**: The `decrypt()` function checks the first byte to determine format version. If it's `0x02`, it's v2 format; otherwise, it's treated as v1 legacy format. This provides reliable format detection regardless of ciphertext length.
 
 **Key Rotation Support**: Random salts enable future key rotation - each ciphertext has its own salt, so keys can be rotated on a per-record basis if needed.
 
