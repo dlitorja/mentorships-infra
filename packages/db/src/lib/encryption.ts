@@ -133,7 +133,7 @@ export function decrypt(encryptedBase64: string): string {
       key = scryptSync(encryptionKey, "mentorships-encryption-salt", KEY_LENGTH);
     }
     
-    const decipher = createDecipheriv(ALGORITHM, key, iv);
+    const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: TAG_LENGTH });
     decipher.setAuthTag(authTag);
     
     let decrypted = decipher.update(encrypted);
