@@ -14,6 +14,15 @@
    - `/api/health/stripe` - Stripe API connectivity validation
 3. **API Endpoint Updates** - ✅ Updated `contacts/route.ts` and `sessions/route.ts` to use new error format
 
+### **COMPLETED (February 2026 - P0 Security Fixes)** ✅
+4. **Encryption Salt Security** - ✅ Fixed hardcoded salt vulnerability in `packages/db/src/lib/encryption.ts`
+   - Replaced fixed salt with random 32-byte salt per encryption
+   - Maintains backward compatibility with legacy encrypted data
+   - Enables future key rotation
+5. **Stripe Webhook Validation** - ✅ Fixed non-null assertion crash risk in `apps/web/app/api/webhooks/stripe/route.ts`
+   - Removed TypeScript `!` assertion on `STRIPE_WEBHOOK_SECRET`
+   - Added runtime validation with proper error response
+
 ### **Next Sprint (Priority 2)**
 4. **API Documentation** - OpenAPI/Swagger generation for better developer experience
 5. **Authorization Hardening** - More granular role checks and resource-level permissions

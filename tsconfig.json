@@ -13,27 +13,18 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true
   },
-  "files": [],
-  "include": [
-    "trigger.config.ts"
-  ],
   "exclude": [
     "node_modules",
     ".next",
     "dist",
     "build",
     ".turbo",
-    "**/*.d.ts"
-  ],
-  "references": [
-    {
-      "path": "./apps/web"
-    },
-    {
-      "path": "./packages/db"
-    },
-    {
-      "path": "./packages/payments"
-    }
+    "**/*.d.ts",
+    "trigger.config.ts",
+    "apps",
+    "packages",
+    "scripts",
+    "src",
+    "tests"
   ]
 }

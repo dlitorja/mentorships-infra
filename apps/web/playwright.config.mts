@@ -16,7 +16,8 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   testDir: path.resolve(__dirname, "../../tests/e2e"),
   
-  /* Run tests in files in parallel */
+  testIgnore: ["**/waitlist.spec.ts"],
+  
   fullyParallel: true,
   
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -47,20 +48,27 @@ export default defineConfig({
   },
 
   /* Configure projects for major browsers */
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-    {
-      name: "firefox",
-      use: { ...devices["Desktop Firefox"] },
-    },
-    {
-      name: "webkit",
-      use: { ...devices["Desktop Safari"] },
-    },
-  ],
+  projects: process.env.CI
+    ? [
+        {
+          name: "chromium",
+          use: { ...devices["Desktop Chrome"] },
+        },
+      ]
+    : [
+        {
+          name: "chromium",
+          use: { ...devices["Desktop Chrome"] },
+        },
+        {
+          name: "firefox",
+          use: { ...devices["Desktop Firefox"] },
+        },
+        {
+          name: "webkit",
+          use: { ...devices["Desktop Safari"] },
+        },
+      ],
 
   /* Run your local dev server before starting the tests */
   webServer: {

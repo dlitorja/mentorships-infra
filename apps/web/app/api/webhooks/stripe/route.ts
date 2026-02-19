@@ -3,14 +3,21 @@ import type Stripe from "stripe";
 import { inngest } from "@/inngest/client";
 import { stripe } from "@/lib/stripe";
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-
 /**
  * Webhook handler that verifies Stripe signatures and sends events to Inngest
  * Inngest handles all processing with automatic retries, idempotency, and error handling
  */
 
 export async function POST(req: NextRequest) {
+  // Validate environment variable at runtime
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.error("STRIPE_WEBHOOK_SECRET environment variable is not set");
+    return NextResponse.json(
+      { error: "Webhook configuration error" },
+      { status: 500 }
+    );
+  }
   const body = await req.text();
   const signature = req.headers.get("stripe-signature");
 

@@ -1,12 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-<<<<<<< HEAD
-**Last Updated**: February 3, 2026  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, **Clerk Deprecation Errors Fixed**, Ready for Discord Automation + Video Access Control
-=======
-**Last Updated**: February 2, 2026  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, Ready for Discord Automation + Video Access Control
->>>>>>> origin/main
+**Last Updated**: February 18, 2026  
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, **Clerk Deprecation Errors Fixed**, **P0 Security Fixes Applied**, Ready for Discord Automation + Video Access Control
 
 ---
 
@@ -496,3 +491,14 @@ ls apps/web/app/api
   - Set `isNew: true` flag for new instructor indicator
   - Configured 1-on-1 mentorship purchase link: `https://home.huckleberry.art/offers/2jdobcAD`
   - Specialties: Digital Painting, Oil Painting, Illustration, Visual Storytelling, Creative Business, Convention Circuit, Crowdfunding
+
+- ✅ **P0 Security Fixes Applied** (February 18, 2026)
+  - Fixed encryption salt vulnerability in `packages/db/src/lib/encryption.ts`:
+    - Replaced hardcoded salt with random 32-byte salt per encryption
+    - New format: salt (32 bytes) + IV (16 bytes) + ciphertext + authTag (16 bytes)
+    - Maintains backward compatibility with legacy encrypted data (auto-detects format)
+    - Enables future key rotation without re-encrypting all data
+  - Fixed Stripe webhook crash risk in `apps/web/app/api/webhooks/stripe/route.ts`:
+    - Removed TypeScript non-null assertion (`!`) on `STRIPE_WEBHOOK_SECRET`
+    - Added runtime validation with proper 500 error response if env var missing
+    - Prevents runtime crashes from undefined webhook secret

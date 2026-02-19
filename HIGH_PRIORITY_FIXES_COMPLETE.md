@@ -40,15 +40,22 @@ Added comprehensive database indexes to improve query performance on frequently 
 
 ### 2. Encryption for Google Refresh Tokens
 
-**Status**: ✅ **COMPLETE**
+**Status**: ✅ **COMPLETE** (Updated February 2026 - Random Salt)
 
 Implemented AES-256-GCM encryption for Google refresh tokens before database storage.
 
 **Implementation Details**:
 - **Algorithm**: AES-256-GCM (authenticated encryption)
 - **Key Derivation**: scrypt (key stretching)
-- **Storage Format**: Base64-encoded (IV + encrypted data + auth tag)
-- **Backward Compatibility**: Gracefully handles legacy unencrypted tokens
+- **Salt**: Random 32-byte salt per encryption (updated Feb 2026)
+- **Storage Format**: Base64-encoded (salt + IV + encrypted data + auth tag)
+- **Backward Compatibility**: Gracefully handles legacy encrypted and unencrypted tokens
+
+**Security Update (February 2026)**:
+- Fixed: Replaced hardcoded salt with random salt generation
+- New format: Each encryption uses a unique random salt
+- Backward compatible: Decrypts both legacy (no salt) and new format
+- Enables future key rotation without re-encrypting all data
 
 **Files Created**:
 - `packages/db/src/lib/encryption.ts` - Encryption/decryption utilities
