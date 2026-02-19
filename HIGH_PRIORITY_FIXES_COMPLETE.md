@@ -150,6 +150,74 @@ Improved error logging to prevent sensitive information leakage (tokens, passwor
 
 ---
 
+## ✅ Recent Security Hardening (February 2026)
+
+### 5. CSRF Protection (P1)
+**Status**: ✅ **COMPLETE**
+
+Implemented Origin header validation for state-changing API requests.
+
+**Implementation Details**:
+- Added CSRF validation middleware in `apps/web/proxy.ts`
+- Validates Origin header on POST, PUT, PATCH, DELETE requests
+- Supports multiple allowed origins via environment variables
+- Falls back to Referer header when Origin is missing
+- Returns 403 for unauthorized cross-origin requests
+
+**Files Updated**:
+- `apps/web/proxy.ts` - CSRF validation functions and middleware integration
+
+**Environment Variables**:
+- `NEXT_PUBLIC_URL` - Primary app URL
+- `VERCEL_URL` - Vercel deployment URL
+- `ALLOWED_ORIGINS` - Additional comma-separated allowed origins
+
+### 6. Structured Logging Migration (P1)
+**Status**: ✅ **COMPLETE**
+
+Migrated all webhook handlers and critical functions from console.* to structured logging.
+
+**Implementation Details**:
+- Replaced 34 console statements with `reportError()` calls
+- Stripe webhook handler: 8 statements migrated
+- PayPal webhook handler: 12 statements migrated
+- Kajabi webhook handler: 11 statements migrated
+- Inngest functions: 2 statements migrated
+- Arcjet error handling: 1 duplicate statement removed
+
+**Files Updated**:
+- `apps/web/app/api/webhooks/stripe/route.ts`
+- `apps/web/app/api/webhooks/paypal/route.ts`
+- `apps/marketing/app/api/webhooks/kajabi/route.ts`
+- `apps/web/inngest/functions/sessions.ts`
+- `apps/web/lib/arcjet.ts`
+
+**Created**:
+- `apps/marketing/lib/observability.ts` - Copy of web app observability utilities
+
+### 7. Inngest Test Coverage (P2)
+**Status**: ✅ **COMPLETE**
+
+Added comprehensive test suite for critical Inngest functions.
+
+**Test Coverage**:
+- **Payment Functions** (8 tests): processStripeCheckout, processStripeRefund, processPayPalCheckout, processPayPalRefund
+- **Session Functions** (10 tests): handleSessionCompleted, handleRenewalReminder, checkSeatExpiration, sendGracePeriodFinalWarning
+
+**Test Categories**:
+- Configuration validation (function IDs, names, retry settings)
+- Idempotency checks (already processed orders/payments)
+- Error handling (not found, invalid state)
+- Business logic (session decrementing, reminder triggers)
+
+**Files Created**:
+- `tests/unit/inngest/payments.test.ts`
+- `tests/unit/inngest/sessions.test.ts`
+
+**Status**: All 18 tests passing ✅
+
+---
+
 ## 📋 Next Steps & Recommendations
 
 ### Immediate Actions

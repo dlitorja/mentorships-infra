@@ -6,6 +6,7 @@ import {
   parsePayPalWebhookEvent,
   getPayPalOrder,
 } from "@mentorships/payments";
+import { reportError } from "@/lib/observability";
 
 /**
  * Webhook handler that verifies PayPal signatures and sends events to Inngest
@@ -27,7 +28,12 @@ export async function POST(req: NextRequest) {
     const isValid = await verifyPayPalWebhookSignature(body, headers, webhookId);
 
     if (!isValid) {
-      console.error("PayPal webhook signature verification failed");
+      await reportError({
+        source: "webhooks/paypal",
+        error: new Error("PayPal webhook signature verification failed"),
+        message: "PayPal webhook signature verification failed",
+        level: "error",
+      });
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
@@ -36,7 +42,12 @@ export async function POST(req: NextRequest) {
     const parsedEvent = parsePayPalWebhookEvent(event);
 
     if (!parsedEvent) {
-      console.error("Failed to parse PayPal webhook event");
+      await reportError({
+        source: "webhooks/paypal",
+        error: new Error("Failed to parse PayPal webhook event"),
+        message: "Failed to parse PayPal webhook event",
+        level: "error",
+      });
       return NextResponse.json({ error: "Invalid event" }, { status: 400 });
     }
 
@@ -52,7 +63,13 @@ export async function POST(req: NextRequest) {
         const orderLink = links?.find((link) => link.rel === "up");
         
         if (!orderLink?.href) {
-          console.error("Missing order link in PayPal capture event");
+          await reportError({
+            source: "webhooks/paypal",
+            error: new Error("Missing order link in PayPal capture event"),
+            message: "Missing order link in PayPal capture event",
+            level: "error",
+            context: { captureId, eventId: parsedEvent.id },
+          });
           return NextResponse.json(
             { error: "Missing order link" },
             { status: 400 }
@@ -62,7 +79,13 @@ export async function POST(req: NextRequest) {
         // Extract PayPal order ID from the href (format: https://api.paypal.com/v2/checkout/orders/{ORDER_ID})
         const orderIdMatch = orderLink.href.match(/\/orders\/([^\/]+)/);
         if (!orderIdMatch) {
-          console.error("Failed to extract order ID from PayPal order link");
+          await reportError({
+            source: "webhooks/paypal",
+            error: new Error("Failed to extract order ID from PayPal order link"),
+            message: "Failed to extract order ID from PayPal order link",
+            level: "error",
+            context: { orderLink: orderLink.href, eventId: parsedEvent.id },
+          });
           return NextResponse.json(
             { error: "Invalid order link format" },
             { status: 400 }
@@ -92,7 +115,13 @@ export async function POST(req: NextRequest) {
             }
           }
         } catch (error) {
-          console.error("Failed to fetch PayPal order:", error);
+          await reportError({
+            source: "webhooks/paypal",
+            error,
+            message: "Failed to fetch PayPal order",
+            level: "error",
+            context: { paypalOrderId, eventId: parsedEvent.id },
+          });
           return NextResponse.json(
             { error: "Failed to fetch order details" },
             { status: 500 }
@@ -100,7 +129,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (!orderId) {
-          console.error("Missing order_id in PayPal capture event");
+          await reportError({
+            source: "webhooks/paypal",
+            error: new Error("Missing order_id in PayPal capture event"),
+            message: "Missing order_id in PayPal capture event",
+            level: "error",
+            context: { captureId, eventId: parsedEvent.id },
+          });
           return NextResponse.json(
             { error: "Missing order_id" },
             { status: 400 }
@@ -108,7 +143,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (!packId) {
-          console.error("Missing pack_id in PayPal capture event");
+          await reportError({
+            source: "webhooks/paypal",
+            error: new Error("Missing pack_id in PayPal capture event"),
+            message: "Missing pack_id in PayPal capture event",
+            level: "error",
+            context: { orderId, captureId, eventId: parsedEvent.id },
+          });
           return NextResponse.json(
             { error: "Missing pack_id" },
             { status: 400 }
@@ -125,7 +166,13 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        console.log(`Sent PAYMENT.CAPTURE.COMPLETED event to Inngest for order ${orderId}`);
+        await reportError({
+          source: "webhooks/paypal",
+          error: null,
+          message: `Sent PAYMENT.CAPTURE.COMPLETED event to Inngest for order ${orderId}`,
+          level: "info",
+          context: { orderId, packId, captureId, eventId: parsedEvent.id },
+        });
         return NextResponse.json({ received: true, eventId: parsedEvent.id });
       }
 
@@ -139,7 +186,13 @@ export async function POST(req: NextRequest) {
         const captureLink = links?.find((link) => link.rel === "up");
         
         if (!captureLink?.href) {
-          console.error("Missing capture link in PayPal refund event");
+          await reportError({
+            source: "webhooks/paypal",
+            error: new Error("Missing capture link in PayPal refund event"),
+            message: "Missing capture link in PayPal refund event",
+            level: "error",
+            context: { refundId, eventId: parsedEvent.id },
+          });
           return NextResponse.json(
             { error: "Missing capture link" },
             { status: 400 }
@@ -149,7 +202,13 @@ export async function POST(req: NextRequest) {
         // Extract capture ID from the href (format: https://api.paypal.com/v2/payments/captures/{CAPTURE_ID})
         const captureIdMatch = captureLink.href.match(/\/captures\/([^\/]+)/);
         if (!captureIdMatch) {
-          console.error("Failed to extract capture ID from PayPal capture link");
+          await reportError({
+            source: "webhooks/paypal",
+            error: new Error("Failed to extract capture ID from PayPal capture link"),
+            message: "Failed to extract capture ID from PayPal capture link",
+            level: "error",
+            context: { captureLink: captureLink.href, eventId: parsedEvent.id },
+          });
           return NextResponse.json(
             { error: "Invalid capture link format" },
             { status: 400 }
@@ -166,16 +225,33 @@ export async function POST(req: NextRequest) {
           },
         });
 
-        console.log(`Sent PAYMENT.CAPTURE.REFUNDED event to Inngest for capture ${captureId}`);
+        await reportError({
+          source: "webhooks/paypal",
+          error: null,
+          message: `Sent PAYMENT.CAPTURE.REFUNDED event to Inngest for capture ${captureId}`,
+          level: "info",
+          context: { captureId, refundId, eventId: parsedEvent.id },
+        });
         return NextResponse.json({ received: true, eventId: parsedEvent.id });
       }
 
       default:
-        console.log(`Unhandled PayPal event type: ${parsedEvent.eventType}`);
+        await reportError({
+          source: "webhooks/paypal",
+          error: null,
+          message: `Unhandled PayPal event type: ${parsedEvent.eventType}`,
+          level: "info",
+          context: { eventType: parsedEvent.eventType, eventId: parsedEvent.id },
+        });
         return NextResponse.json({ received: true });
     }
   } catch (error) {
-    console.error("PayPal webhook processing error:", error);
+    await reportError({
+      source: "webhooks/paypal",
+      error,
+      message: "PayPal webhook processing error",
+      level: "error",
+    });
     return NextResponse.json(
       { error: "Webhook processing failed" },
       { status: 500 }

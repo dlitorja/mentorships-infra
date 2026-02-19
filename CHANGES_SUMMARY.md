@@ -23,6 +23,25 @@
    - Removed TypeScript `!` assertion on `STRIPE_WEBHOOK_SECRET`
    - Added runtime validation with proper error response
 
+### **COMPLETED (February 2026 - Option B Security Hardening)** ✅
+6. **CSRF Protection** - ✅ Implemented Origin header validation in `apps/web/proxy.ts`
+   - Validates Origin header on state-changing requests (POST, PUT, PATCH, DELETE)
+   - Supports multiple allowed origins via environment variables
+   - Falls back to Referer header validation when Origin missing
+   - Returns 403 for unauthorized cross-origin requests
+7. **Structured Logging Migration** - ✅ Migrated 34 console.* statements to observability.ts
+   - Updated Stripe webhook handler (8 statements)
+   - Updated PayPal webhook handler (12 statements)
+   - Updated Kajabi webhook handler (11 statements)
+   - Updated Inngest functions (2 statements)
+   - Removed duplicate logging from arcjet.ts (1 statement)
+   - All critical paths now use structured logging with BetterStack/Axiom
+8. **Inngest Test Coverage** - ✅ Added comprehensive test suite
+   - Created `tests/unit/inngest/payments.test.ts` (8 tests)
+   - Created `tests/unit/inngest/sessions.test.ts` (10 tests)
+   - Tests cover idempotency, error handling, business logic
+   - All 18 tests passing ✅
+
 ### **Next Sprint (Priority 2)**
 4. **API Documentation** - OpenAPI/Swagger generation for better developer experience
 5. **Authorization Hardening** - More granular role checks and resource-level permissions

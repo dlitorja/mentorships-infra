@@ -502,3 +502,17 @@ ls apps/web/app/api
     - Removed TypeScript non-null assertion (`!`) on `STRIPE_WEBHOOK_SECRET`
     - Added runtime validation with proper 500 error response if env var missing
     - Prevents runtime crashes from undefined webhook secret
+
+- ✅ **Option B Security Hardening Complete** (February 19, 2026)
+  - **CSRF Protection**: Implemented Origin header validation in `apps/web/proxy.ts`
+    - Validates state-changing requests (POST/PUT/PATCH/DELETE) against allowed origins
+    - Supports `NEXT_PUBLIC_URL`, `VERCEL_URL`, `ALLOWED_ORIGINS` environment variables
+    - Defense-in-depth against cross-site request forgery attacks
+  - **Structured Logging Migration**: Replaced 34 console.* statements with observability.ts
+    - Migrated all webhook handlers (Stripe, PayPal, Kajabi) to structured logging
+    - Migrated Inngest functions to use `reportError()` for BetterStack/Axiom integration
+    - Prevents sensitive data leakage in raw console logs
+  - **Inngest Test Coverage**: Added comprehensive test suite for critical functions
+    - 8 tests for payment functions (processStripeCheckout, processStripeRefund, processPayPalCheckout, processPayPalRefund)
+    - 10 tests for session functions (handleSessionCompleted, handleRenewalReminder, etc.)
+    - Tests cover idempotency, error handling, and business logic validation

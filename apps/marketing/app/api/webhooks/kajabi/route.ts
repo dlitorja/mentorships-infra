@@ -3,6 +3,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/lib/inngest";
 import { z } from "zod";
 import { logInventoryChange } from "@/lib/supabase-inventory";
+import { reportError } from "@/lib/observability";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -47,13 +48,25 @@ async function getOfferMapping(
     .single();
 
   if (error || !data) {
-    console.error("Error fetching offer mapping:", error);
+    await reportError({
+      source: "webhooks/kajabi",
+      error,
+      message: "Error fetching offer mapping",
+      level: "error",
+      context: { offerId },
+    });
     return null;
   }
 
   const parsed = offerMappingSchema.safeParse(data);
   if (!parsed.success) {
-    console.error("Invalid offer mapping data:", parsed.error.format());
+    await reportError({
+      source: "webhooks/kajabi",
+      error: parsed.error,
+      message: "Invalid offer mapping data",
+      level: "error",
+      context: { offerId, data },
+    });
     return null;
   }
 
@@ -74,14 +87,26 @@ async function getInventory(
     .single();
 
   if (error || !data) {
-    console.error("Error fetching current inventory:", error);
+    await reportError({
+      source: "webhooks/kajabi",
+      error,
+      message: "Error fetching current inventory",
+      level: "error",
+      context: { instructorSlug, type, column },
+    });
     return null;
   }
 
   const dataAny = data as Record<string, unknown>;
   const value = dataAny[column];
   if (typeof value !== "number") {
-    console.error("Invalid inventory value:", value);
+    await reportError({
+      source: "webhooks/kajabi",
+      error: new Error("Invalid inventory value"),
+      message: "Invalid inventory value",
+      level: "error",
+      context: { instructorSlug, type, column, value },
+    });
     return null;
   }
 
@@ -97,7 +122,13 @@ async function verifyAndGetMapping(
   const userAgentValid = userAgent.includes("Kajabi") || userAgent.includes("kajabi");
   
   if (!userAgentValid) {
-    console.warn(`Suspicious request - User-Agent: ${userAgent}`);
+    await reportError({
+      source: "webhooks/kajabi",
+      error: new Error("Suspicious request - invalid User-Agent"),
+      message: `Suspicious request - User-Agent: ${userAgent}`,
+      level: "warn",
+      context: { userAgent, offerId },
+    });
     return null;
   }
 
@@ -117,7 +148,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     
     const parseResult = kajabiPayloadSchema.safeParse(JSON.parse(payload));
     if (!parseResult.success) {
-      console.error("Invalid webhook payload:", parseResult.error.format());
+      await reportError({
+        source: "webhooks/kajabi",
+        error: parseResult.error,
+        message: "Invalid webhook payload",
+        level: "error",
+      });
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
@@ -150,7 +186,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const previousInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
     if (previousInventory === null) {
-      console.warn("Could not fetch current inventory before decrement");
+      await reportError({
+        source: "webhooks/kajabi",
+        error: new Error("Could not fetch current inventory before decrement"),
+        message: "Could not fetch current inventory before decrement",
+        level: "warn",
+        context: { instructorSlug: mapping.instructor_slug, type: mapping.mentorship_type },
+      });
       return NextResponse.json({ error: "Failed to get current inventory" }, { status: 500 });
     }
 
@@ -161,7 +203,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     if (rpcError) {
-      console.error("Error decrementing inventory:", rpcError);
+      await reportError({
+        source: "webhooks/kajabi",
+        error: rpcError,
+        message: "Error decrementing inventory",
+        level: "error",
+        context: {
+          instructorSlug: mapping.instructor_slug,
+          type: mapping.mentorship_type,
+          quantity,
+          column,
+        },
+      });
       return NextResponse.json({ error: "Failed to decrement inventory" }, { status: 500 });
     }
 
@@ -172,7 +225,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const newInventory = await getInventory(supabase, mapping.instructor_slug, mapping.mentorship_type);
     if (newInventory === null) {
-      console.error("Could not determine new inventory, skipping Inngest event");
+      await reportError({
+        source: "webhooks/kajabi",
+        error: new Error("Could not determine new inventory, skipping Inngest event"),
+        message: "Could not determine new inventory, skipping Inngest event",
+        level: "error",
+        context: {
+          instructorSlug: mapping.instructor_slug,
+          type: mapping.mentorship_type,
+          quantity,
+          previousInventory,
+        },
+      });
       return NextResponse.json({
         received: true,
         message: `Inventory decremented by ${quantity} (event notification skipped)`,
@@ -204,7 +268,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     if (inngestError) {
-      console.error("Failed to send Inngest event:", inngestError);
+      await reportError({
+        source: "webhooks/kajabi",
+        error: inngestError,
+        message: "Failed to send Inngest event",
+        level: "error",
+        context: {
+          instructorSlug: mapping.instructor_slug,
+          type: mapping.mentorship_type,
+          previousInventory,
+          newInventory,
+        },
+      });
     }
 
     return NextResponse.json({
@@ -217,7 +292,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       newInventory,
     });
   } catch (error) {
-    console.error("Error processing webhook:", error);
+    await reportError({
+      source: "webhooks/kajabi",
+      error,
+      message: "Error processing webhook",
+      level: "error",
+    });
     return NextResponse.json({ error: "Webhook processing failed" }, { status: 500 });
   }
 }

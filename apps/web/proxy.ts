@@ -4,6 +4,92 @@ import type { NextRequest } from "next/server";
 import { protectWithArcjet, type ArcjetPolicy } from "@/lib/arcjet";
 
 /**
+ * Allowed origins for CSRF protection
+ * Validates Origin header on state-changing requests
+ */
+function getAllowedOrigins(): string[] {
+  const origins: string[] = [];
+  
+  // Primary app URL
+  if (process.env.NEXT_PUBLIC_URL) {
+    origins.push(process.env.NEXT_PUBLIC_URL);
+  }
+  
+  // Vercel deployment URLs
+  if (process.env.VERCEL_URL) {
+    origins.push(`https://${process.env.VERCEL_URL}`);
+  }
+  
+  // Additional allowed origins from environment
+  if (process.env.ALLOWED_ORIGINS) {
+    origins.push(...process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()));
+  }
+  
+  // Local development
+  if (process.env.NODE_ENV !== "production") {
+    origins.push("http://localhost:3000", "http://127.0.0.1:3000");
+  }
+  
+  return origins;
+}
+
+/**
+ * Check if request requires CSRF validation
+ * Only applies to state-changing methods on authenticated API routes
+ */
+function requiresCSRFValidation(req: NextRequest, isPublicRoute: boolean): boolean {
+  // Skip CSRF for public routes (webhooks, health checks, etc.)
+  if (isPublicRoute) return false;
+  
+  // Only validate state-changing methods
+  const stateChangingMethods = ["POST", "PUT", "PATCH", "DELETE"];
+  if (!stateChangingMethods.includes(req.method)) return false;
+  
+  // Only validate API routes
+  if (!req.nextUrl.pathname.startsWith("/api/")) return false;
+  
+  return true;
+}
+
+/**
+ * Validate Origin header for CSRF protection
+ * Returns null if valid, NextResponse if invalid
+ */
+function validateCSRFOrigin(req: NextRequest): NextResponse | null {
+  const origin = req.headers.get("origin");
+  const allowedOrigins = getAllowedOrigins();
+  
+  // If no origin header, check for alternative indicators
+  if (!origin) {
+    // Allow requests without Origin header if they have a Referer from same site
+    const referer = req.headers.get("referer");
+    if (referer) {
+      const refererOrigin = new URL(referer).origin;
+      if (allowedOrigins.includes(refererOrigin)) {
+        return null;
+      }
+    }
+    
+    // Reject state-changing requests without origin or referer
+    return NextResponse.json(
+      { error: "CSRF validation failed: Origin header required" },
+      { status: 403 }
+    );
+  }
+  
+  // Check if origin is in allowed list
+  if (!allowedOrigins.includes(origin)) {
+    console.warn(`[CSRF] Blocked request from unauthorized origin: ${origin}`);
+    return NextResponse.json(
+      { error: "CSRF validation failed: Unauthorized origin" },
+      { status: 403 }
+    );
+  }
+  
+  return null;
+}
+
+/**
  * Define protected routes that require authentication
  * Routes matching these patterns will require the user to be signed in
  */
@@ -123,6 +209,14 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   // Allow public API routes (webhooks, health checks, etc.)
   if (isPublicApiRoute(req)) {
     return NextResponse.next();
+  }
+
+  // CSRF Protection: Validate Origin header for state-changing API requests
+  if (requiresCSRFValidation(req, false)) {
+    const csrfError = validateCSRFOrigin(req);
+    if (csrfError) {
+      return csrfError;
+    }
   }
 
   // Allow public pages
