@@ -20,6 +20,24 @@ export default defineConfig({
     video: "retain-on-failure",
   },
 
+  webServer: {
+    command: "pnpm --filter @mentorships/marketing start",
+    url: "http://localhost:3000",
+    reuseExistingServer: !process.env.CI,
+    timeout: 120 * 1000,
+    env: {
+      ...(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && {
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+      }),
+      ...(process.env.NEXT_PUBLIC_SUPABASE_URL && {
+        NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      }),
+      ...(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && {
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      }),
+    },
+  },
+
   projects: [
     {
       name: "chromium",
