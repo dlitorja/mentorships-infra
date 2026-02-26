@@ -190,6 +190,16 @@ export default async function InstructorProfilePage({
               </div>
             )}
 
+            {instructor.menteeBeforeAfterImages && instructor.menteeBeforeAfterImages.length > 0 && (
+              <div className="mt-12">
+                <h2 className="text-2xl font-semibold mb-3">Mentee Success Stories</h2>
+                <PortfolioGallery
+                  images={instructor.menteeBeforeAfterImages}
+                  instructorName={instructor.name}
+                />
+              </div>
+            )}
+
             {instructor.testimonials && instructor.testimonials.length > 0 && (
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Testimonials</h2>

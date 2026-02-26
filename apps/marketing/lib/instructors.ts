@@ -21,6 +21,7 @@ export interface Instructor {
   background: string[];
   profileImage: string;
   workImages: string[];
+  menteeBeforeAfterImages?: string[];
   pricing?: {
     oneOnOne?: number;
     group?: number;
@@ -352,6 +353,13 @@ background: ["Gaming", "Indie"],
       "/instructors/neil-gray/work-7.jpg",
       "/instructors/neil-gray/work-8.jpg",
       "/instructors/neil-gray/work-9.jpg",
+    ],
+    menteeBeforeAfterImages: [
+      "/instructors/neil-gray/mentee-before-after/mentee-success-1.jpg",
+      "/instructors/neil-gray/mentee-before-after/mentee-success-2.jpg",
+      "/instructors/neil-gray/mentee-before-after/mentee-success-3.jpg",
+      "/instructors/neil-gray/mentee-before-after/mentee-success-4.jpg",
+      "/instructors/neil-gray/mentee-before-after/mentee-success-5.jpg",
     ],
     pricing: { oneOnOne: 460 },
     offers: [
