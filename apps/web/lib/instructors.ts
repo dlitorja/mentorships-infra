@@ -162,9 +162,9 @@ export const mockInstructors: Instructor[] = [
     background: ["Indie"],
     profileImage: "/instructors/rakasa/profile.jpg",
     workImages: [
-      "/instructors/rakasa/work-1.jpg",
+      "/instructors/rakasa/work-5.jpg",
       "/instructors/rakasa/work-2.jpg",
-      "/instructors/rakasa/work-3.jpg",
+      "/instructors/rakasa/work-6.jpg",
       "/instructors/rakasa/work-4.jpg",
     ],
     pricing: {
