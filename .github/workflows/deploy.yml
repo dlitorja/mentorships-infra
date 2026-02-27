@@ -26,9 +26,15 @@ jobs:
         run: pnpm install --frozen-lockfile
       
       - name: Build Marketing App
+        id: build
+        continue-on-error: true
         run: |
-          pnpm --filter @mentorships/marketing build 2>&1
+          pnpm --filter @mentorships/marketing build
           echo "Exit code: $?"
+      
+      - name: Check build result
+        if: steps.build.outcome == 'failure'
+        run: exit 1
 
       - name: Deploy to Vercel
         uses: amondnet/vercel-action@v25
