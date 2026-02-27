@@ -603,6 +603,39 @@ background: ["Gaming", "Indie"],
       },
     ],
   },
+  {
+    id: "kim-myatt",
+    name: "Kim Myatt",
+    slug: "kim-myatt",
+    isNew: true,
+    tagline: "Self-taught artist and YouTuber",
+    bio: "Kim Myatt is a self-taught painter and professional artist with over twenty years of experience building a creative career. Her work explores vulnerability, identity and transformation through dreamlike imagery with a soft-dark aesthetic.\n\nThroughout her career, Kim has worked with clients including Penguin and HarperCollins, while simultaneously establishing a sustainable online practice selling her work directly to collectors. She has built her career outside traditional pathways, shaping a body of work, and a business, on her own terms.\n\nAlongside her work, Kim documents her life in the studio on YouTube, sharing candid vlogs about process, discipline, creative doubt and the lessons learned from a lifetime of creativity. She champions the belief that painting is not reserved for the naturally gifted or formally trained and that with commitment, curiosity and structure, anyone can teach themselves to paint and build a meaningful artistic practice.",
+    specialties: ["Illustration", "Digital Painting", "Traditional Painting", "Fantasy Art"],
+    background: ["Indie"],
+    socials: [
+      {
+        platform: "Instagram",
+        url: "https://www.instagram.com/ysvyri/"
+      },
+      {
+        platform: "Website",
+        url: "https://www.ysvyri.com"
+      },
+      {
+        platform: "YouTube",
+        url: "https://www.youtube.com/@ysvyri"
+      }
+    ],
+    profileImage: "/instructors/kim-myatt/profile.jpg",
+    workImages: [
+      "/instructors/kim-myatt/work-1.jpg",
+      "/instructors/kim-myatt/work-2.jpg",
+      "/instructors/kim-myatt/work-3.jpg",
+      "/instructors/kim-myatt/work-4.jpg",
+    ],
+    pricing: { oneOnOne: 600 },
+    offers: [],
+  },
   ...testInstructors,
 ];
 
