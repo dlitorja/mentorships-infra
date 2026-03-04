@@ -136,12 +136,16 @@ $$ LANGUAGE plpgsql;
 
 -- Row Level Security (RLS) Policies
 
--- Enable RLS on all tables
+-- Enable RLS on all tables (use IF NOT EXISTS in case already enabled)
 ALTER TABLE instructor_inventory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE kajabi_offer_mappings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE marketing_waitlist ENABLE ROW LEVEL SECURITY;
 
--- Public read access (for marketing site)
+-- Public read access (for marketing site) - Drop and recreate to handle existing policies
+DROP POLICY IF EXISTS "Public read inventory" ON instructor_inventory;
+DROP POLICY IF EXISTS "Public read offers" ON kajabi_offer_mappings;
+DROP POLICY IF EXISTS "Public read waitlist" ON marketing_waitlist;
+
 CREATE POLICY "Public read inventory" ON instructor_inventory FOR SELECT USING (true);
 CREATE POLICY "Public read offers" ON kajabi_offer_mappings FOR SELECT USING (true);
 CREATE POLICY "Public read waitlist" ON marketing_waitlist FOR SELECT USING (true);
@@ -165,7 +169,8 @@ INSERT INTO instructor_inventory (instructor_slug, one_on_one_inventory, group_i
   ('andrea-sipl', 0, 0),
   ('kimea-zizzari', 0, 0),
   ('keven-mallqui', 0, 0),
-  ('jeszika-le-vye', 0, 0)
+  ('jeszika-le-vye', 0, 0),
+  ('kim-myatt', 2, 0)
 ON CONFLICT (instructor_slug) DO NOTHING;
 
 -- Insert sample offer mappings (update with real Kajabi offer IDs)

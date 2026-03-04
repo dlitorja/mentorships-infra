@@ -42,6 +42,8 @@ export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
 
   const activeOffers = offers.filter((offer) => offer.active !== false);
 
+  const showAprilMessage = activeOffers.length === 0 && instructorSlug === "kim-myatt";
+
   if (loading) {
     return (
       <div>
@@ -72,6 +74,14 @@ export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
             }}
           />
         ))}
+
+        {showAprilMessage && (
+          <div className="p-4 bg-muted rounded-lg">
+            <p className="text-muted-foreground">
+              This instructor will be available for mentorship soon.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
