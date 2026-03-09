@@ -261,6 +261,10 @@ background: ["Gaming", "Indie"],
       "/instructors/rakasa/work-6.jpg",
       "/instructors/rakasa/work-4.jpg",
     ],
+    menteeBeforeAfterImages: [
+      "/instructors/rakasa/mentee-before-after/mentee-success-1.jpg",
+      "/instructors/rakasa/mentee-before-after/mentee-success-2.jpg",
+    ],
     pricing: { oneOnOne: 475, group: 250 },
     offers: [
       {
