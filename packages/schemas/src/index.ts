@@ -13,6 +13,7 @@ export const VALID_INSTRUCTOR_SLUGS = [
   "andrea-sipl",
   "kimea-zizzari",
   "keven-mallqui",
+  "kim-myatt",
 ] as const;
 
 export type ValidInstructorSlug = (typeof VALID_INSTRUCTOR_SLUGS)[number];
@@ -79,3 +80,17 @@ export const bookSessionFormSchema = z.object({
 });
 
 export type BookSessionInput = z.infer<typeof bookSessionFormSchema>;
+
+export const freeMentorshipFormSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Valid email is required"),
+  portfolioUrl: z.string().url("Valid URL is required").optional().or(z.literal("")),
+  timeZone: z.string().min(1, "Time zone is required"),
+  artGoals: z.string().min(1, "Art goals is required"),
+  instructorSlug: z
+    .string()
+    .min(1, "Instructor is required")
+    .refine(isValidInstructorSlug, { message: "Invalid instructor" }),
+});
+
+export type FreeMentorshipFormInput = z.infer<typeof freeMentorshipFormSchema>;

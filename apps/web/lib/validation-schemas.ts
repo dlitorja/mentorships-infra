@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { freeMentorshipFormSchema } from "@mentorships/schemas";
+
 /**
  * Email validation schema
  */

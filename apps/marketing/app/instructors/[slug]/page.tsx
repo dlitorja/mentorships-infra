@@ -20,6 +20,7 @@ import {
   type Testimonial,
 } from "@/lib/instructors";
 import { OffersSection } from "@/components/instructors/offers-section";
+import { Gift } from "lucide-react";
 
 function getSocialIcon(platform: string): React.ReactElement {
   switch (platform.toLowerCase()) {
@@ -177,6 +178,24 @@ export default async function InstructorProfilePage({
                   offers={instructor.offers}
                   instructorSlug={instructor.slug}
                 />
+
+                {instructor.offersFreeMentorship && (
+                  <div className="mt-8 pt-8 border-t">
+                    <h2 className="text-2xl font-semibold mb-3">Free Mentorship</h2>
+                    <p className="text-muted-foreground mb-4">
+                      Sign up for a free mentorship session. Sessions may be recorded and uploaded to YouTube.
+                    </p>
+                    <Button
+                      asChild
+                      className="flex items-center gap-2 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                    >
+                      <Link href={`/free-mentorship?instructor=${instructor.slug}`}>
+                        <Gift className="h-5 w-5" />
+                        Sign Up for Free Session
+                      </Link>
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
