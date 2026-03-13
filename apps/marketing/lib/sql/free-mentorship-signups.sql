@@ -36,8 +36,3 @@ ALTER TABLE free_mentorship_signups ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public inserts" ON free_mentorship_signups
 FOR INSERT TO anon, authenticated
 WITH CHECK (true);
-
--- Policy: allow anyone to view (for admin export)
-CREATE POLICY "Allow public select" ON free_mentorship_signups
-FOR SELECT TO anon, authenticated
-USING (true);

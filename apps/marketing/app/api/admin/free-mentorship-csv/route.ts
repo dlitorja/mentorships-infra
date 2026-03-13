@@ -6,7 +6,7 @@ import { z } from "zod";
 import { rateLimit } from "@/lib/utils";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const QuerySchema = z.object({
   instructor: z.string().min(1),
@@ -14,11 +14,14 @@ const QuerySchema = z.object({
 
 function sanitizeCell(value: string | null | undefined): string {
   if (!value) return "";
-  const trimmed = value.trim();
+  let trimmed = value.trim();
+  // Always escape double quotes first
+  trimmed = trimmed.replace(/"/g, '""');
+  // Then prepend single quote for formula-safe characters
   if (trimmed.startsWith("=") || trimmed.startsWith("+") || trimmed.startsWith("-") || trimmed.startsWith("@")) {
     return "'" + trimmed;
   }
-  return trimmed.replace(/"/g, '""');
+  return trimmed;
 }
 
 function sanitizeFilename(value: string): string {
@@ -38,18 +41,10 @@ function sanitizeFilename(value: string): string {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabaseServiceKey) {
     return NextResponse.json(
       { error: "Server configuration error: Supabase not configured" },
       { status: 500 }
-    );
-  }
-
-  const rateLimitResult = await rateLimit("free-mentorship-csv", 10, 60000);
-  if (!rateLimitResult.success) {
-    return NextResponse.json(
-      { error: "Too many requests", resetAt: rateLimitResult.resetAt },
-      { status: 429 }
     );
   }
 
@@ -69,6 +64,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const rateLimitResult = await rateLimit(`free-mentorship-csv:${user.id}`, 10, 60000);
+  if (!rateLimitResult.success) {
+    return NextResponse.json(
+      { error: "Too many requests", resetAt: rateLimitResult.resetAt },
+      { status: 429 }
+    );
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const params = {
@@ -85,7 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const { instructor: instructorSlug } = parsed.data;
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const { data: entries, error } = await supabase
       .from("free_mentorship_signups")
