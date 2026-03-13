@@ -12,6 +12,8 @@ CREATE TABLE free_mentorship_signups (
   time_zone TEXT NOT NULL,
   art_goals TEXT NOT NULL,
   instructor_slug TEXT NOT NULL,
+  consent BOOLEAN NOT NULL DEFAULT FALSE,
+  consent_timestamp TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
