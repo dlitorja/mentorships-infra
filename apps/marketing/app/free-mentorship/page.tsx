@@ -6,7 +6,6 @@ import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
@@ -336,7 +335,7 @@ function FreeMentorshipContent(): React.JSX.Element {
                   <Label htmlFor={field.name}>
                     What would you like to improve with your art? <span className="text-red-500">*</span>
                   </Label>
-                  <Textarea
+                  <textarea
                     id={field.name}
                     name={field.name}
                     value={field.state.value}
@@ -344,6 +343,7 @@ function FreeMentorshipContent(): React.JSX.Element {
                     onBlur={field.handleBlur}
                     placeholder="Tell us about your goals and what you'd like to work on..."
                     rows={4}
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-invalid={field.state.meta.errors.length > 0}
                     aria-describedby={
                       field.state.meta.errors.length > 0
