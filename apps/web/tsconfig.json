@@ -32,6 +32,9 @@
       "@mentorships/payments": [
         "../../packages/payments/src"
       ],
+      "@mentorships/schemas": [
+        "../../packages/schemas/src"
+      ],
       "@mentorships/ui": [
         "../../packages/ui/src"
       ]

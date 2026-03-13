@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export { freeMentorshipFormSchema } from "@mentorships/schemas";
+
 /**
  * Email validation schema
  */
@@ -76,3 +78,8 @@ export const simpleMatchingFormSchema = z.object({
 });
 
 export type SimpleMatchingFormData = z.infer<typeof simpleMatchingFormSchema>;
+
+/**
+ * @deprecated Use freeMentorshipFormSchema from @mentorships/schemas instead
+ */
+export type FreeMentorshipFormData = z.infer<typeof freeMentorshipFormSchema>;

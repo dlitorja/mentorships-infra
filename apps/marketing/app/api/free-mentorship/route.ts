@@ -1,0 +1,104 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { randomUUID } from "crypto";
+import { createClient } from "@supabase/supabase-js";
+import { freeMentorshipFormSchema } from "@mentorships/schemas";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    "Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set"
+  );
+}
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+type FreeMentorshipPostResponse =
+  | { success: true; message: string }
+  | { error: string; errorId: string };
+
+export async function POST(
+  request: Request
+): Promise<NextResponse<FreeMentorshipPostResponse>> {
+  const errorId = randomUUID();
+
+  try {
+    const body = await request.json();
+    const validated = freeMentorshipFormSchema.parse(body);
+    const { name, email, portfolioUrl, timeZone, artGoals, instructorSlug } = validated;
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const { data: existing, error: checkError } = await supabase
+      .from("free_mentorship_signups")
+      .select("id, created_at")
+      .eq("email", normalizedEmail)
+      .eq("instructor_slug", instructorSlug)
+      .limit(1);
+
+    if (checkError) {
+      console.error("Error checking existing signup:", checkError);
+      return NextResponse.json(
+        { error: "Failed to submit signup", errorId },
+        { status: 500 }
+      );
+    }
+
+    if (existing && existing.length > 0) {
+      return NextResponse.json({
+        success: true,
+        message: "You're already signed up for this instructor's free mentorship!",
+      });
+    }
+
+    const { error: insertError } = await supabase
+      .from("free_mentorship_signups")
+      .insert({
+        name: name.trim(),
+        email: normalizedEmail,
+        portfolio_url: portfolioUrl?.trim() || null,
+        time_zone: timeZone,
+        art_goals: artGoals.trim(),
+        instructor_slug: instructorSlug,
+      });
+
+    if (insertError) {
+      if (insertError.code === "23505") {
+        return NextResponse.json({
+          success: true,
+          message: "You're already signed up for this instructor's free mentorship!",
+        });
+      }
+      console.error("Error inserting free mentorship signup:", insertError);
+      return NextResponse.json(
+        { error: "Failed to submit signup", errorId },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Successfully signed up for free mentorship",
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        {
+          error: error.issues[0]?.message || "Invalid request data",
+          errorId,
+        },
+        { status: 400 }
+      );
+    }
+
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`Free mentorship error [${errorId}]: ${errorName} - ${errorMessage}`);
+    return NextResponse.json(
+      { error: "Failed to submit signup", errorId },
+      { status: 500 }
+    );
+  }
+}

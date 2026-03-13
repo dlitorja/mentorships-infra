@@ -30,6 +30,7 @@ export interface Instructor {
   testimonials?: Testimonial[];
   isNew?: boolean;
   isHidden?: boolean;
+  offersFreeMentorship?: boolean;
   socials?: {
     platform: string;
     url: string;
@@ -373,6 +374,7 @@ background: ["Gaming", "Indie"],
         url: "https://home.huckleberry.art/offers/ADNkiMXF/checkout",
       },
     ],
+    offersFreeMentorship: true,
     testimonials: [
       {
         text: "It's been a fun and rewarding experience! I've learned about shape design principles I hadn't encountered in previous attempts studying from anatomy books and the feedback has been really useful. It's helped me a lot with how I approach my personal art projects.",
@@ -726,4 +728,13 @@ export function getPreviousInstructor(currentSlug: string): Instructor | undefin
  */
 export function getVisibleInstructors(): Instructor[] {
   return instructors.filter((instructor) => !instructor.isHidden);
+}
+
+/**
+ * Returns instructors that offer free mentorship sessions.
+ *
+ * @returns {Instructor[]} Array of instructors with offersFreeMentorship: true
+ */
+export function getInstructorsWithFreeMentorship(): Instructor[] {
+  return instructors.filter((instructor) => instructor.offersFreeMentorship === true);
 }

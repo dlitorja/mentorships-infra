@@ -1,0 +1,464 @@
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import { useForm } from "@tanstack/react-form";
+import { useMutation } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import Link from "next/link";
+import { freeMentorshipFormSchema } from "@mentorships/schemas";
+import { getInstructorsWithFreeMentorship, type Instructor } from "@/lib/instructors";
+
+export const dynamic = "force-dynamic";
+
+function getTimeZones(): string[] {
+  const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
+    .supportedValuesOf;
+  if (typeof fn === "function") {
+    try {
+      return fn("timeZone");
+    } catch {
+      // ignore
+    }
+  }
+  return ["UTC", "America/Los_Angeles", "America/New_York", "Europe/London", "Europe/Berlin"];
+}
+
+async function submitFreeMentorship(data: {
+  name: string;
+  email: string;
+  portfolioUrl?: string;
+  timeZone: string;
+  artGoals: string;
+  instructorSlug: string;
+}) {
+  const response = await fetch("/api/free-mentorship", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(error.error || "Failed to submit");
+  }
+
+  return response.json();
+}
+
+function FreeMentorshipContent(): React.JSX.Element {
+  const searchParams = useSearchParams();
+  const instructorParam = searchParams.get("instructor");
+
+  const instructors = getInstructorsWithFreeMentorship();
+  const timeZones = getTimeZones();
+
+  const defaultInstructor = instructorParam && instructors.find(i => i.slug === instructorParam)
+    ? instructorParam
+    : instructors[0]?.slug || "";
+
+  const submitMutation = useMutation({
+    mutationFn: submitFreeMentorship,
+    onSuccess: () => {
+      form.reset();
+    },
+  });
+
+  const form = useForm({
+    defaultValues: {
+      name: "",
+      email: "",
+      portfolioUrl: "",
+      timeZone: "",
+      artGoals: "",
+      instructorSlug: defaultInstructor,
+    },
+    validators: {
+      onChange: freeMentorshipFormSchema,
+    },
+    onSubmit: async ({ value }) => {
+      submitMutation.mutate({
+        name: value.name,
+        email: value.email,
+        portfolioUrl: value.portfolioUrl || undefined,
+        timeZone: value.timeZone,
+        artGoals: value.artGoals,
+        instructorSlug: value.instructorSlug,
+      });
+    },
+  });
+
+  const isSuccess = submitMutation.isSuccess;
+  const error =
+    submitMutation.error instanceof Error
+      ? submitMutation.error.message
+      : null;
+
+  const selectedInstructor = instructors.find(i => i.slug === form.getFieldValue("instructorSlug"));
+
+  if (isSuccess) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl">You're Signed Up!</CardTitle>
+            <CardDescription>
+              {selectedInstructor ? `You'll hear from ${selectedInstructor.name} soon.` : "We'll be in touch soon!"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground text-center">
+              Thank you for your interest in free mentorship. We'll contact you at the email you provided.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button asChild className="w-full">
+                <Link href="/instructors">Browse All Instructors</Link>
+              </Button>
+              <Button asChild variant="outline" className="w-full">
+                <Link href={defaultInstructor ? `/instructors/${defaultInstructor}` : "/instructors"}>
+                  Back to Instructor
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (instructors.length === 0) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl">No Free Mentorship Available</CardTitle>
+            <CardDescription>
+              There are no instructors offering free mentorship sessions at this time.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild className="w-full">
+              <Link href="/instructors">Browse All Instructors</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
+      <Card className="max-w-lg w-full">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
+          <CardDescription>
+            Sign up for a free mentorship session. Sessions may be recorded and uploaded to YouTube.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              form.handleSubmit();
+            }}
+            className="space-y-4"
+          >
+            <form.Field
+              name="name"
+              validators={{
+                onChange: freeMentorshipFormSchema.shape.name,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>
+                    Name <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="Your name"
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    aria-describedby={
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                  />
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
+
+            <form.Field
+              name="email"
+              validators={{
+                onChange: freeMentorshipFormSchema.shape.email,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>
+                    Email <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id={field.name}
+                    type="email"
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="your@email.com"
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    aria-describedby={
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                  />
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
+
+            <form.Field
+              name="portfolioUrl"
+              validators={{
+                onChange: freeMentorshipFormSchema.shape.portfolioUrl,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>
+                    Portfolio URL
+                  </Label>
+                  <Input
+                    id={field.name}
+                    type="url"
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="https://yourportfolio.com"
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    aria-describedby={
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                  />
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
+
+            <form.Field
+              name="timeZone"
+              validators={{
+                onChange: freeMentorshipFormSchema.shape.timeZone,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>
+                    Time Zone <span className="text-red-500">*</span>
+                  </Label>
+                  <select
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    aria-describedby={
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                  >
+                    <option value="">Select your time zone</option>
+                    {timeZones.map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz}
+                      </option>
+                    ))}
+                  </select>
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
+
+            <form.Field
+              name="artGoals"
+              validators={{
+                onChange: freeMentorshipFormSchema.shape.artGoals,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>
+                    What would you like to improve with your art? <span className="text-red-500">*</span>
+                  </Label>
+                  <Textarea
+                    id={field.name}
+                    name={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="Tell us about your goals and what you'd like to work on..."
+                    rows={4}
+                    aria-invalid={field.state.meta.errors.length > 0}
+                    aria-describedby={
+                      field.state.meta.errors.length > 0
+                        ? `${field.name}-error`
+                        : undefined
+                    }
+                  />
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
+
+            {instructors.length > 1 && (
+              <form.Field
+                name="instructorSlug"
+                validators={{
+                  onChange: freeMentorshipFormSchema.shape.instructorSlug,
+                }}
+              >
+                {(field) => (
+                  <div className="space-y-2">
+                    <Label htmlFor={field.name}>
+                      Instructor <span className="text-red-500">*</span>
+                    </Label>
+                    <select
+                      id={field.name}
+                      name={field.name}
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-invalid={field.state.meta.errors.length > 0}
+                      aria-describedby={
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                    >
+                      <option value="">Select an instructor</option>
+                      {instructors.map((instructor) => (
+                        <option key={instructor.slug} value={instructor.slug}>
+                          {instructor.name}
+                        </option>
+                      ))}
+                    </select>
+                    {field.state.meta.errors.length > 0 && (
+                      <p
+                        id={`${field.name}-error`}
+                        className="text-sm text-red-600 dark:text-red-400"
+                      >
+                        {field.state.meta.errors[0]?.message}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </form.Field>
+            )}
+
+            {error && (
+              <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950 dark:text-red-400 rounded-md">
+                {error}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full vibrant-gradient-button transition-all"
+                disabled={form.state.isSubmitting || submitMutation.isPending}
+              >
+                {form.state.isSubmitting || submitMutation.isPending
+                  ? "Signing Up..."
+                  : "Sign Up for Free Mentorship"}
+              </Button>
+              <Button asChild variant="outline" className="w-full">
+                <Link href={defaultInstructor ? `/instructors/${defaultInstructor}` : "/instructors"}>
+                  Cancel
+                </Link>
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+export default function FreeMentorshipPage(): React.JSX.Element {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center px-4">
+          <Card className="max-w-lg w-full">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
+              <CardDescription>Loading...</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8 text-muted-foreground">
+                Loading form...
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
+      <FreeMentorshipContent />
+    </Suspense>
+  );
+}
