@@ -115,19 +115,31 @@ function FreeMentorshipContent(): React.JSX.Element {
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
         <Card className="max-w-md w-full">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">You're Signed Up!</CardTitle>
+            <CardTitle className="text-2xl">You're on the List!</CardTitle>
             <CardDescription>
+<<<<<<< HEAD
               Thank you for your interest. You're now in the running to be selected.
+=======
+              Thank you for your interest. You've been added to our potential selections list.
+>>>>>>> 9117817 (fix: address PR review comments)
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground text-center">
               {selectedInstructor 
+<<<<<<< HEAD
                 ? `If ${selectedInstructor.name} selects you for a free mentorship session, we'll contact you at the email you provided.`
                 : "If you're selected for a free mentorship session, we'll contact you at the email you provided."}
             </p>
             <p className="text-sm text-muted-foreground text-center">
               Note: Signing up does not guarantee a session. We'll be in touch only if you're selected.
+=======
+                ? `We'll contact you if ${selectedInstructor.name} selects you for a free mentorship session.`
+                : "We'll contact you if you're selected for a free mentorship session."}
+            </p>
+            <p className="text-sm text-muted-foreground text-center">
+              Note: Submitting does not guarantee a session. We'll be in touch if you're selected.
+>>>>>>> 9117817 (fix: address PR review comments)
             </p>
             <div className="flex flex-col gap-2">
               <Button asChild className="w-full">
@@ -197,36 +209,6 @@ function FreeMentorshipContent(): React.JSX.Element {
             }}
             className="space-y-4"
           >
-            <form.Field
-              name="consent"
-              validators={{
-                onChange: consentSchema,
-              }}
-            >
-              {(field) => (
-                <div className="space-y-2">
-                  <div className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      id={field.name}
-                      name={field.name}
-                      checked={field.state.value}
-                      onChange={(e) => field.handleChange(e.target.checked)}
-                      onBlur={field.handleBlur}
-                      className="mt-1 h-4 w-4 rounded border-gray-300"
-                    />
-                    <label htmlFor={field.name} className="text-sm text-muted-foreground">
-                      I understand and agree to the terms above. I consent to the session being recorded and used for educational and promotional purposes. <span className="text-red-500">*</span>
-                    </label>
-                  </div>
-                  {field.state.meta.errors.length > 0 && (
-                    <p className="text-sm text-red-600 dark:text-red-400">
-                      {field.state.meta.errors[0]?.message}
-                    </p>
-                  )}
-                </div>
-              )}
-            </form.Field>
             <form.Field
               name="name"
               validators={{
