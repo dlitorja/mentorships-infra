@@ -259,21 +259,7 @@ function FreeMentorshipContent(): React.JSX.Element {
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
                     placeholder="https://yourportfolio.com"
-                    aria-invalid={field.state.meta.errors.length > 0}
-                    aria-describedby={
-                      field.state.meta.errors.length > 0
-                        ? `${field.name}-error`
-                        : undefined
-                    }
                   />
-                  {field.state.meta.errors.length > 0 && (
-                    <p
-                      id={`${field.name}-error`}
-                      className="text-sm text-red-600 dark:text-red-400"
-                    >
-                      {field.state.meta.errors[0]?.message}
-                    </p>
-                  )}
                 </div>
               )}
             </form.Field>
