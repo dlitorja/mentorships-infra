@@ -245,12 +245,7 @@ function FreeMentorshipContent(): React.JSX.Element {
               )}
             </form.Field>
 
-            <form.Field
-              name="portfolioUrl"
-              validators={{
-                onChange: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
-              }}
-            >
+            <form.Field name="portfolioUrl">
               {(field) => (
                 <div className="space-y-2">
                   <Label htmlFor={field.name}>
