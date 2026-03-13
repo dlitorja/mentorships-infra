@@ -91,9 +91,7 @@ export const freeMentorshipFormSchema = z.object({
     .string()
     .min(1, "Instructor is required")
     .refine(isValidInstructorSlug, { message: "Invalid instructor" }),
-  consent: z
-    .boolean()
-    .refine((val) => val === true, { message: "You must agree to the terms to sign up" }),
+consent: z.literal(true, "You must agree to the terms to sign up"),
 });
 
 export type FreeMentorshipFormInput = z.infer<typeof freeMentorshipFormSchema>;
