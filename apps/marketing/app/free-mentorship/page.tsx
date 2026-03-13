@@ -17,6 +17,9 @@ const emailSchema = z.string().email("Please enter a valid email address");
 const timeZoneSchema = z.string().min(1, "Please select your time zone");
 const artGoalsSchema = z.string().min(1, "Please describe what you'd like to improve");
 const instructorSchema = z.string().min(1, "Please select an instructor");
+const consentSchema = z
+  .boolean()
+  .refine((val) => val === true, "You must agree to the terms to sign up");
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +43,7 @@ async function submitFreeMentorship(data: {
   timeZone: string;
   artGoals: string;
   instructorSlug: string;
+  consent: boolean;
 }) {
   const response = await fetch("/api/free-mentorship", {
     method: "POST",
@@ -81,6 +85,7 @@ function FreeMentorshipContent(): React.JSX.Element {
       timeZone: "",
       artGoals: "",
       instructorSlug: defaultInstructor,
+      consent: false,
     },
     onSubmit: async ({ value }) => {
       submitMutation.mutate({
@@ -90,6 +95,7 @@ function FreeMentorshipContent(): React.JSX.Element {
         timeZone: value.timeZone,
         artGoals: value.artGoals,
         instructorSlug: value.instructorSlug,
+        consent: value.consent,
       });
     },
   });
@@ -107,14 +113,19 @@ function FreeMentorshipContent(): React.JSX.Element {
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
         <Card className="max-w-md w-full">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">You're Signed Up!</CardTitle>
+            <CardTitle className="text-2xl">You're on the List!</CardTitle>
             <CardDescription>
-              {selectedInstructor ? `You'll hear from ${selectedInstructor.name} soon.` : "We'll be in touch soon!"}
+              Thank you for your interest. You've been added to our potential selections list.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground text-center">
-              Thank you for your interest in free mentorship. We'll contact you at the email you provided.
+              {selectedInstructor 
+                ? `We'll contact you if ${selectedInstructor.name} selects you for a free mentorship session.`
+                : "We'll contact you if you're selected for a free mentorship session."}
+            </p>
+            <p className="text-sm text-muted-foreground text-center">
+              Note: Submitting does not guarantee a session. We'll be in touch if you're selected.
             </p>
             <div className="flex flex-col gap-2">
               <Button asChild className="w-full">
@@ -158,10 +169,24 @@ function FreeMentorshipContent(): React.JSX.Element {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
           <CardDescription>
-            Sign up for a free mentorship session. Sessions may be recorded and uploaded to YouTube.
+            Sign up for a free mentorship session.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-6 p-4 bg-muted rounded-lg border">
+            <p className="text-sm text-muted-foreground">
+              <strong>Important:</strong> This free mentorship session is provided as a single session. 
+              By signing up, you understand and agree that:
+            </p>
+            <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside space-y-1">
+              <li>Submitting this form does not guarantee a free mentorship session</li>
+              <li>You will be added to a list of potential selections for a free mentorship session</li>
+              <li>The session may be recorded</li>
+              <li>The footage may be used on our social media channels (including YouTube) for educational and promotional purposes</li>
+              <li>You consent to being featured in these materials</li>
+            </ul>
+          </div>
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -398,6 +423,46 @@ function FreeMentorshipContent(): React.JSX.Element {
                 {error}
               </div>
             )}
+
+            <form.Field
+              name="consent"
+              validators={{
+                onChange: consentSchema,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id={field.name}
+                      name={field.name}
+                      checked={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.checked)}
+                      onBlur={field.handleBlur}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                      aria-invalid={field.state.meta.errors.length > 0}
+                      aria-describedby={
+                        field.state.meta.errors.length > 0
+                          ? `${field.name}-error`
+                          : undefined
+                      }
+                    />
+                    <label htmlFor={field.name} className="text-sm text-muted-foreground">
+                      I understand and agree to the terms above. I consent to the session being recorded and used for educational and promotional purposes. <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  {field.state.meta.errors.length > 0 && (
+                    <p
+                      id={`${field.name}-error`}
+                      className="text-sm text-red-600 dark:text-red-400"
+                    >
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
 
             <div className="flex flex-col gap-2">
               <Button

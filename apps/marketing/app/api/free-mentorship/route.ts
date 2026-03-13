@@ -27,7 +27,7 @@ export async function POST(
   try {
     const body = await request.json();
     const validated = freeMentorshipFormSchema.parse(body);
-    const { name, email, portfolioUrl, timeZone, artGoals, instructorSlug } = validated;
+    const { name, email, portfolioUrl, timeZone, artGoals, instructorSlug, consent } = validated;
 
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -62,6 +62,8 @@ export async function POST(
         time_zone: timeZone,
         art_goals: artGoals.trim(),
         instructor_slug: instructorSlug,
+        consent: consent === true,
+        consent_timestamp: consent === true ? new Date().toISOString() : null,
       });
 
     if (insertError) {
