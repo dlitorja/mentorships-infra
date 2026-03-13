@@ -17,6 +17,9 @@ const emailSchema = z.string().email("Please enter a valid email address");
 const timeZoneSchema = z.string().min(1, "Please select your time zone");
 const artGoalsSchema = z.string().min(1, "Please describe what you'd like to improve");
 const instructorSchema = z.string().min(1, "Please select an instructor");
+const consentSchema = z
+  .boolean()
+  .refine((val) => val === true, "You must agree to the terms to sign up");
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +84,7 @@ function FreeMentorshipContent(): React.JSX.Element {
       timeZone: "",
       artGoals: "",
       instructorSlug: defaultInstructor,
+      consent: false,
     },
     onSubmit: async ({ value }) => {
       submitMutation.mutate({
@@ -158,10 +162,22 @@ function FreeMentorshipContent(): React.JSX.Element {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
           <CardDescription>
-            Sign up for a free mentorship session. Sessions may be recorded and uploaded to YouTube.
+            Sign up for a free mentorship session.
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-6 p-4 bg-muted rounded-lg border">
+            <p className="text-sm text-muted-foreground">
+              <strong>Important:</strong> This free mentorship session is provided as a single session. 
+              By signing up, you understand and agree that:
+            </p>
+            <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside space-y-1">
+              <li>The session may be recorded</li>
+              <li>The footage may be used on our social media channels (including YouTube) for educational and promotional purposes</li>
+              <li>You consent to being featured in these materials</li>
+            </ul>
+          </div>
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -170,6 +186,36 @@ function FreeMentorshipContent(): React.JSX.Element {
             }}
             className="space-y-4"
           >
+            <form.Field
+              name="consent"
+              validators={{
+                onChange: consentSchema,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id={field.name}
+                      name={field.name}
+                      checked={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.checked)}
+                      onBlur={field.handleBlur}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                    <label htmlFor={field.name} className="text-sm text-muted-foreground">
+                      I understand and agree to the terms above. I consent to the session being recorded and used for educational and promotional purposes. <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  {field.state.meta.errors.length > 0 && (
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
             <form.Field
               name="name"
               validators={{
