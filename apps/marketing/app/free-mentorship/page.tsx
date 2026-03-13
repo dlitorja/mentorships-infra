@@ -9,8 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { freeMentorshipFormSchema } from "@mentorships/schemas";
+import { z } from "zod";
 import { getInstructorsWithFreeMentorship, type Instructor } from "@/lib/instructors";
+
+const nameSchema = z.string().min(1, "Please enter your name");
+const emailSchema = z.string().email("Please enter a valid email address");
+const timeZoneSchema = z.string().min(1, "Please select your time zone");
+const artGoalsSchema = z.string().min(1, "Please describe what you'd like to improve");
+const instructorSchema = z.string().min(1, "Please select an instructor");
 
 export const dynamic = "force-dynamic";
 
@@ -75,9 +81,6 @@ function FreeMentorshipContent(): React.JSX.Element {
       timeZone: "",
       artGoals: "",
       instructorSlug: defaultInstructor,
-    },
-    validators: {
-      onChange: freeMentorshipFormSchema,
     },
     onSubmit: async ({ value }) => {
       submitMutation.mutate({
@@ -170,7 +173,7 @@ function FreeMentorshipContent(): React.JSX.Element {
             <form.Field
               name="name"
               validators={{
-                onChange: freeMentorshipFormSchema.shape.name,
+                onChange: nameSchema,
               }}
             >
               {(field) => (
@@ -207,7 +210,7 @@ function FreeMentorshipContent(): React.JSX.Element {
             <form.Field
               name="email"
               validators={{
-                onChange: freeMentorshipFormSchema.shape.email,
+                onChange: emailSchema,
               }}
             >
               {(field) => (
@@ -245,7 +248,7 @@ function FreeMentorshipContent(): React.JSX.Element {
             <form.Field
               name="portfolioUrl"
               validators={{
-                onChange: freeMentorshipFormSchema.shape.portfolioUrl,
+                onChange: z.string().url("Please enter a valid URL").optional().or(z.literal("")),
               }}
             >
               {(field) => (
@@ -283,7 +286,7 @@ function FreeMentorshipContent(): React.JSX.Element {
             <form.Field
               name="timeZone"
               validators={{
-                onChange: freeMentorshipFormSchema.shape.timeZone,
+                onChange: timeZoneSchema,
               }}
             >
               {(field) => (
@@ -327,7 +330,7 @@ function FreeMentorshipContent(): React.JSX.Element {
             <form.Field
               name="artGoals"
               validators={{
-                onChange: freeMentorshipFormSchema.shape.artGoals,
+                onChange: artGoalsSchema,
               }}
             >
               {(field) => (
@@ -367,7 +370,7 @@ function FreeMentorshipContent(): React.JSX.Element {
               <form.Field
                 name="instructorSlug"
                 validators={{
-                  onChange: freeMentorshipFormSchema.shape.instructorSlug,
+                  onChange: instructorSchema,
                 }}
               >
                 {(field) => (
