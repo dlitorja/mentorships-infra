@@ -215,6 +215,36 @@ function FreeMentorshipContent(): React.JSX.Element {
               />
             </div>
             <form.Field
+              name="consent"
+              validators={{
+                onChange: consentSchema,
+              }}
+            >
+              {(field) => (
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      id={field.name}
+                      name={field.name}
+                      checked={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.checked)}
+                      onBlur={field.handleBlur}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                    <label htmlFor={field.name} className="text-sm text-muted-foreground">
+                      I understand and agree to the terms above. I consent to the session being recorded and used for educational and promotional purposes. <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+                  {field.state.meta.errors.length > 0 && (
+                    <p className="text-sm text-red-600 dark:text-red-400">
+                      {field.state.meta.errors[0]?.message}
+                    </p>
+                  )}
+                </div>
+              )}
+            </form.Field>
+            <form.Field
               name="name"
               validators={{
                 onChange: nameSchema,
