@@ -45,15 +45,19 @@ CREATE OR REPLACE FUNCTION update_consent(
   p_instructor_slug TEXT,
   p_consent BOOLEAN
 )
-RETURNS VOID
+RETURNS INTEGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+DECLARE
+  updated_count INTEGER;
 BEGIN
   UPDATE free_mentorship_signups
   SET consent = p_consent,
       consent_timestamp = CASE WHEN p_consent THEN NOW() ELSE consent_timestamp END
   WHERE email = p_email AND instructor_slug = p_instructor_slug;
+  GET DIAGNOSTICS updated_count = ROW_COUNT;
+  RETURN updated_count;
 END;
 $$;

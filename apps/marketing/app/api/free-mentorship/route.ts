@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type PostgrestError } from "@supabase/supabase-js";
 import { freeMentorshipFormSchema } from "@mentorships/schemas";
 import { rateLimit } from "@/lib/utils";
 
@@ -24,13 +24,27 @@ const antiSpamSchema = z.object({
 async function updateConsent(
   email: string,
   instructorSlug: string
-): Promise<Error | null> {
-  const { error } = await supabase.rpc("update_consent", {
+): Promise<PostgrestError | null> {
+  const { data, error } = await supabase.rpc("update_consent", {
     p_email: email,
     p_instructor_slug: instructorSlug,
     p_consent: true,
   });
-  return error;
+  
+  if (error) {
+    return error;
+  }
+  
+  if (!data || data <= 0) {
+    return { 
+      code: "UPDATE_FAILED", 
+      details: "", 
+      hint: "", 
+      message: "No rows updated" 
+    } as PostgrestError;
+  }
+  
+  return null;
 }
 
 type FreeMentorshipPostResponse =
@@ -63,7 +77,7 @@ export async function POST(
 
     const body = await request.json();
     const validated = freeMentorshipFormSchema.parse(body);
-    const { name, email, portfolioUrl, timeZone, artGoals, instructorSlug, consent } = validated;
+    const { name, email, portfolioUrl, timeZone, artGoals, instructorSlug } = validated;
 
     const antiSpam = antiSpamSchema.parse(body);
 
@@ -101,15 +115,13 @@ export async function POST(
     }
 
     if (existing && existing.length > 0) {
-      if (consent === true) {
-        const consentError = await updateConsent(normalizedEmail, instructorSlug);
-        if (consentError) {
-          console.error("Error updating consent:", consentError);
-          return NextResponse.json(
-            { error: "Failed to submit signup", errorId },
-            { status: 500 }
-          );
-        }
+      const consentError = await updateConsent(normalizedEmail, instructorSlug);
+      if (consentError) {
+        console.error("Error updating consent:", consentError);
+        return NextResponse.json(
+          { error: "Failed to submit signup", errorId },
+          { status: 500 }
+        );
       }
       return NextResponse.json({
         success: true,
@@ -126,21 +138,19 @@ export async function POST(
         time_zone: timeZone,
         art_goals: artGoals.trim(),
         instructor_slug: instructorSlug,
-        consent: consent === true,
-        consent_timestamp: consent === true ? new Date().toISOString() : null,
+        consent: true,
+        consent_timestamp: new Date().toISOString(),
       });
 
     if (insertError) {
       if (insertError.code === "23505") {
-        if (consent === true) {
-          const consentError = await updateConsent(normalizedEmail, instructorSlug);
-          if (consentError) {
-            console.error("Error updating consent:", consentError);
-            return NextResponse.json(
-              { error: "Failed to submit signup", errorId },
-              { status: 500 }
-            );
-          }
+        const consentError = await updateConsent(normalizedEmail, instructorSlug);
+        if (consentError) {
+          console.error("Error updating consent:", consentError);
+          return NextResponse.json(
+            { error: "Failed to submit signup", errorId },
+            { status: 500 }
+          );
         }
         return NextResponse.json({
           success: true,
