@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type PostgrestError } from "@supabase/supabase-js";
 import { freeMentorshipFormSchema } from "@mentorships/schemas";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -15,6 +15,32 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+async function updateConsent(
+  email: string,
+  instructorSlug: string
+): Promise<PostgrestError | null> {
+  const { data, error } = await supabase.rpc("update_consent", {
+    p_email: email,
+    p_instructor_slug: instructorSlug,
+    p_consent: true,
+  });
+  
+  if (error) {
+    return error;
+  }
+  
+  if (!data || data <= 0) {
+    return { 
+      code: "UPDATE_FAILED", 
+      details: "", 
+      hint: "", 
+      message: "No rows updated" 
+    } as PostgrestError;
+  }
+  
+  return null;
+}
+
 type FreeMentorshipPostResponse =
   | { success: true; message: string }
   | { error: string; errorId: string };
@@ -27,7 +53,7 @@ export async function POST(
   try {
     const body = await request.json();
     const validated = freeMentorshipFormSchema.parse(body);
-    const { name, email, portfolioUrl, timeZone, artGoals, instructorSlug, consent } = validated;
+    const { name, email, portfolioUrl, timeZone, artGoals, instructorSlug } = validated;
 
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -47,22 +73,13 @@ export async function POST(
     }
 
     if (existing && existing.length > 0) {
-      if (consent === true) {
-        const { error: consentError } = await supabase
-          .from("free_mentorship_signups")
-          .update({
-            consent: true,
-            consent_timestamp: new Date().toISOString(),
-          })
-          .match({ email: normalizedEmail, instructor_slug: instructorSlug });
-
-        if (consentError) {
-          console.error("Error updating consent:", consentError);
-          return NextResponse.json(
-            { error: "Failed to submit signup", errorId },
-            { status: 500 }
-          );
-        }
+      const consentError = await updateConsent(normalizedEmail, instructorSlug);
+      if (consentError) {
+        console.error("Error updating consent:", consentError);
+        return NextResponse.json(
+          { error: "Failed to submit signup", errorId },
+          { status: 500 }
+        );
       }
       return NextResponse.json({
         success: true,
@@ -79,28 +96,19 @@ export async function POST(
         time_zone: timeZone,
         art_goals: artGoals.trim(),
         instructor_slug: instructorSlug,
-        consent: consent === true,
-        consent_timestamp: consent === true ? new Date().toISOString() : null,
+        consent: true,
+        consent_timestamp: new Date().toISOString(),
       });
 
     if (insertError) {
       if (insertError.code === "23505") {
-        if (consent === true) {
-          const { error: consentError } = await supabase
-            .from("free_mentorship_signups")
-            .update({
-              consent: true,
-              consent_timestamp: new Date().toISOString(),
-            })
-            .match({ email: normalizedEmail, instructor_slug: instructorSlug });
-
-          if (consentError) {
-            console.error("Error updating consent:", consentError);
-            return NextResponse.json(
-              { error: "Failed to submit signup", errorId },
-              { status: 500 }
-            );
-          }
+        const consentError = await updateConsent(normalizedEmail, instructorSlug);
+        if (consentError) {
+          console.error("Error updating consent:", consentError);
+          return NextResponse.json(
+            { error: "Failed to submit signup", errorId },
+            { status: 500 }
+          );
         }
         return NextResponse.json({
           success: true,
