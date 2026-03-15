@@ -47,6 +47,15 @@ export async function POST(
     }
 
     if (existing && existing.length > 0) {
+      if (consent === true) {
+        await supabase
+          .from("free_mentorship_signups")
+          .update({
+            consent: true,
+            consent_timestamp: new Date().toISOString(),
+          })
+          .match({ email: normalizedEmail, instructor_slug: instructorSlug });
+      }
       return NextResponse.json({
         success: true,
         message: "You're already signed up for this instructor's free mentorship!",
@@ -68,6 +77,15 @@ export async function POST(
 
     if (insertError) {
       if (insertError.code === "23505") {
+        if (consent === true) {
+          await supabase
+            .from("free_mentorship_signups")
+            .update({
+              consent: true,
+              consent_timestamp: new Date().toISOString(),
+            })
+            .match({ email: normalizedEmail, instructor_slug: instructorSlug });
+        }
         return NextResponse.json({
           success: true,
           message: "You're already signed up for this instructor's free mentorship!",

@@ -106,33 +106,35 @@ function FreeMentorshipContent(): React.JSX.Element {
       ? submitMutation.error.message
       : null;
 
-  const selectedInstructor = instructors.find(i => i.slug === form.getFieldValue("instructorSlug"));
+  const submittedInstructorSlug =
+    submitMutation.variables?.instructorSlug ?? form.getFieldValue("instructorSlug");
+  const selectedInstructor = instructors.find(i => i.slug === submittedInstructorSlug);
 
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4">
         <Card className="max-w-md w-full">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">You're on the List!</CardTitle>
+            <CardTitle className="text-2xl">You're Signed Up!</CardTitle>
             <CardDescription>
-              Thank you for your interest. You've been added to our potential selections list.
+              Thank you for your interest. You're now in the running to be selected.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground text-center">
               {selectedInstructor 
-                ? `We'll contact you if ${selectedInstructor.name} selects you for a free mentorship session.`
-                : "We'll contact you if you're selected for a free mentorship session."}
+                ? `If ${selectedInstructor.name} selects you for a free mentorship session, we'll contact you at the email you provided.`
+                : "If you're selected for a free mentorship session, we'll contact you at the email you provided."}
             </p>
             <p className="text-sm text-muted-foreground text-center">
-              Note: Submitting does not guarantee a session. We'll be in touch if you're selected.
+              Note: Signing up does not guarantee a session. We'll be in touch only if you're selected.
             </p>
             <div className="flex flex-col gap-2">
               <Button asChild className="w-full">
                 <Link href="/instructors">Browse All Instructors</Link>
               </Button>
               <Button asChild variant="outline" className="w-full">
-                <Link href={defaultInstructor ? `/instructors/${defaultInstructor}` : "/instructors"}>
+                <Link href={selectedInstructor ? `/instructors/${selectedInstructor.slug}` : "/instructors"}>
                   Back to Instructor
                 </Link>
               </Button>
@@ -167,9 +169,9 @@ function FreeMentorshipContent(): React.JSX.Element {
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
       <Card className="max-w-lg w-full">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
+          <CardTitle className="text-2xl">Free Mentorship Selection</CardTitle>
           <CardDescription>
-            Sign up for a free mentorship session.
+            Sign up to potentially be selected for a free mentorship session.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -179,8 +181,8 @@ function FreeMentorshipContent(): React.JSX.Element {
               By signing up, you understand and agree that:
             </p>
             <ul className="mt-2 text-sm text-muted-foreground list-disc list-inside space-y-1">
-              <li>Submitting this form does not guarantee a free mentorship session</li>
-              <li>You will be added to a list of potential selections for a free mentorship session</li>
+              <li>Signing up does not guarantee a free mentorship session</li>
+              <li>You are signing up to potentially be selected for a free mentorship session</li>
               <li>The session may be recorded</li>
               <li>The footage may be used on our social media channels (including YouTube) for educational and promotional purposes</li>
               <li>You consent to being featured in these materials</li>
@@ -473,7 +475,7 @@ function FreeMentorshipContent(): React.JSX.Element {
               >
                 {form.state.isSubmitting || submitMutation.isPending
                   ? "Signing Up..."
-                  : "Sign Up for Free Mentorship"}
+                  : "Sign Up to Potentially Be Selected"}
               </Button>
               <Button asChild variant="outline" className="w-full">
                 <Link href={defaultInstructor ? `/instructors/${defaultInstructor}` : "/instructors"}>
@@ -495,7 +497,7 @@ export default function FreeMentorshipPage(): React.JSX.Element {
         <div className="min-h-screen bg-background flex items-center justify-center px-4">
           <Card className="max-w-lg w-full">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
+              <CardTitle className="text-2xl">Free Mentorship Selection</CardTitle>
               <CardDescription>Loading...</CardDescription>
             </CardHeader>
             <CardContent>
