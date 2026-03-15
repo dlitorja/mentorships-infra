@@ -237,7 +237,7 @@ function FreeMentorshipContent(): React.JSX.Element {
             <form.Field
               name="email"
               validators={{
-                onChange: emailSchema,
+                onBlur: emailSchema,
               }}
             >
               {(field) => (
