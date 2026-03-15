@@ -15,6 +15,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+async function updateConsent(
+  email: string,
+  instructorSlug: string
+): Promise<Error | null> {
+  const { error } = await supabase.rpc("update_consent", {
+    p_email: email,
+    p_instructor_slug: instructorSlug,
+    p_consent: true,
+  });
+  return error;
+}
+
 type FreeMentorshipPostResponse =
   | { success: true; message: string }
   | { error: string; errorId: string };
@@ -48,14 +60,7 @@ export async function POST(
 
     if (existing && existing.length > 0) {
       if (consent === true) {
-        const { error: consentError } = await supabase
-          .from("free_mentorship_signups")
-          .update({
-            consent: true,
-            consent_timestamp: new Date().toISOString(),
-          })
-          .match({ email: normalizedEmail, instructor_slug: instructorSlug });
-
+        const consentError = await updateConsent(normalizedEmail, instructorSlug);
         if (consentError) {
           console.error("Error updating consent:", consentError);
           return NextResponse.json(
@@ -86,14 +91,7 @@ export async function POST(
     if (insertError) {
       if (insertError.code === "23505") {
         if (consent === true) {
-          const { error: consentError } = await supabase
-            .from("free_mentorship_signups")
-            .update({
-              consent: true,
-              consent_timestamp: new Date().toISOString(),
-            })
-            .match({ email: normalizedEmail, instructor_slug: instructorSlug });
-
+          const consentError = await updateConsent(normalizedEmail, instructorSlug);
           if (consentError) {
             console.error("Error updating consent:", consentError);
             return NextResponse.json(

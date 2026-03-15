@@ -39,8 +39,21 @@ CREATE POLICY "Allow public inserts" ON free_mentorship_signups
 FOR INSERT TO anon, authenticated
 WITH CHECK (true);
 
--- Policy: allow updating consent fields
-CREATE POLICY "Allow consent updates" ON free_mentorship_signups
-FOR UPDATE TO anon, authenticated
-USING (true)
-WITH CHECK (true);
+-- Function to update consent (bypasses RLS, used by API)
+CREATE OR REPLACE FUNCTION update_consent(
+  p_email TEXT,
+  p_instructor_slug TEXT,
+  p_consent BOOLEAN
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE free_mentorship_signups
+  SET consent = p_consent,
+      consent_timestamp = CASE WHEN p_consent THEN NOW() ELSE consent_timestamp END
+  WHERE email = p_email AND instructor_slug = p_instructor_slug;
+END;
+$$;
