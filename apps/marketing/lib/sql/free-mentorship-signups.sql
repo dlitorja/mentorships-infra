@@ -38,3 +38,9 @@ ALTER TABLE free_mentorship_signups ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public inserts" ON free_mentorship_signups
 FOR INSERT TO anon, authenticated
 WITH CHECK (true);
+
+-- Policy: allow updating consent fields
+CREATE POLICY "Allow consent updates" ON free_mentorship_signups
+FOR UPDATE TO anon, authenticated
+USING (true)
+WITH CHECK (true);

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   trailingSlash: false,
-  transpilePackages: ["@mentorships/ui"],
+  transpilePackages: ["@mentorships/ui", "@mentorships/web"],
   redirects: async () => {
     return [
       { source: "/sign-in", destination: "/", permanent: true },

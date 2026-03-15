@@ -48,13 +48,21 @@ export async function POST(
 
     if (existing && existing.length > 0) {
       if (consent === true) {
-        await supabase
+        const { error: consentError } = await supabase
           .from("free_mentorship_signups")
           .update({
             consent: true,
             consent_timestamp: new Date().toISOString(),
           })
           .match({ email: normalizedEmail, instructor_slug: instructorSlug });
+
+        if (consentError) {
+          console.error("Error updating consent:", consentError);
+          return NextResponse.json(
+            { error: "Failed to submit signup", errorId },
+            { status: 500 }
+          );
+        }
       }
       return NextResponse.json({
         success: true,
@@ -78,13 +86,21 @@ export async function POST(
     if (insertError) {
       if (insertError.code === "23505") {
         if (consent === true) {
-          await supabase
+          const { error: consentError } = await supabase
             .from("free_mentorship_signups")
             .update({
               consent: true,
               consent_timestamp: new Date().toISOString(),
             })
             .match({ email: normalizedEmail, instructor_slug: instructorSlug });
+
+          if (consentError) {
+            console.error("Error updating consent:", consentError);
+            return NextResponse.json(
+              { error: "Failed to submit signup", errorId },
+              { status: 500 }
+            );
+          }
         }
         return NextResponse.json({
           success: true,
