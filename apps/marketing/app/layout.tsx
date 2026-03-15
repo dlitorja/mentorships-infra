@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "sonner";
+import { QueryProvider } from "@mentorships/web/lib/providers/query-provider";
 
 import { Header } from "@/components/navigation/header";
 import { Footer } from "@/components/navigation/footer";
@@ -25,10 +26,12 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={`${inter.className} antialiased`}>
-          <Header />
-          {children}
-          <Footer />
-          <Toaster position="top-right" duration={4000} richColors />
+          <QueryProvider>
+            <Header />
+            {children}
+            <Footer />
+            <Toaster position="top-right" duration={4000} richColors />
+          </QueryProvider>
         </body>
       </html>
     </ClerkProvider>
