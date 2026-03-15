@@ -106,7 +106,9 @@ function FreeMentorshipContent(): React.JSX.Element {
       ? submitMutation.error.message
       : null;
 
-  const selectedInstructor = instructors.find(i => i.slug === form.getFieldValue("instructorSlug"));
+  const submittedInstructorSlug =
+    submitMutation.variables?.instructorSlug ?? form.getFieldValue("instructorSlug");
+  const selectedInstructor = instructors.find(i => i.slug === submittedInstructorSlug);
 
   if (isSuccess) {
     return (
@@ -132,7 +134,7 @@ function FreeMentorshipContent(): React.JSX.Element {
                 <Link href="/instructors">Browse All Instructors</Link>
               </Button>
               <Button asChild variant="outline" className="w-full">
-                <Link href={defaultInstructor ? `/instructors/${defaultInstructor}` : "/instructors"}>
+                <Link href={selectedInstructor ? `/instructors/${selectedInstructor.slug}` : "/instructors"}>
                   Back to Instructor
                 </Link>
               </Button>
@@ -473,7 +475,7 @@ function FreeMentorshipContent(): React.JSX.Element {
               >
                 {form.state.isSubmitting || submitMutation.isPending
                   ? "Signing Up..."
-                  : "Sign Up to potentially Be Selected"}
+                  : "Sign Up to Potentially Be Selected"}
               </Button>
               <Button asChild variant="outline" className="w-full">
                 <Link href={defaultInstructor ? `/instructors/${defaultInstructor}` : "/instructors"}>
@@ -495,7 +497,7 @@ export default function FreeMentorshipPage(): React.JSX.Element {
         <div className="min-h-screen bg-background flex items-center justify-center px-4">
           <Card className="max-w-lg w-full">
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
+              <CardTitle className="text-2xl">Free Mentorship Selection</CardTitle>
               <CardDescription>Loading...</CardDescription>
             </CardHeader>
             <CardContent>
