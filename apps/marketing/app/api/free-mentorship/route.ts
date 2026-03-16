@@ -91,10 +91,10 @@ export async function POST(
 
     if (!antiSpam.formTimestamp || (Date.now() - antiSpam.formTimestamp) < 3000) {
       console.log("Form submitted too quickly or missing timestamp, rejecting");
-      return NextResponse.json(
-        { error: "Form submission too fast. Please try again.", errorId },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: true,
+        message: "Successfully signed up for free mentorship",
+      });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
