@@ -92,8 +92,6 @@ export const freeMentorshipFormSchema = z.object({
     .min(1, "Instructor is required")
     .refine(isValidInstructorSlug, { message: "Invalid instructor" }),
   consent: z.literal(true, "You must agree to the terms to sign up"),
-  honeypot: z.string().optional(),
-  formTimestamp: z.number().optional(),
 });
 
 export type FreeMentorshipFormInput = z.infer<typeof freeMentorshipFormSchema>;
