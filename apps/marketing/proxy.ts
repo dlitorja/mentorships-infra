@@ -99,6 +99,7 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
   if (
     pathname.startsWith("/api/contacts") ||
     pathname.startsWith("/api/waitlist") ||
+    pathname.startsWith("/api/free-mentorship") ||
     pathname.startsWith("/api/instructor/inventory") ||
     pathname.startsWith("/api/inngest")
   ) {

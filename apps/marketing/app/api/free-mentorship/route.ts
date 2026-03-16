@@ -59,7 +59,13 @@ export async function POST(
   try {
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? 
                request.headers.get("cf-connecting-ip") ?? 
-               "unknown";
+               null;
+    if (!ip) {
+      return NextResponse.json(
+        { error: "Unable to process request", errorId },
+        { status: 400 }
+      );
+    }
     const rateLimitResult = await rateLimit(`free-mentorship:${ip}`, 3, 60000);
     if (!rateLimitResult.success) {
       return NextResponse.json(
@@ -84,10 +90,10 @@ export async function POST(
 
     if (!antiSpam.formTimestamp || (Date.now() - antiSpam.formTimestamp) < 3000) {
       console.log("Form submitted too quickly or missing timestamp, rejecting");
-      return NextResponse.json(
-        { error: "Form submission too fast. Please try again.", errorId },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        success: true,
+        message: "Successfully signed up for free mentorship",
+      });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
