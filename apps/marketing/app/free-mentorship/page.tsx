@@ -44,6 +44,8 @@ async function submitFreeMentorship(data: {
   artGoals: string;
   instructorSlug: string;
   consent: boolean;
+  honeypot?: string;
+  formTimestamp?: number;
 }) {
   const response = await fetch("/api/free-mentorship", {
     method: "POST",
@@ -86,6 +88,8 @@ function FreeMentorshipContent(): React.JSX.Element {
       artGoals: "",
       instructorSlug: defaultInstructor,
       consent: false,
+      honeypot: "",
+      formTimestamp: Date.now(),
     },
     onSubmit: async ({ value }) => {
       submitMutation.mutate({
@@ -96,6 +100,8 @@ function FreeMentorshipContent(): React.JSX.Element {
         artGoals: value.artGoals,
         instructorSlug: value.instructorSlug,
         consent: value.consent,
+        honeypot: value.honeypot,
+        formTimestamp: value.formTimestamp,
       });
     },
   });
@@ -197,6 +203,16 @@ function FreeMentorshipContent(): React.JSX.Element {
             }}
             className="space-y-4"
           >
+            <div className="hidden" aria-hidden="true" style={{ display: "none" }}>
+              <input
+                type="text"
+                name="honeypot"
+                value={form.getFieldValue("honeypot")}
+                onChange={(e) => form.setFieldValue("honeypot", e.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
             <form.Field
               name="name"
               validators={{
