@@ -14,6 +14,17 @@ export async function requireMentor(): Promise<DbUser> {
   return dbUser;
 }
 
+export async function requireAdmin(): Promise<DbUser> {
+  const { userId } = await auth();
+  if (!userId) throw new UnauthorizedError("Must be logged in");
+  
+  const dbUser = await getUserById(userId);
+  if (!dbUser || dbUser.role !== "admin") {
+    throw new ForbiddenError("Must be an admin");
+  }
+  return dbUser;
+}
+
 export async function requireVideoEditor(): Promise<DbUser> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
@@ -61,4 +72,12 @@ export async function getAccessibleInstructorIds(): Promise<string[]> {
   }
   
   return [];
+}
+
+export async function getCurrentUser(): Promise<DbUser | null> {
+  const { userId } = await auth();
+  if (!userId) return null;
+  
+  const dbUser = await getUserById(userId);
+  return dbUser;
 }
