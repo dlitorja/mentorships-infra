@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "dev:huckleberry": "pnpm --filter @mentorships/huckleberry-drive dev",
     "dev": "pnpm --filter @mentorships/web dev",
     "dev:turbo": "pnpm --filter @mentorships/web dev",
     "dev:no-turbo": "pnpm --filter @mentorships/web dev:no-turbo",
