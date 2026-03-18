@@ -28,9 +28,10 @@ const MAX_PARTS = 200;
 const URL_EXPIRY_SECONDS = 3600; // 1 hour
 
 function generateKey(instructorId: string, fileId: string, filename: string): string {
+  const safeSegment = (s: string) => s.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
   const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, "_");
   const date = new Date().toISOString().split("T")[0];
-  return `${date}/${instructorId}/${fileId}/${sanitizedFilename}`;
+  return `${date}/${safeSegment(instructorId)}/${safeSegment(fileId)}/${sanitizedFilename}`;
 }
 
 export async function initiateMultipartUpload(params: {
@@ -42,6 +43,10 @@ export async function initiateMultipartUpload(params: {
 }): Promise<UploadInit> {
   const client = getB2Client();
   const key = generateKey(params.instructorId, params.fileId, params.filename);
+  
+  if (!Number.isFinite(params.size) || params.size <= 0) {
+    throw new Error("Invalid file size");
+  }
   
   const partSize = DEFAULT_PART_SIZE;
   const partCount = Math.ceil(params.size / partSize);
@@ -57,7 +62,10 @@ export async function initiateMultipartUpload(params: {
   });
 
   const response = await client.send(command);
-  const uploadId = response.UploadId!;
+  if (!response.UploadId) {
+    throw new Error("Failed to initiate multipart upload");
+  }
+  const uploadId = response.UploadId;
 
   const presignedUrls: string[] = [];
   for (let i = 1; i <= partCount; i++) {
@@ -110,12 +118,14 @@ export async function completeMultipartUpload(params: {
 }): Promise<{ location: string; etag: string }> {
   const client = getB2Client();
 
+  const sortedParts = [...params.parts].sort((a, b) => a.partNumber - b.partNumber);
+
   const command = new CompleteMultipartUploadCommand({
     Bucket: B2_BUCKET_NAME,
     Key: params.key,
     UploadId: params.uploadId,
     MultipartUpload: {
-      Parts: params.parts.map((part) => ({
+      Parts: sortedParts.map((part) => ({
         ETag: part.etag,
         PartNumber: part.partNumber,
       })),

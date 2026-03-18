@@ -59,5 +59,8 @@ export function extractFilenameFromKey(key: string): string {
 
 export function extractDateFromKey(key: string): string | null {
   const parts = key.split("/");
+  if (parts[0] === "archive" && parts.length > 1) {
+    return parts[1] ?? null;
+  }
   return parts[0] ?? null;
 }
