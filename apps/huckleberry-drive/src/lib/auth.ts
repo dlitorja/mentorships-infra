@@ -1,7 +1,9 @@
 import { auth } from "@clerk/nextjs/server";
-import { getUserById, UnauthorizedError, ForbiddenError } from "@mentorships/db";
+import { getUserById, UnauthorizedError, ForbiddenError, type users } from "@mentorships/db";
 
-export async function requireMentor() {
+type DbUser = typeof users.$inferSelect;
+
+export async function requireMentor(): Promise<DbUser> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
   
@@ -12,7 +14,7 @@ export async function requireMentor() {
   return dbUser;
 }
 
-export async function requireAdmin() {
+export async function requireAdmin(): Promise<DbUser> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
   
@@ -23,7 +25,7 @@ export async function requireAdmin() {
   return dbUser;
 }
 
-export async function canAccessFile(fileInstructorId: string) {
+export async function canAccessFile(fileInstructorId: string): Promise<boolean> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
   
@@ -36,7 +38,7 @@ export async function canAccessFile(fileInstructorId: string) {
   throw new ForbiddenError("Cannot access this file");
 }
 
-export async function getCurrentUser() {
+export async function getCurrentUser(): Promise<DbUser | null> {
   const { userId } = await auth();
   if (!userId) return null;
   

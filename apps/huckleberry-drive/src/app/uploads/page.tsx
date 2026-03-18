@@ -1,4 +1,4 @@
-export default function UploadsPage() {
+export default function UploadsPage(): React.ReactElement {
   return (
     <div className="p-8">
       <h1 className="text-2xl font-bold">Upload Files</h1>
