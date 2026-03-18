@@ -948,3 +948,645 @@ export async function listAccessibleFiles(userId: string) {
 - `packages/db/src/schema/users.ts` - Add "video_editor" to userRoleEnum
 - `packages/db/src/schema/index.ts` - Export new schemas
 - `packages/db/src/index.ts` - Export new functions
+
+---
+
+## Appendix A: Updated Upload Patterns (Context7 Best Practices 2026)
+
+### A.1 Recommended Architecture: Client → Storage → CDN
+
+```
+Client (Uppy/TUS) → Backblaze B2 (Direct Upload) → Cloudflare CDN → User
+                     ↑                              ↑
+              Server generates               Files served via CDN
+              presigned URLs                  (free egress)
+```
+
+**Key Principle**: Server never touches the file directly. Client uploads to B2 via presigned URLs, server only manages metadata.
+
+### A.2 Uppy + TUS Implementation
+
+For 2-20GB video files, use TUS protocol for resumable uploads:
+
+```typescript
+// apps/huckleberry-drive/components/upload-zone.tsx
+import Uppy from "@uppy/core";
+import Tus from "@uppy/tus";
+
+const uppy = new Uppy({
+  restrictions: {
+    maxFileSize: 20 * 1024 * 1024 * 1024, // 20GB
+    allowedFileTypes: ["video/*"],
+    maxConcurrentUploads: 2,
+  },
+});
+
+uppy.use(Tus, {
+  endpoint: "/api/uploads/tus", // TUS endpoint
+  chunkSize: 8 * 1024 * 1024, // 8MB chunks
+  retryDelays: [0, 1000, 3000, 5000, 10000],
+  
+  // Dynamic upload URL from server
+  async uploadUrl(file) {
+    const response = await fetch("/api/uploads/initiate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        size: file.size,
+        type: file.type,
+      }),
+    });
+    const { uploadUrl } = await response.json();
+    return uploadUrl;
+  },
+  
+  // Track progress
+  onProgress: (bytesUploaded, bytesTotal) => {
+    const progress = (bytesUploaded / bytesTotal) * 100;
+    console.log(`${progress.toFixed(1)}% uploaded`);
+  },
+});
+```
+
+### A.3 TUS Server Endpoint (Next.js Route Handler)
+
+```typescript
+// apps/huckleberry-drive/app/api/uploads/tus/route.ts
+import { NextRequest } from "next/server";
+
+// TUS protocol endpoints
+export async function OPTIONS() {
+  return new Response(null, {
+    headers: {
+      "Tus-Resumable": "1.0.0",
+      "Tus-Version": "1.0.0",
+      "Tus-Extension": "creation,termination",
+      "Tus-Max-Size": String(20 * 1024 * 1024 * 1024),
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, GET, HEAD, PATCH, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Tus-Resumable, Upload-Length, Upload-Metadata, Upload-Offset, Content-Type",
+    },
+  });
+}
+
+export async function HEAD(request: NextRequest) {
+  // Return current offset for resume
+  const uploadId = request.headers.get("Upload-Metadata");
+  // Look up upload state from database
+  const upload = await getUploadByMetadata(uploadId);
+  
+  return new Response(null, {
+    headers: {
+      "Tus-Resumable": "1.0.0",
+      "Upload-Offset": String(upload.offset),
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+export async function PATCH(request: NextRequest) {
+  const uploadId = request.headers.get("Upload-Metadata");
+  const contentType = request.headers.get("Content-Type");
+  
+  if (contentType !== "application/offset+octet-stream") {
+    return new Response("Invalid Content-Type", { status: 415 });
+  }
+  
+  // Read chunk and upload to B2
+  const chunk = await request.arrayBuffer();
+  const offset = await uploadChunkToB2(uploadId, chunk);
+  
+  return new Response(null, {
+    headers: {
+      "Tus-Resumable": "1.0.0",
+      "Upload-Offset": String(offset),
+      "Cache-Control": "no-store",
+    },
+  });
+}
+```
+
+### A.4 Presigned URL Generation (Alternative for Direct B2)
+
+```typescript
+// apps/huckleberry-drive/app/api/uploads/initiate/route.ts
+export async function POST(request: NextRequest) {
+  const { userId } = await requireMentor();
+  const { filename, size, type } = await request.json();
+  
+  // Validate
+  if (size > 20 * 1024 * 1024 * 1024) {
+    return Response.json({ error: "File too large" }, { status: 400 });
+  }
+  
+  if (!type.startsWith("video/")) {
+    return Response.json({ error: "Only video files allowed" }, { status: 400 });
+  }
+  
+  // Create DB record
+  const uploadId = crypto.randomUUID();
+  await db.insert(instructorUploads).values({
+    id: uploadId,
+    instructorId: userId,
+    filename,
+    originalName: filename,
+    contentType: type,
+    size,
+    status: "pending",
+  });
+  
+  // Generate presigned URLs for B2 multipart upload
+  const { uploadId: b2UploadId, presignedUrls } = await initiateB2Multipart({
+    filename,
+    contentType: type,
+    size,
+  });
+  
+  // Store B2 upload ID
+  await db.update(instructorUploads)
+    .set({ b2UploadId, status: "uploading" })
+    .where(eq(instructorUploads.id, uploadId));
+  
+  return Response.json({
+    uploadId,
+    b2UploadId,
+    partSize: 100 * 1024 * 1024, // 100MB
+    presignedUrls,
+  });
+}
+```
+
+### A.5 Server Never Stores Files
+
+> **Critical**: Never write uploaded files to the Next.js server's filesystem.
+
+```typescript
+// ❌ WRONG - Don't do this
+export async function uploadFile(formData: FormData) {
+  const file = formData.get("file") as File;
+  await writeFile(`/tmp/${file.name}`, file);
+}
+
+// ✅ CORRECT - Stream directly to B2 or use presigned URLs
+export async function initiateUpload() {
+  // Server only generates presigned URLs
+  // Client uploads directly to B2
+}
+```
+
+---
+
+## Appendix B: Trigger.dev v4 Enhanced Patterns
+
+### B.1 Idempotent Archive Task
+
+```typescript
+// trigger/tasks/archive.ts
+import { task, logger } from "@trigger.dev/sdk";
+import { z } from "zod";
+
+export const archiveFileTask = task({
+  id: "archive-file",
+  
+  // Retry with exponential backoff
+  retry: {
+    maxAttempts: 5,
+    minTimeoutInMs: 1000,
+    maxTimeoutInMs: 60_000,
+    factor: 2,
+    randomize: false,
+  },
+  
+  // Idempotency key based on file ID
+  // Safe to retry without side effects
+  run: async (payload: { fileId: string }) => {
+    const { fileId } = payload;
+    
+    // Check if already archived (idempotency)
+    const file = await getUploadById(fileId);
+    if (file.status === "archived" && file.transferStatus === "completed") {
+      logger.info(`File ${fileId} already archived, skipping`);
+      return { skipped: true, reason: "already_archived" };
+    }
+    
+    try {
+      // 1. Copy from B2 to S3 Glacier Deep Archive
+      logger.info(`Starting archive for file ${fileId}`);
+      const { s3Key } = await copyToS3({
+        fileId,
+        b2FileId: file.b2FileId!,
+        filename: file.filename,
+      });
+      
+      // 2. Verify S3 upload
+      const verified = await verifyS3Upload(s3Key);
+      if (!verified) {
+        throw new Error(`S3 verification failed for ${s3Key}`);
+      }
+      
+      // 3. Update database atomically
+      await db.update(instructorUploads)
+        .set({
+          status: "archived",
+          transferStatus: "completed",
+          archivedAt: new Date(),
+          s3Key,
+          s3Url: `s3://bucket/${s3Key}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(instructorUploads.id, fileId));
+      
+      // 4. Notify instructor
+      await notifyInstructorOfArchive({
+        instructorId: file.instructorId,
+        filename: file.filename,
+        s3Url: `s3://bucket/${s3Key}`,
+      });
+      
+      return { success: true, s3Key };
+    } catch (error) {
+      logger.error(`Archive failed for file ${fileId}`, { error });
+      throw error; // Will trigger retry
+    }
+  },
+  
+  // Cleanup on permanent failure
+  onFailure: async ({ payload, error }) => {
+    await db.update(instructorUploads)
+      .set({
+        status: "failed",
+        errorMessage: error.message,
+        transferRetryCount: sql`transfer_retry_count + 1`,
+      })
+      .where(eq(instructorUploads.id, payload.fileId));
+    
+    // Alert admin via observability
+    await reportError("archive_failure", {
+      fileId: payload.fileId,
+      error: error.message,
+    });
+  },
+});
+```
+
+### B.2 Scheduled Archive Job
+
+```typescript
+// trigger/schedules/archive.ts
+import { schedules, logger } from "@trigger.dev/sdk";
+import { archiveFileTask } from "../tasks/archive";
+
+schedules.task({
+  id: "daily-archive-check",
+  cron: "0 3 * * *", // 3 AM UTC daily
+  timezone: "UTC",
+  run: async (payload) => {
+    logger.info("Starting daily archive check");
+    
+    // Find files older than 30 days not yet archived
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    
+    const filesToArchive = await db.select()
+      .from(instructorUploads)
+      .where(
+        and(
+          eq(instructorUploads.status, "completed"),
+          or(
+            isNull(instructorUploads.transferStatus),
+            neq(instructorUploads.transferStatus, "completed"),
+          ),
+          lt(instructorUploads.createdAt, cutoffDate),
+        )
+      )
+      .limit(100); // Process in batches
+    
+    logger.info(`Found ${filesToArchive.length} files to archive`);
+    
+    // Trigger archive tasks in parallel (with concurrency control)
+    const results = [];
+    for (const file of filesToArchive) {
+      const handle = await archiveFileTask.trigger(
+        { fileId: file.id },
+        { idempotencyKey: `archive-${file.id}-${file.updatedAt?.getTime()}` }
+      );
+      results.push(handle);
+    }
+    
+    return {
+      queued: results.length,
+      runIds: results.map(r => r.id),
+    };
+  },
+});
+```
+
+### B.3 Cost Calculation with Error Handling
+
+```typescript
+// trigger/tasks/calculateCosts.ts
+import { task, logger } from "@trigger.dev/sdk";
+
+export const calculateMonthlyCostsTask = task({
+  id: "calculate-monthly-costs",
+  
+  retry: {
+    maxAttempts: 3,
+    minTimeoutInMs: 5000,
+    maxTimeoutInMs: 30000,
+    factor: 2,
+  },
+  
+  run: async (payload: { month?: string }) => {
+    const month = payload.month || format(new Date(), "yyyy-MM");
+    
+    // Fetch costs from providers (may fail)
+    const [b2Costs, s3Costs] = await Promise.all([
+      fetchB2Costs(month).catch(e => {
+        logger.error("B2 cost fetch failed", { error: e });
+        return { storage: 0, download: 0, api: 0 };
+      }),
+      fetchS3Costs(month).catch(e => {
+        logger.error("S3 cost fetch failed", { error: e });
+        return { storage: 0, retrieval: 0 };
+      }),
+    ]);
+    
+    const total = 
+      b2Costs.storage + b2Costs.download + b2Costs.api +
+      s3Costs.storage + s3Costs.retrieval;
+    
+    // Upsert cost record
+    await db.insert(monthlyStorageCosts)
+      .values({
+        id: crypto.randomUUID(),
+        month,
+        b2StorageCost: b2Costs.storage,
+        b2DownloadCost: b2Costs.download,
+        b2ApiCost: b2Costs.api,
+        s3StorageCost: s3Costs.storage,
+        s3RetrievalCost: s3Costs.retrieval,
+        totalCost: total,
+      })
+      .onConflictDoUpdate({
+        target: monthlyStorageCosts.month,
+        set: {
+          b2StorageCost: b2Costs.storage,
+          b2DownloadCost: b2Costs.download,
+          b2ApiCost: b2Costs.api,
+          s3StorageCost: s3Costs.storage,
+          s3RetrievalCost: s3Costs.retrieval,
+          totalCost: total,
+          updatedAt: new Date(),
+        },
+      });
+    
+    // Check threshold and alert
+    if (total > 5000) { // $50
+      await sendCostAlertEmail({
+        month,
+        total,
+        breakdown: { b2Costs, s3Costs },
+      });
+    }
+    
+    return { month, total };
+  },
+});
+```
+
+---
+
+## Appendix C: Security Best Practices
+
+### C.1 File Upload Security
+
+```typescript
+// Validate uploads server-side
+async function validateUpload(file: File, userId: string) {
+  // 1. Check file type
+  const allowedTypes = ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"];
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error("Invalid file type");
+  }
+  
+  // 2. Check file size
+  const maxSize = 20 * 1024 * 1024 * 1024; // 20GB
+  if (file.size > maxSize) {
+    throw new Error("File too large");
+  }
+  
+  // 3. Check user's storage quota
+  const usage = await getStorageUsage(userId);
+  if (usage.usedBytes + file.size > usage.limitBytes) {
+    throw new Error("Storage quota exceeded");
+  }
+  
+  // 4. Verify authentication
+  const { userId: authenticatedUserId } = await auth();
+  if (authenticatedUserId !== userId) {
+    throw new Error("Unauthorized");
+  }
+  
+  // 5. Sanitize filename
+  const sanitizedFilename = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+  
+  return { sanitizedFilename };
+}
+```
+
+### C.2 Download Access Control
+
+```typescript
+// apps/huckleberry-drive/app/api/download/[id]/route.ts
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const { userId } = await auth();
+  const file = await getUploadById(params.id);
+  
+  if (!file) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+  
+  const dbUser = await getDbUser(userId);
+  
+  // Access check
+  if (dbUser.role === "admin") {
+    // Admin can access all
+  } else if (dbUser.role === "mentor" && file.instructorId === userId) {
+    // Instructor can access own files
+  } else if (dbUser.role === "video_editor") {
+    // Video editor can access assigned instructor's files
+    const assignments = await getVideoEditorAssignments(userId);
+    if (!assignments.some(a => a.instructorId === file.instructorId)) {
+      return Response.json({ error: "Not authorized" }, { status: 403 });
+    }
+  } else {
+    return Response.json({ error: "Not authorized" }, { status: 403 });
+  }
+  
+  // Generate short-lived presigned URL (1 hour)
+  const downloadUrl = await getB2DownloadUrl(file.b2FileId, 3600);
+  
+  // Log download for audit
+  await logDownload({ fileId: params.id, userId, timestamp: new Date() });
+  
+  return Response.json({ url: downloadUrl });
+}
+```
+
+---
+
+## Appendix D: Observability & Monitoring
+
+### D.1 Structured Logging
+
+```typescript
+// apps/huckleberry-drive/lib/observability.ts
+import { logger } from "@trigger.dev/sdk";
+
+export const uploadLogger = {
+  initiated: (fileId: string, instructorId: string, size: number) => {
+    logger.info("Upload initiated", {
+      fileId,
+      instructorId,
+      sizeBytes: size,
+      event: "upload_initiated",
+    });
+  },
+  
+  completed: (fileId: string, duration: number) => {
+    logger.info("Upload completed", {
+      fileId,
+      durationMs: duration,
+      event: "upload_completed",
+    });
+  },
+  
+  failed: (fileId: string, error: string) => {
+    logger.error("Upload failed", {
+      fileId,
+      error,
+      event: "upload_failed",
+    });
+  },
+};
+
+export const archiveLogger = {
+  started: (fileId: string) => {
+    logger.info("Archive started", { fileId, event: "archive_started" });
+  },
+  
+  completed: (fileId: string, s3Key: string) => {
+    logger.info("Archive completed", {
+      fileId,
+      s3Key,
+      event: "archive_completed",
+    });
+  },
+  
+  failed: (fileId: string, error: string, attempt: number) => {
+    logger.error("Archive failed", {
+      fileId,
+      error,
+      attempt,
+      event: "archive_failed",
+    });
+  },
+};
+```
+
+### D.2 Metrics to Track
+
+```typescript
+// Key metrics for monitoring
+const METRICS = {
+  // Upload metrics
+  uploadCount: "instructor_upload_count",
+  uploadSizeBytes: "instructor_upload_size_bytes",
+  uploadDurationMs: "instructor_upload_duration_ms",
+  uploadFailureCount: "instructor_upload_failure_count",
+  
+  // Archive metrics
+  archiveQueueSize: "instructor_archive_queue_size",
+  archiveLatencyMs: "instructor_archive_latency_ms",
+  archiveFailureCount: "instructor_archive_failure_count",
+  archiveStorageBytes: "instructor_archive_storage_bytes",
+  
+  // Cost metrics
+  b2StorageCost: "b2_storage_cost_cents",
+  b2DownloadCost: "b2_download_cost_cents",
+  s3StorageCost: "s3_storage_cost_cents",
+  
+  // User metrics
+  activeInstructors: "active_instructors",
+  storageQuotaUsage: "storage_quota_usage_percent",
+};
+```
+
+---
+
+## Appendix E: Environment Variables (Updated)
+
+```env
+# Backblaze B2 (Direct Upload)
+B2_KEY_ID=your_key_id
+B2_APPLICATION_KEY=your_application_key
+B2_BUCKET_ID=your_bucket_id
+B2_BUCKET_NAME=instructor-uploads
+B2_REGION=us-west-002
+
+# Cloudflare CDN (Free Egress from B2)
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_R2_ACCOUNT_ID=your_r2_account_id
+CLOUDFLARE_PUBLIC_URL=https://files.drive.huckleberry.art
+
+# AWS S3 Glacier Deep Archive
+AWS_ACCESS_KEY_ID=xxx
+AWS_SECRET_ACCESS_KEY=xxx
+AWS_S3_BUCKET=instructor-uploads-archive
+AWS_S3_REGION=us-east-1
+
+# Trigger.dev
+TRIGGER_API_KEY=tr_xxx
+TRIGGER_SECRET_KEY=ts_xxx
+
+# Upload Limits
+MAX_UPLOAD_SIZE_BYTES=21474836440
+MAX_CONCURRENT_UPLOADS=2
+UPLOAD_CHUNK_SIZE_BYTES=8388608
+ARCHIVE_DAYS_THRESHOLD=30
+
+# Storage Quotas (per instructor)
+DEFAULT_STORAGE_LIMIT_BYTES=21474836480  # 20GB
+```
+
+---
+
+## Appendix F: Performance Considerations
+
+### F.1 Upload Performance
+
+- **Chunk Size**: 8MB for TUS uploads (balance between progress granularity and HTTP overhead)
+- **Concurrent Uploads**: 2 files simultaneously per user
+- **B2 Part Size**: 100MB for multipart uploads (max 200 parts = 20GB)
+- **Presigned URL Expiry**: 1 hour for upload URLs
+
+### F.2 Archive Performance
+
+- **Batch Size**: Process 100 files per cron run
+- **Retry Backoff**: Exponential with max 5 attempts
+- **Concurrency**: Limit S3 Glacier operations to avoid throttling
+
+### F.3 CDN Caching
+
+- **Static Assets**: Cache indefinitely (immutable)
+- **Presigned Downloads**: 1-hour expiry
+- **File Listings**: No cache (always fresh)
+
+---
+
+(End of file - additions from Context7 best practices)

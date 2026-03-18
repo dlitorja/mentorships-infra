@@ -76,7 +76,6 @@ function FreeMentorshipContent(): React.JSX.Element {
     mutationFn: submitFreeMentorship,
     onSuccess: () => {
       form.reset();
-      form.setFieldValue("formTimestamp", Date.now());
     },
   });
 
