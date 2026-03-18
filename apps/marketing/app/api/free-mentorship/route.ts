@@ -61,6 +61,7 @@ export async function POST(
                request.headers.get("cf-connecting-ip") ?? 
                null;
     if (!ip) {
+      console.error(`[free-mentorship] Rejected request: no IP header present (errorId: ${errorId})`);
       return NextResponse.json(
         { error: "Unable to process request", errorId },
         { status: 400 }
@@ -88,7 +89,7 @@ export async function POST(
       });
     }
 
-    if (!antiSpam.formTimestamp || (Date.now() - antiSpam.formTimestamp) < 3000) {
+    if (!antiSpam.formTimestamp || (Date.now() - antiSpam.formTimestamp) < 1000) {
       console.log("Form submitted too quickly or missing timestamp, rejecting");
       return NextResponse.json({
         success: true,
