@@ -1,6 +1,6 @@
 import { pgTable, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
 
-export const userRoleEnum = pgEnum("user_role", ["student", "mentor", "admin"]);
+export const userRoleEnum = pgEnum("user_role", ["student", "mentor", "admin", "video_editor"]);
 
 /**
  * Users table - stores Clerk user IDs as primary key

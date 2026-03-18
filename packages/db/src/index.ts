@@ -44,6 +44,7 @@ export * from "./lib/queries/bookingValidation";
 export * from "./lib/queries/discounts";
 export * from "./lib/queries/discordActionQueue";
 export * from "./lib/queries/softDelete";
+export * from "./lib/queries/videoEditorAssignments";
 
 // Export types
 export type { Database } from "./types/database.types";
