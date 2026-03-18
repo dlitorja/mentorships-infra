@@ -1,11 +1,13 @@
 import {
   S3Client,
-  CopyObjectCommand,
   HeadObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  PutObjectCommand,
+  RestoreObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { getB2Client, B2_BUCKET_NAME } from "./client";
 
 const S3_REGION = process.env.AWS_S3_REGION || "us-east-1";
 const S3_BUCKET = process.env.AWS_S3_BUCKET || "instructor-uploads-archive";
@@ -37,22 +39,31 @@ export async function copyToS3(params: {
   b2Key: string;
   filename: string;
 }): Promise<{ s3Key: string; s3Url: string }> {
-  const client = getS3Client();
+  const b2Client = getB2Client();
+  const s3ClientInstance = getS3Client();
   const s3Key = getS3ArchiveKey(params.fileId, params.filename);
 
-  const copySource = encodeURIComponent(
-    `${process.env.B2_BUCKET_NAME}/${params.b2Key}`
-  );
-
-  const command = new CopyObjectCommand({
-    Bucket: S3_BUCKET,
-    Key: s3Key,
-    CopySource: copySource,
-    StorageClass: "DEEP_ARCHIVE",
-    MetadataDirective: "COPY",
+  const getCommand = new GetObjectCommand({
+    Bucket: B2_BUCKET_NAME,
+    Key: params.b2Key,
   });
 
-  await client.send(command);
+  const b2Response = await b2Client.send(getCommand);
+  
+  const stream = b2Response.Body;
+  if (!stream) {
+    throw new Error("Failed to read B2 object stream");
+  }
+
+  const putCommand = new PutObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: s3Key,
+    Body: stream,
+    StorageClass: "DEEP_ARCHIVE",
+    ContentType: b2Response.ContentType,
+  });
+
+  await s3ClientInstance.send(putCommand);
 
   const s3Url = `s3://${S3_BUCKET}/${s3Key}`;
 
@@ -106,18 +117,19 @@ export async function getS3DownloadUrl(
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
 }
 
-export async function restoreFromGlacier(s3Key: string, _days: number = 5): Promise<string> {
+export async function restoreFromGlacier(s3Key: string, days: number = 5): Promise<string> {
   const client = getS3Client();
 
-  const restoreCommand = new CopyObjectCommand({
-    Bucket: S3_BUCKET,
-    Key: s3Key,
-    CopySource: `${S3_BUCKET}/${s3Key}`,
-    MetadataDirective: "COPY",
-    StorageClass: "STANDARD",
-  });
+  await client.send(
+    new RestoreObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: s3Key,
+      RestoreRequest: {
+        Days: days,
+        GlacierJobParameters: { Tier: "Standard" },
+      },
+    })
+  );
 
-  await client.send(restoreCommand);
-
-  return `Restoration initiated for ${s3Key}. Available in 3-5 hours.`;
+  return `Restoration initiated for ${s3Key}. Available in 12-48 hours for DEEP_ARCHIVE.`;
 }

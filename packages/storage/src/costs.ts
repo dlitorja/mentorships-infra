@@ -24,11 +24,11 @@ export function estimateS3StorageCost(bytes: number): number {
 }
 
 export function calculateUploadTransactionCost(uploadCount: number): number {
-  return Math.round(uploadCount * B2_CLASS_A_RATE_PER_1000 * 100);
+  return Math.round((uploadCount / 1000) * B2_CLASS_A_RATE_PER_1000 * 100);
 }
 
 export function calculateDownloadTransactionCost(downloadCount: number): number {
-  return Math.round(downloadCount * B2_CLASS_B_RATE_PER_1000 * 100);
+  return Math.round((downloadCount / 1000) * B2_CLASS_B_RATE_PER_1000 * 100);
 }
 
 export async function fetchMonthlyCosts(): Promise<StorageCosts> {

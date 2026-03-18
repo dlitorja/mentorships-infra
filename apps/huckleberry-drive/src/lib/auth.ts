@@ -9,7 +9,7 @@ export async function requireMentor(): Promise<DbUser> {
   
   const dbUser = await getUserById(userId);
   if (!dbUser || (dbUser.role !== "mentor" && dbUser.role !== "admin" && dbUser.role !== "video_editor")) {
-    throw new ForbiddenError("Must be a mentor");
+    throw new ForbiddenError("Must be a mentor, admin, or video editor");
   }
   return dbUser;
 }
@@ -52,7 +52,7 @@ export async function canAccessFile(fileInstructorId: string): Promise<boolean> 
   throw new ForbiddenError("Cannot access this file");
 }
 
-export async function getAccessibleInstructorIds(): Promise<string[]> {
+export async function getAccessibleInstructorIds(): Promise<string[] | null> {
   const { userId } = await auth();
   if (!userId) return [];
   
@@ -60,7 +60,7 @@ export async function getAccessibleInstructorIds(): Promise<string[]> {
   if (!dbUser) return [];
   
   if (dbUser.role === "admin") {
-    return [];
+    return null;
   }
   
   if (dbUser.role === "mentor") {

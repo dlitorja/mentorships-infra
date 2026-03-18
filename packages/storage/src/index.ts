@@ -6,7 +6,6 @@ export {
   completeMultipartUpload,
   abortMultipartUpload,
   listUploadedParts,
-  getUploadUrl,
   getUploadDestination,
   type UploadInit,
   type UploadPart,

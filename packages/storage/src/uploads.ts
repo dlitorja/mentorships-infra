@@ -4,7 +4,6 @@ import {
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
   ListPartsCommand,
-  GetObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -165,26 +164,15 @@ export async function listUploadedParts(params: {
   })) as UploadPart[];
 }
 
-export async function getUploadUrl(key: string): Promise<string> {
+export async function getUploadDestination(key: string): Promise<string> {
   const client = getB2Client();
 
   return getSignedUrl(
     client,
-    new GetObjectCommand({
+    new PutObjectCommand({
       Bucket: B2_BUCKET_NAME,
       Key: key,
     }),
     { expiresIn: URL_EXPIRY_SECONDS }
   );
-}
-
-export async function getUploadDestination(key: string): Promise<string> {
-  const client = getB2Client();
-
-  const command = new PutObjectCommand({
-    Bucket: B2_BUCKET_NAME,
-    Key: key,
-  });
-
-  return getSignedUrl(client, command, { expiresIn: URL_EXPIRY_SECONDS });
 }
