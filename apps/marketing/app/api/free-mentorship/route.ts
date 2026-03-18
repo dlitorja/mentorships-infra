@@ -89,7 +89,7 @@ export async function POST(
       });
     }
 
-    if (!antiSpam.formTimestamp || (Date.now() - antiSpam.formTimestamp) < 3000) {
+    if (!antiSpam.formTimestamp || (Date.now() - antiSpam.formTimestamp) < 1000) {
       console.log("Form submitted too quickly or missing timestamp, rejecting");
       return NextResponse.json({
         success: true,
