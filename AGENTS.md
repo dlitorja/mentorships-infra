@@ -1430,3 +1430,30 @@ Key properties available in run subscriptions:
 - **Cleanup subscriptions**: Backend subscriptions auto-complete, frontend hooks auto-cleanup
 
 <!-- TRIGGER.DEV realtime END -->
+
+<!-- CONTEXT7 START -->
+# Context7 Documentation
+
+**Use Context7 for up-to-date library documentation**
+
+When working with new libraries or unfamiliar APIs, add `use context7` to the prompt to get current, version-specific documentation and code examples.
+
+## Usage
+
+```
+Build the upload API route. use context7
+```
+
+```
+Configure the S3 client for Backblaze B2. use context7
+```
+
+## Libraries to use Context7 for
+
+- Uppy (file uploads)
+- AWS SDK for S3
+- Backblaze B2 S3-compatible API
+- Trigger.dev tasks
+- Recharts (charts)
+
+<!-- CONTEXT7 END -->
