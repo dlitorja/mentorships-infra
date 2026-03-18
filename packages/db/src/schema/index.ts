@@ -14,6 +14,7 @@ export * from "./contacts";
 export * from "./waitlist";
 export * from "./kajabi-offers";
 export * from "./admin-digest-settings";
+export * from "./videoEditorAssignments";
 
 // Re-export drizzle-orm for convenience
 export * from "drizzle-orm";

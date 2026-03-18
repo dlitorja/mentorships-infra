@@ -1,5 +1,32 @@
 # Huckleberry Drive Implementation Plan
 
+## Current Status
+
+**Phase 1: Complete** ✅ (PR #97 merged)
+- Created `apps/huckleberry-drive` Next.js 16 app
+- Configured Clerk authentication middleware
+- Set up directory structure (dashboard, uploads, admin, api routes)
+- Added auth helpers (requireMentor, requireAdmin, canAccessFile)
+- Added dev:huckleberry script to root package.json
+
+**Phase 2: Complete** ✅
+- Added "video_editor" to userRoleEnum in packages/db
+- Created videoEditorAssignments schema
+- Added query helpers (getAssignedInstructorIds, isVideoEditorAssignedToInstructor, etc.)
+- Updated auth.ts with requireVideoEditor(), canAccessFile(), getAccessibleInstructorIds()
+- Middleware already configured (protects all routes except sign-in)
+
+**Phase 3: Complete** ✅
+- Created packages/storage with B2 S3 client
+- Implemented multipart upload functions (initiate, complete, abort)
+- Implemented download functions (getDownloadUrl)
+- Implemented file operations (delete, headFile, fileExists)
+- Implemented archive functions (copyToS3, verifyS3Upload, deleteFromB2)
+- Implemented cost estimation functions
+- Added @mentorships/storage to huckleberry-drive dependencies
+
+---
+
 ## Overview
 
 A separate Next.js application for instructors to upload video footage, storing files in Backblaze B2 for cost-effective storage with automatic archival to AWS S3 Glacier Deep Archive after 30 days.
