@@ -20,7 +20,7 @@ export default defineConfig({
   build: {
     extensions: [
       additionalFiles({
-        files: ["packages/storage/**", "packages/db/**", "apps/web/lib/email.ts"],
+        files: ["packages/storage/**", "packages/db/**"],
       }),
     ],
     autoDetectExternal: true,

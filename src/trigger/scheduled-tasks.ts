@@ -67,23 +67,17 @@ export const archiveOldFiles = schedules.task({
 
     logger.info(`Found ${filesToArchive.length} files to archive`);
 
-    const results = { success: 0, failed: 0, skipped: 0 };
+    const results = { success: 0, failed: 0 };
 
     for (const file of filesToArchive) {
       try {
-        if (!file.b2FileId) {
-          logger.warn(`File ${file.id} missing b2FileId, skipping`);
-          results.skipped++;
-          continue;
-        }
-
-        const b2Key = file.b2FileId;
-        logger.info(`Archiving file ${file.id}: ${file.filename}`);
+        const b2Key = file.filename;
+        logger.info(`Archiving file ${file.id}: ${b2Key}`);
 
         const { s3Key, s3Url } = await copyToS3({
           fileId: file.id,
           b2Key,
-          filename: file.filename,
+          filename: file.originalName || file.filename,
         });
 
         const verified = await verifyS3Upload(s3Key);
@@ -151,12 +145,6 @@ export const retryFailedTransfers = schedules.task({
 
     for (const file of failedTransfers) {
       try {
-        if (!file.b2FileId) {
-          logger.warn(`File ${file.id} missing b2FileId, skipping`);
-          results.maxRetriesReached++;
-          continue;
-        }
-
         const retryCount = file.transferRetryCount ?? 0;
         logger.info(`Retrying transfer for file ${file.id} (attempt ${retryCount + 1}/${MAX_TRANSFER_RETRIES})`);
 
@@ -168,10 +156,11 @@ export const retryFailedTransfers = schedules.task({
           })
           .where(eq(instructorUploads.id, file.id));
 
+        const b2Key = file.filename;
         const { s3Key, s3Url } = await copyToS3({
           fileId: file.id,
-          b2Key: file.b2FileId,
-          filename: file.filename,
+          b2Key,
+          filename: file.originalName || file.filename,
         });
 
         const verified = await verifyS3Upload(s3Key);
@@ -332,10 +321,11 @@ export const sendArchiveWarnings = schedules.task({
   run: async (payload) => {
     logger.info("Starting archive warnings job", { timestamp: payload.timestamp });
 
-    const archiveDate = new Date();
-    archiveDate.setDate(archiveDate.getDate() + DAYS_BEFORE_WARNING);
-    const warningDate = new Date();
-    warningDate.setDate(warningDate.getDate() + DAYS_BEFORE_WARNING + 1);
+    const daysBeforeArchiveCutoff = DAYS_BEFORE_ARCHIVE - DAYS_BEFORE_WARNING;
+    const cutoffEnd = new Date();
+    cutoffEnd.setDate(cutoffEnd.getDate() - daysBeforeArchiveCutoff);
+    const cutoffStart = new Date();
+    cutoffStart.setDate(cutoffStart.getDate() - daysBeforeArchiveCutoff - 1);
 
     const filesToWarn = await db
       .select({
@@ -347,8 +337,8 @@ export const sendArchiveWarnings = schedules.task({
       .where(
         and(
           eq(instructorUploads.status, "completed"),
-          gte(instructorUploads.createdAt, archiveDate),
-          lt(instructorUploads.createdAt, warningDate),
+          gte(instructorUploads.createdAt, cutoffStart),
+          lt(instructorUploads.createdAt, cutoffEnd),
           sql`(${instructorUploads.transferStatus} IS NULL OR ${instructorUploads.transferStatus} = 'pending')`,
           sql`(${instructorUploads.notifiedAt} IS NULL OR ${instructorUploads.notifiedAt} < NOW() - INTERVAL '1 day')`
         )
@@ -368,7 +358,7 @@ export const sendArchiveWarnings = schedules.task({
       }
       instructorFiles.get(instructorId)!.files.push({
         id: row.upload.id,
-        filename: row.upload.filename,
+        filename: row.upload.originalName || row.upload.filename,
         size: Number(row.upload.size),
       });
     }
