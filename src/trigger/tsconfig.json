@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022"],
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@mentorships/db": ["../packages/db/src"],
+      "@mentorships/storage": ["../packages/storage/src"]
+    }
+  },
+  "include": ["./**/*", "../packages/db/src/**/*", "../packages/storage/src/**/*"],
+  "exclude": ["node_modules"]
+}
