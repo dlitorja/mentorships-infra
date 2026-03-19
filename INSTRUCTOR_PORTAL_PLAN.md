@@ -44,6 +44,16 @@
 - Added proper auth error handling (401/403/400)
 - Added type-safe Drizzle queries and SQL casts
 
+**Phase 6: Complete** ✅ (PR #101 merged)
+- Created 4 Trigger.dev scheduled tasks in src/trigger/scheduled-tasks.ts
+- archiveOldFiles: Daily 3 AM UTC - copies completed files >30 days old to S3 Glacier
+- retryFailedTransfers: Every 6 hours - retries failed S3 transfers (max 4 attempts)
+- calculateStorageCosts: Daily 2 AM UTC - calculates monthly B2 + S3 storage costs
+- sendArchiveWarnings: Daily 9 AM UTC - notifies instructors 7 days before archival
+- Updated trigger.config.ts with build extensions for package bundling
+- Moved resend to dependencies for production runtime use
+- Added TypeScript configuration for trigger tasks
+
 ---
 
 ## Overview
