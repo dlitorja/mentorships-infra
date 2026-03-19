@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, isNotNull, lt, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, or, isNull, isNotNull, lt, ne, desc, asc, sql, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
 import { instructorUploads, uploadStatusEnum, transferStatusEnum } from "../../schema";
 import type { InstructorUpload } from "../../schema";

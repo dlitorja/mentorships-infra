@@ -46,6 +46,7 @@ export const instructorUploads = pgTable(
 
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at"),
   },
   (t) => ({
     instructorIdIdx: index("instructor_uploads_instructor_id_idx").on(t.instructorId),

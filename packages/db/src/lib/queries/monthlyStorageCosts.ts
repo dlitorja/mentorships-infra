@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
 import { monthlyStorageCosts } from "../../schema";
 
@@ -118,9 +118,7 @@ export async function getTotalCostsForPeriod(months: string[]) {
   const records = await db
     .select()
     .from(monthlyStorageCosts)
-    .where(
-      // Note: Would need inArray() from drizzle-orm
-    );
+    .where(inArray(monthlyStorageCosts.month, months));
   
   return records.reduce(
     (acc, record) => ({
