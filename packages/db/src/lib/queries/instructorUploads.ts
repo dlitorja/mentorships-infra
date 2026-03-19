@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, isNotNull, lt, ne, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, or, isNull, lt, desc, asc, sql, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
 import { instructorUploads, uploadStatusEnum, transferStatusEnum } from "../../schema";
 import type { InstructorUpload } from "../../schema";
@@ -8,7 +8,7 @@ export type { InstructorUpload, NewInstructorUpload } from "../../schema";
 /**
  * Get all uploads for an instructor
  */
-export async function getInstructorUploads(instructorId: string) {
+export async function getInstructorUploads(instructorId: string): Promise<InstructorUpload[]> {
   return db
     .select()
     .from(instructorUploads)
@@ -19,7 +19,7 @@ export async function getInstructorUploads(instructorId: string) {
 /**
  * Get uploads for multiple instructors (for video editor access)
  */
-export async function getUploadsForInstructors(instructorIds: string[]) {
+export async function getUploadsForInstructors(instructorIds: string[]): Promise<InstructorUpload[]> {
   if (instructorIds.length === 0) return [];
   
   return db
@@ -32,7 +32,7 @@ export async function getUploadsForInstructors(instructorIds: string[]) {
 /**
  * Get upload by ID
  */
-export async function getUploadById(id: string) {
+export async function getUploadById(id: string): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .select()
     .from(instructorUploads)
@@ -45,7 +45,7 @@ export async function getUploadById(id: string) {
 /**
  * Get uploads by status
  */
-export async function getUploadsByStatus(status: typeof uploadStatusEnum.enumValues[number]) {
+export async function getUploadsByStatus(status: typeof uploadStatusEnum.enumValues[number]): Promise<InstructorUpload[]> {
   return db
     .select()
     .from(instructorUploads)
@@ -54,9 +54,9 @@ export async function getUploadsByStatus(status: typeof uploadStatusEnum.enumVal
 }
 
 /**
- * Get uploads ready for archiving (completed more than X days ago)
+ * Get uploads ready for archiving (completed more than X days ago, only initial transfer states)
  */
-export async function getFilesForArchiving(daysOld: number) {
+export async function getFilesForArchiving(daysOld: number): Promise<InstructorUpload[]> {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysOld);
   
@@ -68,10 +68,7 @@ export async function getFilesForArchiving(daysOld: number) {
         eq(instructorUploads.status, "completed"),
         or(
           isNull(instructorUploads.transferStatus),
-          and(
-            isNotNull(instructorUploads.transferStatus),
-            ne(instructorUploads.transferStatus, "completed")
-          )
+          eq(instructorUploads.transferStatus, "pending")
         ),
         lt(instructorUploads.createdAt, cutoffDate)
       )
@@ -81,9 +78,9 @@ export async function getFilesForArchiving(daysOld: number) {
 }
 
 /**
- * Get failed transfers for retry
+ * Get failed transfers for retry (only failed status, not pending/transferring)
  */
-export async function getFailedTransfers() {
+export async function getFailedTransfers(): Promise<InstructorUpload[]> {
   return db
     .select()
     .from(instructorUploads)
@@ -99,7 +96,7 @@ export async function getFailedTransfers() {
 /**
  * Get total storage used by an instructor
  */
-export async function getInstructorStorageUsage(instructorId: string) {
+export async function getInstructorStorageUsage(instructorId: string): Promise<{ totalSize: number; fileCount: number }> {
   const result = await db
     .select({
       totalSize: sql<number>`COALESCE(SUM(${instructorUploads.size}), 0)`,
@@ -126,7 +123,7 @@ export async function createUpload(data: {
   originalName: string;
   contentType: string;
   size: number;
-}) {
+}): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .insert(instructorUploads)
     .values({
@@ -144,7 +141,7 @@ export async function createUpload(data: {
 export async function updateUploadStarted(
   id: string,
   b2UploadId: string
-) {
+): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .update(instructorUploads)
     .set({
@@ -161,7 +158,7 @@ export async function updateUploadStarted(
 /**
  * Mark upload as completed
  */
-export async function completeUpload(id: string, b2FileId: string) {
+export async function completeUpload(id: string, b2FileId: string): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .update(instructorUploads)
     .set({
@@ -182,7 +179,7 @@ export async function completeUpload(id: string, b2FileId: string) {
 export async function updateTransferStatus(
   id: string,
   transferStatus: typeof transferStatusEnum.enumValues[number]
-) {
+): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .update(instructorUploads)
     .set({
@@ -202,7 +199,7 @@ export async function archiveUpload(
   id: string,
   s3Key: string,
   s3Url: string
-) {
+): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .update(instructorUploads)
     .set({
@@ -222,7 +219,7 @@ export async function archiveUpload(
 /**
  * Mark upload as failed
  */
-export async function failUpload(id: string, errorMessage: string) {
+export async function failUpload(id: string, errorMessage: string): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .update(instructorUploads)
     .set({
@@ -239,7 +236,7 @@ export async function failUpload(id: string, errorMessage: string) {
 /**
  * Increment transfer retry count
  */
-export async function incrementTransferRetry(id: string) {
+export async function incrementTransferRetry(id: string): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .update(instructorUploads)
     .set({
@@ -256,11 +253,12 @@ export async function incrementTransferRetry(id: string) {
 /**
  * Soft delete an upload
  */
-export async function softDeleteUpload(id: string) {
+export async function softDeleteUpload(id: string): Promise<InstructorUpload | undefined> {
   const [upload] = await db
     .update(instructorUploads)
     .set({
       status: "deleted",
+      deletedAt: new Date(),
       updatedAt: new Date(),
     })
     .where(eq(instructorUploads.id, id))
@@ -272,7 +270,7 @@ export async function softDeleteUpload(id: string) {
 /**
  * Permanently delete an upload (admin only)
  */
-export async function permanentlyDeleteUpload(id: string) {
+export async function permanentlyDeleteUpload(id: string): Promise<void> {
   await db
     .delete(instructorUploads)
     .where(eq(instructorUploads.id, id));
@@ -281,7 +279,7 @@ export async function permanentlyDeleteUpload(id: string) {
 /**
  * Mark instructor as notified about archival
  */
-export async function markUploadNotified(id: string) {
+export async function markUploadNotified(id: string): Promise<void> {
   await db
     .update(instructorUploads)
     .set({

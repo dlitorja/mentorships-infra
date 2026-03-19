@@ -10,13 +10,7 @@ const fileMetadataSchema = z.object({
   etag: z.string().optional(),
 });
 
-export interface FileMetadata {
-  key: string;
-  size?: number;
-  contentType?: string;
-  lastModified?: Date;
-  etag?: string;
-}
+export type FileMetadata = z.infer<typeof fileMetadataSchema>;
 
 export async function deleteFile(key: string): Promise<void> {
   const client = getB2Client();

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, integer, pgEnum, index, bigint } from "drizzle-orm/pg-core";
 import { users } from "./users";
 
 export const uploadStatusEnum = pgEnum("upload_status", [
@@ -28,7 +28,7 @@ export const instructorUploads = pgTable(
     filename: text("filename").notNull(),
     originalName: text("original_name").notNull(),
     contentType: text("content_type").notNull(),
-    size: integer("size").notNull(),
+    size: bigint("size", { mode: "number" }).notNull(),
 
     b2FileId: text("b2_file_id"),
     b2UploadId: text("b2_upload_id"),

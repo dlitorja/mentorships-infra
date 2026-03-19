@@ -15,8 +15,8 @@ export const monthlyStorageCosts = pgTable(
 
     totalCost: integer("total_cost").notNull().default(0),
 
-    alertSent: boolean("alert_sent").default(false),
-    alertThreshold: integer("alert_threshold").default(5000),
+    alertSent: boolean("alert_sent").notNull().default(false),
+    alertThreshold: integer("alert_threshold").notNull().default(5000),
 
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

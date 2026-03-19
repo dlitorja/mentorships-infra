@@ -1,13 +1,14 @@
-import { eq, desc, inArray } from "drizzle-orm";
+import { eq, desc, inArray, sql } from "drizzle-orm";
 import { db } from "../drizzle";
 import { monthlyStorageCosts } from "../../schema";
+import type { MonthlyStorageCost } from "../../schema";
 
 export type { MonthlyStorageCost, NewMonthlyStorageCost } from "../../schema";
 
 /**
  * Get cost record for a specific month
  */
-export async function getMonthlyCost(month: string) {
+export async function getMonthlyCost(month: string): Promise<MonthlyStorageCost | undefined> {
   const [cost] = await db
     .select()
     .from(monthlyStorageCosts)
@@ -20,7 +21,7 @@ export async function getMonthlyCost(month: string) {
 /**
  * Get current month's cost record
  */
-export async function getCurrentMonthCost() {
+export async function getCurrentMonthCost(): Promise<MonthlyStorageCost | undefined> {
   const currentMonth = new Date().toISOString().slice(0, 7);
   return getMonthlyCost(currentMonth);
 }
@@ -28,7 +29,7 @@ export async function getCurrentMonthCost() {
 /**
  * Get all monthly costs ordered by month descending
  */
-export async function getAllMonthlyCosts() {
+export async function getAllMonthlyCosts(): Promise<MonthlyStorageCost[]> {
   return db
     .select()
     .from(monthlyStorageCosts)
@@ -38,7 +39,7 @@ export async function getAllMonthlyCosts() {
 /**
  * Get recent months' costs (default: 12 months)
  */
-export async function getRecentMonthlyCosts(months: number = 12) {
+export async function getRecentMonthlyCosts(months: number = 12): Promise<MonthlyStorageCost[]> {
   const records = await db
     .select()
     .from(monthlyStorageCosts)
@@ -60,7 +61,7 @@ export async function upsertMonthlyCost(data: {
   s3RetrievalCost: number;
   totalCost: number;
   alertThreshold?: number;
-}) {
+}): Promise<MonthlyStorageCost> {
   const [cost] = await db
     .insert(monthlyStorageCosts)
     .values({
@@ -88,7 +89,7 @@ export async function upsertMonthlyCost(data: {
 /**
  * Update alert status for a month
  */
-export async function updateAlertStatus(month: string, alertSent: boolean) {
+export async function updateAlertStatus(month: string, alertSent: boolean): Promise<MonthlyStorageCost | undefined> {
   const [cost] = await db
     .update(monthlyStorageCosts)
     .set({
@@ -104,17 +105,36 @@ export async function updateAlertStatus(month: string, alertSent: boolean) {
 /**
  * Get months where alert threshold was exceeded
  */
-export async function getMonthsOverThreshold() {
+export async function getMonthsOverThreshold(): Promise<MonthlyStorageCost[]> {
   return db
     .select()
     .from(monthlyStorageCosts)
+    .where(sql`${monthlyStorageCosts.totalCost} > ${monthlyStorageCosts.alertThreshold}`)
     .orderBy(desc(monthlyStorageCosts.month));
 }
 
 /**
  * Calculate total costs over a period
  */
-export async function getTotalCostsForPeriod(months: string[]) {
+export async function getTotalCostsForPeriod(months: string[]): Promise<{
+  b2StorageCost: number;
+  b2DownloadCost: number;
+  b2ApiCost: number;
+  s3StorageCost: number;
+  s3RetrievalCost: number;
+  totalCost: number;
+}> {
+  if (months.length === 0) {
+    return {
+      b2StorageCost: 0,
+      b2DownloadCost: 0,
+      b2ApiCost: 0,
+      s3StorageCost: 0,
+      s3RetrievalCost: 0,
+      totalCost: 0,
+    };
+  }
+
   const records = await db
     .select()
     .from(monthlyStorageCosts)

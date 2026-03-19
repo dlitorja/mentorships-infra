@@ -33,7 +33,7 @@ export function calculateDownloadTransactionCost(downloadCount: number): number 
 
 export async function fetchMonthlyCosts(): Promise<StorageCosts> {
   const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 
   return {
     b2Storage: 0,
