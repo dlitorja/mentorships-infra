@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireMentor, getAccessibleInstructorIds } from "@/lib/auth";
-import { getInstructorUploads, getUploadsForInstructors, type InstructorUpload } from "@mentorships/db";
-import { extractFilenameFromKey, extractDateFromKey } from "@mentorships/storage";
+import {
+  getInstructorUploads,
+  getUploadsForInstructors,
+  getAllInstructorUploads,
+  type InstructorUpload,
+} from "@mentorships/db";
+import { eq } from "drizzle-orm";
+import { instructorUploads } from "@mentorships/db";
 
 interface FileResponse {
   id: string;
@@ -36,10 +42,10 @@ export async function GET(): Promise<NextResponse> {
     
     let uploads: InstructorUpload[];
     
-    if (accessibleIds === null) {
+    if (dbUser.role === "admin") {
+      uploads = await getAllInstructorUploads();
+    } else if (accessibleIds === null || accessibleIds.length === 0) {
       uploads = await getInstructorUploads(dbUser.id);
-    } else if (accessibleIds.length === 0) {
-      return NextResponse.json({ files: [], pagination: { total: 0, hasMore: false } });
     } else {
       uploads = await getUploadsForInstructors(accessibleIds);
     }

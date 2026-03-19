@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireMentor, canAccessFile } from "@/lib/auth";
+import { requireMentor } from "@/lib/auth";
 import { completeMultipartUpload, type UploadPart } from "@mentorships/storage";
 import { getUploadById, completeUpload } from "@mentorships/db";
 
@@ -18,7 +18,7 @@ const completeSchema = z.object({
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    await requireMentor();
+    const dbUser = await requireMentor();
     const body = await request.json();
     
     const parsed = completeSchema.safeParse(body);
@@ -34,6 +34,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const upload = await getUploadById(fileId);
     if (!upload) {
       return NextResponse.json({ error: "Upload not found" }, { status: 404 });
+    }
+    
+    if (upload.instructorId !== dbUser.id && dbUser.role !== "admin") {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
     
     if (upload.b2UploadId !== uploadId) {

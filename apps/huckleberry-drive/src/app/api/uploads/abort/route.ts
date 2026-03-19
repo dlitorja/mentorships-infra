@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireMentor } from "@/lib/auth";
 import { abortMultipartUpload } from "@mentorships/storage";
-import { getUploadById, permanentlyDeleteUpload } from "@mentorships/db";
+import { getUploadById, softDeleteUpload } from "@mentorships/db";
 
 const abortSchema = z.object({
   fileId: z.string().uuid(),
@@ -38,14 +38,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid upload ID" }, { status: 400 });
     }
     
-    await abortMultipartUpload({ key, uploadId });
+    await softDeleteUpload(fileId);
     
-    await permanentlyDeleteUpload(fileId);
+    await abortMultipartUpload({ key, uploadId });
     
     return NextResponse.json({
       success: true,
       fileId,
-      message: "Upload aborted and cleaned up",
+      message: "Upload aborted successfully",
     });
   } catch (error) {
     console.error("Upload abort error:", error);

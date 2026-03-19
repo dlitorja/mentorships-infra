@@ -30,7 +30,7 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const dbUser = await requireMentor();
+    await requireMentor();
     
     const upload = await getUploadById(id);
     if (!upload) {
@@ -41,17 +41,16 @@ export async function GET(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
     
-    await canAccessFile(upload.instructorId);
+    const hasAccess = await canAccessFile(upload.instructorId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    }
     
     return NextResponse.json({
       file: await formatFileResponse(upload),
     });
   } catch (error) {
     console.error("Get file error:", error);
-    
-    if (error instanceof Error && error.message === "Cannot access this file") {
-      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
-    }
     
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -83,11 +82,7 @@ export async function DELETE(
     }
     
     if (upload.filename) {
-      try {
-        await deleteFile(upload.filename);
-      } catch (error) {
-        console.error("Failed to delete file from B2:", error);
-      }
+      await deleteFile(upload.filename);
     }
     
     await softDeleteUpload(id);

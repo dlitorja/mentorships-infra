@@ -1,20 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import {
-  getCurrentMonthCost,
   getRecentMonthlyCosts,
   getMonthsOverThreshold,
 } from "@mentorships/db";
 import {
-  fetchMonthlyCosts,
   formatCost,
   estimateB2StorageCost,
   estimateS3StorageCost,
 } from "@mentorships/storage";
-import { getInstructorStorageUsage, getInstructorUploads } from "@mentorships/db";
 import { db } from "@mentorships/db";
 import { instructorUploads } from "@mentorships/db";
-import { sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
+import type { MonthlyStorageCost } from "@mentorships/db";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -35,19 +33,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           total: sql<number>`COALESCE(SUM(size), 0)`,
         })
         .from(instructorUploads)
-        .where(sql`status IN ('completed', 'archived')`);
+        .where(inArray(instructorUploads.status, ["completed", "archived"]));
       
       const totalArchivedBytes = await db
         .select({
           total: sql<number>`COALESCE(SUM(size), 0)`,
         })
         .from(instructorUploads)
-        .where(sql`status = 'archived'`);
+        .where(eq(instructorUploads.status, "archived"));
       
       const activeBytes = totalBytes[0]?.total || 0;
       const archivedBytes = totalArchivedBytes[0]?.total || 0;
       
-      const estimatedCurrent = {
+      const estimatedCurrent: MonthlyStorageCost = {
+        id: "",
         month: currentMonth,
         b2StorageCost: estimateB2StorageCost(activeBytes - archivedBytes),
         b2DownloadCost: 0,
@@ -59,9 +58,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           estimateS3StorageCost(archivedBytes),
         alertSent: false,
         alertThreshold: 5000,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
       
-      currentCost = estimatedCurrent as typeof currentCost;
+      currentCost = estimatedCurrent;
     }
     
     const monthsOverThreshold = await getMonthsOverThreshold();

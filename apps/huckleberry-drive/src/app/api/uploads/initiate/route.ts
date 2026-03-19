@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireMentor, getAccessibleInstructorIds } from "@/lib/auth";
-import { initiateMultipartUpload, type UploadInit } from "@mentorships/storage";
-import { createUpload, updateUploadStarted, getUploadsForInstructors } from "@mentorships/db";
+import { requireMentor } from "@/lib/auth";
+import { initiateMultipartUpload } from "@mentorships/storage";
+import { createUpload, updateUploadStarted } from "@mentorships/db";
 
 const initiateSchema = z.object({
   filename: z.string().min(1).max(255),
   contentType: z.string().min(1),
-  size: z.number().positive().max(20 * 1024 * 1024 * 1024), // 20GB max
+  size: z.number().positive().max(20 * 1024 * 1024 * 1024),
 });
 
-const MAX_UPLOAD_SIZE = 20 * 1024 * 1024 * 1024; // 20GB
+const MAX_UPLOAD_SIZE = 20 * 1024 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = [
   "video/mp4",
   "video/quicktime",

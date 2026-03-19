@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireMentor, canAccessFile } from "@/lib/auth";
 import { getUploadById } from "@mentorships/db";
-import { getDownloadUrl, getDownloadUrlWithContentDisposition } from "@mentorships/storage";
+import { getDownloadUrlWithContentDisposition } from "@mentorships/storage";
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -13,10 +13,13 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const { userId } = requireMentor();
+    await requireMentor();
     
     const url = new URL(request.url);
-    const expiresIn = parseInt(url.searchParams.get("expiresIn") || "3600", 10);
+    const expiresIn = Math.max(60, Math.min(
+      parseInt(url.searchParams.get("expiresIn") || "3600", 10) || 3600,
+      86400
+    ));
     
     const upload = await getUploadById(id);
     if (!upload) {
@@ -27,7 +30,7 @@ export async function GET(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
     
-    if (upload.status === "archived" && upload.s3Key) {
+    if (upload.status === "archived") {
       return NextResponse.json({
         error: "File is archived in S3 Glacier. Restore required before download." },
         { status: 410 }
@@ -38,17 +41,20 @@ export async function GET(
       return NextResponse.json({ error: "File location unknown" }, { status: 400 });
     }
     
-    await canAccessFile(upload.instructorId);
+    const hasAccess = await canAccessFile(upload.instructorId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    }
     
     const downloadUrl = await getDownloadUrlWithContentDisposition(
       upload.filename,
       upload.originalName,
-      Math.min(expiresIn, 86400)
+      expiresIn
     );
     
     return NextResponse.json({
       url: downloadUrl,
-      expiresIn: Math.min(expiresIn, 86400),
+      expiresIn,
       filename: upload.originalName,
     });
   } catch (error) {
