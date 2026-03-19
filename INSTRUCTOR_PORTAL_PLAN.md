@@ -32,6 +32,18 @@
 - Added query helpers (getUploadById, getInstructorUploads, etc.)
 - Added mutation helpers (createUpload, updateUploadStatus, etc.)
 
+**Phase 5: Complete** ✅ (PR #100 merged)
+- Implemented POST /api/uploads/initiate for multipart upload
+- Implemented POST /api/uploads/complete for completing uploads
+- Implemented POST /api/uploads/abort for canceling uploads
+- Implemented GET /api/files for listing accessible files
+- Implemented GET/DELETE /api/files/[id] for single file operations
+- Implemented GET /api/download/[id] for presigned download URLs
+- Implemented GET /api/costs for admin cost reporting
+- Added role-based access control (instructor, video_editor, admin)
+- Added proper auth error handling (401/403/400)
+- Added type-safe Drizzle queries and SQL casts
+
 ---
 
 ## Overview
