@@ -6,6 +6,16 @@ import type { InstructorUpload } from "../../schema";
 export type { InstructorUpload, NewInstructorUpload } from "../../schema";
 
 /**
+ * Get all uploads (admin only)
+ */
+export async function getAllInstructorUploads(): Promise<InstructorUpload[]> {
+  return db
+    .select()
+    .from(instructorUploads)
+    .orderBy(desc(instructorUploads.createdAt));
+}
+
+/**
  * Get all uploads for an instructor
  */
 export async function getInstructorUploads(instructorId: string): Promise<InstructorUpload[]> {
