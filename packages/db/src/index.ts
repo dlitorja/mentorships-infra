@@ -45,6 +45,8 @@ export * from "./lib/queries/discounts";
 export * from "./lib/queries/discordActionQueue";
 export * from "./lib/queries/softDelete";
 export * from "./lib/queries/videoEditorAssignments";
+export * from "./lib/queries/instructorUploads";
+export * from "./lib/queries/monthlyStorageCosts";
 
 // Export types
 export type { Database } from "./types/database.types";

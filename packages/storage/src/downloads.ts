@@ -5,7 +5,7 @@ import { getB2Client, B2_BUCKET_NAME } from "./client";
 const DEFAULT_URL_EXPIRY = 3600; // 1 hour
 
 function sanitizeFilename(filename: string): string {
-  return filename.replace(/["\r\n]/g, "_").slice(0, 255);
+  return filename.replace(/["\r\n;]/g, "_").slice(0, 255);
 }
 
 export async function getDownloadUrl(
@@ -45,5 +45,6 @@ export function parseKeyFromS3Url(url: string): string | null {
 
 export function buildB2Url(key: string): string {
   const endpoint = process.env.B2_ENDPOINT || `https://s3.${process.env.B2_REGION || "us-west-002"}.backblazeb2.com`;
-  return `${endpoint}/${B2_BUCKET_NAME}/${encodeURIComponent(key)}`;
+  const encodedKey = key.split("/").map(encodeURIComponent).join("/");
+  return `${endpoint}/${B2_BUCKET_NAME}/${encodedKey}`;
 }

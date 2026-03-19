@@ -5,15 +5,20 @@ const B2_ENDPOINT = process.env.B2_ENDPOINT || `https://s3.${B2_REGION}.backblaz
 
 let b2Client: S3Client | null = null;
 
-export function createB2Client(): S3Client {
-  if (b2Client) return b2Client;
+function initializeB2Client(): S3Client {
+  const accessKeyId = process.env.B2_KEY_ID;
+  const secretAccessKey = process.env.B2_APPLICATION_KEY;
+  
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("Missing B2 credentials: B2_KEY_ID and B2_APPLICATION_KEY must be set");
+  }
 
   b2Client = new S3Client({
     region: B2_REGION,
     endpoint: B2_ENDPOINT,
     credentials: {
-      accessKeyId: process.env.B2_KEY_ID!,
-      secretAccessKey: process.env.B2_APPLICATION_KEY!,
+      accessKeyId,
+      secretAccessKey,
     },
     forcePathStyle: true,
   });
@@ -22,10 +27,7 @@ export function createB2Client(): S3Client {
 }
 
 export function getB2Client(): S3Client {
-  if (!b2Client) {
-    return createB2Client();
-  }
-  return b2Client;
+  return b2Client ?? initializeB2Client();
 }
 
 export const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";

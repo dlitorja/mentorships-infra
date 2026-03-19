@@ -14,18 +14,27 @@ const S3_BUCKET = process.env.AWS_S3_BUCKET || "instructor-uploads-archive";
 
 let s3Client: S3Client | null = null;
 
-function getS3Client(): S3Client {
-  if (s3Client) return s3Client;
+function initializeS3Client(): S3Client {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("Missing AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set");
+  }
 
   s3Client = new S3Client({
     region: S3_REGION,
     credentials: {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+      accessKeyId,
+      secretAccessKey,
     },
   });
 
   return s3Client;
+}
+
+function getS3Client(): S3Client {
+  return s3Client ?? initializeS3Client();
 }
 
 export function getS3ArchiveKey(fileId: string, filename: string): string {
@@ -53,6 +62,10 @@ export async function copyToS3(params: {
   const stream = b2Response.Body;
   if (!stream) {
     throw new Error("Failed to read B2 object stream");
+  }
+
+  if (typeof stream !== "object") {
+    throw new Error("Unexpected B2 response body type");
   }
 
   const putCommand = new PutObjectCommand({
@@ -83,7 +96,15 @@ export async function verifyS3Upload(s3Key: string): Promise<boolean> {
 
     return response.StorageClass === "DEEP_ARCHIVE";
   } catch (error) {
-    return false;
+    if (
+      error instanceof Error &&
+      (error.name === "NotFound" || 
+       error.name === "NoSuchKey" ||
+       (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404)
+    ) {
+      return false;
+    }
+    throw error;
   }
 }
 
