@@ -9,14 +9,14 @@
 - Added auth helpers (requireMentor, requireAdmin, canAccessFile)
 - Added dev:huckleberry script to root package.json
 
-**Phase 2: Complete** ✅
+**Phase 2: Complete** ✅ (PR #98 merged)
 - Added "video_editor" to userRoleEnum in packages/db
 - Created videoEditorAssignments schema
 - Added query helpers (getAssignedInstructorIds, isVideoEditorAssignedToInstructor, etc.)
 - Updated auth.ts with requireVideoEditor(), canAccessFile(), getAccessibleInstructorIds()
 - Middleware already configured (protects all routes except sign-in)
 
-**Phase 3: Complete** ✅
+**Phase 3: Complete** ✅ (PR #98 merged)
 - Created packages/storage with B2 S3 client
 - Implemented multipart upload functions (initiate, complete, abort)
 - Implemented download functions (getDownloadUrl)
@@ -24,6 +24,13 @@
 - Implemented archive functions (copyToS3, verifyS3Upload, deleteFromB2)
 - Implemented cost estimation functions
 - Added @mentorships/storage to huckleberry-drive dependencies
+
+**Phase 4: Complete** ✅ (PR #99 merged)
+- Created instructorUploads schema with status/transfer enums
+- Created monthlyStorageCosts schema
+- Created videoEditorAssignments schema
+- Added query helpers (getUploadById, getInstructorUploads, etc.)
+- Added mutation helpers (createUpload, updateUploadStatus, etc.)
 
 ---
 

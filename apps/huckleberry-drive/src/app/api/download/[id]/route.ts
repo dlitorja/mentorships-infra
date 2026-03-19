@@ -1,8 +1,67 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireMentor, canAccessFile } from "@/lib/auth";
+import { getUploadById } from "@mentorships/db";
+import { getDownloadUrl, getDownloadUrlWithContentDisposition } from "@mentorships/storage";
+
+interface Params {
+  params: Promise<{ id: string }>;
+}
 
 export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  request: NextRequest,
+  { params }: Params
 ): Promise<NextResponse> {
-  return NextResponse.json({ error: "Not implemented" }, { status: 501 });
+  try {
+    const { id } = await params;
+    const { userId } = requireMentor();
+    
+    const url = new URL(request.url);
+    const expiresIn = parseInt(url.searchParams.get("expiresIn") || "3600", 10);
+    
+    const upload = await getUploadById(id);
+    if (!upload) {
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+    
+    if (upload.status === "deleted") {
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+    
+    if (upload.status === "archived" && upload.s3Key) {
+      return NextResponse.json({
+        error: "File is archived in S3 Glacier. Restore required before download." },
+        { status: 410 }
+      );
+    }
+    
+    if (!upload.filename) {
+      return NextResponse.json({ error: "File location unknown" }, { status: 400 });
+    }
+    
+    await canAccessFile(upload.instructorId);
+    
+    const downloadUrl = await getDownloadUrlWithContentDisposition(
+      upload.filename,
+      upload.originalName,
+      Math.min(expiresIn, 86400)
+    );
+    
+    return NextResponse.json({
+      url: downloadUrl,
+      expiresIn: Math.min(expiresIn, 86400),
+      filename: upload.originalName,
+    });
+  } catch (error) {
+    console.error("Download error:", error);
+    
+    if (error instanceof Error && error.message === "Cannot access this file") {
+      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    }
+    
+    if (error instanceof Error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
