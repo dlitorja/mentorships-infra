@@ -5,9 +5,9 @@ import {
   getUploadsForInstructors,
   getAllInstructorUploads,
   type InstructorUpload,
+  UnauthorizedError,
+  ForbiddenError,
 } from "@mentorships/db";
-import { eq } from "drizzle-orm";
-import { instructorUploads } from "@mentorships/db";
 
 interface FileResponse {
   id: string;
@@ -63,6 +63,13 @@ export async function GET(): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("List files error:", error);
+    
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

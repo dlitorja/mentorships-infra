@@ -2,12 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMentor, canAccessFile } from "@/lib/auth";
 import { getUploadById, softDeleteUpload, type InstructorUpload } from "@mentorships/db";
 import { deleteFile } from "@mentorships/storage";
+import { ForbiddenError, UnauthorizedError } from "@mentorships/db";
 
 interface Params {
   params: Promise<{ id: string }>;
 }
 
-async function formatFileResponse(upload: InstructorUpload) {
+interface FileResponse {
+  id: string;
+  instructorId: string;
+  originalName: string;
+  contentType: string;
+  size: number;
+  status: string;
+  transferStatus: string | null;
+  s3Key: string | null;
+  s3Url: string | null;
+  createdAt: Date;
+  archivedAt: Date | null;
+  errorMessage: string | null;
+}
+
+function formatFileResponse(upload: InstructorUpload): FileResponse {
   return {
     id: upload.id,
     instructorId: upload.instructorId,
@@ -47,10 +63,17 @@ export async function GET(
     }
     
     return NextResponse.json({
-      file: await formatFileResponse(upload),
+      file: formatFileResponse(upload),
     });
   } catch (error) {
     console.error("Get file error:", error);
+    
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -94,6 +117,13 @@ export async function DELETE(
     });
   } catch (error) {
     console.error("Delete file error:", error);
+    
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

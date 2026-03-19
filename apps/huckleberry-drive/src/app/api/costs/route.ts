@@ -3,6 +3,8 @@ import { requireAdmin } from "@/lib/auth";
 import {
   getRecentMonthlyCosts,
   getMonthsOverThreshold,
+  UnauthorizedError,
+  ForbiddenError,
 } from "@mentorships/db";
 import {
   formatCost,
@@ -30,14 +32,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (!currentCost) {
       const totalBytes = await db
         .select({
-          total: sql<number>`COALESCE(SUM(size), 0)`,
+          total: sql<number>`COALESCE(SUM(size)::bigint, 0)`,
         })
         .from(instructorUploads)
         .where(inArray(instructorUploads.status, ["completed", "archived"]));
       
       const totalArchivedBytes = await db
         .select({
-          total: sql<number>`COALESCE(SUM(size), 0)`,
+          total: sql<number>`COALESCE(SUM(size)::bigint, 0)`,
         })
         .from(instructorUploads)
         .where(eq(instructorUploads.status, "archived"));
@@ -94,6 +96,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(summary);
   } catch (error) {
     console.error("Costs error:", error);
+    
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

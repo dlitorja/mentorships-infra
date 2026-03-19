@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMentor, canAccessFile } from "@/lib/auth";
 import { getUploadById } from "@mentorships/db";
 import { getDownloadUrlWithContentDisposition } from "@mentorships/storage";
+import { ForbiddenError, UnauthorizedError } from "@mentorships/db";
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -60,8 +61,11 @@ export async function GET(
   } catch (error) {
     console.error("Download error:", error);
     
-    if (error instanceof Error && error.message === "Cannot access this file") {
-      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     
     if (error instanceof Error) {

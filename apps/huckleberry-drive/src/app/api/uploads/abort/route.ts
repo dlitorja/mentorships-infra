@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireMentor } from "@/lib/auth";
 import { abortMultipartUpload } from "@mentorships/storage";
 import { getUploadById, softDeleteUpload } from "@mentorships/db";
+import { UnauthorizedError, ForbiddenError } from "@mentorships/db";
 
 const abortSchema = z.object({
   fileId: z.string().uuid(),
@@ -38,9 +39,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid upload ID" }, { status: 400 });
     }
     
-    await softDeleteUpload(fileId);
-    
     await abortMultipartUpload({ key, uploadId });
+    
+    await softDeleteUpload(fileId);
     
     return NextResponse.json({
       success: true,
@@ -49,6 +50,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("Upload abort error:", error);
+    
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
