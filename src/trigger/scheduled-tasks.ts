@@ -47,6 +47,7 @@ async function sendArchiveWarningEmail(
 export const archiveOldFiles = schedules.task({
   id: "archive-old-files",
   cron: "0 3 * * *",
+  maxDuration: 1800,
   run: async (payload) => {
     logger.info("Starting archive job", { timestamp: payload.timestamp });
 
@@ -148,14 +149,6 @@ export const retryFailedTransfers = schedules.task({
         const retryCount = file.transferRetryCount ?? 0;
         logger.info(`Retrying transfer for file ${file.id} (attempt ${retryCount + 1}/${MAX_TRANSFER_RETRIES})`);
 
-        await db
-          .update(instructorUploads)
-          .set({
-            transferStatus: "pending",
-            updatedAt: new Date(),
-          })
-          .where(eq(instructorUploads.id, file.id));
-
         const b2Key = file.filename;
         const { s3Key, s3Url } = await copyToS3({
           fileId: file.id,
@@ -173,6 +166,7 @@ export const retryFailedTransfers = schedules.task({
           .set({
             status: "archived",
             transferStatus: "completed",
+            transferRetryCount: retryCount + 1,
             archivedAt: new Date(),
             s3Key,
             s3Url,
