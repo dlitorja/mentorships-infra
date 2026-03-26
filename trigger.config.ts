@@ -24,5 +24,7 @@ export default defineConfig({
       }),
     ],
     autoDetectExternal: true,
+    keepNames: true,
+    minify: false,
   },
 });
