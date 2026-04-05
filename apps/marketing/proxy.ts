@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyWebhookSignature } from "@/lib/webhook-utils";
-import { protectWithArcjet } from "@/lib/arcjet";
+import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
 
 const isPublicRoute = createRouteMatcher([
   "/",
@@ -58,12 +58,13 @@ async function verifyStripeWebhook(req: NextRequest): Promise<boolean> {
 }
 
 export default clerkMiddleware(async (auth, request): Promise<NextResponse | undefined> => {
+  const { userId } = await auth();
   const pathname = request.nextUrl.pathname;
 
   if (isWebhookRoute(request)) {
-    const arcjetResponse = await protectWithArcjet(request, "webhook");
-    if (arcjetResponse) {
-      return arcjetResponse;
+    const rateLimitResponse = await protectWithRateLimit(request, "webhook", userId);
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
 
     if (pathname.startsWith("/api/webhooks/clerk")) {
@@ -90,9 +91,9 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
   }
 
   if (pathname.startsWith("/api/admin")) {
-    const arcjetResponse = await protectWithArcjet(request, "admin");
-    if (arcjetResponse) {
-      return arcjetResponse;
+    const rateLimitResponse = await protectWithRateLimit(request, "admin", userId);
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
   }
 
@@ -103,9 +104,9 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
     pathname.startsWith("/api/instructor/inventory") ||
     pathname.startsWith("/api/inngest")
   ) {
-    const arcjetResponse = await protectWithArcjet(request, "default");
-    if (arcjetResponse) {
-      return arcjetResponse;
+    const rateLimitResponse = await protectWithRateLimit(request, "default", userId);
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
   }
 

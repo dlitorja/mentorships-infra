@@ -1,7 +1,8 @@
 import { clerkMiddleware, createRouteMatcher, type ClerkMiddlewareAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { protectWithArcjet, type ArcjetPolicy } from "@/lib/arcjet";
+import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
+import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
 
 /**
@@ -162,14 +163,14 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const method = req.method;
 
-  // Apply Arcjet protection to API routes (method-aware policy matrix)
+  // Apply rate limiting to API routes (method-aware policy matrix)
   // Note: We intentionally skip /api/inngest (dev server) and /api/health (monitoring).
   if (
     pathname.startsWith("/api/") &&
     !pathname.startsWith("/api/inngest") &&
     pathname !== "/api/health"
   ) {
-    const { policy, requested }: { policy: ArcjetPolicy; requested: number } = (() => {
+        const { policy, requested }: { policy: RateLimitPolicy; requested: number } = (() => {
       // Webhooks: public, but protect against request floods.
       if (pathname.startsWith("/api/webhooks/")) {
         return { policy: "webhook", requested: 1 };
@@ -217,9 +218,9 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       return { policy: userId ? "user" : "default", requested: 1 };
     })();
 
-    const arcjetResponse = await protectWithArcjet(req, { policy, userId, requested });
-    if (arcjetResponse) {
-      return arcjetResponse;
+    const rateLimitResponse = await protectWithRateLimit(req, { policy, userId, requested });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
   }
 
@@ -273,14 +274,14 @@ export default hasClerkKey
       const pathname = req.nextUrl.pathname;
       const method = req.method;
 
-      // Even if Clerk isn't configured, still apply Arcjet to /api/*.
+      // Even if Clerk isn't configured, still apply rate limiting to /api/*.
       // This avoids disabling platform-wide rate limiting/security when auth is misconfigured.
       if (
         pathname.startsWith("/api/") &&
         !pathname.startsWith("/api/inngest") &&
         pathname !== "/api/health"
       ) {
-        const { policy, requested }: { policy: ArcjetPolicy; requested: number } = (() => {
+    const { policy, requested }: { policy: RateLimitPolicy; requested: number } = (() => {
           if (pathname.startsWith("/api/webhooks/")) {
             return { policy: "webhook", requested: 1 };
           }
@@ -315,13 +316,13 @@ export default hasClerkKey
           return { policy: "default", requested: 1 };
         })();
 
-        const arcjetResponse = await protectWithArcjet(req, {
+        const rateLimitResponse = await protectWithRateLimit(req, {
           policy,
           userId: null,
           requested,
         });
-        if (arcjetResponse) {
-          return arcjetResponse;
+        if (rateLimitResponse) {
+          return rateLimitResponse;
         }
       }
 
