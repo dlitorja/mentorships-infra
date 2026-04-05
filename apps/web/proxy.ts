@@ -1,7 +1,8 @@
 import { clerkMiddleware, createRouteMatcher, type ClerkMiddlewareAuth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { protectWithArcjet, type ArcjetPolicy } from "@/lib/arcjet";
+import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
+import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
 
 /**
@@ -169,7 +170,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
     !pathname.startsWith("/api/inngest") &&
     pathname !== "/api/health"
   ) {
-    const { policy, requested }: { policy: ArcjetPolicy; requested: number } = (() => {
+        const { policy, requested }: { policy: RateLimitPolicy; requested: number } = (() => {
       // Webhooks: public, but protect against request floods.
       if (pathname.startsWith("/api/webhooks/")) {
         return { policy: "webhook", requested: 1 };
@@ -217,9 +218,9 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       return { policy: userId ? "user" : "default", requested: 1 };
     })();
 
-    const arcjetResponse = await protectWithArcjet(req, { policy, userId, requested });
-    if (arcjetResponse) {
-      return arcjetResponse;
+    const rateLimitResponse = await protectWithRateLimit(req, { policy, userId, requested });
+    if (rateLimitResponse) {
+      return rateLimitResponse;
     }
   }
 
@@ -280,7 +281,7 @@ export default hasClerkKey
         !pathname.startsWith("/api/inngest") &&
         pathname !== "/api/health"
       ) {
-        const { policy, requested }: { policy: ArcjetPolicy; requested: number } = (() => {
+    const { policy, requested }: { policy: RateLimitPolicy; requested: number } = (() => {
           if (pathname.startsWith("/api/webhooks/")) {
             return { policy: "webhook", requested: 1 };
           }
@@ -315,13 +316,13 @@ export default hasClerkKey
           return { policy: "default", requested: 1 };
         })();
 
-        const arcjetResponse = await protectWithArcjet(req, {
+        const rateLimitResponse = await protectWithRateLimit(req, {
           policy,
           userId: null,
           requested,
         });
-        if (arcjetResponse) {
-          return arcjetResponse;
+        if (rateLimitResponse) {
+          return rateLimitResponse;
         }
       }
 
