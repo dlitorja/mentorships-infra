@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,20 @@ function CheckoutContent(): React.JSX.Element {
   const products: Product[] = productsData?.items || [];
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
+
+  // Reset payment method to a supported option when product changes
+  useEffect(() => {
+    if (!selectedProduct) return;
+    if (paymentMethod === "stripe" && !selectedProduct.stripePriceId) {
+      if (selectedProduct.paypalProductId) {
+        setPaymentMethod("paypal");
+      }
+    } else if (paymentMethod === "paypal" && !selectedProduct.paypalProductId) {
+      if (selectedProduct.stripePriceId) {
+        setPaymentMethod("stripe");
+      }
+    }
+  }, [selectedProduct, paymentMethod]);
 
   const checkoutMutation = useMutation({
     mutationFn: async (data: { packId: string; paymentMethod: PaymentMethod }) => {
@@ -302,13 +316,17 @@ function CheckoutContent(): React.JSX.Element {
           </div>
 
           <div className="text-sm text-muted-foreground space-y-1">
-            <p>
-              <strong>Testing:</strong> Use Stripe test card{" "}
-              <code className="bg-muted px-1 rounded">4242 4242 4242 4242</code>
-            </p>
-            <p>
-              Any future expiry date, any CVC, any ZIP code
-            </p>
+            {process.env.NODE_ENV !== "production" && (
+              <>
+                <p>
+                  <strong>Testing:</strong> Use Stripe test card{" "}
+                  <code className="bg-muted px-1 rounded">4242 4242 4242 4242</code>
+                </p>
+                <p>
+                  Any future expiry date, any CVC, any ZIP code
+                </p>
+              </>
+            )}
           </div>
 
           {instructorSlug && (

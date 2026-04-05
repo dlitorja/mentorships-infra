@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllActiveProducts } from "@mentorships/db";
+import { getAllActiveProductsPaginated } from "@mentorships/db";
 
 /**
  * GET /api/products
@@ -9,7 +9,7 @@ import { getAllActiveProducts } from "@mentorships/db";
  */
 export async function GET(req: NextRequest) {
   try {
-    const products = await getAllActiveProducts();
+    const { items: products } = await getAllActiveProductsPaginated(1, 100);
 
     // Return products with only safe/public fields
     const publicProducts = products.map((product) => ({

@@ -129,7 +129,7 @@ export async function createCheckoutSession(data: { packId: string } | { product
  * Create PayPal checkout session
  */
 export async function createPayPalCheckoutSession(data: { packId: string }) {
-  return apiFetch<{ orderId: string; approvalUrl: string }>("/api/checkout/paypal", {
+  return apiFetch<{ orderId: string; url: string }>("/api/checkout/paypal", {
     method: "POST",
     body: JSON.stringify(data),
   });
