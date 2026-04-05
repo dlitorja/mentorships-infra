@@ -140,6 +140,12 @@ export async function protectWithRateLimit(
   const config = policies[policy];
 
   if (!redisEnabled || !redis) {
+    void reportError({
+      source: "ratelimit.middleware",
+      error: new Error("Rate limiting disabled"),
+      message: `Redis not configured: redisEnabled=${redisEnabled}, redis=${Boolean(redis)}`,
+      context: { policy, pathname: req.nextUrl.pathname },
+    });
     return null;
   }
 

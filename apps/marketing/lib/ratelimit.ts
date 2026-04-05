@@ -1,6 +1,7 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { NextResponse, type NextRequest } from "next/server";
+import { reportError } from "@/lib/observability";
 
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -63,6 +64,12 @@ export async function protectWithRateLimit(
   userId?: string | null
 ): Promise<NextResponse | null> {
   if (!redisEnabled || !redis) {
+    void reportError({
+      source: "ratelimit.middleware",
+      error: new Error("Rate limiting disabled"),
+      message: `Redis not configured: redisEnabled=${redisEnabled}, redis=${Boolean(redis)}`,
+      context: { policy, pathname: req.nextUrl.pathname },
+    });
     return null;
   }
 
