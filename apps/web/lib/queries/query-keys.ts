@@ -18,6 +18,7 @@ export const queryKeys = {
    */
   products: {
     all: ["products"] as const,
+    list: ["products", "list"] as const,
     detail: (id: string) => ["products", "detail", id] as const,
     byStripePrice: (stripePriceId: string) =>
       ["products", "by-stripe-price", stripePriceId] as const,
