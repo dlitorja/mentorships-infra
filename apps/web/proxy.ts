@@ -163,7 +163,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const method = req.method;
 
-  // Apply Arcjet protection to API routes (method-aware policy matrix)
+  // Apply rate limiting to API routes (method-aware policy matrix)
   // Note: We intentionally skip /api/inngest (dev server) and /api/health (monitoring).
   if (
     pathname.startsWith("/api/") &&
@@ -274,7 +274,7 @@ export default hasClerkKey
       const pathname = req.nextUrl.pathname;
       const method = req.method;
 
-      // Even if Clerk isn't configured, still apply Arcjet to /api/*.
+      // Even if Clerk isn't configured, still apply rate limiting to /api/*.
       // This avoids disabling platform-wide rate limiting/security when auth is misconfigured.
       if (
         pathname.startsWith("/api/") &&

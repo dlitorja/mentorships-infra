@@ -139,28 +139,39 @@ export async function protectWithRateLimit(
       return null;
     }
 
-    const [shortResult, longResult] = await Promise.all([
-      shortLimit.limit(identifier, { rate: requested }),
-      longLimit.limit(identifier, { rate: requested }),
-    ]);
+    const shortResult = await shortLimit.limit(identifier, { rate: requested });
 
-    if (shortResult.success && longResult.success) {
-      return null;
+    if (!shortResult.success) {
+      return NextResponse.json(
+        { error: "Too Many Requests" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "60",
+            "X-RateLimit-Limit-Short": String(config.short.limit),
+            "X-RateLimit-Remaining-Short": String(shortResult.remaining),
+          },
+        }
+      );
     }
 
-    return NextResponse.json(
-      { error: "Too Many Requests" },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": "60",
-          "X-RateLimit-Limit-Short": String(config.short.limit),
-          "X-RateLimit-Remaining-Short": String(shortResult.remaining),
-          "X-RateLimit-Limit-Long": String(config.long.limit),
-          "X-RateLimit-Remaining-Long": String(longResult.remaining),
-        },
-      }
-    );
+    const longResult = await longLimit.limit(identifier, { rate: requested });
+
+    if (!longResult.success) {
+      return NextResponse.json(
+        { error: "Too Many Requests" },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": "60",
+            "X-RateLimit-Limit-Long": String(config.long.limit),
+            "X-RateLimit-Remaining-Long": String(longResult.remaining),
+          },
+        }
+      );
+    }
+
+    return null;
   } catch (error) {
     void reportError({
       source: "ratelimit.middleware",

@@ -32,7 +32,6 @@ const policies: Record<RateLimitPolicy, PolicyConfig> = {
   },
   webhook: {
     short: { limit: 10, window: "60s" },
-    long: { limit: 20, window: "60s" },
     identifyBy: "ip",
   },
 };
