@@ -49,6 +49,24 @@ export async function fetchProduct(id: string) {
 }
 
 /**
+ * Fetch all active products for checkout
+ */
+export async function fetchProducts() {
+  return apiFetch<{
+    items: Array<{
+      id: string;
+      title: string;
+      price: string;
+      sessionsPerPack: number;
+      validityDays: number;
+      stripePriceId: string | null;
+      paypalProductId: string | null;
+      mentorId: string;
+    }>;
+  }>("/api/products");
+}
+
+/**
  * Fetch user's session packs
  */
 export async function fetchMySessionPacks() {
@@ -102,6 +120,16 @@ export async function joinWaitlist(data: {
  */
 export async function createCheckoutSession(data: { packId: string } | { productId: string }) {
   return apiFetch<{ url: string; orderId: string; checkoutUrl?: string }>("/api/checkout/stripe", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Create PayPal checkout session
+ */
+export async function createPayPalCheckoutSession(data: { packId: string }) {
+  return apiFetch<{ orderId: string; approvalUrl: string }>("/api/checkout/paypal", {
     method: "POST",
     body: JSON.stringify(data),
   });
