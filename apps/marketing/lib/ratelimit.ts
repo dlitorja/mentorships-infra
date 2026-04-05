@@ -97,7 +97,18 @@ export async function protectWithRateLimit(
         "Retry-After": "60",
       },
     });
-  } catch {
+  } catch (error) {
+    void reportError({
+      source: "ratelimit.middleware",
+      error,
+      message: "Rate limit check failed (fail-open)",
+      context: {
+        policy,
+        pathname: req.nextUrl.pathname,
+        method: req.method,
+        identifier: config.identifyBy === "userId" && userId ? "user" : "ip",
+      },
+    });
     return null;
   }
 }
