@@ -1,4 +1,4 @@
-import { Ratelimit } from "@upstash/ratelimit";
+import { Ratelimit, type Duration } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { NextResponse, type NextRequest } from "next/server";
 import { reportError } from "@/lib/observability";
@@ -53,7 +53,7 @@ function createRatelimit(policy: RateLimitPolicy): Ratelimit | null {
   const config = policies[policy];
   return new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(config.short.limit, config.short.window as Ratelimit.Duration),
+    limiter: Ratelimit.slidingWindow(config.short.limit, config.short.window as Duration),
     prefix: `ratelimit:${policy}:short`,
   });
 }
