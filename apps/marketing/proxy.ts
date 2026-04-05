@@ -58,10 +58,11 @@ async function verifyStripeWebhook(req: NextRequest): Promise<boolean> {
 }
 
 export default clerkMiddleware(async (auth, request): Promise<NextResponse | undefined> => {
+  const { userId } = await auth();
   const pathname = request.nextUrl.pathname;
 
   if (isWebhookRoute(request)) {
-    const rateLimitResponse = await protectWithRateLimit(request, "webhook");
+    const rateLimitResponse = await protectWithRateLimit(request, "webhook", userId);
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
@@ -90,7 +91,7 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
   }
 
   if (pathname.startsWith("/api/admin")) {
-    const rateLimitResponse = await protectWithRateLimit(request, "admin");
+    const rateLimitResponse = await protectWithRateLimit(request, "admin", userId);
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
@@ -103,7 +104,7 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
     pathname.startsWith("/api/instructor/inventory") ||
     pathname.startsWith("/api/inngest")
   ) {
-    const rateLimitResponse = await protectWithRateLimit(request, "default");
+    const rateLimitResponse = await protectWithRateLimit(request, "default", userId);
     if (rateLimitResponse) {
       return rateLimitResponse;
     }

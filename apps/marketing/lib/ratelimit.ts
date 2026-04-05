@@ -32,6 +32,7 @@ const policies: Record<RateLimitPolicy, PolicyConfig> = {
   },
   webhook: {
     short: { limit: 10, window: "60s" },
+    long: { limit: 100, window: "1h" },
     identifyBy: "ip",
   },
 };
@@ -39,7 +40,7 @@ const policies: Record<RateLimitPolicy, PolicyConfig> = {
 function getIp(req: NextRequest): string {
   return (
     req.headers.get("cf-connecting-ip") ||
-    req.headers.get("x-forwarded-for")?.split(",")[0] ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
     "unknown"
   );
@@ -51,14 +52,15 @@ function createRatelimit(policy: RateLimitPolicy): Ratelimit | null {
   const config = policies[policy];
   return new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(config.short.limit, "60s"),
+    limiter: Ratelimit.slidingWindow(config.short.limit, config.short.window),
     prefix: `ratelimit:${policy}:short`,
   });
 }
 
 export async function protectWithRateLimit(
   req: NextRequest,
-  policy: RateLimitPolicy = "default"
+  policy: RateLimitPolicy = "default",
+  userId?: string | null
 ): Promise<NextResponse | null> {
   if (!redisEnabled || !redis) {
     return null;
@@ -66,8 +68,8 @@ export async function protectWithRateLimit(
 
   const config = policies[policy];
   const identifier =
-    config.identifyBy === "userId"
-      ? req.headers.get("x-user-id") || getIp(req)
+    config.identifyBy === "userId" && userId
+      ? userId
       : getIp(req);
 
   try {

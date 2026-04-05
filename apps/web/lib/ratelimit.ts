@@ -82,10 +82,27 @@ const policies: Record<RateLimitPolicy, PolicyConfig> = {
 function getIp(req: NextRequest): string {
   return (
     req.headers.get("cf-connecting-ip") ||
-    req.headers.get("x-forwarded-for")?.split(",")[0] ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
     "unknown"
   );
+}
+
+function parseWindowToSeconds(window: string): number {
+  const match = window.match(/^(\d+)(s|m|h)$/);
+  if (!match) return 60;
+  const value = parseInt(match[1], 10);
+  const unit = match[2];
+  switch (unit) {
+    case "s":
+      return value;
+    case "m":
+      return value * 60;
+    case "h":
+      return value * 3600;
+    default:
+      return 60;
+  }
 }
 
 function createRatelimit(policy: RateLimitPolicy): Ratelimit | null {
@@ -94,7 +111,7 @@ function createRatelimit(policy: RateLimitPolicy): Ratelimit | null {
   const config = policies[policy];
   return new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(config.short.limit, "60s"),
+    limiter: Ratelimit.slidingWindow(config.short.limit, config.short.window),
     prefix: `ratelimit:${policy}:short`,
   });
 }
@@ -105,7 +122,7 @@ function createLongTermRatelimit(policy: RateLimitPolicy): Ratelimit | null {
   const config = policies[policy];
   return new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(config.long.limit, "1h"),
+    limiter: Ratelimit.slidingWindow(config.long.limit, config.long.window),
     prefix: `ratelimit:${policy}:long`,
   });
 }
@@ -142,12 +159,15 @@ export async function protectWithRateLimit(
     const shortResult = await shortLimit.limit(identifier, { rate: requested });
 
     if (!shortResult.success) {
+      const retryAfterShort = shortResult.reset
+        ? Math.ceil((shortResult.reset - Date.now()) / 1000)
+        : parseWindowToSeconds(config.short.window);
       return NextResponse.json(
         { error: "Too Many Requests" },
         {
           status: 429,
           headers: {
-            "Retry-After": "60",
+            "Retry-After": String(Math.max(1, retryAfterShort)),
             "X-RateLimit-Limit-Short": String(config.short.limit),
             "X-RateLimit-Remaining-Short": String(shortResult.remaining),
           },
@@ -158,12 +178,15 @@ export async function protectWithRateLimit(
     const longResult = await longLimit.limit(identifier, { rate: requested });
 
     if (!longResult.success) {
+      const retryAfterLong = longResult.reset
+        ? Math.ceil((longResult.reset - Date.now()) / 1000)
+        : parseWindowToSeconds(config.long.window);
       return NextResponse.json(
         { error: "Too Many Requests" },
         {
           status: 429,
           headers: {
-            "Retry-After": "60",
+            "Retry-After": String(Math.max(1, retryAfterLong)),
             "X-RateLimit-Limit-Long": String(config.long.limit),
             "X-RateLimit-Remaining-Long": String(longResult.remaining),
           },

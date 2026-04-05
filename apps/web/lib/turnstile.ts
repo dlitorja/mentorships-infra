@@ -1,4 +1,15 @@
+import { z } from "zod";
+
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY;
+
+const siteVerifySchema = z.object({
+  success: z.boolean(),
+  challenge_ts: z.string().optional(),
+  hostname: z.string().optional(),
+  "error-codes": z.array(z.string()).optional(),
+  action: z.string().optional(),
+  cdata: z.string().optional(),
+});
 
 export async function verifyTurnstileToken(
   token: string,
@@ -25,8 +36,11 @@ export async function verifyTurnstileToken(
       }
     );
 
-    const data = await result.json();
-    return data.success === true;
+    const parsed = siteVerifySchema.safeParse(await result.json());
+    if (!parsed.success) {
+      return false;
+    }
+    return parsed.data.success === true;
   } catch {
     return false;
   }
@@ -35,7 +49,7 @@ export async function verifyTurnstileToken(
 export function getClientIp(req: Request): string | undefined {
   return (
     req.headers.get("cf-connecting-ip") ||
-    req.headers.get("x-forwarded-for")?.split(",")[0] ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
     undefined
   );
