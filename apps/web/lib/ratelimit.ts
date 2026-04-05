@@ -111,7 +111,7 @@ function createRatelimit(policy: RateLimitPolicy): Ratelimit | null {
   const config = policies[policy];
   return new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(config.short.limit, config.short.window),
+    limiter: Ratelimit.slidingWindow(config.short.limit, config.short.window as Ratelimit.Duration),
     prefix: `ratelimit:${policy}:short`,
   });
 }
@@ -122,7 +122,7 @@ function createLongTermRatelimit(policy: RateLimitPolicy): Ratelimit | null {
   const config = policies[policy];
   return new Ratelimit({
     redis,
-    limiter: Ratelimit.slidingWindow(config.long.limit, config.long.window),
+    limiter: Ratelimit.slidingWindow(config.long.limit, config.long.window as Ratelimit.Duration),
     prefix: `ratelimit:${policy}:long`,
   });
 }
