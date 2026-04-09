@@ -5,12 +5,7 @@ export interface Course {
   imageUrl?: string;
 }
 
-export interface Bundle {
-  title: string;
-  description: string;
-  url: string;
-  imageUrl?: string;
-}
+export type Bundle = Course;
 
 export interface InstructorPortal {
   name: string;
@@ -56,7 +51,7 @@ export function getPortalBySlug(slug: string): InstructorPortal | undefined {
 }
 
 export function getPortalByDomain(domain: string): InstructorPortal | undefined {
-  const normalizedDomain = domain.toLowerCase();
+  const normalizedDomain = domain.split(":")[0].toLowerCase();
   return instructorPortals.find((portal) =>
     portal.domains.some((d) => d.toLowerCase() === normalizedDomain)
   );

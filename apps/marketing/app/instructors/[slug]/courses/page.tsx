@@ -2,14 +2,13 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CourseCard } from "@/components/portals/course-card";
 import { BundleCard } from "@/components/portals/bundle-card";
-import { getPortalBySlug, type Bundle, type Course } from "@/config/instructor-portals";
+import { getPortalBySlug, getAllPortals } from "@/config/instructor-portals";
 
 interface InstructorCoursesPageProps {
   params: Promise<{ slug: string }>;
 }
 
-export async function generateStaticParams(): Promise<Array<{ slug: string }>> {
-  const { getAllPortals } = await import("@/config/instructor-portals");
+export function generateStaticParams(): Array<{ slug: string }> {
   return getAllPortals().map((portal) => ({ slug: portal.slug }));
 }
 
@@ -39,8 +38,7 @@ export default async function InstructorCoursesPage({
     notFound();
   }
 
-  const bundles = portal.bundles as Bundle[];
-  const courses = portal.courses as Course[];
+  const { bundles, courses } = portal;
 
   return (
     <div className="min-h-screen bg-background">
