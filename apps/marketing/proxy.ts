@@ -114,7 +114,7 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
   const host = request.headers.get("host") || "";
   const portal = getPortalByDomain(host);
   if (portal) {
-    const destination = `/instructors/${portal.slug}/courses${pathname === "/" ? "" : pathname}`;
+    const destination = `/instructors/${portal.slug}/courses`;
     return NextResponse.rewrite(new URL(destination, request.url));
   }
 
