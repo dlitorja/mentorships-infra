@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyWebhookSignature } from "@/lib/webhook-utils";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
+import { getPortalByDomain } from "@/config/instructor-portals";
 
 const isPublicRoute = createRouteMatcher([
   "/",
@@ -108,6 +109,13 @@ export default clerkMiddleware(async (auth, request): Promise<NextResponse | und
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
+  }
+
+  const host = request.headers.get("host") || "";
+  const portal = getPortalByDomain(host);
+  if (portal) {
+    const destination = `/instructors/${portal.slug}/courses${pathname === "/" ? "" : pathname}`;
+    return NextResponse.rewrite(new URL(destination, request.url));
   }
 
   if (isPublicRoute(request)) {
