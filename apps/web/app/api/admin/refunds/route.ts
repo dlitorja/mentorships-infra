@@ -184,8 +184,7 @@ export async function POST(req: NextRequest) {
       (parseFloat(payment.refundedAmount || "0") + refundAmount)
     ).toFixed(2);
 
-    const newStatus =
-      parseFloat(newRefundedAmount) >= originalAmount ? "refunded" : "completed";
+    const newStatus = "refunded";
 
     await db
       .update(payments)
@@ -226,7 +225,7 @@ export async function POST(req: NextRequest) {
           const instructorName = "Your Instructor";
 
           const refundEmail = buildRefundEmail({
-            studentName: user.firstName,
+            studentName: user.email,
             instructorName,
             refundAmount: refundAmountStr,
             currency,

@@ -20,6 +20,7 @@ type ProductInfo = {
 
 type ProductsResponse = {
   items: ProductInfo[];
+  error?: string;
 };
 
 export default function ProductsPage() {
