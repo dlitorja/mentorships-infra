@@ -15,6 +15,7 @@ import {
 import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
+import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
 import { purchaseMentorshipEventSchema } from "../types";
 import { inngest } from "../client";
 
@@ -208,6 +209,53 @@ export const onboardingFlow = inngest.createFunction(
           resendId: sendResult.ok ? sendResult.id : null,
         },
       });
+    });
+
+    // Send instructor notification email
+    await step.run("send-instructor-email", async () => {
+      // Get instructor's Clerk user to find their email
+      const clerk = await getClerkApi();
+      let instructorEmail: string | null = null;
+
+      if (mentor.userId) {
+        try {
+          const instructorClerkUser = await clerk.users.getUser(mentor.userId);
+          instructorEmail = instructorClerkUser.emailAddresses[0]?.emailAddress ?? null;
+        } catch (error) {
+          console.error("Failed to get instructor Clerk user:", error);
+        }
+      }
+
+      if (!instructorEmail) {
+        // Log warning but don't fail - instructor may need to add email
+        console.warn(`No email found for instructor ${mentor.id} (userId: ${mentor.userId})`);
+        return { sent: false, reason: "no_instructor_email" };
+      }
+
+      const dashboardUrl = `${baseUrl}/dashboard`;
+
+      const instructorEmailContent = buildInstructorOnboardingEmail({
+        instructorName: mentorName,
+        studentName: studentName,
+        studentEmail: studentEmail,
+        sessionsPurchased: pack.totalSessions,
+        dashboardUrl,
+      });
+
+      const sendResult = await sendEmail({
+        to: instructorEmail,
+        subject: instructorEmailContent.subject,
+        html: instructorEmailContent.html,
+        text: instructorEmailContent.text,
+        headers: {
+          ...instructorEmailContent.headers,
+          "X-Order-Id": orderId,
+          "X-Session-Pack-Id": pack.id,
+          "X-Mentor-Id": mentor.id,
+        },
+      });
+
+      return { sent: sendResult.ok, resendId: sendResult.ok ? sendResult.id : null };
     });
 
     await step.run("queue-discord-actions", async () => {

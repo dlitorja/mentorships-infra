@@ -5,8 +5,7 @@ import {
   requireAuth,
   getProductById,
   updateOrderStatus,
-  getGrandfatheredDiscount,
-  getGrandfatheredConfig,
+  getGrandfatheredPrice,
   createOrder,
 } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
@@ -48,22 +47,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Check for grandfathered pricing
-    const grandfatheredConfig = getGrandfatheredConfig();
-    const grandfatheredDiscount = await getGrandfatheredDiscount(
-      userId,
-      grandfatheredConfig
-    );
-
-    // Determine which discount to use (customer-entered code takes precedence)
-    const discountCode = promotionCode || grandfatheredDiscount?.promotionCode;
-    const couponId = !promotionCode ? grandfatheredDiscount?.couponId : undefined;
+    // Check for grandfathered pricing (student's prior purchase from same instructor)
+    let finalPrice = pack.price;
+    let usedGrandfatheredPrice = false;
+    const grandfatheredPricing = await getGrandfatheredPrice(userId, pack.mentorId);
+    
+    if (grandfatheredPricing.hasPriorPurchase && grandfatheredPricing.originalPrice) {
+      // User has prior purchase from this instructor - use original price
+      finalPrice = grandfatheredPricing.originalPrice;
+      usedGrandfatheredPrice = true;
+    }
 
     // Create order in database (status: pending)
     const order = await createOrder(
         userId,
       "stripe",
-      pack.price,
+      finalPrice,
       "usd"
     );
 
