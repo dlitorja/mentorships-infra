@@ -52,7 +52,6 @@ export default function EditProductPage() {
           throw new Error(data.error || "Failed to fetch product");
         }
         setTitle(data.title);
-        setDescription(data.description || "");
         setPrice(data.price);
         setSessionsPerPack(data.sessionsPerPack);
         setValidityDays(data.validityDays);
@@ -91,7 +90,7 @@ export default function EditProductPage() {
         }),
       });
 
-      const data: ApiResponse = await res.json();
+const data: ApiResponse = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Failed to update product");
       }

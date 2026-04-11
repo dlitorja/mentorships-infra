@@ -167,7 +167,7 @@ export async function PUT(
       }
     }
 
-    // Update Stripe product if price changed
+// Update Stripe product if price changed
     if (oldStripePriceId) {
       try {
         const oldPrice = await stripe.prices.retrieve(oldStripePriceId);
