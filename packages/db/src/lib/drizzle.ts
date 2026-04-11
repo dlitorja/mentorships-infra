@@ -2,12 +2,15 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "../schema";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL environment variable is required");
-}
+const getDatabaseUrl = (): string => {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL environment variable is required");
+  }
+  return process.env.DATABASE_URL.trim();
+};
 
 // Validate and clean the connection string
-const connectionString = process.env.DATABASE_URL.trim();
+const connectionString = getDatabaseUrl();
 
 // Remove quotes if present (some .env parsers include them)
 const cleanedConnectionString = connectionString.replace(/^["']|["']$/g, "");
