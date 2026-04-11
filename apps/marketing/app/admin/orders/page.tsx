@@ -30,6 +30,7 @@ type OrdersResponse = {
   total: number;
   page: number;
   pageSize: number;
+  error?: string;
 };
 
 const REFUND_REASONS = [

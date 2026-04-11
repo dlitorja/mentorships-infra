@@ -10,7 +10,7 @@ import {
   isForbiddenError,
 } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
-import { createRefund as createPayPalRefund } from "@mentorships/payments/paypal/refunds";
+import { createPayPalRefund } from "@mentorships/payments";
 import { buildRefundEmail } from "@/lib/emails/refund-email";
 import { sendEmail } from "@/lib/email";
 import { requireRoleForApi } from "@/lib/auth-helpers";

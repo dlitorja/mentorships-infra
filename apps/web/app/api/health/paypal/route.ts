@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createApiSuccess, createApiError, externalServiceError } from "@/lib/api-error";
-import { getPayPalClient } from "@mentorships/payments/paypal/client";
+import { getPayPalClient } from "@mentorships/payments";
 
 /**
  * GET /api/health/paypal
