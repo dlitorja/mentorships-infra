@@ -1,6 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentorshipProducts, mentors } from "../../schema";
+import { mentorshipProducts, mentors, sessionPacks, payments } from "../../schema";
 
 type Product = typeof mentorshipProducts.$inferSelect;
 type ProductWithMentor = Product & { mentor: typeof mentors.$inferSelect };
@@ -130,6 +130,7 @@ export async function getAllActiveProductsPaginated(
  * @param title - Product title
  * @param price - Price as string (e.g., "375.00")
  * @param stripePriceId - Stripe Price ID (optional)
+ * @param paypalProductId - PayPal Product ID (optional)
  * @param sessionsPerPack - Number of sessions (default: 4)
  * @param validityDays - Validity period in days (default: 30)
  * @param active - Whether product is active (default: true)
@@ -140,6 +141,7 @@ export async function createProduct(
   title: string,
   price: string,
   stripePriceId?: string,
+  paypalProductId?: string,
   sessionsPerPack: number = 4,
   validityDays: number = 30,
   active: boolean = true
@@ -151,6 +153,7 @@ export async function createProduct(
       title,
       price,
       stripePriceId,
+      paypalProductId,
       sessionsPerPack,
       validityDays,
       active,
@@ -194,4 +197,58 @@ export async function validateProductForPurchase(productId: string): Promise<{
   }
 
   return { valid: true, product };
+}
+
+/**
+ * Get grandfathered price for a user-mentor combination
+ * 
+ * Checks if the user has previously purchased from this mentor.
+ * If yes, returns the product with the original price they paid.
+ * This allows the student to repurchase at their original price.
+ * 
+ * @param userId - Clerk user ID
+ * @param mentorId - Mentor/instructor ID
+ * @returns Product with original price if found, null if no prior purchase
+ */
+export async function getGrandfatheredPrice(
+  userId: string,
+  mentorId: string
+): Promise<{ hasPriorPurchase: boolean; originalPrice: string | null }> {
+  // Check for existing session pack with this mentor that's paid
+  const [existingPack] = await db
+    .select()
+    .from(sessionPacks)
+    .where(
+      and(
+        eq(sessionPacks.userId, userId),
+        eq(sessionPacks.mentorId, mentorId),
+        eq(sessionPacks.status, "active")
+      )
+    )
+    .limit(1);
+
+  if (!existingPack) {
+    return { hasPriorPurchase: false, originalPrice: null };
+  }
+
+  // Get the payment to find amount paid
+  const [payment] = await db
+    .select()
+    .from(payments)
+    .where(
+      and(
+        eq(payments.id, existingPack.paymentId),
+        eq(payments.status, "completed")
+      )
+    )
+    .limit(1);
+
+  if (!payment) {
+    return { hasPriorPurchase: false, originalPrice: null };
+  }
+
+  return {
+    hasPriorPurchase: true,
+    originalPrice: payment.amount,
+  };
 }

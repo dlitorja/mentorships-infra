@@ -174,3 +174,52 @@ export async function getUserPendingOrders(userId: string): Promise<Order[]> {
 
   return pendingOrders;
 }
+
+/**
+ * Get all orders for admin dashboard
+ * 
+ * @param page - Page number (1-indexed)
+ * @param pageSize - Number of items per page (default: 20, max: 100)
+ * @param status - Optional filter by status
+ * @returns Paginated orders with total count
+ */
+export async function getAllOrdersPaginated(
+  page: number = 1,
+  pageSize: number = 20,
+  status?: OrderStatus
+): Promise<{
+  items: Order[];
+  total: number;
+  page: number;
+  pageSize: number;
+}> {
+  const validatedPageSize = Math.min(Math.max(1, pageSize), 100);
+  const validatedPage = Math.max(1, page);
+  const offset = (validatedPage - 1) * validatedPageSize;
+
+  const whereCondition = status ? eq(orders.status, status) : undefined;
+
+  const totalResult = await db
+    .select({
+      count: sql<number>`count(*)`,
+    })
+    .from(orders)
+    .where(whereCondition);
+
+  const total = Number(totalResult[0]?.count || 0);
+
+  const allOrders = await db
+    .select()
+    .from(orders)
+    .where(whereCondition)
+    .orderBy(desc(orders.createdAt))
+    .limit(validatedPageSize)
+    .offset(offset);
+
+  return {
+    items: allOrders,
+    total,
+    page: validatedPage,
+    pageSize: validatedPageSize,
+  };
+}

@@ -7,6 +7,7 @@ import {
   LayoutDashboard, 
   Package,
   Users,
+  ShoppingCart,
   LogIn,
   LogOut
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { SignInButton, UserButton, useUser, useClerk } from "@clerk/nextjs";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/inventory", label: "Inventory", icon: Package },
   { href: "/admin/instructors", label: "Instructors", icon: Users },
 ];
