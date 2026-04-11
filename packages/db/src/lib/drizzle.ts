@@ -61,3 +61,23 @@ try {
 
 // Create and export the db instance
 export const db = drizzle(client, { schema });
+
+// Export lazy-loading getter for use without DATABASE_URL at build time
+let _dbInstance: typeof db | null = null;
+
+export const getDb = () => {
+  if (!_dbInstance) {
+    const connectionString = getDatabaseUrl();
+    const cleanedConnectionString = connectionString.replace(/^["']|["']$/g, "");
+    const _client = postgres(cleanedConnectionString, {
+      max: 10,
+      onnotice: () => {},
+      prepare: false,
+      transform: {
+        undefined: null,
+      },
+    });
+    _dbInstance = drizzle(_client, { schema });
+  }
+  return _dbInstance;
+};
