@@ -85,12 +85,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Build discounts array for Stripe Checkout
     const discounts: Array<{ coupon?: string; promotion_code?: string }> = [];
     
-    if (couponId) {
-      // Auto-apply coupon for grandfathered users
-      discounts.push({ coupon: couponId });
-    } else if (discountCode) {
-      // Use promotion code (either customer-entered or grandfathered)
-      discounts.push({ promotion_code: discountCode });
+    if (promotionCode) {
+      // Use promotion code
+      discounts.push({ promotion_code: promotionCode });
     }
 
     // Create Stripe Checkout Session with error handling

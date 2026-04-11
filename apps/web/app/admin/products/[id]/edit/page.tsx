@@ -20,6 +20,10 @@ type ProductInfo = {
   updatedAt: string;
 };
 
+type ApiResponse = ProductInfo & {
+  error?: string;
+};
+
 export default function EditProductPage() {
   const params = useParams();
   const router = useRouter();
@@ -43,12 +47,11 @@ export default function EditProductPage() {
     async function fetchProduct() {
       try {
         const res = await fetch(`/api/admin/products/${productId}`);
-        const data = await res.json();
+        const data: ApiResponse = await res.json();
         if (!res.ok) {
           throw new Error(data.error || "Failed to fetch product");
         }
         setTitle(data.title);
-        setDescription(data.description || "");
         setPrice(data.price);
         setSessionsPerPack(data.sessionsPerPack);
         setValidityDays(data.validityDays);
@@ -87,7 +90,7 @@ export default function EditProductPage() {
         }),
       });
 
-      const data = await res.json();
+const data: ApiResponse = await res.json();
       if (!res.ok) {
         throw new Error(data.error || "Failed to update product");
       }

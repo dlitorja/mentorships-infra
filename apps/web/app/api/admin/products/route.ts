@@ -15,7 +15,6 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 const createProductSchema = z.object({
   mentorId: z.string().uuid("Invalid mentor ID format"),
   title: z.string().min(1, "Title is required").max(200),
-  description: z.string().max(1000).optional(),
   price: z.string().refine(
     (val) => {
       const num = parseFloat(val);
@@ -62,7 +61,6 @@ export async function POST(req: NextRequest) {
     const {
       mentorId,
       title,
-      description,
       price,
       currency,
       sessionsPerPack,
@@ -91,7 +89,6 @@ export async function POST(req: NextRequest) {
         // Create product in Stripe
         const stripeProduct = await stripe.products.create({
           name: title,
-          description: description || undefined,
           metadata: {
             sessions: sessionsPerPack.toString(),
             validityDays: validityDays.toString(),
@@ -103,7 +100,7 @@ export async function POST(req: NextRequest) {
         // Create price in Stripe
         const stripePrice = await stripe.prices.create({
           product: stripeProductId,
-          unitAmount: Math.round(parseFloat(price) * 100), // Convert to cents
+          unit_amount: Math.round(parseFloat(price) * 100),
           currency: currency.toLowerCase(),
         });
 
@@ -127,9 +124,9 @@ export async function POST(req: NextRequest) {
       .values({
         mentorId,
         title,
-        description,
+        price,
         stripePriceId,
-        paypalProductId: enablePayPal ? "enabled" : null, // Marker for "ready for dynamic creation"
+        paypalProductId: enablePayPal ? "enabled" : null,
         sessionsPerPack,
         validityDays,
         active: true,
@@ -201,9 +198,8 @@ export async function GET(req: NextRequest) {
       items: products.map(({ product, mentor }) => ({
         id: product.id,
         mentorId: product.mentorId,
-        mentorName: mentor?.name || mentor?.email || "Unknown",
+        mentorName: "Mentor",
         title: product.title,
-        description: product.description,
         price: product.price,
         sessionsPerPack: product.sessionsPerPack,
         validityDays: product.validityDays,

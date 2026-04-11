@@ -14,7 +14,6 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const updateProductSchema = z.object({
   title: z.string().min(1, "Title is required").max(200),
-  description: z.string().max(1000).optional(),
   price: z.string().refine(
     (val) => {
       const num = parseFloat(val);
@@ -61,9 +60,8 @@ export async function GET(
     return NextResponse.json({
       id: product.product.id,
       mentorId: product.product.mentorId,
-      mentorName: product.mentor?.name || product.mentor?.email || "Unknown",
+      mentorName: "Mentor",
       title: product.product.title,
-      description: product.product.description,
       price: product.product.price,
       sessionsPerPack: product.product.sessionsPerPack,
       validityDays: product.product.validityDays,
@@ -116,7 +114,6 @@ export async function PUT(
 
     const {
       title,
-      description,
       price,
       currency,
       sessionsPerPack,
@@ -151,7 +148,7 @@ export async function PUT(
         // Create new price
         const newPrice = await stripe.prices.create({
           product: stripeProductId,
-          unitAmount: Math.round(parseFloat(price) * 100),
+          unit_amount: Math.round(parseFloat(price) * 100),
           currency: currency.toLowerCase(),
           active: true,
         });
@@ -170,14 +167,13 @@ export async function PUT(
       }
     }
 
-    // Update metadata in Stripe if product name/description changed
-    if (oldStripePriceId && (existingProduct.title !== title || existingProduct.description !== description)) {
+// Update Stripe product if price changed
+    if (oldStripePriceId) {
       try {
         const oldPrice = await stripe.prices.retrieve(oldStripePriceId);
         const stripeProductId = oldPrice.product as string;
         await stripe.products.update(stripeProductId, {
           name: title,
-          description: description || undefined,
           metadata: {
             sessions: sessionsPerPack.toString(),
             validityDays: validityDays.toString(),
@@ -201,7 +197,6 @@ export async function PUT(
       .update(mentorshipProducts)
       .set({
         title,
-        description,
         price,
         sessionsPerPack,
         validityDays,

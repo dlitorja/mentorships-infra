@@ -61,7 +61,6 @@ export async function GET(req: NextRequest) {
           id: order.id,
           userId: order.userId,
           userEmail: user?.email || null,
-          userFirstName: user?.firstName || null,
           status: order.status,
           provider: order.provider,
           totalAmount: order.totalAmount,
