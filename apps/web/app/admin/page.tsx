@@ -1,16 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { 
-  LayoutDashboard, 
-  Package,
-  ShoppingCart,
   Users,
-  ChevronDown,
-  ChevronRight,
   ArrowUpDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -57,12 +51,6 @@ type MenteeWithSessionInfo = {
 type _InstructorWithMentees = InstructorWithStats & {
   mentees: MenteeWithSessionInfo[];
 };
-
-const navItems = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/admin/products", label: "Products", icon: Package },
-  { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
-];
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -210,7 +198,6 @@ function InstructorRow({
 }
 
 export default function AdminDashboard() {
-  const pathname = "/admin";
   const [stats, setStats] = useState<Stats | null>(null);
   const [instructors, setInstructors] = useState<InstructorWithStats[]>([]);
   const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
@@ -315,45 +302,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="w-64 border-r bg-muted/30 min-h-screen p-4 flex flex-col">
-        <div className="mb-8">
-          <h2 className="text-xl font-bold">Admin Panel</h2>
-          <p className="text-sm text-muted-foreground">Web App</p>
-        </div>
-
-        <nav className="space-y-2">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = pathname === item.href || 
-              (item.href !== "/admin" && pathname.startsWith(item.href));
-            
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-4 py-2 transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-muted"
-                )}
-              >
-                <Icon className="h-5 w-5" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="mt-auto pt-4 border-t">
-          <div className="flex items-center gap-3 px-4 py-2">
-            <UserButton />
-          </div>
-        </div>
-      </aside>
-
-      <main className="flex-1 p-8 space-y-8">
+    <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold">Admin Dashboard</h1>
           <p className="text-muted-foreground mt-1">
@@ -527,7 +476,6 @@ export default function AdminDashboard() {
             )}
           </CardContent>
         </Card>
-      </main>
-    </div>
+      </div>
   );
 }
