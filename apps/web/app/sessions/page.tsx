@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireDbUser } from "@/lib/auth";
 import { db, sessions, sessionPacks, mentors, users, eq, desc } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
@@ -8,7 +10,18 @@ export default async function SessionsPage() {
   const user = await requireDbUser();
 
   // Fetch user's sessions with related data
-  const userSessions = await db
+  const userSessions: {
+    id: string;
+    scheduledAt: Date;
+    completedAt: Date | null;
+    canceledAt: Date | null;
+    status: string;
+    recordingUrl: string | null;
+    notes: string | null;
+    mentorEmail: string;
+    packId: string;
+    remainingSessions: number;
+  }[] = await db
     .select({
       id: sessions.id,
       scheduledAt: sessions.scheduledAt,

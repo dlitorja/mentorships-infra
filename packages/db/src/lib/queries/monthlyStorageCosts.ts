@@ -135,13 +135,15 @@ export async function getTotalCostsForPeriod(months: string[]): Promise<{
     };
   }
 
-  const records = await db
+  const records: typeof monthlyStorageCosts.$inferSelect[] = await db
     .select()
     .from(monthlyStorageCosts)
     .where(inArray(monthlyStorageCosts.month, months));
   
+  type Accumulator = { b2StorageCost: number; b2DownloadCost: number; b2ApiCost: number; s3StorageCost: number; s3RetrievalCost: number; totalCost: number };
+  
   return records.reduce(
-    (acc, record) => ({
+    (acc: Accumulator, record: typeof monthlyStorageCosts.$inferSelect): Accumulator => ({
       b2StorageCost: acc.b2StorageCost + record.b2StorageCost,
       b2DownloadCost: acc.b2DownloadCost + record.b2DownloadCost,
       b2ApiCost: acc.b2ApiCost + record.b2ApiCost,
@@ -156,6 +158,6 @@ export async function getTotalCostsForPeriod(months: string[]): Promise<{
       s3StorageCost: 0,
       s3RetrievalCost: 0,
       totalCost: 0,
-    }
+    } as { b2StorageCost: number; b2DownloadCost: number; b2ApiCost: number; s3StorageCost: number; s3RetrievalCost: number; totalCost: number }
   );
 }

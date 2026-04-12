@@ -44,7 +44,7 @@ export async function getUserUpcomingSessions(
     .orderBy(asc(sessions.scheduledAt))
     .limit(limit);
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     ...r.session,
     mentor: r.mentor,
     mentorUser: r.mentorUser,
@@ -79,7 +79,7 @@ export async function getUserRecentSessions(
     .orderBy(desc(sessions.completedAt))
     .limit(limit);
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     ...r.session,
     mentor: r.mentor,
     mentorUser: r.mentorUser,
@@ -152,7 +152,7 @@ export async function getMentorUpcomingSessions(
     .orderBy(asc(sessions.scheduledAt))
     .limit(limit);
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     ...r.session,
     student: r.student,
     sessionPack: r.sessionPack,
@@ -184,7 +184,7 @@ export async function getMentorPastSessions(
     .orderBy(desc(sessions.scheduledAt))
     .limit(limit);
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     ...r.session,
     student: r.student,
     sessionPack: r.sessionPack,
@@ -211,7 +211,7 @@ export async function getMentorSessions(
     .orderBy(desc(sessions.scheduledAt))
     .limit(limit);
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     ...r.session,
     student: r.student,
     sessionPack: r.sessionPack,

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import type Stripe from "stripe";
 import {
   db,
   mentorshipProducts,
@@ -119,7 +118,7 @@ export async function POST(req: NextRequest) {
     // This is the expected PayPal behavior for simple integrations
 
     // Create product in database
-    const [product] = await db
+    const [_product] = await db
       .insert(mentorshipProducts)
       .values({
         mentorId,
@@ -185,7 +184,7 @@ export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
-    const products = await db
+    const products: { product: typeof mentorshipProducts.$inferSelect; mentor: typeof mentors.$inferSelect | null }[] = await db
       .select({
         product: mentorshipProducts,
         mentor: mentors,
@@ -195,7 +194,7 @@ export async function GET(req: NextRequest) {
       .orderBy(mentorshipProducts.createdAt);
 
     return NextResponse.json({
-      items: products.map(({ product, mentor }) => ({
+      items: products.map(({ product, mentor: _mentor }) => ({
         id: product.id,
         mentorId: product.mentorId,
         mentorName: "Mentor",

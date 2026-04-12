@@ -50,13 +50,9 @@ export async function getProductsByMentorId(
       )
     );
 
-  return products.map((p) => ({ ...p.product, mentor: p.mentor }));
+  return products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor }));
 }
 
-/**
- * Get all active products
- * @deprecated Use getAllActiveProductsPaginated() instead for better performance
- */
 export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
   const products = await db
     .select({
@@ -67,7 +63,7 @@ export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
     .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
     .where(eq(mentorshipProducts.active, true));
 
-  return products.map((p) => ({ ...p.product, mentor: p.mentor }));
+  return products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor }));
 }
 
 /**
@@ -116,7 +112,7 @@ export async function getAllActiveProductsPaginated(
     .offset(offset);
 
   return {
-    items: products.map((p) => ({ ...p.product, mentor: p.mentor })),
+    items: products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor })),
     total,
     page: validatedPage,
     pageSize: validatedPageSize,

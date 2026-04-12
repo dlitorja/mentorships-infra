@@ -1,10 +1,10 @@
+export const dynamic = "force-dynamic";
+
 import { requireDbUser, getUser } from "@/lib/auth";
 import { getUserSessionPacksWithMentors } from "@mentorships/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { MenteeOnboardingForm } from "@/components/dashboard/mentee-onboarding-form";
-
-export const dynamic = "force-dynamic";
 
 function hasDiscordConnected(clerkUser: Awaited<ReturnType<typeof getUser>>): boolean {
   if (!clerkUser) return false;

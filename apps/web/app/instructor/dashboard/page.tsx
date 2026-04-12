@@ -14,7 +14,8 @@ import Link from "next/link";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Button } from "@/components/ui/button";
 
-function formatDate(date: Date | string): string {
+function formatDate(date: Date | string | null): string {
+  if (!date) return "N/A";
   const d = typeof date === "string" ? new Date(date) : date;
   return d.toLocaleDateString("en-US", {
     month: "short",
@@ -59,7 +60,7 @@ export default async function InstructorDashboardPage() {
     await Promise.all([
       getMentorUpcomingSessions(mentor.id, 10),
       getMentorPastSessions(mentor.id, 5),
-      getMentorActiveSeats(mentor.id),
+      getMentorActiveSeats(mentor.id) as Promise<{ id: string; userId: string; status: string; sessionPackId: string; mentorId: string; seatExpiresAt: Date | null; gracePeriodEndsAt: Date | null }[]>,
       checkSeatAvailability(mentor.id),
     ]);
 

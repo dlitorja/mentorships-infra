@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireDbUser } from "@/lib/auth";
 import { db, sessions, sessionPacks, eq, and, gte } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
@@ -10,7 +12,13 @@ export default async function CalendarPage() {
 
   // Fetch upcoming sessions
   const now = new Date();
-  const upcomingSessions = await db
+  const upcomingSessions: {
+    id: string;
+    scheduledAt: Date;
+    status: string;
+    packId: string;
+    remainingSessions: number;
+  }[] = await db
     .select({
       id: sessions.id,
       scheduledAt: sessions.scheduledAt,
@@ -31,7 +39,13 @@ export default async function CalendarPage() {
     .limit(10);
 
   // Fetch active session packs with remaining sessions
-  const activePacks = await db
+  const activePacks: {
+    id: string;
+    mentorId: string;
+    remainingSessions: number;
+    expiresAt: Date | null;
+    status: string;
+  }[] = await db
     .select({
       id: sessionPacks.id,
       mentorId: sessionPacks.mentorId,

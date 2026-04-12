@@ -27,7 +27,8 @@ export {
   isForbiddenError,
 } from "./lib/clerk";
 
-// Export Drizzle database instance
+// Export getDb and db (lazy)
+export { getDb } from "./lib/drizzle";
 export { db } from "./lib/drizzle";
 
 // Export query helpers

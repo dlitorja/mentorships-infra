@@ -103,7 +103,7 @@ export async function createInstructorMenteeAssociations(
   const associations: InstructorMenteeAssociation[] = [];
   const errors: string[] = [];
 
-  await db.transaction(async (tx) => {
+  await db.transaction(async (tx: typeof db) => {
     for (const menteeUserId of menteeUserIds) {
       try {
         const existingPack = await tx
@@ -491,7 +491,7 @@ export async function getUserSessionPacksWithMentors(
     .offset(validatedOffset);
 
   return {
-    items: results.map((r) => ({
+    items: results.map((r: typeof results[number]) => ({
       ...r.sessionPack,
       mentor: r.mentor,
       mentorUser: r.mentorUser,
@@ -690,7 +690,7 @@ export async function getMentorMenteesWithSessionInfo(
     )
     .orderBy(desc(sessionPacks.createdAt));
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     userId: r.userId,
     email: r.email,
     sessionPackId: r.sessionPackId,
@@ -745,7 +745,7 @@ export async function getMentorMenteesWithLowSessions(
     )
     .orderBy(desc(sessionPacks.createdAt));
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     userId: r.userId,
     email: r.email,
     sessionPackId: r.sessionPackId,
@@ -820,7 +820,7 @@ export async function getUserInstructorsWithSessionInfo(
     )
     .orderBy(desc(sessionPacks.createdAt));
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     mentorId: r.mentorId,
     mentorUserId: r.mentorUserId,
     instructorEmail: r.instructorEmail,
@@ -880,7 +880,7 @@ export async function getUserLowSessionPacks(
     )
     .orderBy(desc(sessionPacks.createdAt));
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     mentorId: r.mentorId,
     mentorUserId: r.mentorUserId,
     instructorEmail: r.instructorEmail,
@@ -954,7 +954,7 @@ export async function removeSessionsFromPack(
     throw new Error("Must remove at least 1 session");
   }
 
-  return await db.transaction(async (tx) => {
+  return await db.transaction(async (tx: typeof db) => {
     const [pack] = await tx
       .select()
       .from(sessionPacks)

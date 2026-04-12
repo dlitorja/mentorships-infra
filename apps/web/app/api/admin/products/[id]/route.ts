@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   db,
   mentorshipProducts,
-  mentorshipProducts as productsTable,
   mentors,
   eq,
   isUnauthorizedError,

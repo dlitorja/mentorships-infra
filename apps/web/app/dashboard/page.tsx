@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getUser, requireDbUser } from "@/lib/auth";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
@@ -33,11 +35,15 @@ function formatDateTime(date: Date | string): string {
 }
 
 // Mark this page as dynamic since it uses headers() via requireDbUser
-export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   try {
     const user = await requireDbUser();
+    
+    if (user.role === "admin") {
+      redirect("/admin");
+    }
+    
     const clerkUser = await getUser();
     const discordConnected = Boolean(
       clerkUser?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))

@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import { getMentorByUserId, getMentorMenteesWithSessionInfo } from "@mentorships/db";
@@ -16,8 +18,6 @@ function formatDate(date: Date | string | null): string {
     year: "numeric",
   });
 }
-
-export const dynamic = "force-dynamic";
 
 export default async function InstructorDashboardPage() {
   const dbUser = await requireDbUser();
