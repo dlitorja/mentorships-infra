@@ -12,7 +12,7 @@ function getStartOfLastMonth(date: Date): Date {
 }
 
 function _getEndOfLastMonth(_date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 0);
+  return new Date(_date.getFullYear(), _date.getMonth(), 0);
 }
 
 function getStartOfYear(date: Date): Date {
