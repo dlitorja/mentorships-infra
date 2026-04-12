@@ -27,8 +27,9 @@ export {
   isForbiddenError,
 } from "./lib/clerk";
 
-// Re-export db and getDb - these are lazy-loaded in drizzle.ts
-export { db, getDb } from "./lib/drizzle";
+// Export getDb and db (lazy)
+export { getDb } from "./lib/drizzle";
+export { db } from "./lib/drizzle";
 
 // Export query helpers
 export * from "./lib/queries/users";
