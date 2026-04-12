@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireDbUser } from "@/lib/auth";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

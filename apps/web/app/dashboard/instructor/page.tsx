@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
 import { UserButton } from "@clerk/nextjs";
 import { getMentorByUserId, getMentorMenteesWithSessionInfo } from "@mentorships/db";

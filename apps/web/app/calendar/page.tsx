@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireDbUser } from "@/lib/auth";
 import { db, sessions, sessionPacks, eq, and, gte } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";

@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { requireDbUser, getUser } from "@/lib/auth";
 import { getUserSessionPacksWithMentors } from "@mentorships/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";

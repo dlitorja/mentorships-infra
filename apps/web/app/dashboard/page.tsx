@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getUser, requireDbUser } from "@/lib/auth";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
