@@ -27,7 +27,7 @@ export {
   isForbiddenError,
 } from "./lib/clerk";
 
-// Re-export db from drizzle - direct export to preserve typing
+// Re-export db and getDb - these are lazy-loaded in drizzle.ts
 export { db, getDb } from "./lib/drizzle";
 
 // Export query helpers

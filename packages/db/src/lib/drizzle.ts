@@ -9,67 +9,33 @@ const getDatabaseUrl = (): string => {
   return process.env.DATABASE_URL.trim();
 };
 
-// Validate and clean the connection string
-const connectionString = getDatabaseUrl();
+const cleanConnectionString = (url: string) => url.replace(/^["']|["']$/g, "");
 
-// Remove quotes if present (some .env parsers include them)
-const cleanedConnectionString = connectionString.replace(/^["']|["']$/g, "");
+const validateConnectionString = (connectionString: string): void => {
+  try {
+    new URL(connectionString);
+  } catch {
+    const preview = connectionString.substring(0, 80);
+    const maskedPreview = connectionString.includes("@")
+      ? preview.replace(/:[^@]+@/, ":***@")
+      : preview;
+    throw new Error(
+      `Invalid DATABASE_URL format.\n` +
+      `Received: ${maskedPreview}${connectionString.length > 80 ? "..." : ""}\n` +
+      `Make sure URL starts with postgresql://`
+    );
+  }
+};
 
-// Validate URL format
-try {
-  new URL(cleanedConnectionString);
-} catch (error) {
-  // Show first 80 chars for debugging (without exposing full password)
-  const preview = cleanedConnectionString.substring(0, 80);
-  const hasPassword = cleanedConnectionString.includes("@");
-  const maskedPreview = hasPassword 
-    ? preview.replace(/:[^@]+@/, ":***@") 
-    : preview;
-  
-  throw new Error(
-    `Invalid DATABASE_URL format.\n` +
-    `Received: ${maskedPreview}${cleanedConnectionString.length > 80 ? "..." : ""}\n` +
-    `Length: ${cleanedConnectionString.length} characters\n` +
-    `Make sure:\n` +
-    `- No quotes around the value in .env.local\n` +
-    `- URL starts with postgresql://\n` +
-    `- Format: postgresql://postgres:[password]@[host]:[port]/[database]`
-  );
-}
-
-// Create the connection
-// Using connection pooler URL (port 6543) which should handle IPv4/IPv6 routing
-// If IPv6 errors persist in WSL2, the pooler infrastructure should handle it
-// Increased max connections from 1 to 10 to improve performance and handle concurrent requests
-let client: ReturnType<typeof postgres>;
-try {
-  client = postgres(cleanedConnectionString, { 
-    max: 10, // Increased from 1 to handle concurrent requests efficiently
-    onnotice: () => {}, // Suppress notices
-    // Disable prepared statements for Supabase compatibility
-    // Required when using connection pooling (pgbouncer)
-    prepare: false,
-    transform: {
-      undefined: null,
-    },
-  });
-} catch (error) {
-  throw new Error(
-    `Failed to create database connection: ${error instanceof Error ? error.message : String(error)}`
-  );
-}
-
-// Create and export the db instance
-export const db = drizzle(client, { schema });
-
-// Export lazy-loading getter for use without DATABASE_URL at build time
-let _dbInstance: typeof db | null = null;
+let _dbInstance: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
 export const getDb = () => {
   if (!_dbInstance) {
     const connectionString = getDatabaseUrl();
-    const cleanedConnectionString = connectionString.replace(/^["']|["']$/g, "");
-    const _client = postgres(cleanedConnectionString, {
+    const cleanedConnectionString = cleanConnectionString(connectionString);
+    validateConnectionString(cleanedConnectionString);
+
+    const client = postgres(cleanedConnectionString, {
       max: 10,
       onnotice: () => {},
       prepare: false,
@@ -77,7 +43,15 @@ export const getDb = () => {
         undefined: null,
       },
     });
-    _dbInstance = drizzle(_client, { schema });
+
+    _dbInstance = drizzle(client, { schema });
   }
   return _dbInstance;
 };
+
+// Lazy-load db - only connects when actually used
+export const db = new Proxy({} as ReturnType<typeof getDb>, {
+  get(_target, prop) {
+    return getDb()[prop as keyof ReturnType<typeof getDb>];
+  },
+});
