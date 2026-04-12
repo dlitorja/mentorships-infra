@@ -20,12 +20,12 @@ export function ClientAdminLayout({
   children,
 }: {
   children: React.ReactNode;
-}) {
+}): React.JSX.Element {
   const pathname = usePathname();
   const { signOut } = useClerk();
   const { isLoaded, isSignedIn, user } = useUser();
 
-  const handleSignOut = async () => {
+  const handleSignOut = async (): Promise<void> => {
     await signOut({ redirectUrl: "/" });
   };
 
@@ -41,7 +41,7 @@ export function ClientAdminLayout({
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href || 
-              (item.href !== "/admin" && pathname.startsWith(item.href));
+              (item.href !== "/admin" && pathname.startsWith(`${item.href}/`));
             
             return (
               <Link
@@ -62,7 +62,9 @@ export function ClientAdminLayout({
         </nav>
 
         <div className="mt-auto pt-4 border-t">
-          {isLoaded && isSignedIn ? (
+          {!isLoaded ? (
+            <div className="px-4 py-2 text-sm text-muted-foreground">Loading...</div>
+          ) : isSignedIn ? (
             <>
               <div className="flex items-center gap-3 px-4 py-2">
                 <UserButton />

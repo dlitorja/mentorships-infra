@@ -5,20 +5,15 @@ import { ClientAdminLayout } from "./client-admin-layout";
 
 export const dynamic = "force-dynamic";
 
-async function checkAdminAccess() {
+async function checkAdminAccess(): Promise<void> {
   const { userId } = await auth();
   if (!userId) {
     redirect("/sign-in?redirect_url=/admin");
   }
   
-  try {
-    const user = await getDbUser();
-    if (user.role !== "admin") {
-      redirect("/dashboard?error=unauthorized");
-    }
-    return user;
-  } catch {
-    redirect("/sign-in?redirect_url=/admin");
+  const user = await getDbUser();
+  if (user.role !== "admin") {
+    redirect("/dashboard?error=unauthorized");
   }
 }
 
@@ -26,7 +21,7 @@ export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
-}) {
+}): Promise<React.JSX.Element> {
   await checkAdminAccess();
 
   return <ClientAdminLayout>{children}</ClientAdminLayout>;
