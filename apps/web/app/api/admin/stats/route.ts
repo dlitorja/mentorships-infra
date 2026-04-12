@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, orders, payments, sessionPacks, seatReservations, eq, sql, and, isNull, gte, lt } from "@mentorships/db";
+import { db, sessionPacks, seatReservations, eq, sql, and, gte, lt } from "@mentorships/db";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 
@@ -23,14 +23,14 @@ function getStartOfYear(date: Date): Date {
  * GET /api/admin/stats
  * Get admin dashboard statistics
  */
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
     const now = new Date();
     const startOfMonth = getStartOfMonth(now);
     const startOfLastMonth = getStartOfLastMonth(now);
-    const endOfLastMonth = getEndOfLastMonth(now);
+    const _endOfLastMonth = getEndOfLastMonth(now);
     const startOfYear = getStartOfYear(now);
 
     // Total Active Mentees - count of active session packs with active seat reservations

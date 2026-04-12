@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { 
@@ -17,7 +17,6 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 
 type Stats = {
   totalActiveMentees: number;
@@ -55,7 +54,7 @@ type MenteeWithSessionInfo = {
   seatExpiresAt: string | null;
 };
 
-type InstructorWithMentees = InstructorWithStats & {
+type _InstructorWithMentees = InstructorWithStats & {
   mentees: MenteeWithSessionInfo[];
 };
 
@@ -217,7 +216,7 @@ export default function AdminDashboard() {
   const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
   const [isAllExpanded, setIsAllExpanded] = useState(false);
   const [expandedMentees, setExpandedMentees] = useState<{ [key: string]: MenteeWithSessionInfo[] }>({});
-  const [loadingMentees, setLoadingMentees] = useState<string | null>(null);
+  const [_loadingMentees, setLoadingMentees] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

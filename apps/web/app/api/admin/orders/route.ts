@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, orders, payments, users, eq, desc, sql, or } from "@mentorships/db";
+import { db, orders, payments, users, eq, desc, sql } from "@mentorships/db";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 
