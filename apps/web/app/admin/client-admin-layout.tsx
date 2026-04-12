@@ -1,48 +1,29 @@
-import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
-import { getDbUser } from "@/lib/auth";
-import { ClientAdminLayout } from "./client-admin-layout";
+"use client";
 
-export const dynamic = "force-dynamic";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { 
+  LayoutDashboard, 
+  Package,
+  ShoppingCart,
+} from "lucide-react";
+import { UserButton, useUser, useClerk } from "@clerk/nextjs";
 
-async function checkAdminAccess() {
-  const { userId } = await auth();
-  if (!userId) {
-    redirect("/sign-in?redirect_url=/admin");
-  }
-  
-  try {
-    const user = await getDbUser();
-    if (user.role !== "admin") {
-      redirect("/dashboard?error=unauthorized");
-    }
-    return user;
-  } catch {
-    redirect("/sign-in?redirect_url=/admin");
-  }
-}
+const navItems = [
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/products", label: "Products", icon: Package },
+  { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+];
 
-export default async function AdminLayout({
+export function ClientAdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  await checkAdminAccess();
-
-  return <ClientAdminLayout>{children}</ClientAdminLayout>;
-}
-
-function ClientAdminLayout({
-  children,
-  user,
-  pathname,
-}: {
-  children: React.ReactNode;
-  user: Awaited<ReturnType<typeof getDbUser>>;
-  pathname: string;
-}) {
+  const pathname = usePathname();
   const { signOut } = useClerk();
-  const { isLoaded, isSignedIn, user: clerkUser } = useUser();
+  const { isLoaded, isSignedIn, user } = useUser();
 
   const handleSignOut = async () => {
     await signOut({ redirectUrl: "/" });
@@ -87,10 +68,10 @@ function ClientAdminLayout({
                 <UserButton />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">
-                    {clerkUser?.firstName} {clerkUser?.lastName}
+                    {user?.firstName} {user?.lastName}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {clerkUser?.primaryEmailAddress?.emailAddress}
+                    {user?.primaryEmailAddress?.emailAddress}
                   </p>
                 </div>
               </div>
