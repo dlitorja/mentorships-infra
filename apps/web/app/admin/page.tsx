@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useUser } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { 
@@ -215,6 +215,7 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [instructors, setInstructors] = useState<InstructorWithStats[]>([]);
   const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
+  const [isAllExpanded, setIsAllExpanded] = useState(false);
   const [expandedMentees, setExpandedMentees] = useState<{ [key: string]: MenteeWithSessionInfo[] }>({});
   const [loadingMentees, setLoadingMentees] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -226,6 +227,12 @@ export default function AdminDashboard() {
           fetch("/api/admin/stats"),
           fetch("/api/marketing/api/admin/instructors"),
         ]);
+
+        if (!statsRes.ok || !instructorsRes.ok) {
+          console.error("Auth check failed - not authorized");
+          redirect("/dashboard?error=unauthorized");
+          return;
+        }
 
         const statsData = await statsRes.json();
         const instructorsData = await instructorsRes.json();
@@ -247,6 +254,13 @@ export default function AdminDashboard() {
   }, []);
 
   const handleToggleExpand = async (mentorId: string) => {
+    // If in "all expanded" mode, clicking a row toggles just that row
+    if (isAllExpanded) {
+      setExpandedMentorId(expandedMentorId === mentorId ? null : mentorId);
+      return;
+    }
+    
+    // Normal toggle behavior
     if (expandedMentorId === mentorId) {
       setExpandedMentorId(null);
       return;
@@ -270,9 +284,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const expandAll = () => {
-    setExpandedMentorId("all");
-    instructors.forEach(async (instructor) => {
+  const expandAll = async () => {
+    setIsAllExpanded(true);
+    // Load all mentees for all instructors
+    for (const instructor of instructors) {
       if (!expandedMentees[instructor.mentorId]) {
         try {
           const res = await fetch(`/api/marketing/api/admin/instructors/${instructor.mentorId}/mentees`);
@@ -284,10 +299,11 @@ export default function AdminDashboard() {
           console.error("Error loading mentees:", error);
         }
       }
-    });
+    }
   };
 
   const collapseAll = () => {
+    setIsAllExpanded(false);
     setExpandedMentorId(null);
   };
 
@@ -462,7 +478,7 @@ export default function AdminDashboard() {
                 variant="outline" 
                 size="sm"
                 onClick={expandAll}
-                disabled={expandedMentorId === "all"}
+                disabled={isAllExpanded}
               >
                 Expand All
               </Button>
@@ -501,7 +517,7 @@ export default function AdminDashboard() {
                       <InstructorRow
                         key={instructor.mentorId}
                         instructor={instructor}
-                        isExpanded={expandedMentorId === instructor.mentorId || expandedMentorId === "all"}
+                        isExpanded={isAllExpanded || expandedMentorId === instructor.mentorId}
                         onToggle={() => handleToggleExpand(instructor.mentorId)}
                         mentees={expandedMentees[instructor.mentorId] || null}
                       />

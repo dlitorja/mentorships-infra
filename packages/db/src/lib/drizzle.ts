@@ -33,11 +33,9 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
   return _dbInstance;
 };
 
-// db as any to prevent TypeScript from checking types at build time
-// This works because at runtime, db.select() will actually call getDb().select()
-export const db: any = new Proxy({}, {
+export const db: PostgresJsDatabase<typeof schema> = new Proxy({} as PostgresJsDatabase<typeof schema>, {
   get(_target, prop) {
     const database = getDb();
-    return (database as any)[prop];
+    return (database as PostgresJsDatabase<typeof schema>)[prop as keyof PostgresJsDatabase<typeof schema>];
   }
 });

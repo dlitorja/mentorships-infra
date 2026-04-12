@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { 
   LayoutDashboard, 
   Package,
@@ -261,6 +262,13 @@ export default function AdminOrdersPage() {
       if (statusFilter) params.set("status", statusFilter);
 
       const res = await fetch(`/api/admin/orders?${params}`);
+      
+      if (!res.ok) {
+        console.error("Auth check failed - not authorized");
+        redirect("/dashboard?error=unauthorized");
+        return;
+      }
+
       const data: OrdersResponse = await res.json();
 
       setOrders(data.items);
@@ -454,11 +462,11 @@ export default function AdminOrdersPage() {
                               {payment && payment.providerPaymentId && (
                                 order.provider === "stripe" ? (
                                   <a
-                                    href={`https://dashboard.stripe.com/test/payments/${payment.providerPaymentId}`}
+                                    href={`https://dashboard.stripe.com/${process.env.NEXT_PUBLIC_VERCEL_ENV === "production" ? "" : "test/payments/"}${payment.providerPaymentId}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-blue-600 hover:text-blue-800"
-                                    title="View in Stripe"
+                                    title={`View in Stripe ${process.env.NEXT_PUBLIC_VERCEL_ENV === "production" ? "(production)" : "(test)"}`}
                                   >
                                     <ExternalLink className="h-4 w-4" />
                                   </a>
