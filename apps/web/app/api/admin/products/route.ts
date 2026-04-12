@@ -185,7 +185,7 @@ export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
-    const products = await db
+    const products: { product: typeof mentorshipProducts.$inferSelect; mentor: typeof mentors.$inferSelect | null }[] = await db
       .select({
         product: mentorshipProducts,
         mentor: mentors,

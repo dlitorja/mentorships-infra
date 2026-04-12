@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     const total = Number(totalResult[0]?.count || 0);
 
     // Get orders with payment and user info
-    const allOrders = await db
+    const allOrders: { order: typeof orders.$inferSelect; user: typeof users.$inferSelect | null }[] = await db
       .select({
         order: orders,
         user: users,
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
           totalAmount: order.totalAmount,
           currency: order.currency,
           createdAt: order.createdAt.toISOString(),
-          payments: orderPayments.map((p) => ({
+          payments: orderPayments.map((p: typeof payments.$inferSelect) => ({
             id: p.id,
             provider: p.provider,
             providerPaymentId: p.providerPaymentId,

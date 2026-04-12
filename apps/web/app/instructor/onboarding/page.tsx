@@ -39,7 +39,15 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
 
   const { submissionId } = await searchParams;
 
-  const submissions = await db
+  const submissions: {
+    id: string;
+    goals: string;
+    imageObjects: { path: string }[];
+    createdAt: Date;
+    reviewedAt: Date | null;
+    studentId: string;
+    studentEmail: string;
+  }[] = await db
     .select({
       id: menteeOnboardingSubmissions.id,
       goals: menteeOnboardingSubmissions.goals,

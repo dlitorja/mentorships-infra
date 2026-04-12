@@ -19,8 +19,6 @@ function formatDate(date: Date | string | null): string {
   });
 }
 
-export const dynamic = "force-dynamic";
-
 export default async function InstructorDashboardPage() {
   const dbUser = await requireDbUser();
 

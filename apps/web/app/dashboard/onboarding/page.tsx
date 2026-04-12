@@ -6,8 +6,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import Link from "next/link";
 import { MenteeOnboardingForm } from "@/components/dashboard/mentee-onboarding-form";
 
-export const dynamic = "force-dynamic";
-
 function hasDiscordConnected(clerkUser: Awaited<ReturnType<typeof getUser>>): boolean {
   if (!clerkUser) return false;
   return clerkUser.externalAccounts.some((a) => a.provider?.toLowerCase?.().includes("discord"));

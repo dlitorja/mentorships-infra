@@ -49,7 +49,7 @@ export async function getAllInstructorsWithStats(
       ilike(users.email, searchTerm)
     );
 
-    return await db.transaction(async (tx) => {
+    return await db.transaction(async (tx: typeof db) => {
       const totalResult = await tx
         .select({ count: sql<number>`count(*)` })
         .from(mentors)
@@ -83,7 +83,7 @@ export async function getAllInstructorsWithStats(
         .offset(offset);
 
       return {
-        instructors: results.map((r) => ({
+        instructors: results.map((r: typeof results[number]) => ({
           mentorId: r.mentorId,
           userId: r.userId,
           email: r.email,
@@ -100,7 +100,7 @@ export async function getAllInstructorsWithStats(
     });
   }
 
-  return await db.transaction(async (tx) => {
+  return await db.transaction(async (tx: typeof db) => {
     const totalResult = await tx
       .select({ count: sql<number>`count(*)` })
       .from(mentors)
@@ -134,7 +134,7 @@ export async function getAllInstructorsWithStats(
       .offset(offset);
 
     return {
-      instructors: results.map((r) => ({
+      instructors: results.map((r: typeof results[number]) => ({
         mentorId: r.mentorId,
         userId: r.userId,
         email: r.email,
@@ -207,7 +207,7 @@ export async function getInstructorWithMentees(
     .where(eq(sessionPacks.mentorId, mentorId))
     .orderBy(desc(sessionPacks.createdAt));
 
-  const mentees: MenteeWithSessionInfo[] = menteesResult.map((m) => ({
+  const mentees: MenteeWithSessionInfo[] = menteesResult.map((m: typeof menteesResult[number]) => ({
     userId: m.userId,
     email: m.email,
     sessionPackId: m.sessionPackId,
@@ -264,7 +264,7 @@ export async function getInstructorMenteesForCsv(
     .where(eq(sessionPacks.mentorId, mentorId))
     .orderBy(desc(sessionPacks.createdAt));
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     userId: r.userId,
     email: r.email,
     sessionPackId: r.sessionPackId,
@@ -316,7 +316,7 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
     .innerJoin(instructorUsers, eq(mentors.userId, instructorUsers.id))
     .orderBy(desc(sessionPacks.createdAt));
 
-  return results.map((r) => ({
+  return results.map((r: typeof results[number]) => ({
     instructorEmail: r.instructorEmail,
     menteeEmail: r.menteeEmail,
     totalSessions: r.totalSessions,

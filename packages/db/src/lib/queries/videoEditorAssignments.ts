@@ -54,7 +54,7 @@ export async function getAssignedInstructorIds(videoEditorId: string) {
     .from(videoEditorAssignments)
     .where(eq(videoEditorAssignments.videoEditorId, videoEditorId));
 
-  return assignments.map((a) => a.instructorId);
+  return assignments.map((a: typeof assignments[number]) => a.instructorId);
 }
 
 /**

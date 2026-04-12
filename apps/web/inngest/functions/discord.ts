@@ -34,7 +34,7 @@ function getDiscordIdentityForUserId(userId: string): Promise<string | null> {
     .from(userIdentities)
     .where(and(eq(userIdentities.userId, userId), eq(userIdentities.provider, "discord")))
     .limit(1)
-    .then((rows) => rows[0]?.providerUserId ?? null);
+    .then((rows: typeof userIdentities.$inferSelect[]) => rows[0]?.providerUserId ?? null);
 }
 
 export const processDiscordActionQueue = inngest.createFunction(
