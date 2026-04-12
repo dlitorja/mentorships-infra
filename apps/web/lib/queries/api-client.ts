@@ -5,6 +5,8 @@
  * Use these functions as queryFn in useQuery/useMutation.
  */
 
+import { z } from "zod";
+
 /**
  * Type-safe fetch wrapper that handles errors and JSON parsing
  */
@@ -253,6 +255,7 @@ export async function submitContact(data: { email: string; artGoals: string }) {
 export async function createProductFromStripe(data: {
   productId?: string;
   priceId?: string;
+  mentorId?: string;
 }) {
   return apiFetch<{
     success: boolean;
@@ -267,5 +270,29 @@ export async function createProductFromStripe(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+const MentorSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  email: z.string().nullable(),
+  maxActiveStudents: z.number(),
+  oneOnOneInventory: z.number(),
+  groupInventory: z.number(),
+  createdAt: z.string().nullable(),
+});
+
+const FetchMentorsResponseSchema = z.object({
+  items: z.array(MentorSchema),
+});
+
+type FetchMentorsResponse = z.infer<typeof FetchMentorsResponseSchema>;
+
+/**
+ * Fetch all mentors for admin
+ */
+export async function fetchMentors(): Promise<FetchMentorsResponse> {
+  const data = await apiFetch<unknown>("/api/admin/mentors");
+  return FetchMentorsResponseSchema.parse(data);
 }
 
