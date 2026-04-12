@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, sessionPacks, seatReservations, eq, sql, and, gte, lt } from "@mentorships/db";
+import { db, payments, sessionPacks, seatReservations, eq, sql, and, gte, lt } from "@mentorships/db";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 
@@ -11,7 +11,7 @@ function getStartOfLastMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() - 1, 1);
 }
 
-function getEndOfLastMonth(date: Date): Date {
+function _getEndOfLastMonth(_date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 0);
 }
 
@@ -30,7 +30,6 @@ export async function GET(_req: NextRequest) {
     const now = new Date();
     const startOfMonth = getStartOfMonth(now);
     const startOfLastMonth = getStartOfLastMonth(now);
-    const _endOfLastMonth = getEndOfLastMonth(now);
     const startOfYear = getStartOfYear(now);
 
     // Total Active Mentees - count of active session packs with active seat reservations
