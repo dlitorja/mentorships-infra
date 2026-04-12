@@ -4,45 +4,40 @@ import * as schema from "../schema";
 
 let _dbInstance: PostgresJsDatabase<typeof schema> | null = null;
 
-const getDbConnection = () => {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL environment variable is required");
-  }
-
-  const cleaned = connectionString.replace(/^["']|["']$/g, "");
-  
-  try {
-    new URL(cleaned);
-  } catch {
-    throw new Error("Invalid DATABASE_URL format");
-  }
-
-  const client = postgres(cleaned, {
-    max: 10,
-    onnotice: () => {},
-    prepare: false,
-    transform: {
-      undefined: null,
-    },
-  });
-
-  return drizzle(client, { schema });
-};
-
-// getDb returns a fresh connection each time
-// This avoids holding onto a connection at module scope
 export const getDb = (): PostgresJsDatabase<typeof schema> => {
   if (!_dbInstance) {
-    _dbInstance = getDbConnection();
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error("DATABASE_URL environment variable is required");
+    }
+
+    const cleaned = connectionString.replace(/^["']|["']$/g, "");
+    
+    try {
+      new URL(cleaned);
+    } catch {
+      throw new Error("Invalid DATABASE_URL format");
+    }
+
+    const client = postgres(cleaned, {
+      max: 10,
+      onnotice: () => {},
+      prepare: false,
+      transform: {
+        undefined: null,
+      },
+    });
+
+    _dbInstance = drizzle(client, { schema });
   }
   return _dbInstance;
 };
 
-// db typed as any to avoid build-time type errors
-// At runtime this will work because getDb() is called via the proxy
-export const db = new Proxy(function() {}, {
+// db as any to prevent TypeScript from checking types at build time
+// This works because at runtime, db.select() will actually call getDb().select()
+export const db: any = new Proxy({}, {
   get(_target, prop) {
-    return (_target as any)[prop] || ((...args: unknown[]) => getDb()[prop as any](...args));
-  },
-}) as any;
+    const database = getDb();
+    return (database as any)[prop];
+  }
+});
