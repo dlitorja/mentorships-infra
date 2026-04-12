@@ -47,20 +47,21 @@ export default function RootLayout({
     </html>
   );
 
-  // Always wrap with ClerkProvider to ensure Clerk context is available
-  // This is required for Clerk components like SignIn to work properly
-  // If no key is set, we still wrap (Clerk will show errors, but context will be available)
-  // This prevents "useSession can only be used within ClerkProvider" errors
-  const publishableKey = clerkPublishableKey || BUILD_TIME_PLACEHOLDER_KEY;
+  // Use placeholder during build without valid key to avoid ClerkProvider errors
+  const isBuildTime = !clerkPublishableKey || clerkPublishableKey === BUILD_TIME_PLACEHOLDER_KEY;
+  
+  if (isBuildTime) {
+    return (
+      <QueryProvider>
+        {layoutContent}
+      </QueryProvider>
+    );
+  }
   
   return (
     <ClerkProvider
-      publishableKey={publishableKey}
+      publishableKey={clerkPublishableKey}
       {...(domainUrl && { domainUrl })}
-      // Reduce verbose debug logging in development
-      // The 422 error is typically a validation error (e.g., email already exists)
-      // and is handled gracefully by Clerk's UI
-      // Network errors are usually temporary and will retry automatically
     >
       <QueryProvider>
         {layoutContent}
