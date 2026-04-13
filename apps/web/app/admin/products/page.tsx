@@ -2,7 +2,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ExternalLink, CreditCard, Wallet } from "lucide-react";
+import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+type Mentor = {
+  id: string;
+  userId: string;
+  email: string | null;
+};
 
 type ProductInfo = {
   id: string;
@@ -26,31 +35,82 @@ type ProductInfo = {
 
 type ProductsResponse = {
   items: ProductInfo[];
+  total: number;
+  page: number;
+  pageSize: number;
   error?: string;
 };
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductInfo[]>([]);
+  const [mentors, setMentors] = useState<Mentor[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchProducts() {
-      try {
-        const res = await fetch("/api/admin/products");
-        const data: ProductsResponse = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "Failed to fetch products");
-        }
-        setProducts(data.items);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to fetch products");
-      } finally {
-        setLoading(false);
+  const [search, setSearch] = useState("");
+  const [mentorId, setMentorId] = useState("");
+  const [mentorshipType, setMentorshipType] = useState("");
+  const [activeFilter, setActiveFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 20;
+
+  const fetchMentors = async () => {
+    try {
+      const res = await fetch("/api/admin/mentors");
+      const data = await res.json();
+      if (res.ok && data.items) {
+        setMentors(data.items);
       }
+    } catch (err) {
+      console.error("Error fetching mentors:", err);
     }
-    fetchProducts();
+  };
+
+  useEffect(() => {
+    fetchMentors();
   }, []);
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("page", page.toString());
+      params.set("pageSize", pageSize.toString());
+      if (search) params.set("search", search);
+      if (mentorId) params.set("mentorId", mentorId);
+      if (mentorshipType) params.set("mentorshipType", mentorshipType);
+      if (activeFilter) params.set("active", activeFilter);
+
+      const res = await fetch(`/api/admin/products?${params}`);
+      const data: ProductsResponse = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to fetch products");
+      }
+      setProducts(data.items);
+      setTotal(data.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch products");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, [page, mentorId, mentorshipType, activeFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, mentorId, mentorshipType, activeFilter]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchProducts();
+  };
+
+  const filteredProducts = search ? products : products;
+  const totalPages = Math.ceil(total / pageSize);
 
   const getStatusBadge = (active: boolean) => {
     return active ? (
@@ -128,15 +188,93 @@ export default function ProductsPage() {
     return (
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold mb-8">Products</h1>
-        <div className="text-center py-8">Loading products...</div>
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6">
+      <div>
         <h1 className="text-3xl font-bold">Products</h1>
+        <p className="text-muted-foreground mt-1">
+          Manage mentorship products and pricing
+        </p>
+      </div>
+
+      {/* Filters */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex flex-wrap gap-4">
+            <form onSubmit={handleSearch} className="flex gap-2 flex-1 max-w-md">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search by title or description..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <Button type="submit" variant="secondary">Search</Button>
+            </form>
+
+            <select
+              value={mentorId}
+              onChange={(e) => {
+                setMentorId(e.target.value);
+                setPage(1);
+              }}
+              className="p-2 border rounded-md"
+            >
+              <option value="">All Mentors</option>
+              {mentors.map((mentor) => (
+                <option key={mentor.id} value={mentor.id}>
+                  {mentor.email || mentor.userId.slice(0, 8) + "..."}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={mentorshipType}
+              onChange={(e) => {
+                setMentorshipType(e.target.value);
+                setPage(1);
+              }}
+              className="p-2 border rounded-md"
+            >
+              <option value="">All Types</option>
+              <option value="one-on-one">1-on-1</option>
+              <option value="group">Group</option>
+            </select>
+
+            <select
+              value={activeFilter}
+              onChange={(e) => {
+                setActiveFilter(e.target.value);
+                setPage(1);
+              }}
+              className="p-2 border rounded-md"
+            >
+              <option value="">All Status</option>
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
+      {/* Header with Create button */}
+      <div className="flex items-center justify-end">
         <Link
           href="/admin/products/create"
           className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90"
@@ -145,13 +283,7 @@ export default function ProductsPage() {
         </Link>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded mb-4">
-          {error}
-        </div>
-      )}
-
-      {products.length === 0 ? (
+      {filteredProducts.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           No products found. Create your first product to get started.
         </div>
@@ -237,6 +369,33 @@ export default function ProductsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {((page - 1) * pageSize) + 1} to {Math.min(page * pageSize, total)} of {total} products
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(page - 1)}
+              disabled={page === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(page + 1)}
+              disabled={page >= totalPages}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
     </div>

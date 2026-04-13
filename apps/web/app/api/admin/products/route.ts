@@ -5,6 +5,10 @@ import {
   mentorshipProducts,
   mentors,
   eq,
+  ilike,
+  or,
+  and,
+  sql,
   isUnauthorizedError,
   isForbiddenError,
 } from "@mentorships/db";
@@ -260,20 +264,68 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/admin/products
- * List all products for admin dashboard
+ * List all products for admin dashboard with filtering and pagination
  */
 export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
-    const products: { product: typeof mentorshipProducts.$inferSelect; mentor: typeof mentors.$inferSelect | null }[] = await db
-      .select({
-        product: mentorshipProducts,
-        mentor: mentors,
-      })
-      .from(mentorshipProducts)
-      .leftJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
-      .orderBy(mentorshipProducts.createdAt);
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get("search") || "";
+    const mentorId = searchParams.get("mentorId") || "";
+    const mentorshipType = searchParams.get("mentorshipType") || "";
+    const active = searchParams.get("active");
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const pageSize = Math.min(Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10)), 100);
+
+    const whereConditions = [];
+
+    if (search) {
+      whereConditions.push(
+        or(
+          ilike(mentorshipProducts.title, `%${search}%`),
+          ilike(mentorshipProducts.description, `%${search}%`)
+        )
+      );
+    }
+
+    if (mentorId) {
+      whereConditions.push(eq(mentorshipProducts.mentorId, mentorId));
+    }
+
+    if (mentorshipType) {
+      whereConditions.push(eq(mentorshipProducts.mentorshipType, mentorshipType));
+    }
+
+    if (active !== null && active !== "") {
+      whereConditions.push(eq(mentorshipProducts.active, active === "true"));
+    }
+
+    const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
+
+    const offset = (page - 1) * pageSize;
+
+    const [products, countResult] = await Promise.all([
+      db
+        .select({
+          product: mentorshipProducts,
+          mentor: mentors,
+        })
+        .from(mentorshipProducts)
+        .leftJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+        .where(whereClause)
+        .orderBy(mentorshipProducts.createdAt)
+        .limit(pageSize)
+        .offset(offset),
+      db
+        .select({
+          count: sql<number>`count(*)`,
+        })
+        .from(mentorshipProducts)
+        .where(whereClause),
+    ]);
+
+    const total = Number(countResult[0]?.count || 0);
 
     return NextResponse.json({
       items: products.map(({ product, mentor }) => ({
@@ -297,6 +349,9 @@ export async function GET(req: NextRequest) {
         active: product.active,
         createdAt: product.createdAt.toISOString(),
       })),
+      total,
+      page,
+      pageSize,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
