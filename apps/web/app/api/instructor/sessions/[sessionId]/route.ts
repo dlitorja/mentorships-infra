@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
-import { db, sessions, eq } from "@mentorships/db";
-import { getMentorByUserId, getSessionById, getSessionPackById } from "@mentorships/db";
+import { db, sessions, eq, getMentorById, getMentorByUserId, getSessionById, getSessionPackById, decryptMentorRefreshToken } from "@mentorships/db";
 import { inngest } from "@/inngest/client";
+import { getGoogleCalendarClient } from "@/lib/google";
 import { z } from "zod";
 
 const updateSessionSchema = z.object({
@@ -123,7 +123,6 @@ export async function PATCH(
 
         // Delete Google Calendar event if exists
         if (session.googleCalendarEventId) {
-          const { getGoogleCalendarClient, decryptMentorRefreshToken } = await import("@/lib/google");
           const mentor = await getMentorById(session.mentorId);
           if (mentor) {
             const refreshToken = decryptMentorRefreshToken(mentor);

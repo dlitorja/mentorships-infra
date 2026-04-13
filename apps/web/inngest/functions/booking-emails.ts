@@ -1,6 +1,6 @@
-import { inngest, wait } from "../client";
+import { inngest } from "../client";
 import { getUserById, getMentorById, getSessionById, getSessionPackById } from "@mentorships/db";
-import { getClerkApi } from "@mentorships/db";
+import { clerkClient } from "@clerk/nextjs/server";
 import { sendEmail } from "@/lib/email";
 import {
   buildBookingConfirmationEmail,
@@ -10,6 +10,10 @@ import {
 } from "@/lib/emails/booking-email";
 import { reportError, reportInfo } from "@/lib/observability";
 import type { SessionScheduledEvent } from "../types";
+
+async function getClerkApi() {
+  return await clerkClient();
+}
 
 async function getClerkUserName(clerkId: string): Promise<string> {
   try {
@@ -231,13 +235,13 @@ export const handleSessionCancellationEmails = inngest.createFunction(
 
     const [studentName, mentorName, studentEmail, mentorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-mentor-name", () => getClerkUserName(mentor.userId)),
+      step.run("get-mentor-name", () => getClerkUserName(mentorId)),
       step.run("get-student-email", () => getUserEmail(studentId)),
-      step.run("get-mentor-email", () => getUserEmail(mentor.userId)),
+      step.run("get-mentor-email", () => getUserEmail(mentorId)),
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
-    const mentorUser = await step.run("get-mentor-user", () => getUserById(mentor.userId));
+    const mentorUser = await step.run("get-mentor-user", () => getUserById(mentorId));
 
     const studentTimeZone = student?.timeZone;
     const mentorTimeZone = mentorUser?.timeZone;
@@ -318,12 +322,13 @@ export const scheduleSessionReminders = inngest.createFunction(
     const now = new Date();
 
     if (reminder24h > now) {
-      await step.run("schedule-24h-reminder", async () => {
-        const delayMs = reminder24h.getTime() - now.getTime();
-        await wait.for({ ms: delayMs });
+      await step.sleep("wait-24h", reminder24h.getTime() - now.getTime());
 
-        const session = await getSessionById(sessionId);
-        if (session && session.status === "scheduled") {
+      const session24h = await step.run("check-session-24h", async () => {
+        return await getSessionById(sessionId);
+      });
+      if (session24h && session24h.status === "scheduled") {
+        await step.run("send-24h-reminder", async () => {
           const pack = await getSessionPackById(sessionPackId);
           if (pack) {
             await inngest.send({
@@ -333,22 +338,23 @@ export const scheduleSessionReminders = inngest.createFunction(
                 sessionId,
                 sessionPackId,
                 studentId: pack.userId,
-                mentorId: session.mentorId,
+                mentorId: session24h.mentorId,
                 scheduledAt,
               },
             });
           }
-        }
-      });
+        });
+      }
     }
 
     if (reminder1h > now) {
-      await step.run("schedule-1h-reminder", async () => {
-        const delayMs = reminder1h.getTime() - now.getTime();
-        await wait.for({ ms: delayMs });
+      await step.sleep("wait-1h", reminder1h.getTime() - now.getTime());
 
-        const session = await getSessionById(sessionId);
-        if (session && session.status === "scheduled") {
+      const session1h = await step.run("check-session-1h", async () => {
+        return await getSessionById(sessionId);
+      });
+      if (session1h && session1h.status === "scheduled") {
+        await step.run("send-1h-reminder", async () => {
           const pack = await getSessionPackById(sessionPackId);
           if (pack) {
             await inngest.send({
@@ -358,13 +364,13 @@ export const scheduleSessionReminders = inngest.createFunction(
                 sessionId,
                 sessionPackId,
                 studentId: pack.userId,
-                mentorId: session.mentorId,
+                mentorId: session1h.mentorId,
                 scheduledAt,
               },
             });
           }
-        }
-      });
+        });
+      }
     }
 
     return { success: true, sessionId };
