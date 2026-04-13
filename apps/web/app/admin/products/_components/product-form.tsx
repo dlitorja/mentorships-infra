@@ -209,42 +209,34 @@ export function ProductForm({
           </Button>
         </div>
 
-        {mode === "create" ? (
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-6">
-              <TabsTrigger value="create-new">Create New Product</TabsTrigger>
-              <TabsTrigger value="import-stripe">Import from Stripe</TabsTrigger>
-            </TabsList>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-6">
+            <TabsTrigger value="create-new">
+              {mode === "create" ? "Create New Product" : "Edit Product"}
+            </TabsTrigger>
+            <TabsTrigger value="import-stripe">Import from Stripe</TabsTrigger>
+          </TabsList>
 
-            <TabsContent value="create-new">
-              <ProductFieldsForm
-                mentors={mentors}
-                isLoadingMentors={isLoadingMentors}
-                isSubmitting={createProductMutation.isPending}
-                onSubmit={handleCreateSubmit}
-                initialData={initialData}
-              />
-            </TabsContent>
+          <TabsContent value="create-new">
+            <ProductFieldsForm
+              mentors={mentors}
+              isLoadingMentors={isLoadingMentors}
+              isSubmitting={mode === "create" ? createProductMutation.isPending : updateProductMutation.isPending}
+              onSubmit={mode === "create" ? handleCreateSubmit : handleUpdateSubmit}
+              initialData={initialData}
+              mode={mode}
+            />
+          </TabsContent>
 
-            <TabsContent value="import-stripe">
-              <ImportFromStripeForm
-                mentors={mentors}
-                isLoadingMentors={isLoadingMentors}
-                isSubmitting={importFromStripeMutation.isPending}
-                onSubmit={handleImportSubmit}
-              />
-            </TabsContent>
-          </Tabs>
-        ) : (
-          <ProductFieldsForm
-            mentors={mentors}
-            isLoadingMentors={isLoadingMentors}
-            isSubmitting={updateProductMutation.isPending}
-            onSubmit={handleUpdateSubmit}
-            initialData={initialData}
-            mode="edit"
-          />
-        )}
+          <TabsContent value="import-stripe">
+            <ImportFromStripeForm
+              mentors={mentors}
+              isLoadingMentors={isLoadingMentors}
+              isSubmitting={importFromStripeMutation.isPending}
+              onSubmit={handleImportSubmit}
+            />
+          </TabsContent>
+        </Tabs>
 
         {result && (
           <div
@@ -720,14 +712,14 @@ function ImportFromStripeForm({
       productId: "",
       priceId: "",
       enablePayPal: false,
-      mentorId: "",
+      mentorId: "__unassigned__",
     },
     onSubmit: async ({ value }) => {
       onSubmit({
         productId: value.productId.trim() || undefined,
         priceId: value.priceId.trim() || undefined,
         enablePayPal: value.enablePayPal,
-        mentorId: value.mentorId || undefined,
+        mentorId: value.mentorId === "__unassigned__" ? undefined : value.mentorId || undefined,
       });
     },
   });
@@ -764,7 +756,7 @@ function ImportFromStripeForm({
                     <SelectValue placeholder="Select a mentor (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No mentor assigned</SelectItem>
+                    <SelectItem value="__unassigned__">No mentor assigned</SelectItem>
                     {mentors.map((mentor) => (
                       <SelectItem key={mentor.id} value={mentor.id}>
                         {mentor.email || mentor.id}
