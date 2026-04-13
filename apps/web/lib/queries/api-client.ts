@@ -362,32 +362,39 @@ export async function updateProduct(
     deactivateOldPrice?: boolean;
   }
 ) {
-  return apiFetch<{
-    success: boolean;
-    message: string;
-    product: {
-      id: string;
-      mentorId: string;
-      title: string;
-      description: string | null;
-      imageUrl: string | null;
-      price: string;
-      currency: string;
-      sessionsPerPack: number;
-      validityDays: number;
-      mentorshipType: string;
-      stripePriceId: string | null;
-      stripeProductId: string | null;
-      paypalProductId: string | null;
-      active: boolean;
-    };
-    changes?: {
-      priceChanged: boolean;
-      newStripePriceId: string | null;
-      oldStripePriceId: string | null;
-    };
-  }>("/api/admin/products/" + id, {
+  const response = await apiFetch<unknown>("/api/admin/products/" + id, {
     method: "PUT",
     body: JSON.stringify(data),
   });
+  return UpdateProductResponseSchema.parse(response);
 }
+
+const UpdateProductResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  product: z.object({
+    id: z.string(),
+    mentorId: z.string(),
+    title: z.string(),
+    description: z.string().nullable(),
+    imageUrl: z.string().nullable(),
+    price: z.string(),
+    currency: z.string(),
+    sessionsPerPack: z.number(),
+    validityDays: z.number(),
+    mentorshipType: z.string(),
+    stripePriceId: z.string().nullable(),
+    stripeProductId: z.string().nullable(),
+    paypalProductId: z.string().nullable(),
+    active: z.boolean(),
+  }),
+  changes: z
+    .object({
+      priceChanged: z.boolean(),
+      newStripePriceId: z.string().nullable(),
+      oldStripePriceId: z.string().nullable(),
+    })
+    .optional(),
+});
+
+type UpdateProductResponse = z.infer<typeof UpdateProductResponseSchema>;
