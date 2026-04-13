@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import { useForm } from "@tanstack/react-form";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -23,10 +24,37 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, CheckCircle2, XCircle, ExternalLink, CreditCard, Wallet } from "lucide-react";
-import Link from "next/link";
-import { fetchMentors, createProduct, createProductFromStripe, type MentorshipType } from "@/lib/queries/api-client";
+import { createProduct, createProductFromStripe, updateProduct, type MentorshipType } from "@/lib/queries/api-client";
 
-type ProductCreationResult = {
+type Mentor = {
+  id: string;
+  email: string | null;
+};
+
+type ProductData = {
+  id?: string;
+  mentorId: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  price: string;
+  currency?: string;
+  sessionsPerPack: number;
+  validityDays: number;
+  mentorshipType: MentorshipType;
+  enableStripe: boolean;
+  enablePayPal: boolean;
+};
+
+type ProductFormProps = {
+  mode: "create" | "edit";
+  initialData?: ProductData;
+  productId?: string;
+  mentors: Mentor[];
+  isLoadingMentors: boolean;
+};
+
+type ProductUpdateResult = {
   success: boolean;
   message: string;
   product?: {
@@ -48,33 +76,25 @@ type ProductCreationResult = {
       productLink: string;
     } | null;
   };
+  changes?: {
+    priceChanged: boolean;
+    newStripePriceId: string | null;
+    oldStripePriceId: string | null;
+  };
 };
 
-export function CreateProductForm() {
-  const [activeTab, setActiveTab] = useState("create-new");
-  const [result, setResult] = useState<ProductCreationResult | null>(null);
-
-  const { data: mentorsData, isLoading: isLoadingMentors } = useQuery({
-    queryKey: ["mentors"],
-    queryFn: fetchMentors,
-  });
-
-  const mentors = mentorsData?.items || [];
+export function ProductForm({
+  mode,
+  initialData,
+  productId,
+  mentors,
+  isLoadingMentors,
+}: ProductFormProps) {
+  const [activeTab, setActiveTab] = useState(mode === "create" ? "create-new" : "edit");
+  const [result, setResult] = useState<ProductUpdateResult | null>(null);
 
   const createProductMutation = useMutation({
-    mutationFn: async (data: {
-      mentorId: string;
-      title: string;
-      description?: string;
-      imageUrl?: string;
-      price: string;
-      currency?: string;
-      sessionsPerPack: number;
-      validityDays: number;
-      mentorshipType: MentorshipType;
-      enableStripe: boolean;
-      enablePayPal: boolean;
-    }) => createProduct(data),
+    mutationFn: async (data: ProductData) => createProduct(data),
     onSuccess: (data) => {
       setResult({
         success: true,
@@ -86,6 +106,49 @@ export function CreateProductForm() {
       setResult({
         success: false,
         message: error instanceof Error ? error.message : "Failed to create product",
+      });
+    },
+  });
+
+  const updateProductMutation = useMutation({
+    mutationFn: async (data: ProductData) => {
+      if (!productId) throw new Error("Product ID required");
+      return updateProduct(productId, data);
+    },
+    onSuccess: (data) => {
+      setResult({
+        success: true,
+        message: data.message || "Product updated successfully",
+        product: {
+          id: data.product.id,
+          title: data.product.title,
+          price: data.product.price,
+          currency: data.product.currency,
+          sessionsPerPack: data.product.sessionsPerPack,
+          validityDays: data.product.validityDays,
+          mentorshipType: data.product.mentorshipType,
+          stripe: data.product.stripeProductId
+            ? {
+                productId: data.product.stripeProductId,
+                productLink: "",
+                priceId: data.product.stripePriceId || "",
+                priceLink: "",
+              }
+            : null,
+          paypal: data.product.paypalProductId
+            ? {
+                productId: data.product.paypalProductId,
+                productLink: "",
+              }
+            : null,
+        },
+        changes: data.changes,
+      });
+    },
+    onError: (error) => {
+      setResult({
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to update product",
       });
     },
   });
@@ -112,14 +175,33 @@ export function CreateProductForm() {
     },
   });
 
+  const handleCreateSubmit = (values: ProductData) => {
+    setResult(null);
+    createProductMutation.mutate(values);
+  };
+
+  const handleUpdateSubmit = (values: ProductData) => {
+    setResult(null);
+    updateProductMutation.mutate(values);
+  };
+
+  const handleImportSubmit = (values: { productId?: string; priceId?: string; enablePayPal?: boolean; mentorId?: string }) => {
+    setResult(null);
+    importFromStripeMutation.mutate(values);
+  };
+
   return (
     <div className="min-h-screen bg-background px-4 py-12">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold">Create Product</h1>
+            <h1 className="text-3xl font-bold">
+              {mode === "create" ? "Create Product" : "Edit Product"}
+            </h1>
             <p className="text-muted-foreground mt-1">
-              Create a new mentorship session pack or import from Stripe
+              {mode === "create"
+                ? "Create a new mentorship session pack or import from Stripe"
+                : "Update the product details below"}
             </p>
           </div>
           <Button variant="outline" asChild>
@@ -129,19 +211,20 @@ export function CreateProductForm() {
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-6">
-            <TabsTrigger value="create-new">Create New Product</TabsTrigger>
+            <TabsTrigger value="create-new">
+              {mode === "create" ? "Create New Product" : "Edit Product"}
+            </TabsTrigger>
             <TabsTrigger value="import-stripe">Import from Stripe</TabsTrigger>
           </TabsList>
 
           <TabsContent value="create-new">
-            <CreateNewProductForm
+            <ProductFieldsForm
               mentors={mentors}
               isLoadingMentors={isLoadingMentors}
-              isSubmitting={createProductMutation.isPending}
-              onSubmit={(values) => {
-                setResult(null);
-                createProductMutation.mutate(values);
-              }}
+              isSubmitting={mode === "create" ? createProductMutation.isPending : updateProductMutation.isPending}
+              onSubmit={mode === "create" ? handleCreateSubmit : handleUpdateSubmit}
+              initialData={initialData}
+              mode={mode}
             />
           </TabsContent>
 
@@ -150,10 +233,7 @@ export function CreateProductForm() {
               mentors={mentors}
               isLoadingMentors={isLoadingMentors}
               isSubmitting={importFromStripeMutation.isPending}
-              onSubmit={(values) => {
-                setResult(null);
-                importFromStripeMutation.mutate(values);
-              }}
+              onSubmit={handleImportSubmit}
             />
           </TabsContent>
         </Tabs>
@@ -215,92 +295,96 @@ export function CreateProductForm() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {result.product.stripe && (
-                        <div className="bg-purple-50 dark:bg-purple-950 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
-                          <div className="flex items-center gap-2 mb-3">
-                            <CreditCard className="h-5 w-5 text-purple-600" />
-                            <h4 className="font-semibold text-purple-900 dark:text-purple-100">
-                              Stripe
-                            </h4>
+                    {mode === "create" && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {result.product.stripe && (
+                          <div className="bg-purple-50 dark:bg-purple-950 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
+                            <div className="flex items-center gap-2 mb-3">
+                              <CreditCard className="h-5 w-5 text-purple-600" />
+                              <h4 className="font-semibold text-purple-900 dark:text-purple-100">
+                                Stripe
+                              </h4>
+                            </div>
+                            <div className="space-y-2 text-sm">
+                              <div>
+                                <span className="text-muted-foreground">Product ID:</span>{" "}
+                                <code className="bg-purple-100 dark:bg-purple-900 px-1.5 py-0.5 rounded text-xs">
+                                  {result.product.stripe.productId}
+                                </code>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">Price ID:</span>{" "}
+                                <code className="bg-purple-100 dark:bg-purple-900 px-1.5 py-0.5 rounded text-xs">
+                                  {result.product.stripe.priceId}
+                                </code>
+                              </div>
+                              <div className="flex gap-2 pt-2">
+                                <a
+                                  href={result.product.stripe.productLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"
+                                >
+                                  View Product <ExternalLink className="h-3 w-3" />
+                                </a>
+                                <a
+                                  href={result.product.stripe.priceLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"
+                                >
+                                  View Price <ExternalLink className="h-3 w-3" />
+                                </a>
+                              </div>
+                            </div>
                           </div>
-                          <div className="space-y-2 text-sm">
-                            <div>
-                              <span className="text-muted-foreground">Product ID:</span>{" "}
-                              <code className="bg-purple-100 dark:bg-purple-900 px-1.5 py-0.5 rounded text-xs">
-                                {result.product.stripe.productId}
-                              </code>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Price ID:</span>{" "}
-                              <code className="bg-purple-100 dark:bg-purple-900 px-1.5 py-0.5 rounded text-xs">
-                                {result.product.stripe.priceId}
-                              </code>
-                            </div>
-                            <div className="flex gap-2 pt-2">
-                              <a
-                                href={result.product.stripe.productLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"
-                              >
-                                View Product <ExternalLink className="h-3 w-3" />
-                              </a>
-                              <a
-                                href={result.product.stripe.priceLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-1"
-                              >
-                                View Price <ExternalLink className="h-3 w-3" />
-                              </a>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                        )}
 
-                      {result.product.paypal && (
-                        <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                          <div className="flex items-center gap-2 mb-3">
-                            <Wallet className="h-5 w-5 text-blue-600" />
-                            <h4 className="font-semibold text-blue-900 dark:text-blue-100">
-                              PayPal
-                            </h4>
-                          </div>
-                          <div className="space-y-2 text-sm">
-                            <div>
-                              <span className="text-muted-foreground">Product ID:</span>{" "}
-                              <code className="bg-blue-100 dark:bg-blue-900 px-1.5 py-0.5 rounded text-xs">
-                                {result.product.paypal.productId}
-                              </code>
+                        {result.product.paypal && (
+                          <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                            <div className="flex items-center gap-2 mb-3">
+                              <Wallet className="h-5 w-5 text-blue-600" />
+                              <h4 className="font-semibold text-blue-900 dark:text-blue-100">
+                                PayPal
+                              </h4>
                             </div>
-                            <div>
-                              <a
-                                href={result.product.paypal.productLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                              >
-                                View in PayPal Dashboard <ExternalLink className="h-3 w-3" />
-                              </a>
+                            <div className="space-y-2 text-sm">
+                              <div>
+                                <span className="text-muted-foreground">Product ID:</span>{" "}
+                                <code className="bg-blue-100 dark:bg-blue-900 px-1.5 py-0.5 rounded text-xs">
+                                  {result.product.paypal.productId}
+                                </code>
+                              </div>
+                              <div>
+                                <a
+                                  href={result.product.paypal.productLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                >
+                                  View in PayPal Dashboard <ExternalLink className="h-3 w-3" />
+                                </a>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    )}
 
-                    <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
-                        Use this ID for checkout:
-                      </p>
-                      <code className="text-lg font-mono bg-white dark:bg-gray-900 px-3 py-2 rounded border">
-                        {result.product.id}
-                      </code>
-                    </div>
+                    {mode === "create" && (
+                      <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">
+                          Use this ID for checkout:
+                        </p>
+                        <code className="text-lg font-mono bg-white dark:bg-gray-900 px-3 py-2 rounded border">
+                          {result.product.id}
+                        </code>
+                      </div>
+                    )}
 
                     <div className="flex gap-3">
                       <Button onClick={() => setResult(null)}>
-                        Create Another Product
+                        {mode === "create" ? "Create Another Product" : "Update Again"}
                       </Button>
                       <Button variant="outline" asChild>
                         <Link href="/admin/products">View All Products</Link>
@@ -317,49 +401,36 @@ export function CreateProductForm() {
   );
 }
 
-type Mentor = {
-  id: string;
-  email: string | null;
-};
-
-type CreateNewProductFormProps = {
+type ProductFieldsFormProps = {
   mentors: Mentor[];
   isLoadingMentors: boolean;
   isSubmitting: boolean;
-  onSubmit: (values: {
-    mentorId: string;
-    title: string;
-    description?: string;
-    imageUrl?: string;
-    price: string;
-    currency?: string;
-    sessionsPerPack: number;
-    validityDays: number;
-    mentorshipType: MentorshipType;
-    enableStripe: boolean;
-    enablePayPal: boolean;
-  }) => void;
+  onSubmit: (values: ProductData) => void;
+  initialData?: ProductData;
+  mode?: "create" | "edit";
 };
 
-function CreateNewProductForm({
+function ProductFieldsForm({
   mentors,
   isLoadingMentors,
   isSubmitting,
   onSubmit,
-}: CreateNewProductFormProps) {
+  initialData,
+  mode = "create",
+}: ProductFieldsFormProps) {
   const form = useForm({
     defaultValues: {
-      mentorId: "",
-      title: "",
-      description: "",
-      imageUrl: "",
-      price: "",
-      currency: "usd",
-      sessionsPerPack: 4,
-      validityDays: 30,
-      mentorshipType: "one-on-one" as MentorshipType,
-      enableStripe: true,
-      enablePayPal: true,
+      mentorId: initialData?.mentorId || "",
+      title: initialData?.title || "",
+      description: initialData?.description || "",
+      imageUrl: initialData?.imageUrl || "",
+      price: initialData?.price || "",
+      currency: initialData?.currency || "usd",
+      sessionsPerPack: initialData?.sessionsPerPack || 4,
+      validityDays: initialData?.validityDays || 30,
+      mentorshipType: initialData?.mentorshipType || ("one-on-one" as MentorshipType),
+      enableStripe: initialData?.enableStripe ?? true,
+      enablePayPal: initialData?.enablePayPal ?? true,
     },
     onSubmit: async ({ value }) => {
       onSubmit({
@@ -381,9 +452,11 @@ function CreateNewProductForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Create New Product</CardTitle>
+        <CardTitle>{mode === "create" ? "Create New Product" : "Edit Product"}</CardTitle>
         <CardDescription>
-          Create a new mentorship session pack with full customization
+          {mode === "create"
+            ? "Create a new mentorship session pack with full customization"
+            : "Update the product details below"}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -606,10 +679,12 @@ function CreateNewProductForm({
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
+                  {mode === "create" ? "Creating..." : "Saving..."}
                 </>
-              ) : (
+              ) : mode === "create" ? (
                 "Create Product"
+              ) : (
+                "Save Changes"
               )}
             </Button>
           </div>
@@ -637,14 +712,14 @@ function ImportFromStripeForm({
       productId: "",
       priceId: "",
       enablePayPal: false,
-      mentorId: "",
+      mentorId: "__unassigned__",
     },
     onSubmit: async ({ value }) => {
       onSubmit({
         productId: value.productId.trim() || undefined,
         priceId: value.priceId.trim() || undefined,
         enablePayPal: value.enablePayPal,
-        mentorId: value.mentorId || undefined,
+        mentorId: value.mentorId === "__unassigned__" ? undefined : value.mentorId || undefined,
       });
     },
   });
@@ -681,7 +756,7 @@ function ImportFromStripeForm({
                     <SelectValue placeholder="Select a mentor (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No mentor assigned</SelectItem>
+                    <SelectItem value="__unassigned__">No mentor assigned</SelectItem>
                     {mentors.map((mentor) => (
                       <SelectItem key={mentor.id} value={mentor.id}>
                         {mentor.email || mentor.id}
@@ -740,7 +815,7 @@ function ImportFromStripeForm({
 
           <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
             <p className="text-sm text-blue-900 dark:text-blue-100">
-              <strong>Note:</strong> Use the "Create New Product" tab to enable PayPal checkout. 
+              <strong>Note:</strong> Use the &quot;Create New Product&quot; tab to enable PayPal checkout. 
               The Import from Stripe feature only creates Stripe-based products.
             </p>
           </div>
