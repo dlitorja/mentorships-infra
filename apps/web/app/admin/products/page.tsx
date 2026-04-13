@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { ExternalLink, CreditCard, Wallet } from "lucide-react";
 
 type ProductInfo = {
   id: string;
@@ -9,11 +10,16 @@ type ProductInfo = {
   mentorName: string;
   title: string;
   description: string | null;
+  imageUrl: string | null;
   price: string;
+  currency: string;
   sessionsPerPack: number;
   validityDays: number;
+  mentorshipType: string;
   stripePriceId: string | null;
+  stripeProductId: string | null;
   paypalProductId: string | null;
+  paypalProductLink: string | null;
   active: boolean;
   createdAt: string;
 };
@@ -58,24 +64,61 @@ export default function ProductsPage() {
     );
   };
 
-  const getProviderBadges = (stripePriceId: string | null, paypalProductId: string | null) => {
+  const getMentorshipTypeBadge = (type: string) => {
+    const isOneOnOne = type === "one-on-one";
+    return (
+      <span
+        className={`px-2 py-1 rounded-full text-xs font-medium ${
+          isOneOnOne
+            ? "bg-orange-100 text-orange-800"
+            : "bg-teal-100 text-teal-800"
+        }`}
+      >
+        {isOneOnOne ? "1-on-1" : "Group"}
+      </span>
+    );
+  };
+
+  const getProviderBadges = (
+    stripeProductId: string | null,
+    paypalProductId: string | null,
+    paypalProductLink: string | null
+  ) => {
     const badges = [];
-    if (stripePriceId) {
+    if (stripeProductId) {
       badges.push(
-        <span key="stripe" className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+        <a
+          key="stripe"
+          href={`https://dashboard.stripe.com/products/${stripeProductId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 hover:bg-purple-200 flex items-center gap-1"
+          title="View in Stripe"
+        >
+          <CreditCard className="h-3 w-3" />
           Stripe
-        </span>
+          <ExternalLink className="h-2.5 w-2.5" />
+        </a>
       );
     }
-    if (paypalProductId) {
+    if (paypalProductId && paypalProductLink) {
       badges.push(
-        <span key="paypal" className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+        <a
+          key="paypal"
+          href={paypalProductLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 flex items-center gap-1"
+          title="View in PayPal"
+        >
+          <Wallet className="h-3 w-3" />
           PayPal
-        </span>
+          <ExternalLink className="h-2.5 w-2.5" />
+        </a>
       );
     }
     return badges.length > 0 ? (
-      <div className="flex gap-1">{badges}</div>
+      <div className="flex gap-1 flex-wrap">{badges}</div>
     ) : (
       <span className="text-muted-foreground text-sm">None</span>
     );
@@ -118,6 +161,7 @@ export default function ProductsPage() {
             <thead>
               <tr className="border-b">
                 <th className="text-left py-3 px-4 font-medium">Product</th>
+                <th className="text-left py-3 px-4 font-medium">Type</th>
                 <th className="text-left py-3 px-4 font-medium">Instructor</th>
                 <th className="text-left py-3 px-4 font-medium">Price</th>
                 <th className="text-left py-3 px-4 font-medium">Sessions</th>
@@ -131,35 +175,63 @@ export default function ProductsPage() {
               {products.map((product) => (
                 <tr key={product.id} className="border-b hover:bg-muted/30">
                   <td className="py-3 px-4">
-                    <div className="font-medium">{product.title}</div>
-                    {product.description && (
-                      <div className="text-sm text-muted-foreground truncate max-w-xs">
-                        {product.description}
+                    <div className="flex items-center gap-3">
+                      {product.imageUrl && (
+                        <img
+                          src={product.imageUrl}
+                          alt={product.title}
+                          className="h-10 w-10 rounded object-cover"
+                        />
+                      )}
+                      <div>
+                        <div className="font-medium">{product.title}</div>
+                        {product.description && (
+                          <div className="text-sm text-muted-foreground truncate max-w-xs">
+                            {product.description}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
+                  </td>
+                  <td className="py-3 px-4">
+                    {getMentorshipTypeBadge(product.mentorshipType)}
                   </td>
                   <td className="py-3 px-4">{product.mentorName}</td>
                   <td className="py-3 px-4">
                     {new Intl.NumberFormat("en-US", {
                       style: "currency",
-                      currency: "USD",
+                      currency: product.currency?.toUpperCase() || "USD",
                     }).format(parseFloat(product.price))}
                   </td>
-                  <td className="py-3 px-4">{product.sessionsPerPack}</td>
                   <td className="py-3 px-4">
-                    {getProviderBadges(product.stripePriceId, product.paypalProductId)}
+                    <span className="text-sm">{product.sessionsPerPack}</span>
+                    <span className="text-xs text-muted-foreground ml-1">
+                      / {product.validityDays}d
+                    </span>
+                  </td>
+                  <td className="py-3 px-4">
+                    {getProviderBadges(
+                      product.stripeProductId,
+                      product.paypalProductId,
+                      product.paypalProductLink
+                    )}
                   </td>
                   <td className="py-3 px-4">{getStatusBadge(product.active)}</td>
                   <td className="py-3 px-4 text-sm">
                     {new Date(product.createdAt).toLocaleDateString()}
                   </td>
                   <td className="py-3 px-4">
-                    <Link
-                      href={`/admin/products/${product.id}/edit`}
-                      className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      Edit
-                    </Link>
+                    <div className="flex items-center gap-3">
+                      <Link
+                        href={`/admin/products/${product.id}/edit`}
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                      >
+                        Edit
+                      </Link>
+                      <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                        {product.id.slice(0, 8)}...
+                      </code>
+                    </div>
                   </td>
                 </tr>
               ))}

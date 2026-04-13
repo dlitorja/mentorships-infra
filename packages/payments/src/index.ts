@@ -31,6 +31,18 @@ export {
   createRefund as createPayPalRefund,
   calculateRefundAmount as calculatePayPalRefundAmount,
 } from "./paypal/refunds";
+export {
+  createPayPalProduct,
+  getPayPalProduct,
+  updatePayPalProduct,
+  getPayPalProductDashboardLink,
+  deletePayPalProduct,
+} from "./paypal/products";
+export type {
+  CreatePayPalProductInput,
+  PayPalProductResult,
+  PayPalProductType,
+} from "./paypal/products";
 
 // Export PayPal types
 export type * from "./paypal/types";
