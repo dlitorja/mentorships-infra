@@ -598,9 +598,9 @@ function CreateNewProductForm({
               disabled={
                 isSubmitting ||
                 isLoadingMentors ||
-                !form.values.mentorId ||
-                !form.values.title ||
-                !form.values.price
+                !form.state.values.mentorId ||
+                !form.state.values.title ||
+                !form.state.values.price
               }
             >
               {isSubmitting ? (
@@ -649,7 +649,7 @@ function ImportFromStripeForm({
     },
   });
 
-  const hasAtLeastOneField = form.values.productId || form.values.priceId;
+  const hasAtLeastOneField = form.state.values.productId || form.state.values.priceId;
 
   return (
     <Card>
