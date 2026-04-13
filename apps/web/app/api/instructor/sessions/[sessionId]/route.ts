@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
 import { db, sessions, eq } from "@mentorships/db";
-import { getMentorByUserId, getSessionById } from "@mentorships/db";
+import { getMentorByUserId, getSessionById, getSessionPackById } from "@mentorships/db";
+import { inngest } from "@/inngest/client";
 import { z } from "zod";
 
 const updateSessionSchema = z.object({
@@ -103,6 +104,45 @@ export async function PATCH(
       .set(updateData)
       .where(eq(sessions.id, sessionId))
       .returning();
+
+    // If session was canceled, trigger cancellation emails
+    if (validatedData.status === "canceled") {
+      const pack = await getSessionPackById(session.sessionPackId);
+      if (pack) {
+        await inngest.send({
+          name: "session/cancelled-email",
+          data: {
+            sessionId,
+            sessionPackId: session.sessionPackId,
+            studentId: session.studentId,
+            mentorId: session.mentorId,
+            scheduledAt: session.scheduledAt,
+            cancelledBy: "instructor" as const,
+          },
+        });
+
+        // Delete Google Calendar event if exists
+        if (session.googleCalendarEventId) {
+          const { getGoogleCalendarClient, decryptMentorRefreshToken } = await import("@/lib/google");
+          const mentor = await getMentorById(session.mentorId);
+          if (mentor) {
+            const refreshToken = decryptMentorRefreshToken(mentor);
+            if (refreshToken) {
+              try {
+                const calendar = await getGoogleCalendarClient(refreshToken);
+                const calendarId = mentor.googleCalendarId || "primary";
+                await calendar.events.delete({
+                  calendarId,
+                  eventId: session.googleCalendarEventId,
+                });
+              } catch (calendarError) {
+                console.error("Failed to delete Google Calendar event:", calendarError);
+              }
+            }
+          }
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,

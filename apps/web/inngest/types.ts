@@ -125,6 +125,45 @@ export const inventoryChangedEventSchema = z.object({
   }),
 });
 
+export const sessionBookingEmailEventSchema = z.object({
+  name: z.literal("session/booking-email"),
+  data: z.object({
+    type: z.enum([
+      "booking_confirmation_student",
+      "booking_notification_mentor",
+    ]),
+    sessionId: z.string().uuid(),
+    sessionPackId: z.string().uuid(),
+    studentId: z.string(),
+    mentorId: z.string().uuid(),
+    scheduledAt: z.coerce.date(),
+  }),
+});
+
+export const sessionReminderEmailEventSchema = z.object({
+  name: z.literal("session/reminder-email"),
+  data: z.object({
+    type: z.enum(["24h_before", "1h_before"]),
+    sessionId: z.string().uuid(),
+    sessionPackId: z.string().uuid(),
+    studentId: z.string(),
+    mentorId: z.string().uuid(),
+    scheduledAt: z.coerce.date(),
+  }),
+});
+
+export const sessionCancelledEmailEventSchema = z.object({
+  name: z.literal("session/cancelled-email"),
+  data: z.object({
+    sessionId: z.string().uuid(),
+    sessionPackId: z.string().uuid(),
+    studentId: z.string(),
+    mentorId: z.string().uuid(),
+    scheduledAt: z.coerce.date(),
+    cancelledBy: z.enum(["instructor", "student"]),
+  }),
+});
+
 // Type exports
 export type PurchaseMentorshipEvent = z.infer<typeof purchaseMentorshipEventSchema>;
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
@@ -139,6 +178,9 @@ export type PackExpirationCheckEvent = z.infer<typeof packExpirationCheckEventSc
 export type SessionRenewalReminderEvent = z.infer<typeof sessionRenewalReminderEventSchema>;
 export type NotificationSendEvent = z.infer<typeof notificationSendEventSchema>;
 export type InventoryChangedEvent = z.infer<typeof inventoryChangedEventSchema>;
+export type SessionBookingEmailEvent = z.infer<typeof sessionBookingEmailEventSchema>;
+export type SessionReminderEmailEvent = z.infer<typeof sessionReminderEmailEventSchema>;
+export type SessionCancelledEmailEvent = z.infer<typeof sessionCancelledEmailEventSchema>;
 
 export type InngestEvent =
   | PurchaseMentorshipEvent
@@ -153,5 +195,8 @@ export type InngestEvent =
   | PackExpirationCheckEvent
   | SessionRenewalReminderEvent
   | NotificationSendEvent
-  | InventoryChangedEvent;
+  | InventoryChangedEvent
+  | SessionBookingEmailEvent
+  | SessionReminderEmailEvent
+  | SessionCancelledEmailEvent;
 

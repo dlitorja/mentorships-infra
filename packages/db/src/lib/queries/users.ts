@@ -47,3 +47,19 @@ export async function updateUserRole(
   return updated;
 }
 
+/**
+ * Update user timezone
+ */
+export async function updateUserTimeZone(clerkUserId: string, timeZone: string) {
+  const [updated] = await db
+    .update(users)
+    .set({
+      timeZone,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, clerkUserId))
+    .returning();
+
+  return updated;
+}
+

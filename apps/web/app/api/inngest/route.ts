@@ -9,6 +9,12 @@ import {
   sendGracePeriodFinalWarning,
 } from "@/inngest/functions/sessions";
 import { onboardingFlow } from "@/inngest/functions/onboarding";
+import {
+  handleSessionBookingEmails,
+  handleSessionReminderEmails,
+  handleSessionCancellationEmails,
+  scheduleSessionReminders,
+} from "@/inngest/functions/booking-emails";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -22,6 +28,10 @@ export const { GET, POST, PUT } = serve({
     handleRenewalReminder,
     sendGracePeriodFinalWarning,
     handleNotificationSend,
+    handleSessionBookingEmails,
+    handleSessionReminderEmails,
+    handleSessionCancellationEmails,
+    scheduleSessionReminders,
   ],
 });
 
