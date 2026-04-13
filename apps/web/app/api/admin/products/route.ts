@@ -5,6 +5,10 @@ import {
   mentorshipProducts,
   mentors,
   eq,
+  ilike,
+  or,
+  and,
+  sql,
   isUnauthorizedError,
   isForbiddenError,
 } from "@mentorships/db";
@@ -43,6 +47,18 @@ const createProductSchema = z.object({
 );
 
 type CreateProductInput = z.infer<typeof createProductSchema>;
+
+const listProductsQuerySchema = z.object({
+  search: z.string().trim().default(""),
+  mentorId: z.string().uuid().optional(),
+  mentorshipType: z.enum(["one-on-one", "group"]).optional(),
+  active: z
+    .enum(["true", "false"])
+    .transform((val) => val === "true")
+    .optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 /**
  * POST /api/admin/products
@@ -260,20 +276,74 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/admin/products
- * List all products for admin dashboard
+ * List all products for admin dashboard with filtering and pagination
  */
 export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
-    const products: { product: typeof mentorshipProducts.$inferSelect; mentor: typeof mentors.$inferSelect | null }[] = await db
-      .select({
-        product: mentorshipProducts,
-        mentor: mentors,
-      })
-      .from(mentorshipProducts)
-      .leftJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
-      .orderBy(mentorshipProducts.createdAt);
+    const parsedQuery = listProductsQuerySchema.safeParse(
+      Object.fromEntries(new URL(req.url).searchParams)
+    );
+
+    if (!parsedQuery.success) {
+      return NextResponse.json(
+        { error: "Invalid query", details: parsedQuery.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { search, mentorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
+
+    const whereConditions = [];
+
+    if (search) {
+      const escapedSearch = search.replace(/[%_]/g, "\\$&");
+      whereConditions.push(
+        or(
+          ilike(mentorshipProducts.title, `%${escapedSearch}%`),
+          ilike(mentorshipProducts.description, `%${escapedSearch}%`)
+        )
+      );
+    }
+
+    if (mentorId) {
+      whereConditions.push(eq(mentorshipProducts.mentorId, mentorId));
+    }
+
+    if (mentorshipType) {
+      whereConditions.push(eq(mentorshipProducts.mentorshipType, mentorshipType));
+    }
+
+    if (active !== undefined) {
+      whereConditions.push(eq(mentorshipProducts.active, active));
+    }
+
+    const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
+
+    const offset = (page - 1) * pageSize;
+
+    const [products, countResult] = await Promise.all([
+      db
+        .select({
+          product: mentorshipProducts,
+          mentor: mentors,
+        })
+        .from(mentorshipProducts)
+        .leftJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+        .where(whereClause)
+        .orderBy(mentorshipProducts.createdAt)
+        .limit(pageSize)
+        .offset(offset),
+      db
+        .select({
+          count: sql<number>`count(*)`,
+        })
+        .from(mentorshipProducts)
+        .where(whereClause),
+    ]);
+
+    const total = Number(countResult[0]?.count || 0);
 
     return NextResponse.json({
       items: products.map(({ product, mentor }) => ({
@@ -297,6 +367,9 @@ export async function GET(req: NextRequest) {
         active: product.active,
         createdAt: product.createdAt.toISOString(),
       })),
+      total,
+      page,
+      pageSize,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
