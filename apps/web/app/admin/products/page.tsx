@@ -19,6 +19,7 @@ type ProductInfo = {
   stripePriceId: string | null;
   stripeProductId: string | null;
   paypalProductId: string | null;
+  paypalProductLink: string | null;
   active: boolean;
   createdAt: string;
 };
@@ -80,7 +81,8 @@ export default function ProductsPage() {
 
   const getProviderBadges = (
     stripeProductId: string | null,
-    paypalProductId: string | null
+    paypalProductId: string | null,
+    paypalProductLink: string | null
   ) => {
     const badges = [];
     if (stripeProductId) {
@@ -99,11 +101,11 @@ export default function ProductsPage() {
         </a>
       );
     }
-    if (paypalProductId) {
+    if (paypalProductId && paypalProductLink) {
       badges.push(
         <a
           key="paypal"
-          href={`https://www.sandbox.paypal.com/myaccount/integrationproducts/${paypalProductId}`}
+          href={paypalProductLink}
           target="_blank"
           rel="noopener noreferrer"
           className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 flex items-center gap-1"
@@ -210,7 +212,8 @@ export default function ProductsPage() {
                   <td className="py-3 px-4">
                     {getProviderBadges(
                       product.stripeProductId,
-                      product.paypalProductId
+                      product.paypalProductId,
+                      product.paypalProductLink
                     )}
                   </td>
                   <td className="py-3 px-4">{getStatusBadge(product.active)}</td>

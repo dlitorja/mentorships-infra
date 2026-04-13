@@ -36,6 +36,7 @@ export {
   getPayPalProduct,
   updatePayPalProduct,
   getPayPalProductDashboardLink,
+  deletePayPalProduct,
 } from "./paypal/products";
 export type {
   CreatePayPalProductInput,

@@ -13,6 +13,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import {
   createPayPalProduct,
   getPayPalProductDashboardLink,
+  deletePayPalProduct,
 } from "@mentorships/payments";
 
 const createProductSchema = z.object({
@@ -33,7 +34,13 @@ const createProductSchema = z.object({
   mentorshipType: z.enum(["one-on-one", "group"]).default("one-on-one"),
   enableStripe: z.boolean().default(true),
   enablePayPal: z.boolean().default(true),
-});
+}).refine(
+  (data) => data.enableStripe || data.enablePayPal,
+  {
+    message: "At least one payment provider must be enabled",
+    path: ["enableStripe"],
+  }
+);
 
 type CreateProductInput = z.infer<typeof createProductSchema>;
 
@@ -111,6 +118,14 @@ export async function POST(req: NextRequest) {
         stripePriceId = stripePrice.id;
       } catch (stripeError) {
         console.error("Failed to create Stripe product:", stripeError);
+        // Clean up orphaned Stripe product if price creation failed
+        if (stripeProductId) {
+          try {
+            await stripe.products.update(stripeProductId, { active: false });
+          } catch (cleanupError) {
+            console.error("Failed to cleanup Stripe product:", cleanupError);
+          }
+        }
         return NextResponse.json(
           { error: "Failed to create product in Stripe", details: stripeError instanceof Error ? stripeError.message : undefined },
           { status: 500 }
@@ -130,88 +145,101 @@ export async function POST(req: NextRequest) {
         paypalProductId = paypalResult.id;
       } catch (paypalError) {
         console.error("Failed to create PayPal product:", paypalError);
-        // If PayPal creation fails, we can still continue without it
-        // but log the error
         paypalProductId = undefined;
       }
     }
 
     // Create product in database
-    const [product] = await db
-      .insert(mentorshipProducts)
-      .values({
-        mentorId,
-        title,
-        description: description || null,
-        imageUrl: imageUrl || null,
-        price,
-        currency,
-        stripePriceId,
-        stripeProductId: stripeProductId || null,
-        paypalProductId: paypalProductId || null,
-        sessionsPerPack,
-        validityDays,
-        mentorshipType,
-        active: true,
-      })
-      .returning();
+    try {
+      const [product] = await db
+        .insert(mentorshipProducts)
+        .values({
+          mentorId,
+          title,
+          description: description || null,
+          imageUrl: imageUrl || null,
+          price,
+          currency,
+          stripePriceId,
+          stripeProductId: stripeProductId || null,
+          paypalProductId: paypalProductId || null,
+          sessionsPerPack,
+          validityDays,
+          mentorshipType,
+          active: true,
+        })
+        .returning();
 
-    // Build response with links
-    const response: {
-      success: boolean;
-      message: string;
-      product: {
-        id: string;
-        title: string;
-        price: string;
-        currency: string;
-        sessionsPerPack: number;
-        validityDays: number;
-        mentorshipType: string;
-        stripe: {
-          productId: string;
-          productLink: string;
-          priceId: string;
-          priceLink: string;
-        } | null;
-        paypal: {
-          productId: string;
-          productLink: string;
-        } | null;
+      // Build response with links
+      const response = {
+        success: true,
+        message: "Product created successfully",
+        product: {
+          id: product.id,
+          title,
+          price,
+          currency,
+          sessionsPerPack,
+          validityDays,
+          mentorshipType,
+          stripe: enableStripe && stripeProductId ? {
+            productId: stripeProductId,
+            productLink: `https://dashboard.stripe.com/products/${stripeProductId}`,
+            priceId: stripePriceId!,
+            priceLink: `https://dashboard.stripe.com/prices/${stripePriceId}`,
+          } : null,
+          paypal: paypalProductId ? {
+            productId: paypalProductId,
+            productLink: getPayPalProductDashboardLink(paypalProductId),
+          } : null,
+        },
       };
-    } = {
-      success: true,
-      message: "Product created successfully",
-      product: {
-        id: product.id,
-        title,
-        price,
-        currency,
-        sessionsPerPack,
-        validityDays,
-        mentorshipType,
-        stripe: enableStripe && stripeProductId ? {
-          productId: stripeProductId,
-          productLink: `https://dashboard.stripe.com/products/${stripeProductId}`,
-          priceId: stripePriceId!,
-          priceLink: `https://dashboard.stripe.com/prices/${stripePriceId}`,
-        } : null,
-        paypal: paypalProductId ? {
-          productId: paypalProductId,
-          productLink: getPayPalProductDashboardLink(paypalProductId),
-        } : null,
-      },
-    };
 
-    return NextResponse.json(response);
+      return NextResponse.json(response);
+    } catch (dbError) {
+      console.error("Failed to create product in database:", dbError);
+      // Cleanup PayPal product if DB insert fails
+      if (paypalProductId) {
+        try {
+          await deletePayPalProduct(paypalProductId);
+        } catch (cleanupError) {
+          console.error("Failed to cleanup PayPal product:", cleanupError);
+        }
+      }
+      // Cleanup Stripe resources
+      if (stripePriceId) {
+        try {
+          await stripe.prices.update(stripePriceId, { active: false });
+        } catch (cleanupError) {
+          console.error("Failed to cleanup Stripe price:", cleanupError);
+        }
+      }
+      if (stripeProductId) {
+        try {
+          await stripe.products.update(stripeProductId, { active: false });
+        } catch (cleanupError) {
+          console.error("Failed to cleanup Stripe product:", cleanupError);
+        }
+      }
+      return NextResponse.json(
+        { error: "Failed to create product in database", details: dbError instanceof Error ? dbError.message : undefined },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     // Cleanup Stripe resources on failure
     if (stripePriceId) {
       try {
         await stripe.prices.update(stripePriceId, { active: false });
-        await stripe.products.update(stripeProductId!, { active: false });
       } catch (cleanupError) {
-        console.error("Failed to cleanup Stripe resources:", cleanupError);
+        console.error("Failed to cleanup Stripe price:", cleanupError);
+      }
+    }
+    if (stripeProductId) {
+      try {
+        await stripe.products.update(stripeProductId, { active: false });
+      } catch (cleanupError) {
+        console.error("Failed to cleanup Stripe product:", cleanupError);
       }
     }
 
@@ -248,10 +276,10 @@ export async function GET(req: NextRequest) {
       .orderBy(mentorshipProducts.createdAt);
 
     return NextResponse.json({
-      items: products.map(({ product, mentor: _mentor }) => ({
+      items: products.map(({ product, mentor }) => ({
         id: product.id,
         mentorId: product.mentorId,
-        mentorName: "Mentor",
+        mentorName: mentor?.userId ? `Mentor (${mentor.userId.slice(0, 8)}...)` : "Unknown Mentor",
         title: product.title,
         description: product.description,
         imageUrl: product.imageUrl,
@@ -263,6 +291,9 @@ export async function GET(req: NextRequest) {
         stripePriceId: product.stripePriceId,
         stripeProductId: product.stripeProductId,
         paypalProductId: product.paypalProductId,
+        paypalProductLink: product.paypalProductId 
+          ? getPayPalProductDashboardLink(product.paypalProductId)
+          : null,
         active: product.active,
         createdAt: product.createdAt.toISOString(),
       })),

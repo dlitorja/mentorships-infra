@@ -738,26 +738,12 @@ function ImportFromStripeForm({
             )}
           </form.Field>
 
-          <form.Field name="enablePayPal">
-            {(field) => (
-              <label className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.checked)}
-                  className="h-4 w-4"
-                  disabled={isSubmitting}
-                />
-                <Wallet className="h-5 w-5 text-blue-600" />
-                <div>
-                  <span className="font-medium">Also enable PayPal</span>
-                  <p className="text-sm text-muted-foreground">
-                    Enable PayPal checkout for this product
-                  </p>
-                </div>
-              </label>
-            )}
-          </form.Field>
+          <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+            <p className="text-sm text-blue-900 dark:text-blue-100">
+              <strong>Note:</strong> Use the "Create New Product" tab to enable PayPal checkout. 
+              The Import from Stripe feature only creates Stripe-based products.
+            </p>
+          </div>
 
           <div className="flex gap-3">
             <Button

@@ -160,3 +160,20 @@ export function getPayPalProductDashboardLink(productId: string): string {
   }
   return `https://www.sandbox.paypal.com/myaccount/integrationproducts/${productId}`;
 }
+
+export async function deletePayPalProduct(productId: string): Promise<void> {
+  const accessToken = await getAccessToken();
+  const baseUrl = getPayPalBaseUrl();
+
+  const response = await fetch(`${baseUrl}/v1/catalogs/products/${productId}`, {
+    method: "DELETE",
+    headers: {
+      "Authorization": `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok && response.status !== 204) {
+    const error = await response.text();
+    throw new Error(`Failed to delete PayPal product: ${response.status} ${error}`);
+  }
+}
