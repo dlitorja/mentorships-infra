@@ -1,9 +1,18 @@
 import { requireRole } from "@/lib/auth-helpers";
-import { CreateProductForm } from "./create-product-form";
+import { fetchMentors } from "@/lib/queries/api-client";
+import { ProductForm } from "../_components/product-form";
 
 export default async function CreateProductPage() {
-  // requireRole handles auth errors internally by redirecting
-  // If it returns, user is authenticated and has admin role
   await requireRole("admin");
-  return <CreateProductForm />;
+  
+  const mentorsData = await fetchMentors();
+  const mentors = mentorsData.items || [];
+
+  return (
+    <ProductForm
+      mode="create"
+      mentors={mentors}
+      isLoadingMentors={false}
+    />
+  );
 }

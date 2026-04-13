@@ -12,7 +12,10 @@ import { stripe } from "@/lib/stripe";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const updateProductSchema = z.object({
+  mentorId: z.string().uuid("Invalid mentor ID format").optional(),
   title: z.string().min(1, "Title is required").max(200),
+  description: z.string().optional().default(""),
+  imageUrl: z.string().url().optional().or(z.literal("")),
   price: z.string().refine(
     (val) => {
       const num = parseFloat(val);
@@ -23,6 +26,7 @@ const updateProductSchema = z.object({
   currency: z.string().length(3).default("usd"),
   sessionsPerPack: z.number().int().min(1).max(100),
   validityDays: z.number().int().min(1).max(365),
+  mentorshipType: z.enum(["one-on-one", "group"]).optional(),
   enableStripe: z.boolean(),
   enablePayPal: z.boolean(),
   deactivateOldPrice: z.boolean().default(true),
@@ -112,11 +116,15 @@ export async function PUT(
     }
 
     const {
+      mentorId,
       title,
+      description,
+      imageUrl,
       price,
       currency,
       sessionsPerPack,
       validityDays,
+      mentorshipType,
       enableStripe,
       enablePayPal,
       deactivateOldPrice,
@@ -195,10 +203,14 @@ export async function PUT(
     const [updatedProduct] = await db
       .update(mentorshipProducts)
       .set({
+        ...(mentorId && { mentorId }),
         title,
+        description,
+        imageUrl: imageUrl || null,
         price,
         sessionsPerPack,
         validityDays,
+        ...(mentorshipType && { mentorshipType }),
         stripePriceId: newStripePriceId || existingProduct.stripePriceId,
         paypalProductId: newPaypalProductId,
         active: enableStripe && enablePayPal,
@@ -212,11 +224,17 @@ export async function PUT(
       message: "Product updated successfully",
       product: {
         id: updatedProduct.id,
+        mentorId: updatedProduct.mentorId,
         title: updatedProduct.title,
+        description: updatedProduct.description,
+        imageUrl: updatedProduct.imageUrl,
         price: updatedProduct.price,
+        currency: updatedProduct.currency,
         sessionsPerPack: updatedProduct.sessionsPerPack,
         validityDays: updatedProduct.validityDays,
+        mentorshipType: updatedProduct.mentorshipType,
         stripePriceId: updatedProduct.stripePriceId,
+        stripeProductId: updatedProduct.stripeProductId,
         paypalProductId: updatedProduct.paypalProductId,
         active: updatedProduct.active,
       },

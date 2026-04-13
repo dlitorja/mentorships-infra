@@ -342,3 +342,52 @@ export async function fetchMentors(): Promise<FetchMentorsResponse> {
   return FetchMentorsResponseSchema.parse(data);
 }
 
+/**
+ * Update an existing product
+ */
+export async function updateProduct(
+  id: string,
+  data: {
+    mentorId?: string;
+    title: string;
+    description?: string;
+    imageUrl?: string;
+    price: string;
+    currency?: string;
+    sessionsPerPack: number;
+    validityDays: number;
+    mentorshipType?: "one-on-one" | "group";
+    enableStripe: boolean;
+    enablePayPal: boolean;
+    deactivateOldPrice?: boolean;
+  }
+) {
+  return apiFetch<{
+    success: boolean;
+    message: string;
+    product: {
+      id: string;
+      mentorId: string;
+      title: string;
+      description: string | null;
+      imageUrl: string | null;
+      price: string;
+      currency: string;
+      sessionsPerPack: number;
+      validityDays: number;
+      mentorshipType: string;
+      stripePriceId: string | null;
+      stripeProductId: string | null;
+      paypalProductId: string | null;
+      active: boolean;
+    };
+    changes?: {
+      priceChanged: boolean;
+      newStripePriceId: string | null;
+      oldStripePriceId: string | null;
+    };
+  }>("/api/admin/products/" + id, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
