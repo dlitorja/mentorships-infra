@@ -10,10 +10,16 @@ import {
 } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import {
+  createPayPalProduct,
+  getPayPalProductDashboardLink,
+} from "@mentorships/payments";
 
 const createProductSchema = z.object({
   mentorId: z.string().uuid("Invalid mentor ID format"),
   title: z.string().min(1, "Title is required").max(200),
+  description: z.string().optional().default(""),
+  imageUrl: z.string().url().optional().or(z.literal("")),
   price: z.string().refine(
     (val) => {
       const num = parseFloat(val);
@@ -24,6 +30,7 @@ const createProductSchema = z.object({
   currency: z.string().length(3).default("usd"),
   sessionsPerPack: z.number().int().min(1).max(100).default(4),
   validityDays: z.number().int().min(1).max(365).default(30),
+  mentorshipType: z.enum(["one-on-one", "group"]).default("one-on-one"),
   enableStripe: z.boolean().default(true),
   enablePayPal: z.boolean().default(true),
 });
@@ -33,16 +40,11 @@ type CreateProductInput = z.infer<typeof createProductSchema>;
 /**
  * POST /api/admin/products
  * Create a product in Stripe, PayPal, and database
- * 
- * This creates products in the payment providers from the admin dashboard,
- * so admins don't need to manually create them in Stripe/PayPal dashboards.
- * 
- * PayPal uses dynamic product creation through orders - we mark it as enabled
- * and it will be created on first purchase.
  */
 export async function POST(req: NextRequest) {
   let stripeProductId: string | undefined;
   let stripePriceId: string | undefined;
+  let paypalProductId: string | undefined;
 
   try {
     await requireRoleForApi("admin");
@@ -60,10 +62,13 @@ export async function POST(req: NextRequest) {
     const {
       mentorId,
       title,
+      description,
+      imageUrl,
       price,
       currency,
       sessionsPerPack,
       validityDays,
+      mentorshipType,
       enableStripe,
       enablePayPal,
     } = validationResult.data as CreateProductInput;
@@ -82,21 +87,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Stripe Product ID (for tracking in Stripe dashboard)
+    // Create product in Stripe
     if (enableStripe) {
       try {
-        // Create product in Stripe
         const stripeProduct = await stripe.products.create({
           name: title,
+          description: description || undefined,
           metadata: {
             sessions: sessionsPerPack.toString(),
             validityDays: validityDays.toString(),
+            mentorshipType,
           },
         });
 
         stripeProductId = stripeProduct.id;
 
-        // Create price in Stripe
         const stripePrice = await stripe.prices.create({
           product: stripeProductId,
           unit_amount: Math.round(parseFloat(price) * 100),
@@ -113,43 +118,92 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // For PayPal, products are created dynamically with orders
-    // We just mark it as enabled - it will be created on first checkout
-    // This is the expected PayPal behavior for simple integrations
+    // Create product in PayPal
+    if (enablePayPal) {
+      try {
+        const paypalResult = await createPayPalProduct({
+          name: title,
+          description: description || `${title} - Mentorship Session Pack`,
+          type: "SERVICE",
+          imageUrl: imageUrl || undefined,
+        });
+        paypalProductId = paypalResult.id;
+      } catch (paypalError) {
+        console.error("Failed to create PayPal product:", paypalError);
+        // If PayPal creation fails, we can still continue without it
+        // but log the error
+        paypalProductId = undefined;
+      }
+    }
 
     // Create product in database
-    const [_product] = await db
+    const [product] = await db
       .insert(mentorshipProducts)
       .values({
         mentorId,
         title,
+        description: description || null,
+        imageUrl: imageUrl || null,
         price,
+        currency,
         stripePriceId,
-        paypalProductId: enablePayPal ? "enabled" : null,
+        stripeProductId: stripeProductId || null,
+        paypalProductId: paypalProductId || null,
         sessionsPerPack,
         validityDays,
+        mentorshipType,
         active: true,
       })
       .returning();
 
-    return NextResponse.json({
+    // Build response with links
+    const response: {
+      success: boolean;
+      message: string;
+      product: {
+        id: string;
+        title: string;
+        price: string;
+        currency: string;
+        sessionsPerPack: number;
+        validityDays: number;
+        mentorshipType: string;
+        stripe: {
+          productId: string;
+          productLink: string;
+          priceId: string;
+          priceLink: string;
+        } | null;
+        paypal: {
+          productId: string;
+          productLink: string;
+        } | null;
+      };
+    } = {
       success: true,
       message: "Product created successfully",
       product: {
+        id: product.id,
         title,
         price,
         currency,
         sessionsPerPack,
         validityDays,
-        stripe: enableStripe ? {
+        mentorshipType,
+        stripe: enableStripe && stripeProductId ? {
           productId: stripeProductId,
-          priceId: stripePriceId,
+          productLink: `https://dashboard.stripe.com/products/${stripeProductId}`,
+          priceId: stripePriceId!,
+          priceLink: `https://dashboard.stripe.com/prices/${stripePriceId}`,
         } : null,
-        paypal: enablePayPal ? {
-          status: "enabled (dynamic creation)",
+        paypal: paypalProductId ? {
+          productId: paypalProductId,
+          productLink: getPayPalProductDashboardLink(paypalProductId),
         } : null,
       },
-    });
+    };
+
+    return NextResponse.json(response);
   } catch (error) {
     // Cleanup Stripe resources on failure
     if (stripePriceId) {
@@ -199,10 +253,15 @@ export async function GET(req: NextRequest) {
         mentorId: product.mentorId,
         mentorName: "Mentor",
         title: product.title,
+        description: product.description,
+        imageUrl: product.imageUrl,
         price: product.price,
+        currency: product.currency,
         sessionsPerPack: product.sessionsPerPack,
         validityDays: product.validityDays,
+        mentorshipType: product.mentorshipType,
         stripePriceId: product.stripePriceId,
+        stripeProductId: product.stripeProductId,
         paypalProductId: product.paypalProductId,
         active: product.active,
         createdAt: product.createdAt.toISOString(),

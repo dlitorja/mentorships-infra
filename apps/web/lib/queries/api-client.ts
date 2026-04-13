@@ -272,6 +272,52 @@ export async function createProductFromStripe(data: {
   });
 }
 
+export type MentorshipType = "one-on-one" | "group";
+
+/**
+ * Create a new product with full fields
+ */
+export async function createProduct(data: {
+  mentorId: string;
+  title: string;
+  description?: string;
+  imageUrl?: string;
+  price: string;
+  currency?: string;
+  sessionsPerPack: number;
+  validityDays: number;
+  mentorshipType: MentorshipType;
+  enableStripe: boolean;
+  enablePayPal: boolean;
+}) {
+  return apiFetch<{
+    success: boolean;
+    message: string;
+    product: {
+      id: string;
+      title: string;
+      price: string;
+      currency: string;
+      sessionsPerPack: number;
+      validityDays: number;
+      mentorshipType: string;
+      stripe: {
+        productId: string;
+        productLink: string;
+        priceId: string;
+        priceLink: string;
+      } | null;
+      paypal: {
+        productId: string;
+        productLink: string;
+      } | null;
+    };
+  }>("/api/admin/products", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 const MentorSchema = z.object({
   id: z.string(),
   userId: z.string(),
