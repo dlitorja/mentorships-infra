@@ -48,6 +48,18 @@ const createProductSchema = z.object({
 
 type CreateProductInput = z.infer<typeof createProductSchema>;
 
+const listProductsQuerySchema = z.object({
+  search: z.string().trim().default(""),
+  mentorId: z.string().uuid().optional(),
+  mentorshipType: z.enum(["one-on-one", "group"]).optional(),
+  active: z
+    .enum(["true", "false"])
+    .transform((val) => val === "true")
+    .optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
 /**
  * POST /api/admin/products
  * Create a product in Stripe, PayPal, and database
@@ -270,21 +282,27 @@ export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
-    const { searchParams } = new URL(req.url);
-    const search = searchParams.get("search") || "";
-    const mentorId = searchParams.get("mentorId") || "";
-    const mentorshipType = searchParams.get("mentorshipType") || "";
-    const active = searchParams.get("active");
-    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-    const pageSize = Math.min(Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10)), 100);
+    const parsedQuery = listProductsQuerySchema.safeParse(
+      Object.fromEntries(new URL(req.url).searchParams)
+    );
+
+    if (!parsedQuery.success) {
+      return NextResponse.json(
+        { error: "Invalid query", details: parsedQuery.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { search, mentorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
 
     const whereConditions = [];
 
     if (search) {
+      const escapedSearch = search.replace(/[%_]/g, "\\$&");
       whereConditions.push(
         or(
-          ilike(mentorshipProducts.title, `%${search}%`),
-          ilike(mentorshipProducts.description, `%${search}%`)
+          ilike(mentorshipProducts.title, `%${escapedSearch}%`),
+          ilike(mentorshipProducts.description, `%${escapedSearch}%`)
         )
       );
     }
@@ -297,8 +315,8 @@ export async function GET(req: NextRequest) {
       whereConditions.push(eq(mentorshipProducts.mentorshipType, mentorshipType));
     }
 
-    if (active !== null && active !== "") {
-      whereConditions.push(eq(mentorshipProducts.active, active === "true"));
+    if (active !== undefined) {
+      whereConditions.push(eq(mentorshipProducts.active, active));
     }
 
     const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;

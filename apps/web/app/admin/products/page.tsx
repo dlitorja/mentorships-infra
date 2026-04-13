@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { z } from "zod";
+import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,12 @@ type Mentor = {
   userId: string;
   email: string | null;
 };
+
+const mentorSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  email: z.string().nullable(),
+});
 
 type ProductInfo = {
   id: string;
@@ -33,20 +40,42 @@ type ProductInfo = {
   createdAt: string;
 };
 
-type ProductsResponse = {
-  items: ProductInfo[];
-  total: number;
-  page: number;
-  pageSize: number;
-  error?: string;
-};
+const productSchema = z.object({
+  id: z.string(),
+  mentorId: z.string(),
+  mentorName: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  price: z.string(),
+  currency: z.string(),
+  sessionsPerPack: z.number(),
+  validityDays: z.number(),
+  mentorshipType: z.string(),
+  stripePriceId: z.string().nullable(),
+  stripeProductId: z.string().nullable(),
+  paypalProductId: z.string().nullable(),
+  paypalProductLink: z.string().nullable(),
+  active: z.boolean(),
+  createdAt: z.string(),
+});
+
+const productsResponseSchema = z.object({
+  items: z.array(productSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  error: z.string().optional(),
+});
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductInfo[]>([]);
   const [mentors, setMentors] = useState<Mentor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [mentorId, setMentorId] = useState("");
   const [mentorshipType, setMentorshipType] = useState("");
@@ -58,9 +87,10 @@ export default function ProductsPage() {
   const fetchMentors = async () => {
     try {
       const res = await fetch("/api/admin/mentors");
-      const data = await res.json();
-      if (res.ok && data.items) {
-        setMentors(data.items);
+      const json = await res.json();
+      const parsed = mentorSchema.array().safeParse(json.items);
+      if (res.ok && parsed.success) {
+        setMentors(parsed.data);
       }
     } catch (err) {
       console.error("Error fetching mentors:", err);
@@ -73,6 +103,7 @@ export default function ProductsPage() {
 
   const fetchProducts = async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       params.set("page", page.toString());
@@ -83,16 +114,25 @@ export default function ProductsPage() {
       if (activeFilter) params.set("active", activeFilter);
 
       const res = await fetch(`/api/admin/products?${params}`);
-      const data: ProductsResponse = await res.json();
+      const json = await res.json();
+      const parsed = productsResponseSchema.safeParse(json);
+      
       if (!res.ok) {
-        throw new Error(data.error || "Failed to fetch products");
+        throw new Error(parsed.success ? parsed.data.error : "Failed to fetch products");
       }
-      setProducts(data.items);
-      setTotal(data.total);
+      
+      if (!parsed.success) {
+        console.error("Invalid API response:", parsed.error);
+        throw new Error("Invalid API response");
+      }
+      
+      setProducts(parsed.data.items);
+      setTotal(parsed.data.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch products");
     } finally {
       setLoading(false);
+      setInitialLoading(false);
     }
   };
 
@@ -104,12 +144,12 @@ export default function ProductsPage() {
     setPage(1);
   }, [search, mentorId, mentorshipType, activeFilter]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    fetchProducts();
+    setPage(1);
+    setSearch(searchInput);
   };
 
-  const filteredProducts = search ? products : products;
   const totalPages = Math.ceil(total / pageSize);
 
   const getStatusBadge = (active: boolean) => {
@@ -184,7 +224,7 @@ export default function ProductsPage() {
     );
   };
 
-  if (loading) {
+  if (initialLoading) {
     return (
       <div className="max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold mb-8">Products</h1>
@@ -214,8 +254,8 @@ export default function ProductsPage() {
                 <Input
                   type="text"
                   placeholder="Search by title or description..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
                   className="pl-9"
                 />
               </div>
@@ -283,11 +323,18 @@ export default function ProductsPage() {
         </Link>
       </div>
 
-      {filteredProducts.length === 0 ? (
+      {loading && (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-muted-foreground">Loading products...</span>
+        </div>
+      )}
+
+      {!loading && products.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
           No products found. Create your first product to get started.
         </div>
-      ) : (
+      ) : !loading && (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
