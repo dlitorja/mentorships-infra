@@ -1,13 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { requireRole } from "@/lib/auth-helpers";
 import { fetchMentors } from "@/lib/queries/api-client";
 import { ProductForm } from "../_components/product-form";
 
 export default function CreateProductPage() {
-  requireRole("admin");
-  
   const { data: mentorsData, isLoading: isLoadingMentors } = useQuery({
     queryKey: ["mentors"],
     queryFn: fetchMentors,
