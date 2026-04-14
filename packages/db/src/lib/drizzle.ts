@@ -26,6 +26,7 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
       transform: {
         undefined: null,
       },
+      ssl: "require",
     });
 
     _dbInstance = drizzle(client, { schema });
