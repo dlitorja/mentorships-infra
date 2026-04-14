@@ -12,14 +12,17 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
     }
 
     const cleaned = connectionString.replace(/^["']|["']$/g, "");
-    
+
+    let parsedUrl: URL;
     try {
-      new URL(cleaned);
+      parsedUrl = new URL(cleaned);
     } catch {
       throw new Error("Invalid DATABASE_URL format");
     }
 
-    const isLocalConnection = cleaned.includes("localhost") || cleaned.includes("127.0.0.1");
+    const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const isLocalConnection =
+      hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
 
     const client = postgres(cleaned, {
       max: 10,
