@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: February 18, 2026  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Email Notifications Implemented, Instructor/Mentee Dashboards in apps/marketing (No Payments), **Admin Dashboard for Instructors & Mentees Implemented**, **Date Serialization Bug Fixed**, **Clerk Deprecation Errors Fixed**, **P0 Security Fixes Applied**, Ready for Discord Automation + Video Access Control
+**Last Updated**: December 12, 2025  
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented
 
 ---
 
@@ -197,137 +197,50 @@
 
 ---
 
-### 9. Email Notifications (Resend + Inngest)
-**Status**: ✅ **COMPLETED** - Transactional email delivery for `notification/send` events
+### 9. Onboarding (Purchase Email + Form)
+**Status**: ✅ **COMPLETED** - Purchase onboarding email + onboarding submissions workflow
 
 **Completed Tasks**:
-- [x] Inngest notification delivery handler implemented: `apps/web/inngest/functions/notifications.ts` (`handleNotificationSend`)
-- [x] Handler registered with Inngest: `apps/web/app/api/inngest/route.ts`
-- [x] Resend email sender implemented: `apps/web/lib/email.ts`
-- [x] Email templates implemented: `apps/web/lib/notifications/notification-email.ts`
-- [x] Verified end-to-end in production: **Inngest run → Resend logs → inbox delivery**
-- [x] Reply-to configured without additional Google Workspace seats:
-  - Google Workspace Group `support@huckleberry.art` forwards to `huckleberryartinc@gmail.com`
+- [x] Purchase onboarding email sent after mentorship purchase (instructor name + onboarding link + Discord join CTA + support contact)
+- [x] Mentee onboarding form (goals + 2–4 images)
+- [x] Secure uploads to Supabase Storage bucket `mentorship_onboarding`
+- [x] Secure viewing via signed URLs
+- [x] Instructor onboarding review UI + “mark reviewed” endpoint
+- [x] Discord actions queued in `discord_action_queue` for future bot automation
 
-**Env Vars**:
-- `RESEND_API_KEY`
-- `EMAIL_FROM="Huckleberry Mentorships <noreply@mentorships.huckleberry.art>"`
-- `EMAIL_REPLY_TO="Support <support@huckleberry.art>"`
-- `NEXT_PUBLIC_URL` (or `VERCEL_URL`) for links inside emails
-
-**Reference**: PR #25 - `feat(web): send email notifications for notification/send events`
-
----
-
-### 10. Instructor & Mentee Dashboards in apps/marketing (No Payment Integration)
-**Status**: ✅ **COMPLETED** - Instructor/mentee dashboards without Stripe/PayPal dependencies
-
-**Completed Tasks**:
-- [x] Database query functions for mentor-mentee session tracking (`packages/db/src/lib/queries/sessionPacks.ts`):
-  - [x] `getMentorMenteesWithSessionInfo()` - Get all mentees with session counts, last session date, expiration
-  - [x] `getMentorMenteesWithLowSessions()` - Get mentees with only 1 session remaining
-  - [x] `getUserInstructorsWithSessionInfo()` - Get all instructors for a mentee with session details
-  - [x] `getUserLowSessionPacks()` - Get session packs with 1 session remaining
-  - [x] `addSessionsToPack()` / `removeSessionsFromPack()` - Manual session management (admin use)
-- [x] Mentee Dashboard page (`/dashboard`):
-  - [x] Shows all instructors with session counts and last session dates
-  - [x] Amber alert banner when 1 session remaining with renewal reminder message
-  - [x] Stats: total sessions, active instructors, low session alerts
-  - [x] Quick actions to browse instructors or schedule sessions
-  - [x] Discord connection reminder if not connected
-- [x] Instructor Dashboard page (`/instructor/dashboard`):
-  - [x] Role-based access control (requires `mentor` role)
-  - [x] Shows all mentees with session counts and last session dates
-  - [x] Amber alert section highlighting mentees with 1 session remaining (sticky CTA for instructors to encourage renewals)
-  - [x] Stats: active mentees, low session alerts, total sessions used, sessions remaining across all mentees
-  - [x] Renewal encouragement prompts for instructors with 1-session-remaining mentees
-- [x] Authentication setup in apps/marketing:
-  - [x] Clerk authentication configured (already existed in layout)
-  - [x] Role-based auth helpers (`requireRole`, `requireDbUser`, etc.)
-  - [x] Discord linking indicator (via Clerk's external accounts)
-- [x] UI component updates:
-  - [x] Added `warning` variant to Badge component for amber alerts
-
-**Key Design Decisions**:
-- No payment integration - uses existing session/sessionPack tables only
-- Manual session management via `addSessionsToPack()` / `removeSessionsFromPack()` for admin use
-- Renewal reminders displayed prominently for both instructors and mentees
-- Instructors get specific mentee list to reach out to for renewals (sticky CTA)
-
-**Completed Components**:
-- ✅ Extended session pack queries (`packages/db/src/lib/queries/sessionPacks.ts`)
-- ✅ Mentee Dashboard (`apps/marketing/app/dashboard/page.tsx`)
-- ✅ Instructor Dashboard (`apps/marketing/app/instructor/dashboard/page.tsx`)
-- ✅ Auth helpers (`apps/marketing/lib/auth.ts`)
-- ✅ Badge warning variant (`apps/marketing/components/ui/badge.tsx`)
-- ✅ Path alias configured (`@mentorships/db` → `../../packages/db/src`)
-
-**Estimated Time**: 1 day (completed)
-
----
-
----
-
-### 11. Admin Dashboard: Instructors & Mentees
-**Status**: ✅ **COMPLETED** - Admin oversight view for instructors and their mentees
-
-**Completed Tasks**:
-- [x] Database query functions for admin oversight (`packages/db/src/lib/queries/admin.ts`):
-  - [x] `getAllInstructorsWithStats()` - Get all instructors with mentee counts, completed sessions, inventory
-  - [x] `getInstructorWithMentees()` - Get detailed mentee info with session counts, last session dates, seat status
-  - [x] `getFullAdminCsvData()` - Export all instructor-mentee relationships for CSV reporting
-- [x] API routes for admin instructor management (`apps/marketing/app/api/admin/instructors/`):
-  - [x] `GET /api/admin/instructors` - List instructors with search, pagination, and stats
-  - [x] `GET /api/admin/instructors/[id]/mentees` - Get mentees for a specific instructor
-  - [x] `GET /api/admin/instructors/csv` - Export full CSV report of all instructor-mentee relationships
-- [x] Admin Instructors page (`/admin/instructors`):
-  - [x] Table showing: Instructor email, Active Mentees count, Total Sessions Completed, Inventory, Join Date
-  - [x] Expandable rows to view all mentees for each instructor
-  - [x] Mentee details: Email, Sessions (completed/total), Remaining Sessions, Pack Status, Last Session Date, Seat Status
-  - [x] Search by instructor email
-  - [x] Pagination support (for future scalability beyond 50 instructors)
-  - [x] CSV Export button for full report download
-- [x] Navigation updates:
-  - [x] Added "Instructors" link to admin sidebar
-  - [x] Added "View Instructors" quick action card on admin dashboard
-
-**Completed Components**:
-- ✅ Admin queries (`packages/db/src/lib/queries/admin.ts`)
-- ✅ Instructors list API (`apps/marketing/app/api/admin/instructors/route.ts`)
-- ✅ Instructor mentees API (`apps/marketing/app/api/admin/instructors/[id]/mentees/route.ts`)
-- ✅ CSV export API (`apps/marketing/app/api/admin/instructors/csv/route.ts`)
-- ✅ Instructors page (`apps/marketing/app/admin/instructors/page.tsx`)
-- ✅ Interactive table component (`apps/marketing/components/admin/instructors-table.tsx`)
-- ✅ Sidebar navigation update (`apps/marketing/components/admin/admin-sidebar.tsx`)
-- ✅ Dashboard quick link (`apps/marketing/app/admin/page.tsx`)
-
-**Features**:
-- Search instructors by email
-- View active mentee count and total completed sessions per instructor
-- Expand to see all mentees with remaining session counts and last session dates
-- Export full CSV report with instructor-mentee relationships
-- Pagination ready for future scalability
-
-**Estimated Time**: 0.5 days (completed)
+**Reference**: PR #27 - `feat(web): mentorship onboarding + purchase email`
 
 ---
 
 ## 🚧 In Progress / Next Steps
 
 ### Priority 1: Notifications & Automation (Discord + Email)
-**Status**: 🚧 **IN PROGRESS** - Discord remaining (email complete)
+**Status**: ✅ **COMPLETED** - Email + Discord delivery implemented; Discord automation queue worker implemented
+
+**Current state**:
+- ✅ Email delivery via Resend exists for `notification/send` (renewals/grace warnings can be emailed).
+- ✅ Purchase onboarding email is sent after mentorship purchase.
+- ✅ Discord DM delivery exists for `notification/send` when the user has linked Discord and `DISCORD_BOT_TOKEN` is configured.
+- ✅ Inngest worker consumes `discord_action_queue` (role assignment + instructor DMs).
 
 **Tasks**:
-- [ ] Wire Discord bot notifications for: pack purchased, renewal reminders, grace warnings, session reminders
-- [x] Add email provider (Resend) + templates for transactional emails
-- [ ] Centralize notification events (Inngest) and ensure idempotency/deduplication
+- [x] Implement Discord delivery for `notification/send` (renewals, grace warnings)
+- [x] Implement an Inngest worker to consume `discord_action_queue`:
+  - [x] Assign mentee role when Discord is connected
+  - [x] DM instructor on new purchase (queued by onboarding)
+- [x] Add idempotency/deduplication for queued Discord actions (safe claim + lock TTL)
 
-**Estimated Time**: 1-3 days (Discord + polish)
+**Env Vars (Discord)**:
+- `DISCORD_BOT_TOKEN` (required for sending DMs + role assignment)
+- `DISCORD_GUILD_ID` (required for role assignment if not supplied in payload)
+- `DISCORD_MENTEE_ROLE_NAME` (required for role assignment unless using roleId)
+
+**Estimated Time**: 2-4 days
 
 ---
 
 ### Priority 6: Discord Bot Automation
-**Status**: Bot structure exists, automation not implemented
+**Status**: Core automation runs via Inngest + `discord_action_queue`; `apps/bot` slash commands still not implemented
 
 **Tasks**:
 - [ ] Set up Discord bot commands:
@@ -350,7 +263,25 @@
 
 ---
 
-### Priority 8: Video Access Control (Agora)
+### Priority 8: Mentorship Workspace (Notes + Links + Images)
+**Status**: ⏳ NEXT
+
+**Goal**: Add a mentorship-wide shared space (per active mentorship) where mentees and instructors can:
+- Record notes and share links (both can read; only authors can edit/delete their own entries)
+- Upload images:
+  - Mentee cap: 75 images per mentorship
+  - Mentor cap: 150 images per mentorship
+- “Download all images” (mentee downloads a ZIP containing ALL images in the workspace, including instructor uploads)
+
+**Retention policy**:
+- Delete ALL workspace content (notes + links + images) **18 months after mentorship ends**
+- “Mentorship ends” is defined as when the **seat reservation is released** (`seat_reservations.status = released`)
+- Notify mentees ahead of deletion at **90 / 30 / 7 days** (email + in-app banner) with a one-click “Download all” button
+- No need to notify instructors about deletion
+
+---
+
+### Priority 9: Video Access Control (Agora)
 **Status**: App structure exists, not implemented
 
 **Tasks**:
@@ -379,10 +310,10 @@ Based on the plan in `mentorship-platform-plan.md`:
 8. ✅ **Booking system + Google Calendar scheduling** - DONE (availability + booking + settings)
 9. ✅ **Platform-wide security/rate limiting** - DONE (Arcjet middleware policy matrix)
 10. ✅ **Observability** - DONE (Axiom + Better Stack)
-11. ✅ **Notifications & automation** - DONE (email complete; Discord pending)
-12. ✅ **Instructor/Mentee Dashboards in apps/marketing** - DONE (no payment integration)
-13. ⏳ **Discord notification delivery** - NEXT (connect Discord bot to `notification/send` events)
-14. ⏳ **Video access control** - After Discord (Agora)
+11. ✅ **Onboarding (email + form)** - DONE (purchase email + onboarding submissions)
+12. ✅ **Discord automation + expanded notifications** - DONE (consume `discord_action_queue`, Discord delivery for `notification/send`)
+13. ⏳ **Mentorship workspace (notes + links + images)** - NEXT (HIGHER PRIORITY THAN AGORA)
+14. ⏳ **Video access control** - After #13
 
 ---
 
@@ -395,14 +326,18 @@ Based on the plan in `mentorship-platform-plan.md`:
 5. ✅ **Row Level Security (RLS) enabled** - All tables secured with proper policies
 6. ✅ **Arcjet platform-wide security/rate limiting** (middleware policy matrix)
 7. ✅ **Observability (Axiom + Better Stack)** (errors + Arcjet failures)
-8. ✅ **Instructor/Mentee Dashboards in apps/marketing** (no payment integration) - COMPLETED
-9. **Implement Discord notification delivery** (connect Discord bot to `notification/send` events; email complete)
-10. **Implement video access control** (Agora for video calls)
+8. **Discord automation + expanded notifications**
+   - Consume `discord_action_queue` for mentee role assignment + instructor DMs
+   - Add Discord delivery for `notification/send` events (renewals, grace warnings, session reminders)
+   - Keep idempotency/dedupe guarantees (queue locks + existing seat warning dedupe)
+
 
 ---
 
 ## 📚 Key Reference Documents
 
+- `docs/plans/README.md` - Canonical feature plans index
+- `docs/plans/mentorship-workspaces-v1.md` - Mentorship workspace spec (notes/links/images/export/retention)
 - `mentorship-platform-plan.md` - Overall architecture and business model
 - `TECH_DECISIONS_FINAL.md` - Step-by-step Stripe/PayPal implementation guide
 - `TESTING_CHECKOUT.md` - Stripe checkout testing guide
@@ -431,7 +366,7 @@ ls apps/web/app/api
 
 ---
 
-**Priority 1, 2, 4 Complete! Ready to proceed with Priority 5: Booking System** 🚀
+**Next**: Mentorship workspace (notes + links + images), then video access control (Agora).
 
 ---
 
@@ -450,69 +385,3 @@ ls apps/web/app/api
   - Role-adaptive navigation system
   - Full type safety with Drizzle ORM and Zod validation
 
-### February 2026
-- ✅ **Instructor & Mentee Dashboards in apps/marketing** (This PR)
-  - Built instructor/mentee dashboards in apps/marketing without payment integration
-  - Database queries for mentor-mentee session tracking (mentees with session counts, last session dates)
-  - Mentee dashboard showing all instructors with session counts and 1-session renewal reminders
-  - Instructor dashboard showing all mentees with session counts and renewal CTAs for 1-session mentees
-  - Manual session management functions (addSessionsToPack, removeSessionsFromPack) for admin use
-  - Auth helpers configured for role-based access control
-  - Amber warning badges for low-session alerts
-  - All builds pass successfully
-
-
-- ✅ **Database Migration Fix** (February 3, 2026)
-  - Fixed `/admin/instructors` page error caused by missing `one_on_one_inventory` and `group_inventory` columns
-  - Root cause: migrations table wasn't tracking applied migrations properly
-  - Created `__drizzle_migrations` table and populated with all 18 migration hashes
-  - Fixed migration `0007_breezy_betty_brant.sql` to use `ADD COLUMN IF NOT EXISTS` for idempotency
-  - Fixed migration `0013_melodic_black_widow.sql` to use `CREATE TABLE IF NOT EXISTS` and `ADD COLUMN IF NOT EXISTS`
-  - All migrations now apply successfully
-  - Admin instructors page now loads correctly
-
-
-- ✅ **Clerk Deprecation Errors Fixed** (February 3, 2026)
-  - Fixed Clerk deprecated `afterSignInUrl` prop warning by replacing with `fallbackRedirectUrl`:
-    - `/apps/web/app/sign-in/[[...sign-in]]/page.tsx`
-    - `/apps/web/app/sign-up/[[...sign-up]]/page.tsx`
-  - Removed deprecated `afterSignOutUrl` prop from all UserButton components:
-    - `/apps/web/components/navigation/header.tsx` (2 occurrences - desktop and mobile)
-    - `/apps/web/app/dashboard/page.tsx`
-    - `/apps/web/app/instructor/dashboard/page.tsx`
-  - Added `/apps/web/app/global-error.tsx` to handle uncaught server component errors in production
-  - All deprecated Clerk warning messages should now be resolved
-
-- ✅ **New Instructor Added: Jeszika Le Vye** (February 18, 2026)
-  - Added new instructor "Jeszika Le Vye" to the marketing site instructor roster
-  - Profile images organized in `/apps/marketing/public/instructors/jeszika-le-vye/`
-  - Renamed images following naming convention: `profile.jpg`, `work-1.jpg`, `work-2.jpg`, `work-3.jpg`
-  - Updated `apps/marketing/lib/instructors.ts` with full biography and profile information
-  - Set `isNew: true` flag for new instructor indicator
-  - Configured 1-on-1 mentorship purchase link: `https://home.huckleberry.art/offers/2jdobcAD`
-  - Specialties: Digital Painting, Oil Painting, Illustration, Visual Storytelling, Creative Business, Convention Circuit, Crowdfunding
-
-- ✅ **P0 Security Fixes Applied** (February 18, 2026)
-  - Fixed encryption salt vulnerability in `packages/db/src/lib/encryption.ts`:
-    - Replaced hardcoded salt with random 32-byte salt per encryption
-    - New format: salt (32 bytes) + IV (16 bytes) + ciphertext + authTag (16 bytes)
-    - Maintains backward compatibility with legacy encrypted data (auto-detects format)
-    - Enables future key rotation without re-encrypting all data
-  - Fixed Stripe webhook crash risk in `apps/web/app/api/webhooks/stripe/route.ts`:
-    - Removed TypeScript non-null assertion (`!`) on `STRIPE_WEBHOOK_SECRET`
-    - Added runtime validation with proper 500 error response if env var missing
-    - Prevents runtime crashes from undefined webhook secret
-
-- ✅ **Option B Security Hardening Complete** (February 19, 2026)
-  - **CSRF Protection**: Implemented Origin header validation in `apps/web/proxy.ts`
-    - Validates state-changing requests (POST/PUT/PATCH/DELETE) against allowed origins
-    - Supports `NEXT_PUBLIC_URL`, `VERCEL_URL`, `ALLOWED_ORIGINS` environment variables
-    - Defense-in-depth against cross-site request forgery attacks
-  - **Structured Logging Migration**: Replaced 34 console.* statements with observability.ts
-    - Migrated all webhook handlers (Stripe, PayPal, Kajabi) to structured logging
-    - Migrated Inngest functions to use `reportError()` for BetterStack/Axiom integration
-    - Prevents sensitive data leakage in raw console logs
-  - **Inngest Test Coverage**: Added comprehensive test suite for critical functions
-    - 8 tests for payment functions (processStripeCheckout, processStripeRefund, processPayPalCheckout, processPayPalRefund)
-    - 10 tests for session functions (handleSessionCompleted, handleRenewalReminder, etc.)
-    - Tests cover idempotency, error handling, and business logic validation

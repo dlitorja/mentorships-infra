@@ -69,23 +69,23 @@ The platform follows a modern monorepo architecture with:
 
 ## Current Code Quality Issues & Optimization Opportunities
 
-### 1. Missing Notifications Implementation
-**Issue**: Notification system is wired end-to-end at the event layer, but Discord delivery is not implemented yet
+### 1. Notifications Implementation (Email ✅, Discord ✅)
+**Issue (historical)**: Notification system was wired end-to-end at the event layer, but delivery providers were missing.
 **Location**:
 - Event emitters: `apps/web/inngest/functions/sessions.ts` (`handleRenewalReminder`, `sendGracePeriodFinalWarning`)
 - Event schema: `apps/web/inngest/types.ts` (`notification/send`)
 - Event handler: `apps/web/inngest/functions/notifications.ts` (`handleNotificationSend`)
-**Status**: ✅ **EMAIL NOW IMPLEMENTED + VERIFIED**
-- Email delivery implemented via Resend in `apps/web/lib/email.ts` and template builder `apps/web/lib/notifications/notification-email.ts`
-- `handleNotificationSend` now performs:
-  - `get-user-email` (DB lookup)
-  - `send-email` (Resend API)
-  - observability reporting (Axiom/Better Stack)
-- Verified end-to-end in production: **Inngest run → Resend logs → inbox delivery**
-- Reply handling configured via Google Workspace Group: `support@huckleberry.art` → forwards to `huckleberryartinc@gmail.com`
+**Status**:
+- ✅ **Email delivery implemented** for `notification/send` via Resend + Inngest (reply-to configured as `support@huckleberry.art`).
+- ✅ **Discord DM delivery implemented** for `notification/send` (sent to linked Discord user when `DISCORD_BOT_TOKEN` is configured).
+- ✅ **Discord automation worker implemented**: scheduled Inngest function consumes `discord_action_queue` for role assignment + instructor DMs.
+**Impact**: Renewal/grace reminders can be delivered via email **and** Discord DMs; queued Discord automation can now be processed automatically.
 
-**Remaining TODO**: Discord provider delivery (Discord DM / bot automation) behind the same `notification/send` event.
-**Impact**: Renewal/grace-period emails now deliver reliably; Discord can be added next without changing event producers.
+**Operational notes**:
+- Discord delivery is gated by:
+  - `user_identities` record for provider `discord` (maps Clerk user → Discord user id)
+  - `DISCORD_BOT_TOKEN` for API calls (DM + role assignment)
+- Role assignment needs: `DISCORD_GUILD_ID` + `DISCORD_MENTEE_ROLE_NAME` (unless payload provides roleId/overrides)
 
 ### 2. Database Query Optimizations
 - ❌ Proper database indexes likely missing for frequently queried fields
@@ -125,8 +125,7 @@ The platform follows a modern monorepo architecture with:
 4. ✅ **Booking Validation**: ✅ **IMPLEMENTED**
 
 ### Immediate Next Steps Needed
-1. ✅ **Email Notifications**: Implemented and verified (Inngest → Resend → inbox; reply-to group configured)
-2. **Discord Notifications**: Connect Discord bot delivery to `notification/send` events
+1. ✅ **Notification System Integration**: Email + Discord delivery connected to notification events; Discord queue worker consumes `discord_action_queue`
 2. **Database Indexing**: Verify and create proper indexes for performance
 3. ✅ **Error Handling/Monitoring**: Implemented (Axiom + Better Stack); next is alert rules + uptime checks
 
@@ -136,6 +135,16 @@ The platform follows a modern monorepo architecture with:
 3. ✅ Add rate limiting for security (Arcjet implemented)
 4. Create admin dashboard for monitoring bookings
 5. Add unit tests for all critical business logic
+
+### Recently Implemented (PR #27) — Onboarding + Purchase Email
+- ✅ **Purchase onboarding email** sent after mentorship purchase (includes instructor name, onboarding link, Discord join CTA, and support contact).
+- ✅ **Mentee onboarding form** (goals + 2–4 images) with uploads to Supabase Storage and secure viewing via signed URLs.
+- ✅ **Instructor onboarding review UI** + “mark reviewed” endpoint.
+- ✅ **Discord automation queue** (`discord_action_queue`) created for future bot consumption.
+
+### Next Steps
+- **Discord (apps/bot) commands**: optional future work (slash commands, event listeners). Core automation is already running via Inngest + `discord_action_queue`.
+- **Indexing review**: ensure any high-traffic queries have appropriate indexes as usage grows.
 
 ### Architecture Strengths
 - Good separation of concerns with monorepo
