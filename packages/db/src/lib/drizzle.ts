@@ -11,7 +11,7 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
       throw new Error("DATABASE_URL environment variable is required");
     }
 
-    const cleaned = connectionString.replace(/^["']|["']$/g, "");
+    let cleaned = connectionString.replace(/^["']|["']$/g, "");
 
     let parsedUrl: URL;
     try {
@@ -23,6 +23,12 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
     const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
     const isLocalConnection =
       hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
+
+    // Add sslmode to query params if not present
+    if (!isLocalConnection && !parsedUrl.searchParams.has("sslmode")) {
+      const separator = cleaned.includes("?") ? "&" : "?";
+      cleaned = `${cleaned}${separator}sslmode=require`;
+    }
 
     const client = postgres(cleaned, {
       max: 10,
