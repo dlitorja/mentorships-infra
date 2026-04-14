@@ -258,7 +258,7 @@ export function buildCancellationEmail(
     "Your session has been cancelled.",
     "",
     `Date & Time: ${sessionDateTime}`,
-    `${cancelledBy} cancelled this session.`,
+    `${cancelledByText} cancelled this session.`,
     isStudent ? `Instructor: ${otherPartyName}` : `Student: ${otherPartyName}`,
     "",
     `View your dashboard: ${dashboardUrl}`,
@@ -279,7 +279,7 @@ export function buildCancellationEmail(
         <div style="background:#FEF2F2;padding:12px;border-radius:8px;margin-bottom:12px">
           <div style="font-size:14px;font-weight:600;margin-bottom:4px">Cancelled Session</div>
           <div style="font-size:14px;color:#374151">📅 ${escapeHtml(sessionDateTime)}</div>
-          <div style="font-size:14px;color:#374151">${cancelledBy} cancelled this session.</div>
+          <div style="font-size:14px;color:#374151">${cancelledByText} cancelled this session.</div>
           <div style="font-size:14px;color:#374151">${isStudent ? `Instructor: ${escapeHtml(otherPartyName)}` : `Student: ${escapeHtml(otherPartyName)}`}</div>
         </div>
 
