@@ -1457,3 +1457,21 @@ Configure the S3 client for Backblaze B2. use context7
 - Recharts (charts)
 
 <!-- CONTEXT7 END -->
+
+<!-- SUPABASE SSH DOCS START -->
+# Supabase Documentation
+
+When working with Supabase features in this project, use the Supabase docs over SSH:
+
+```bash
+ssh supabase.sh cat /supabase/docs/guides/platform/ssl-enforcement.md
+ssh supabase.sh grep "branching" /supabase/docs/
+```
+
+Or add to agent instructions:
+```bash
+ssh supabase.sh agents
+```
+
+Reference: https://supabase.sh
+<!-- SUPABASE SSH DOCS END -->

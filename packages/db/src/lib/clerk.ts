@@ -145,12 +145,13 @@ export async function syncClerkUserToSupabase(
       details: sanitizedDetails,
       code: sanitizedError.code,
       stack: sanitizedError.stack,
-      // Don't log fullError, underlyingError, or raw errorDetails to prevent sensitive data leakage
+      underlyingErrorMessage: errorDetails,
     });
     
-    // Throw a sanitized error message (don't include underlying error details that might be sensitive)
+    // Include underlying error for debugging (but sanitize sensitive values)
+    const errorDetail = errorDetails ? `: ${errorDetails}` : "";
     const sanitizedMessage = sanitizeErrorForLogging(new Error(errorMessage));
-    const finalMessage = `Failed to query users table: ${sanitizedMessage.message}`;
+    const finalMessage = `Failed to query users table: ${sanitizedMessage.message}${errorDetail}`;
     
     throw new Error(`Failed to query users table: ${finalMessage}`);
   }
