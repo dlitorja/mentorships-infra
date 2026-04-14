@@ -6,9 +6,32 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { BookSessionForm } from "@/components/calendar/book-session-form";
+import Link from "next/link";
 
 export default async function CalendarPage() {
   const user = await requireDbUser();
+
+  if (!user.timeZone) {
+    return (
+      <ProtectedLayout currentPath="/calendar">
+        <div className="container mx-auto p-4 md:p-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Set Your Timezone</CardTitle>
+              <CardDescription>
+                Please set your timezone in settings before booking sessions.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <Link href="/settings">Go to Settings</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </ProtectedLayout>
+    );
+  }
 
   // Fetch upcoming sessions
   const now = new Date();

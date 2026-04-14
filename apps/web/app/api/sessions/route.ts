@@ -12,6 +12,7 @@ import {
 } from "@mentorships/db";
 import { requireDbUser } from "@/lib/auth";
 import { getGoogleCalendarClient } from "@/lib/google";
+import { inngest } from "@/inngest/client";
 import {
   forbidden,
   notFound,
@@ -285,6 +286,42 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (!created) {
         throw new Error("Failed to create session");
       }
+
+      const sessionId = created.id;
+      const scheduledAt = created.scheduledAt;
+
+      await Promise.all([
+        inngest.send({
+          name: "session/booking-email",
+          data: {
+            type: "booking_confirmation_student",
+            sessionId,
+            sessionPackId,
+            studentId: user.id,
+            mentorId: mentor.id,
+            scheduledAt,
+          },
+        }),
+        inngest.send({
+          name: "session/booking-email",
+          data: {
+            type: "booking_notification_mentor",
+            sessionId,
+            sessionPackId,
+            studentId: user.id,
+            mentorId: mentor.id,
+            scheduledAt,
+          },
+        }),
+        inngest.send({
+          name: "session/scheduled",
+          data: {
+            sessionId,
+            sessionPackId,
+            scheduledAt,
+          },
+        }),
+      ]);
 
       return NextResponse.json(
         createApiSuccess({ session: created }, "Session booked successfully")

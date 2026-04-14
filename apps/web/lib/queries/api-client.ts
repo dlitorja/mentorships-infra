@@ -398,3 +398,25 @@ const UpdateProductResponseSchema = z.object({
 });
 
 type UpdateProductResponse = z.infer<typeof UpdateProductResponseSchema>;
+
+/**
+ * Get current user settings
+ */
+export async function getUserSettings() {
+  return apiFetch<{
+    userId: string;
+    email: string;
+    timeZone: string | null;
+    discordConnected: boolean;
+  }>("/api/user/settings");
+}
+
+/**
+ * Update user timezone
+ */
+export async function updateUserTimeZoneSetting(timeZone: string) {
+  return apiFetch<{ success: boolean; timeZone: string }>("/api/user/settings", {
+    method: "PATCH",
+    body: JSON.stringify({ timeZone }),
+  });
+}

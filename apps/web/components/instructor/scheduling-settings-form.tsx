@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { updateInstructorSettings } from "@/lib/queries/api-client";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
+import { Plus, Trash2 } from "lucide-react";
 
 type WorkingHoursInterval = { start: string; end: string };
 type WorkingHours = Partial<Record<0 | 1 | 2 | 3 | 4 | 5 | 6, WorkingHoursInterval[]>>;
@@ -98,23 +99,36 @@ export function SchedulingSettingsForm({
 
   const saving = saveMutation.isPending;
 
-  function handleDayToggle(day: number, enabled: boolean, start: string, end: string) {
+  function handleDayToggle(day: number, enabled: boolean) {
     const dayKey = String(day);
     const current = (workingHours || {})[dayKey] || [];
     
-    if (enabled) {
-      form.setFieldValue(`workingHours.${dayKey}`, [{ start, end }]);
-    } else {
+    if (enabled && current.length === 0) {
+      form.setFieldValue(`workingHours.${dayKey}`, [{ start: "09:00", end: "17:00" }]);
+    } else if (!enabled) {
       form.setFieldValue(`workingHours.${dayKey}`, []);
     }
   }
 
-  function handleTimeChange(day: number, field: 'start' | 'end', value: string) {
+  function addInterval(day: number) {
     const dayKey = String(day);
     const current = (workingHours || {})[dayKey] || [];
-    const currentInterval = current[0] || { start: "09:00", end: "17:00" };
-    
-    form.setFieldValue(`workingHours.${dayKey}`, [{ ...currentInterval, [field]: value }]);
+    form.setFieldValue(`workingHours.${dayKey}`, [...current, { start: "09:00", end: "17:00" }]);
+  }
+
+  function removeInterval(day: number, index: number) {
+    const dayKey = String(day);
+    const current = (workingHours || {})[dayKey] || [];
+    const updated = current.filter((_, i) => i !== index);
+    form.setFieldValue(`workingHours.${dayKey}`, updated);
+  }
+
+  function handleTimeChange(day: number, index: number, field: 'start' | 'end', value: string) {
+    const dayKey = String(day);
+    const current = (workingHours || {})[dayKey] || [];
+    const updated = [...current];
+    updated[index] = { ...updated[index], [field]: value };
+    form.setFieldValue(`workingHours.${dayKey}`, updated);
   }
 
   function save() {
@@ -160,43 +174,69 @@ export function SchedulingSettingsForm({
             {([0, 1, 2, 3, 4, 5, 6] as const).map((day) => {
               const intervals = (workingHours || {})[String(day)] || [];
               const enabled = intervals.length > 0;
-              const start = intervals[0]?.start ?? "09:00";
-              const end = intervals[0]?.end ?? "17:00";
 
               return (
-                <div key={day} className="flex flex-wrap items-center gap-3 rounded-md border p-3">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={(e) => handleDayToggle(day, e.target.checked, start, end)}
-                    />
-                    <span className="text-sm">{dayLabels[day]}</span>
-                  </label>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      disabled={!enabled}
-                      value={start}
-                      onChange={(e) => handleTimeChange(day, 'start', e.target.value)}
-                      className="rounded-md border bg-background px-2 py-1 text-sm"
-                    />
-                    <span className="text-sm text-muted-foreground">to</span>
-                    <input
-                      type="time"
-                      disabled={!enabled}
-                      value={end}
-                      onChange={(e) => handleTimeChange(day, 'end', e.target.value)}
-                      className="rounded-md border bg-background px-2 py-1 text-sm"
-                    />
+                <div key={day} className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={enabled}
+                        onChange={(e) => handleDayToggle(day, e.target.checked)}
+                      />
+                      <span className="text-sm font-medium">{dayLabels[day]}</span>
+                    </label>
+                    {enabled && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => addInterval(day)}
+                        className="h-8 px-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
+
+                  {enabled && (
+                    <div className="space-y-2 ml-6">
+                      {intervals.map((interval, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <input
+                            type="time"
+                            value={interval.start}
+                            onChange={(e) => handleTimeChange(day, index, 'start', e.target.value)}
+                            className="rounded-md border bg-background px-2 py-1 text-sm"
+                          />
+                          <span className="text-sm text-muted-foreground">to</span>
+                          <input
+                            type="time"
+                            value={interval.end}
+                            onChange={(e) => handleTimeChange(day, index, 'end', e.target.value)}
+                            className="rounded-md border bg-background px-2 py-1 text-sm"
+                          />
+                          {intervals.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeInterval(day, index)}
+                              className="h-8 px-2 text-red-500 hover:text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
           <p className="text-xs text-muted-foreground">
-            For now, we support one interval per day (we can extend to multiple later).
+            Add multiple intervals per day if you have breaks (e.g., 9am-12pm and 2pm-5pm).
           </p>
         </div>
 

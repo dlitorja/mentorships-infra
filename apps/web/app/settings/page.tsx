@@ -4,6 +4,7 @@ import { requireDbUser } from "@/lib/auth";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { TimeZoneSelector } from "@/components/settings/timezone-selector";
 
 export default async function SettingsPage() {
   const user = await requireDbUser();
@@ -17,6 +18,9 @@ export default async function SettingsPage() {
             Manage your account settings and preferences
           </p>
         </div>
+
+        {/* Timezone Settings */}
+        <TimeZoneSelector />
 
         {/* Profile Information */}
         <Card>

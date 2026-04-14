@@ -15,6 +15,8 @@ export const users = pgTable("users", {
   // Email stored for convenience (Clerk is source of truth)
   email: text("email").notNull(),
   role: userRoleEnum("role").notNull().default("student"),
+  // User's timezone for displaying times in their local zone (IANA format, e.g. "America/New_York")
+  timeZone: text("time_zone"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   // Soft deletion for audit trails
