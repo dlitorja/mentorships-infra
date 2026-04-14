@@ -1,4 +1,4 @@
-import { and, asc, eq, lt, or } from "drizzle-orm";
+import { and, asc, eq, lt, or, sql } from "drizzle-orm";
 import { db } from "../drizzle";
 import { discordActionQueue } from "../../schema/discordActionQueue";
 import type { DiscordActionStatus } from "../../schema/discordActionQueue";
@@ -42,10 +42,27 @@ export async function claimDiscordActions(args?: {
   const claimed: DiscordAction[] = [];
 
   for (const c of candidates) {
+    // Concurrency-safe claim:
+    // - Only claim if the row is still eligible at update time
+    // - Increment attempts so we can observe retry behavior
     const [updated] = await db
       .update(discordActionQueue)
-      .set({ status: "processing", lockedAt: now, updatedAt: now })
-      .where(eq(discordActionQueue.id, c.id))
+      .set({
+        status: "processing",
+        lockedAt: now,
+        updatedAt: now,
+        lastError: null,
+        attempts: sql`${discordActionQueue.attempts} + 1`,
+      })
+      .where(
+        and(
+          eq(discordActionQueue.id, c.id),
+          or(
+            eq(discordActionQueue.status, "pending"),
+            and(eq(discordActionQueue.status, "processing"), lt(discordActionQueue.lockedAt, staleBefore))
+          )
+        )
+      )
       .returning();
 
     if (updated) claimed.push(updated);
@@ -62,15 +79,21 @@ export async function setDiscordActionStatus(args: {
   attempts?: number;
 }): Promise<DiscordAction> {
   const now = new Date();
+  type DiscordActionInsert = typeof discordActionQueue.$inferInsert;
+  const set: Partial<DiscordActionInsert> = {
+    status: args.status,
+    lastError: args.lastError ?? null,
+    lockedAt: args.lockedAt ?? null,
+    updatedAt: now,
+  };
+
+  if (typeof args.attempts === "number") {
+    set.attempts = args.attempts;
+  }
+
   const [updated] = await db
     .update(discordActionQueue)
-    .set({
-      status: args.status,
-      lastError: args.lastError ?? null,
-      lockedAt: args.lockedAt ?? null,
-      attempts: args.attempts,
-      updatedAt: now,
-    })
+    .set(set)
     .where(eq(discordActionQueue.id, args.id))
     .returning();
 

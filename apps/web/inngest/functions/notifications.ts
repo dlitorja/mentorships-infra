@@ -1,9 +1,11 @@
 import { inngest } from "../client";
 import { notificationSendEventSchema } from "../types";
-import { reportError, reportInfo } from "../../lib/observability";
-import { getUserById } from "@mentorships/db";
+import { reportError } from "../../lib/observability";
+import { and, db, eq, getUserById, userIdentities } from "@mentorships/db";
 import { sendEmail } from "@/lib/email";
 import { buildNotificationEmail } from "@/lib/notifications/notification-email";
+import { buildNotificationDiscordMessage } from "@/lib/notifications/notification-discord";
+import { DiscordApiError, sendDm } from "@/lib/discord";
 
 /**
  * Handle notification delivery.
@@ -28,8 +30,10 @@ export const handleNotificationSend = inngest.createFunction(
       parsed.data;
 
     await step.run("report-notification", async () => {
-      await reportInfo({
+      await reportError({
         source: "inngest:notification/send",
+        error: null,
+        level: "info",
         message: `notification/send: ${type}`,
         context: {
           type,
@@ -48,29 +52,23 @@ export const handleNotificationSend = inngest.createFunction(
       return user?.email ?? null;
     });
 
-    if (!emailAddress) {
-      await step.run("report-missing-email", async () => {
-        await reportInfo({
-          source: "inngest:notification/send",
-          level: "warn",
-          message: "Notification email skipped: user has no email in DB",
-          context: { type, userId, sessionPackId },
-        });
-      });
+    const discordUserId = await step.run("get-user-discord-id", async () => {
+      const [identity] = await db
+        .select()
+        .from(userIdentities)
+        .where(and(eq(userIdentities.userId, userId), eq(userIdentities.provider, "discord")))
+        .limit(1);
 
-      return {
-        success: false,
-        skipped: true,
-        reason: "missing_email" as const,
-        type,
-        userId,
-        sessionPackId,
-      };
-    }
+      return identity?.providerUserId ?? null;
+    });
 
-    const emailContent = buildNotificationEmail(parsed.data);
+    const emailResult = await step.run("send-email", async () => {
+      if (!emailAddress) {
+        return { ok: false as const, skipped: true as const, reason: "missing_email" };
+      }
 
-    const sendResult = await step.run("send-email", async () => {
+      const emailContent = buildNotificationEmail(parsed.data);
+
       return await sendEmail({
         to: emailAddress,
         subject: emailContent.subject,
@@ -81,52 +79,86 @@ export const handleNotificationSend = inngest.createFunction(
     });
 
     await step.run("report-email-result", async () => {
-      const wasSkipped = !sendResult.ok && "skipped" in sendResult && sendResult.skipped === true;
+      const wasSkipped = !emailResult.ok && "skipped" in emailResult && emailResult.skipped === true;
+      const resendId = emailResult.ok ? emailResult.id : null;
 
-      if (sendResult.ok) {
-        await reportInfo({
-          source: "inngest:notification/send",
-          level: "info",
-          message: "Notification email sent",
-          context: {
-            type,
-            userId,
-            sessionPackId,
-            resendId: sendResult.id,
-          },
-        });
-      } else if (wasSkipped) {
-        await reportInfo({
-          source: "inngest:notification/send",
-          level: "warn",
-          message: "Notification email skipped (email not configured)",
-          context: {
-            type,
-            userId,
-            sessionPackId,
-            skipped: true,
-          },
-        });
-      } else {
-        await reportError({
-          source: "inngest:notification/send",
-          error: sendResult,
-          level: "error",
-          message: "Notification email failed",
-          context: {
-            type,
-            userId,
-            sessionPackId,
-          },
-        });
+      await reportError({
+        source: "inngest:notification/send",
+        error: emailResult.ok ? null : emailResult,
+        level: emailResult.ok ? "info" : wasSkipped ? "warn" : "error",
+        message: emailResult.ok
+          ? "Notification email sent"
+          : wasSkipped && "reason" in emailResult && emailResult.reason === "missing_email"
+            ? "Notification email skipped: user has no email in DB"
+            : wasSkipped
+              ? "Notification email skipped"
+              : "Notification email failed",
+        context: {
+          type,
+          userId,
+          sessionPackId,
+          resendId,
+          skipped: wasSkipped,
+          reason: wasSkipped && "reason" in emailResult ? emailResult.reason : null,
+        },
+      });
+    });
+
+    const discordResult = await step.run("send-discord-dm", async () => {
+      if (!discordUserId) {
+        return { ok: false as const, skipped: true as const, reason: "missing_discord_identity" as const };
+      }
+
+      try {
+        const msg = buildNotificationDiscordMessage(parsed.data);
+        const res = await sendDm({ discordUserId, content: msg });
+        return { ok: true as const, messageId: res.messageId };
+      } catch (err) {
+        if (err instanceof DiscordApiError && err.status === 0) {
+          // Not configured.
+          return { ok: false as const, skipped: true as const, reason: "discord_not_configured" as const };
+        }
+        throw err;
       }
     });
 
+    await step.run("report-discord-result", async () => {
+      const wasSkipped = !discordResult.ok && "skipped" in discordResult && discordResult.skipped === true;
+
+      await reportError({
+        source: "inngest:notification/send",
+        error: discordResult.ok ? null : discordResult,
+        level: discordResult.ok ? "info" : wasSkipped ? "warn" : "error",
+        message: discordResult.ok
+          ? "Notification Discord DM sent"
+          : wasSkipped
+            ? "Notification Discord DM skipped"
+            : "Notification Discord DM failed",
+        context: {
+          type,
+          userId,
+          sessionPackId,
+          discordUserId: discordUserId ?? null,
+          discordMessageId: discordResult.ok ? discordResult.messageId : null,
+          skipped: wasSkipped,
+        },
+      });
+    });
+
     return {
-      success: sendResult.ok,
+      success: ("ok" in emailResult && emailResult.ok) || discordResult.ok,
       type,
       userId,
       sessionPackId,
+      email: {
+        ok: emailResult.ok,
+        skipped: !emailResult.ok && "skipped" in emailResult ? emailResult.skipped === true : false,
+        reason: !emailResult.ok && "reason" in emailResult ? emailResult.reason : null,
+      },
+      discord: {
+        ok: discordResult.ok,
+        skipped: !discordResult.ok && "skipped" in discordResult ? discordResult.skipped === true : false,
+      },
     };
   }
 );
