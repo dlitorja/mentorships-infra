@@ -19,6 +19,8 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
       throw new Error("Invalid DATABASE_URL format");
     }
 
+    const isLocalConnection = cleaned.includes("localhost") || cleaned.includes("127.0.0.1");
+
     const client = postgres(cleaned, {
       max: 10,
       onnotice: () => {},
@@ -26,7 +28,7 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
       transform: {
         undefined: null,
       },
-      ssl: "require",
+      ssl: isLocalConnection ? false : "require",
     });
 
     _dbInstance = drizzle(client, { schema });
