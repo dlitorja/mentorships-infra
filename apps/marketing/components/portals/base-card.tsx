@@ -14,6 +14,7 @@ interface BaseCardProps {
   icon?: React.ReactNode;
   promoText?: string;
   variant?: "default" | "bundle";
+  priority?: boolean;
 }
 
 export function BaseCard({
@@ -25,6 +26,7 @@ export function BaseCard({
   icon,
   promoText,
   variant = "default",
+  priority = false,
 }: BaseCardProps) {
   return (
     <Card
@@ -42,7 +44,7 @@ export function BaseCard({
             fill
             className="object-cover"
             sizes="(max-width: 768px) 100vw, 50vw"
-            priority
+            priority={priority}
           />
         </div>
       )}
