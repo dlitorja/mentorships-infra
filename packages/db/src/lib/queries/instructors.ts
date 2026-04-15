@@ -1,13 +1,13 @@
 import { db } from "../drizzle";
 import { instructors, instructorTestimonials, menteeResults, type Instructor, type InstructorTestimonial, type MenteeResult, type NewInstructor, type NewInstructorTestimonial, type NewMenteeResult } from "../../schema/instructors";
-import { eq, desc, asc, ilike, or, and, isNull } from "drizzle-orm";
+import { eq, desc, asc, ilike, or, and, sql } from "drizzle-orm";
 
 export async function getInstructors(options?: {
   includeInactive?: boolean;
   search?: string;
   limit?: number;
   offset?: number;
-}): Promise<Instructor[]> {
+}): Promise<{ items: Instructor[]; total: number }> {
   const { includeInactive = false, search, limit = 50, offset = 0 } = options || {};
   
   const conditions = [];
@@ -28,12 +28,19 @@ export async function getInstructors(options?: {
   
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
   
-  return db.select()
-    .from(instructors)
-    .where(whereClause)
-    .orderBy(asc(instructors.name))
-    .limit(limit)
-    .offset(offset);
+  const [items, countResult] = await Promise.all([
+    db.select()
+      .from(instructors)
+      .where(whereClause)
+      .orderBy(asc(instructors.name))
+      .limit(limit)
+      .offset(offset),
+    db.select({ count: sql<number>`count(*)` })
+      .from(instructors)
+      .where(whereClause),
+  ]);
+
+  return { items, total: Number(countResult[0]?.count || 0) };
 }
 
 export async function getInstructorById(id: string): Promise<Instructor | null> {

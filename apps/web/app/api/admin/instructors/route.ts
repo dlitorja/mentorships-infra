@@ -62,20 +62,17 @@ export async function GET(req: NextRequest) {
     }
 
     const { search, includeInactive, page, pageSize } = parsedQuery.data;
+    const offset = (page - 1) * pageSize;
 
-    const allInstructors = await getInstructors({
+    const { items: allInstructors, total } = await getInstructors({
       includeInactive,
       search,
-      limit: 1000,
-      offset: 0,
+      limit: pageSize,
+      offset,
     });
 
-    const total = allInstructors.length;
-    const offset = (page - 1) * pageSize;
-    const items = allInstructors.slice(offset, offset + pageSize);
-
     return NextResponse.json({
-      items: items.map((inst) => ({
+      items: allInstructors.map((inst) => ({
         id: inst.id,
         name: inst.name,
         slug: inst.slug,

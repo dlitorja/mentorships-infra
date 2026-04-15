@@ -5,7 +5,7 @@ import {
   isUnauthorizedError,
   isForbiddenError,
 } from "@mentorships/db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 /**
  * DELETE /api/admin/instructors/[id]/mentee-results/[resultId]
@@ -19,13 +19,16 @@ export async function DELETE(
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const { resultId } = await params;
+    const { id, resultId } = await params;
 
-    // Check if mentee result exists
+    // Check if mentee result exists and belongs to the instructor
     const [result] = await db
       .select()
       .from(menteeResults)
-      .where(eq(menteeResults.id, resultId))
+      .where(and(
+        eq(menteeResults.id, resultId),
+        eq(menteeResults.instructorId, id)
+      ))
       .limit(1);
 
     if (!result) {

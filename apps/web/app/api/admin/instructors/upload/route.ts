@@ -13,6 +13,7 @@ const ALLOWED_TYPES = [
 ];
 
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 type UploadType = "profile" | "portfolio" | "result";
 
@@ -66,6 +67,14 @@ export async function POST(req: NextRequest) {
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
         { error: "Invalid file type. Allowed: jpg, png, webp, gif" },
+        { status: 400 }
+      );
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: "File too large. Maximum size is 10MB" },
         { status: 400 }
       );
     }

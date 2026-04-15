@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,11 @@ export function ImageUploadField({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState(value || "");
+
+  // Sync urlInput with value prop changes
+  useEffect(() => {
+    setUrlInput(value || "");
+  }, [value]);
 
   const uploadFile = useCallback(
     async (file: File) => {
