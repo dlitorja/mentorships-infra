@@ -37,7 +37,14 @@ export function BaseCard({
       }`}
     >
       {imageUrl && (
-        <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block"
+          tabIndex={-1}
+          aria-hidden="true"
+        >
           <div className="relative aspect-[16/9] w-full overflow-hidden">
             <Image
               src={imageUrl}
