@@ -45,7 +45,7 @@ export function BaseCard({
           tabIndex={-1}
           aria-hidden="true"
         >
-          <div className="relative h-64 w-full">
+          <div className="relative h-64 w-full overflow-hidden">
             <Image
               src={imageUrl}
               alt={title}
