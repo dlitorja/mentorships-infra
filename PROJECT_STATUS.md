@@ -1,7 +1,25 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: December 12, 2025  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented
+**Last Updated**: April 14, 2026  
+**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented
+
+---
+
+## 🏗️ Architecture Clarification
+
+This monorepo contains multiple applications with distinct responsibilities:
+
+| App | Responsibility |
+|-----|---------------|
+| **apps/marketing** | Public-facing marketing site, instructor profiles (`/instructors`), landing pages |
+| **apps/web** | Dashboards (admin, instructor, mentee), payment flow (Stripe/PayPal), calendar booking |
+| **apps/bot** | Discord bot (slash commands, automation) |
+| **apps/video** | Video integration (Agora) |
+
+**Data flow**: 
+- apps/marketing reads instructor data from static JSON (future: will migrate to Supabase)
+- apps/web manages all user data in Supabase via Drizzle ORM
+- Both apps share the `@mentorships/db` package for database schema
 
 ---
 
@@ -209,6 +227,45 @@
 - [x] Discord actions queued in `discord_action_queue` for future bot automation
 
 **Reference**: PR #27 - `feat(web): mentorship onboarding + purchase email`
+<<<<<<< HEAD
+
+### 10. Instructor Management (Admin + Dashboard)
+**Status**: ✅ **COMPLETED** - Full CRUD for instructors via admin UI, instructor dashboard for testimonials and mentee results
+
+**Completed Tasks**:
+- [x] Database tables created in Supabase:
+  - `instructors` - Instructor profiles (name, slug, tagline, bio, specialties, background, images, socials)
+  - `instructor_testimonials` - Linked testimonials
+  - `mentee_results` - Before/after images linked to instructors
+- [x] Drizzle query functions (`packages/db/src/lib/queries/instructors.ts`)
+- [x] Admin API routes:
+  - `GET/POST /api/admin/instructors` - List and create
+  - `GET/PUT/DELETE /api/admin/instructors/[id]` - CRUD single instructor
+  - `POST /api/admin/instructors/[id]/testimonials` - Add testimonial
+  - `DELETE /api/admin/instructors/[id]/testimonials/[testimonialId]` - Delete testimonial
+  - `POST /api/admin/instructors/[id]/mentee-results` - Add mentee result
+  - `DELETE /api/admin/instructors/[id]/mentee-results/[resultId]` - Delete mentee result
+- [x] Instructor dashboard API routes:
+  - `GET/POST /api/instructor/testimonials` - Manage own testimonials
+  - `GET/POST /api/instructor/mentees-results` - Manage own mentee results
+  - `DELETE /api/instructor/mentees-results/[id]` - Delete own mentee result
+- [x] Admin pages:
+  - `/admin/instructors` - List view with search, filter by active/inactive
+  - `/admin/instructors/create` - Create form with tabs (Basic Info, Images, Tags, Social, Review)
+  - `/admin/instructors/[id]/edit` - Edit form with tabs + testimonials + mentee results management
+- [x] Instructor dashboard updates:
+  - Added testimonials section - add/remove testimonials
+  - Added mentee results section - add/remove before/after images
+- [x] Features:
+  - Predefined tags (specialties, background) + custom tags
+  - Social links: Twitter, Instagram, YouTube, Bluesky, Website, ArtStation
+  - Profile picture + portfolio images (URL input)
+  - Testimonials with name + text
+  - Mentee results with image URL + optional student name
+
+**Estimated Time**: 2-3 days (completed)
+=======
+>>>>>>> main
 
 ---
 
@@ -371,6 +428,17 @@ ls apps/web/app/api
 ---
 
 ## 📊 Recent Progress Summary
+
+### April 2026
+- ✅ **Instructor Management** (Admin + Dashboard)
+  - Full CRUD for instructors via `/admin/instructors`
+  - Create/edit forms with tabs (Basic Info, Images, Tags, Social Links, Testimonials, Results)
+  - Predefined + custom tags for specialties and background
+  - Social links: Twitter, Instagram, YouTube, Bluesky, Website, ArtStation
+  - Testimonials management for admins and instructors
+  - Mentee results (before/after images) for admins and instructors
+  - TanStack Form + React Query + shadcn/ui components
+  - Database: `instructors`, `instructor_testimonials`, `mentee_results` tables
 
 ### December 2024
 - ✅ **PayPal Payment Integration** (PR #11)

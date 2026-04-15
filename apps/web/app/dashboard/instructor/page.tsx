@@ -6,8 +6,9 @@ import { getMentorByUserId, getMentorMenteesWithSessionInfo } from "@mentorships
 import { requireDbUser } from "@/lib/auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users, Calendar, Clock, Plus, Minus } from "lucide-react";
+import { Users, Calendar, Clock } from "lucide-react";
 import { MenteeSessionControls } from "./_components/mentee-session-controls";
+import { InstructorContent } from "./_components/instructor-content";
 
 function formatDate(date: Date | string | null): string {
   if (!date) return "N/A";
@@ -150,6 +151,8 @@ export default async function InstructorDashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      <InstructorContent />
     </div>
   );
 }

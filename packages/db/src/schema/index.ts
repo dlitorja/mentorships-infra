@@ -17,6 +17,7 @@ export * from "./admin-digest-settings";
 export * from "./videoEditorAssignments";
 export * from "./instructorUploads";
 export * from "./monthlyStorageCosts";
+export * from "./instructors";
 
 // Re-export drizzle-orm for convenience
 export * from "drizzle-orm";
