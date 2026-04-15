@@ -213,7 +213,7 @@ export default function AdminDashboard() {
       try {
         const [statsRes, instructorsRes] = await Promise.all([
           fetch("/api/admin/stats"),
-          fetch("/api/marketing/api/admin/instructors"),
+          fetch("/api/admin/instructors"),
         ]);
 
         if (!statsRes.ok || !instructorsRes.ok) {
@@ -259,7 +259,7 @@ export default function AdminDashboard() {
     if (!expandedMentees[mentorId]) {
       setLoadingMentees(mentorId);
       try {
-        const res = await fetch(`/api/marketing/api/admin/instructors/${mentorId}/mentees`);
+        const res = await fetch(`/api/admin/instructors/${mentorId}/mentees`);
         const data = await res.json();
         if (data.mentees) {
           setExpandedMentees((prev) => ({ ...prev, [mentorId]: data.mentees }));
@@ -278,7 +278,7 @@ export default function AdminDashboard() {
     for (const instructor of instructors) {
       if (!expandedMentees[instructor.mentorId]) {
         try {
-          const res = await fetch(`/api/marketing/api/admin/instructors/${instructor.mentorId}/mentees`);
+          const res = await fetch(`/api/admin/instructors/${instructor.mentorId}/mentees`);
           const data = await res.json();
           if (data.mentees) {
             setExpandedMentees((prev) => ({ ...prev, [instructor.mentorId]: data.mentees }));
