@@ -640,7 +640,13 @@ background: ["Gaming", "Indie"],
       "/instructors/kim-myatt/work-4.jpg",
     ],
     pricing: { oneOnOne: 600 },
-    offers: [],
+    offers: [
+      {
+        kind: "oneOnOne",
+        label: "Buy 1-on-1 mentorship",
+        url: "https://home.huckleberry.art/offers/gfsm2Lxz",
+      },
+    ],
   },
   ...testInstructors,
 ];

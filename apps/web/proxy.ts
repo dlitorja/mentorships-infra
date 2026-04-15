@@ -27,12 +27,38 @@ function getAllowedOrigins(): string[] {
     origins.push(...process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()));
   }
   
-  // Local development
+  // Local development - allow common dev ports and hostnames
   if (process.env.NODE_ENV !== "production") {
     origins.push("http://localhost:3000", "http://127.0.0.1:3000");
+    origins.push("http://localhost:3001", "http://127.0.0.1:3001");
+    origins.push("http://localhost:3002", "http://127.0.0.1:3002");
+    // Allow any localhost port in development (wildcard approach)
+    origins.push("http://localhost:*");
   }
   
   return origins;
+}
+
+/**
+ * Check if origin matches allowed origins, including wildcard patterns
+ */
+function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
+  // Direct match
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+  
+  // Wildcard matching for development (e.g., "http://localhost:*")
+  for (const allowed of allowedOrigins) {
+    if (allowed.endsWith(":*")) {
+      const prefix = allowed.slice(0, -1); // "http://localhost:"
+      if (origin.startsWith(prefix)) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
 }
 
 /**
@@ -63,12 +89,34 @@ async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null
   
   // If no origin header, check for alternative indicators
   if (!origin) {
+    // In development, also check Host header as fallback - but only for known safe dev hosts
+    if (process.env.NODE_ENV !== "production") {
+      const host = req.headers.get("host");
+      if (host) {
+        // Only allow Host header fallback for explicit localhost/127.0.0.1 dev hosts
+        // This prevents potential Host header spoofing in shared environments
+        const safeDevHosts = ["localhost", "127.0.0.1"];
+        const hostParts = host.split(":")[0]; // Remove port
+        if (safeDevHosts.includes(hostParts)) {
+          const possibleOrigins = [
+            `http://${host}`,
+            `https://${host}`,
+          ];
+          for (const possibleOrigin of possibleOrigins) {
+            if (isOriginAllowed(possibleOrigin, allowedOrigins)) {
+              return null;
+            }
+          }
+        }
+      }
+    }
+
     // Allow requests without Origin header if they have a Referer from same site
     const referer = req.headers.get("referer");
     if (referer) {
       try {
         const refererOrigin = new URL(referer).origin;
-        if (allowedOrigins.includes(refererOrigin)) {
+        if (isOriginAllowed(refererOrigin, allowedOrigins)) {
           return null;
         }
       } catch {
@@ -90,7 +138,7 @@ async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null
   }
   
   // Check if origin is in allowed list
-  if (!allowedOrigins.includes(origin)) {
+  if (!isOriginAllowed(origin, allowedOrigins)) {
     await reportError({
       source: "proxy.csrf",
       error: new Error("Blocked request from unauthorized origin"),
