@@ -43,11 +43,14 @@ export default async function InstructorCoursesPage({
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 md:py-12">
-        <div className="mx-auto max-w-6xl">
+        <div className="mx-auto max-w-2xl">
           {bundles.length > 0 && (
             <section className="mb-12">
-              <h2 className="mb-6 text-2xl font-bold tracking-tight">Bundles</h2>
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <h2 className="mb-6 text-3xl font-bold tracking-tight text-center md:text-left">
+                <span className="text-indigo-600 dark:text-indigo-400">Save Money</span>{" "}
+                — Get the courses together in a bundle
+              </h2>
+              <div className="grid gap-6">
                 {bundles.map((bundle, index) => (
                   <BundleCard
                     key={index}
@@ -63,8 +66,10 @@ export default async function InstructorCoursesPage({
 
           {courses.length > 0 && (
             <section>
-              <h2 className="mb-6 text-2xl font-bold tracking-tight">Individual Courses</h2>
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <h2 className="mb-6 text-3xl font-bold tracking-tight text-center md:text-left">
+                Get the courses separately
+              </h2>
+              <div className="grid gap-6">
                 {courses.map((course, index) => (
                   <CourseCard
                     key={index}
