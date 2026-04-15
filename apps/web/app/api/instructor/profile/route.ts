@@ -26,11 +26,26 @@ const patchSchema = z.object({
 
 type PatchInput = z.infer<typeof patchSchema>;
 
-function validateProfileRequirements(data: PatchInput): { valid: boolean; errors: string[] } {
+interface ExistingInstructor {
+  profileImageUrl: string | null;
+  portfolioImages: string[] | null;
+}
+
+function validateProfileRequirements(
+  existing: ExistingInstructor,
+  data: PatchInput
+): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
-  const hasProfileImage = !!data.profileImageUrl && data.profileImageUrl.trim() !== "";
-  const portfolioCount = data.portfolioImages?.length ?? 0;
+  const profileImageUrl = data.profileImageUrl !== undefined
+    ? data.profileImageUrl
+    : existing.profileImageUrl;
+  const hasProfileImage = !!profileImageUrl && profileImageUrl.trim() !== "";
+
+  const portfolioImages = data.portfolioImages !== undefined
+    ? data.portfolioImages
+    : existing.portfolioImages ?? [];
+  const portfolioCount = portfolioImages.length;
 
   if (!hasProfileImage) {
     errors.push("Profile image is required");
@@ -114,7 +129,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const validation = validateProfileRequirements(parsed.data);
+    const validation = validateProfileRequirements(instructor, parsed.data);
     if (!validation.valid) {
       return NextResponse.json(
         { error: "Profile requirements not met", validationErrors: validation.errors },
@@ -148,6 +163,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
         specialties: updated.specialties,
         background: updated.background,
         profileImageUrl: updated.profileImageUrl,
+        profileImageUploadPath: updated.profileImageUploadPath,
         portfolioImages: updated.portfolioImages,
         socials: updated.socials,
         isActive: updated.isActive,

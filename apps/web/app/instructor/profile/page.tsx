@@ -22,6 +22,7 @@ async function getProfileData() {
     specialties: instructor.specialties,
     background: instructor.background,
     profileImageUrl: instructor.profileImageUrl,
+    profileImageUploadPath: instructor.profileImageUploadPath,
     portfolioImages: instructor.portfolioImages,
     socials: instructor.socials,
     isActive: instructor.isActive,

@@ -29,6 +29,7 @@ export const instructors = pgTable(
   },
   (t) => ({
     slugIdx: index("instructors_slug_idx").on(t.slug),
+    userIdIdx: index("instructors_user_id_idx").on(t.userId),
     isActiveIdx: index("instructors_is_active_idx").on(t.isActive),
     createdAtIdx: index("instructors_created_at_idx").on(t.createdAt),
   })

@@ -28,6 +28,7 @@ interface ProfileData {
   specialties: string[] | null;
   background: string[] | null;
   profileImageUrl: string | null;
+  profileImageUploadPath: string | null;
   portfolioImages: string[] | null;
   socials: Socials | null;
   isActive: boolean;
@@ -52,6 +53,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
   const [specialties, setSpecialties] = useState(initialData.specialties?.join(", ") ?? "");
   const [background, setBackground] = useState(initialData.background?.join(", ") ?? "");
   const [profileImageUrl, setProfileImageUrl] = useState(initialData.profileImageUrl ?? "");
+  const [profileImageUploadPath, setProfileImageUploadPath] = useState(initialData.profileImageUploadPath ?? "");
   const [portfolioImages, setPortfolioImages] = useState<string[]>(initialData.portfolioImages ?? []);
   const [socials, setSocials] = useState<Socials>(initialData.socials ?? {});
 
@@ -114,6 +116,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           .map((s) => s.trim())
           .filter(Boolean),
         profileImageUrl: profileImageUrl.trim() || null,
+        profileImageUploadPath: profileImageUploadPath || null,
         portfolioImages,
         socials: Object.keys(socials).length > 0 ? socials : null,
       };
@@ -227,6 +230,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             label=""
             value={profileImageUrl}
             onChange={setProfileImageUrl}
+            onUploadComplete={(_url, path) => setProfileImageUploadPath(path)}
             uploadEndpoint={UPLOAD_ENDPOINT}
             placeholder="https://example.com/profile.jpg"
           />
