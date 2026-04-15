@@ -11,6 +11,7 @@ interface InstructorImageUploadProps {
   label: string;
   value?: string;
   onChange: (url: string) => void;
+  onUploadComplete?: (url: string, path: string) => void;
   uploadEndpoint?: string;
   placeholder?: string;
 }
@@ -26,6 +27,7 @@ export function InstructorImageUpload({
   label,
   value,
   onChange,
+  onUploadComplete,
   uploadEndpoint = "/api/instructor/mentees-results/upload",
   placeholder = "https://example.com/image.jpg",
 }: InstructorImageUploadProps) {
@@ -60,6 +62,9 @@ export function InstructorImageUpload({
         const data = await response.json();
         onChange(data.url);
         setUrlInput(data.url);
+        if (onUploadComplete && data.path) {
+          onUploadComplete(data.url, data.path);
+        }
       } catch (err) {
         setUploadError(err instanceof Error ? err.message : "Upload failed");
       } finally {
