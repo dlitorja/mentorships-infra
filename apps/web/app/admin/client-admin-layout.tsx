@@ -3,15 +3,17 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { UserButton, useUser, useClerk } from "@clerk/nextjs";
 import { 
   LayoutDashboard, 
   Package,
   ShoppingCart,
+  Users,
 } from "lucide-react";
-import { UserButton, useUser, useClerk } from "@clerk/nextjs";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/instructors", label: "Instructors", icon: Users },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
 ];
