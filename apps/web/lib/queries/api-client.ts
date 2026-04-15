@@ -10,7 +10,7 @@ import { z } from "zod";
 /**
  * Type-safe fetch wrapper that handles errors and JSON parsing
  */
-async function apiFetch<T>(
+export async function apiFetch<T>(
   url: string,
   options?: RequestInit
 ): Promise<T> {
