@@ -45,12 +45,12 @@ export function BaseCard({
           tabIndex={-1}
           aria-hidden="true"
         >
-          <div className="relative aspect-[16/9] w-full overflow-hidden">
+          <div className="relative h-64 w-full overflow-hidden">
             <Image
               src={imageUrl}
               alt={title}
               fill
-              className="object-cover transition-transform duration-300 hover:scale-105"
+              className="object-contain transition-transform duration-300 hover:scale-105"
               sizes="(max-width: 768px) 100vw, 50vw"
               priority={priority}
             />
