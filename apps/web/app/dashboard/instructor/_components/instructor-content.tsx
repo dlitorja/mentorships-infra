@@ -52,7 +52,7 @@ async function addTestimonial(data: { name: string; text: string }) {
 }
 
 async function deleteTestimonial(id: string) {
-  const response = await fetch(`/api/admin/instructors/-/testimonials/${id}`, {
+  const response = await fetch(`/api/instructor/testimonials/${id}`, {
     method: "DELETE",
   });
   if (!response.ok) {
