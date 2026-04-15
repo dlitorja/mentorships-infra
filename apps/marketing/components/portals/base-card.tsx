@@ -37,16 +37,18 @@ export function BaseCard({
       }`}
     >
       {imageUrl && (
-        <div className="relative aspect-[16/9] w-full overflow-hidden">
-          <Image
-            src={imageUrl}
-            alt={title}
-            fill
-            className="object-cover"
-            sizes="(max-width: 768px) 100vw, 50vw"
-            priority={priority}
-          />
-        </div>
+        <a href={url} target="_blank" rel="noopener noreferrer" className="block">
+          <div className="relative aspect-[16/9] w-full overflow-hidden">
+            <Image
+              src={imageUrl}
+              alt={title}
+              fill
+              className="object-cover transition-transform duration-300 hover:scale-105"
+              sizes="(max-width: 768px) 100vw, 50vw"
+              priority={priority}
+            />
+          </div>
+        </a>
       )}
       <CardHeader>
         {icon || variant === "bundle" ? (
