@@ -227,6 +227,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 - [x] Discord actions queued in `discord_action_queue` for future bot automation
 
 **Reference**: PR #27 - `feat(web): mentorship onboarding + purchase email`
+<<<<<<< HEAD
 
 ### 10. Instructor Management (Admin + Dashboard)
 **Status**: ✅ **COMPLETED** - Full CRUD for instructors via admin UI, instructor dashboard for testimonials and mentee results
@@ -263,6 +264,8 @@ This monorepo contains multiple applications with distinct responsibilities:
   - Mentee results with image URL + optional student name
 
 **Estimated Time**: 2-3 days (completed)
+=======
+>>>>>>> main
 
 ---
 
