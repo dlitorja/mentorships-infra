@@ -1,0 +1,164 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { getInstructorByUserId, updateInstructor } from "@mentorships/db";
+import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
+
+const socialsSchema = z.object({
+  twitter: z.string().optional(),
+  instagram: z.string().optional(),
+  youtube: z.string().optional(),
+  bluesky: z.string().optional(),
+  website: z.string().optional(),
+  artstation: z.string().optional(),
+});
+
+const patchSchema = z.object({
+  name: z.string().min(1, "Name is required").max(200).optional(),
+  tagline: z.string().max(500).optional().nullable(),
+  bio: z.string().optional().nullable(),
+  specialties: z.array(z.string()).optional(),
+  background: z.array(z.string()).optional(),
+  profileImageUrl: z.string().optional().nullable(),
+  profileImageUploadPath: z.string().optional().nullable(),
+  portfolioImages: z.array(z.string()).optional(),
+  socials: socialsSchema.optional().nullable(),
+});
+
+type PatchInput = z.infer<typeof patchSchema>;
+
+function validateProfileRequirements(data: PatchInput): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  const hasProfileImage = !!data.profileImageUrl && data.profileImageUrl.trim() !== "";
+  const portfolioCount = data.portfolioImages?.length ?? 0;
+
+  if (!hasProfileImage) {
+    errors.push("Profile image is required");
+  }
+
+  if (portfolioCount < 4) {
+    errors.push(`At least 4 portfolio images required (currently ${portfolioCount})`);
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+export async function GET(): Promise<NextResponse> {
+  try {
+    const user = await requireDbUser();
+    if (user.role !== "mentor") {
+      return NextResponse.json(
+        { error: "Forbidden: mentor role required" },
+        { status: 403 }
+      );
+    }
+
+    const instructor = await getInstructorByUserId(user.id);
+    if (!instructor) {
+      return NextResponse.json(
+        { error: "Instructor profile not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      id: instructor.id,
+      name: instructor.name,
+      slug: instructor.slug,
+      tagline: instructor.tagline,
+      bio: instructor.bio,
+      specialties: instructor.specialties,
+      background: instructor.background,
+      profileImageUrl: instructor.profileImageUrl,
+      profileImageUploadPath: instructor.profileImageUploadPath,
+      portfolioImages: instructor.portfolioImages,
+      socials: instructor.socials,
+      isActive: instructor.isActive,
+      createdAt: instructor.createdAt.toISOString(),
+      updatedAt: instructor.updatedAt.toISOString(),
+    });
+  } catch (error) {
+    console.error("Get instructor profile error:", error);
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: NextRequest): Promise<NextResponse> {
+  try {
+    const user = await requireDbUser();
+    if (user.role !== "mentor") {
+      return NextResponse.json(
+        { error: "Forbidden: mentor role required" },
+        { status: 403 }
+      );
+    }
+
+    const instructor = await getInstructorByUserId(user.id);
+    if (!instructor) {
+      return NextResponse.json(
+        { error: "Instructor profile not found" },
+        { status: 404 }
+      );
+    }
+
+    const body = await req.json();
+    const parsed = patchSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request", details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const validation = validateProfileRequirements(parsed.data);
+    if (!validation.valid) {
+      return NextResponse.json(
+        { error: "Profile requirements not met", validationErrors: validation.errors },
+        { status: 400 }
+      );
+    }
+
+    const data = parsed.data;
+
+    const updated = await updateInstructor(instructor.id, {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.tagline !== undefined && { tagline: data.tagline }),
+      ...(data.bio !== undefined && { bio: data.bio }),
+      ...(data.specialties !== undefined && { specialties: data.specialties }),
+      ...(data.background !== undefined && { background: data.background }),
+      ...(data.profileImageUrl !== undefined && { profileImageUrl: data.profileImageUrl }),
+      ...(data.profileImageUploadPath !== undefined && { profileImageUploadPath: data.profileImageUploadPath }),
+      ...(data.portfolioImages !== undefined && { portfolioImages: data.portfolioImages }),
+      ...(data.socials !== undefined && { socials: data.socials }),
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Profile updated successfully",
+      profile: {
+        id: updated.id,
+        name: updated.name,
+        slug: updated.slug,
+        tagline: updated.tagline,
+        bio: updated.bio,
+        specialties: updated.specialties,
+        background: updated.background,
+        profileImageUrl: updated.profileImageUrl,
+        portfolioImages: updated.portfolioImages,
+        socials: updated.socials,
+        isActive: updated.isActive,
+        updatedAt: updated.updatedAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    console.error("Update instructor profile error:", error);
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+  }
+}
