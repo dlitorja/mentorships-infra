@@ -89,18 +89,23 @@ async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null
   
   // If no origin header, check for alternative indicators
   if (!origin) {
-    // In development, also check Host header as fallback
+    // In development, also check Host header as fallback - but only for known safe dev hosts
     if (process.env.NODE_ENV !== "production") {
       const host = req.headers.get("host");
       if (host) {
-        // Try common development origins with this host
-        const possibleOrigins = [
-          `http://${host}`,
-          `https://${host}`,
-        ];
-        for (const possibleOrigin of possibleOrigins) {
-          if (isOriginAllowed(possibleOrigin, allowedOrigins)) {
-            return null;
+        // Only allow Host header fallback for explicit localhost/127.0.0.1 dev hosts
+        // This prevents potential Host header spoofing in shared environments
+        const safeDevHosts = ["localhost", "127.0.0.1"];
+        const hostParts = host.split(":")[0]; // Remove port
+        if (safeDevHosts.includes(hostParts)) {
+          const possibleOrigins = [
+            `http://${host}`,
+            `https://${host}`,
+          ];
+          for (const possibleOrigin of possibleOrigins) {
+            if (isOriginAllowed(possibleOrigin, allowedOrigins)) {
+              return null;
+            }
           }
         }
       }
