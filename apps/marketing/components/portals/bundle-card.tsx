@@ -1,5 +1,3 @@
-import { ShoppingCart } from "lucide-react";
-
 import { BaseCard } from "./base-card";
 
 interface BundleCardProps {
@@ -17,9 +15,11 @@ export function BundleCard({ title, description, url, imageUrl, promoText }: Bun
       description={description}
       url={url}
       imageUrl={imageUrl}
-      buttonText="Get Bundle"
-      icon={<ShoppingCart className="h-5 w-5" />}
-      promoText={promoText || "Save more with this bundle! Get both courses together at a discounted rate."}
+      buttonText="Get the Bundle — Save 20%"
+      promoText={
+        promoText ||
+        "Save more with this bundle! Get both courses together at a discounted rate."
+      }
       variant="bundle"
     />
   );

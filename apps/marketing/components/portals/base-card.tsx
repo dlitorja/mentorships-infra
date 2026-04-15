@@ -14,6 +14,7 @@ interface BaseCardProps {
   icon?: React.ReactNode;
   promoText?: string;
   variant?: "default" | "bundle";
+  priority?: boolean;
 }
 
 export function BaseCard({
@@ -25,41 +26,55 @@ export function BaseCard({
   icon,
   promoText,
   variant = "default",
+  priority = false,
 }: BaseCardProps) {
   return (
     <Card
-      className={`overflow-hidden transition-shadow hover:shadow-lg ${
-        variant === "bundle" ? "border-primary/50 bg-primary/5 shadow-md" : ""
+      className={`overflow-hidden transition-all hover:shadow-lg ${
+        variant === "bundle"
+          ? "border-primary/50 bg-gradient-to-br from-primary/5 to-indigo-500/5 shadow-md"
+          : ""
       }`}
     >
       {imageUrl && (
-        <div className="relative aspect-video w-full overflow-hidden">
+        <div className="relative aspect-[16/9] w-full overflow-hidden">
           <Image
             src={imageUrl}
             alt={title}
             fill
             className="object-cover"
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            sizes="(max-width: 768px) 100vw, 50vw"
+            priority={priority}
           />
         </div>
       )}
       <CardHeader>
         {icon || variant === "bundle" ? (
-          <div className="flex items-center gap-2">
-            {icon && <span className="text-primary">{icon}</span>}
-            <CardTitle className="line-clamp-2">{title}</CardTitle>
+          <div className="flex items-start gap-3">
+            {icon && <span className="mt-1 text-primary shrink-0">{icon}</span>}
+            <CardTitle className="line-clamp-2 text-xl">{title}</CardTitle>
           </div>
         ) : (
-          <CardTitle className="line-clamp-2">{title}</CardTitle>
+          <CardTitle className="line-clamp-2 text-xl">{title}</CardTitle>
         )}
-        {description && <CardDescription className="line-clamp-3">{description}</CardDescription>}
+        {description && (
+          <CardDescription className="line-clamp-3 text-base">{description}</CardDescription>
+        )}
       </CardHeader>
-      <CardContent className={promoText ? "space-y-4" : ""}>
-        {promoText && <p className="text-sm font-medium text-primary">{promoText}</p>}
-        <Button asChild className="w-full">
+      <CardContent className={promoText ? "space-y-4" : "pt-0"}>
+        {promoText && (
+          <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
+            {promoText}
+          </p>
+        )}
+        <Button
+          asChild
+          size="lg"
+          className="vibrant-gradient-button w-full text-lg font-semibold"
+        >
           <a href={url} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="mr-2 h-4 w-4" />
             {buttonText}
+            <ExternalLink className="ml-2 h-5 w-5" />
           </a>
         </Button>
       </CardContent>

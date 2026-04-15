@@ -29,11 +29,13 @@ export const instructorPortals: InstructorPortal[] = [
         title: "Character Design with Neil Gray",
         description: "Learn the fundamentals of character design from concept to final artwork.",
         url: "https://your-site.kajabi.com/products/character-design-neil-gray",
+        imageUrl: "/instructors/neil-gray/course-1.jpg",
       },
       {
         title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
         url: "https://your-site.kajabi.com/products/drawing-drapery-clothing-neil-gray",
+        imageUrl: "/instructors/neil-gray/course-2.jpg",
       },
     ],
     bundles: [
@@ -41,6 +43,7 @@ export const instructorPortals: InstructorPortal[] = [
         title: "Complete Character Art Bundle",
         description: "Get both courses together and save on your character art education.",
         url: "https://your-site.kajabi.com/checkout/complete-bundle",
+        imageUrl: "/instructors/neil-gray/course-1.jpg",
       },
     ],
   },
