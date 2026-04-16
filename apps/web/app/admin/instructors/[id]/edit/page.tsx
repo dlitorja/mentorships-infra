@@ -18,6 +18,8 @@ import { z } from "zod";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
 
+const NONE_SENTINEL = "__none__";
+
 class ApiError extends Error {
   response?: Record<string, unknown>;
   status?: number;
@@ -570,14 +572,14 @@ export default function EditInstructorPage() {
               <div>
                 <Label htmlFor="mentorId">Mentor</Label>
                 <Select
-                  value={formData.mentorId ?? "__none__"}
-                  onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value === "__none__" ? null : value }))}
+                  value={formData.mentorId ?? NONE_SENTINEL}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value === NONE_SENTINEL ? null : value }))}
                 >
                   <SelectTrigger id="mentorId">
                     <SelectValue placeholder="Select a mentor" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
+                    <SelectItem value={NONE_SENTINEL}>None</SelectItem>
                     {mentorsData?.items?.map((mentor) => (
                       <SelectItem key={mentor.id} value={mentor.id}>
                         {mentor.email || mentor.id}
