@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   db,
   instructors,
+  mentors,
   instructorTestimonials,
   menteeResults,
   mentorshipProducts,
@@ -226,7 +227,34 @@ export async function PUT(
       }
     }
 
-    const mentorId = data.mentorId || existing.mentorId;
+    // Validate mentorId if being changed
+    if (data.mentorId !== undefined && data.mentorId !== existing.mentorId) {
+      // Check mentor exists (only if not null)
+      if (data.mentorId !== null) {
+        const mentorExists = await db.select().from(mentors).where(eq(mentors.id, data.mentorId)).limit(1);
+        if (mentorExists.length === 0) {
+          return NextResponse.json(
+            { error: "Mentor not found" },
+            { status: 400 }
+          );
+        }
+
+        // Check if mentorId is already assigned to another instructor
+        const existingAssignment = await db
+          .select({ id: instructors.id })
+          .from(instructors)
+          .where(eq(instructors.mentorId, data.mentorId))
+          .limit(1);
+        if (existingAssignment.length > 0 && existingAssignment[0].id !== id) {
+          return NextResponse.json(
+            { error: "Mentor is already assigned to another instructor" },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    const mentorId = Object.prototype.hasOwnProperty.call(data, "mentorId") ? data.mentorId : existing.mentorId;
 
     if (data.isActive === false && existing.isActive !== false) {
       if (mentorId) {
@@ -262,17 +290,38 @@ export async function PUT(
         if (activeProducts.length > 0 && data.deactivateProducts) {
           const stripeResults = await deactivateProductsOnStripe(activeProducts);
 
-          await db
-            .update(mentorshipProducts)
-            .set({ active: false })
-            .where(
-              and(
-                eq(mentorshipProducts.mentorId, mentorId),
-                eq(mentorshipProducts.active, true)
-              )
-            );
+          // Only mark products inactive in DB where Stripe succeeded
+          const successfulStripeIds = new Set([...stripeResults.success]);
 
-          await updateInstructor(id, { isActive: false });
+          for (const product of activeProducts) {
+            const productStripeId = product.stripeProductId;
+            const priceStripeId = product.stripePriceId;
+
+            // Require ALL Stripe operations for this product to succeed
+            const productSucceeded = !productStripeId || successfulStripeIds.has(productStripeId);
+            const priceSucceeded = !priceStripeId || successfulStripeIds.has(priceStripeId);
+            const stripeSucceeded = productSucceeded && priceSucceeded;
+
+            if (stripeSucceeded) {
+              await db
+                .update(mentorshipProducts)
+                .set({ active: false })
+                .where(eq(mentorshipProducts.id, product.id));
+            }
+          }
+
+          // Only deactivate instructor if ALL products fully succeeded
+          const failedProducts = activeProducts.filter((p) => {
+            const productStripeId = p.stripeProductId;
+            const priceStripeId = p.stripePriceId;
+            const productSucceeded = !productStripeId || successfulStripeIds.has(productStripeId);
+            const priceSucceeded = !priceStripeId || successfulStripeIds.has(priceStripeId);
+            return !(productSucceeded && priceSucceeded);
+          });
+
+          if (failedProducts.length === 0) {
+            await updateInstructor(id, { isActive: false });
+          }
 
           return NextResponse.json({
             success: true,

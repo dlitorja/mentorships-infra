@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, timestamp, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, timestamp, jsonb, index, unique } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { mentors } from "./mentors";
 
@@ -32,7 +32,7 @@ export const instructors = pgTable(
   (t) => ({
     slugIdx: index("instructors_slug_idx").on(t.slug),
     userIdIdx: index("instructors_user_id_idx").on(t.userId),
-    mentorIdIdx: index("instructors_mentor_id_idx").on(t.mentorId),
+    mentorIdUnique: unique("instructors_mentor_id_unique").on(t.mentorId),
     isActiveIdx: index("instructors_is_active_idx").on(t.isActive),
     createdAtIdx: index("instructors_created_at_idx").on(t.createdAt),
   })

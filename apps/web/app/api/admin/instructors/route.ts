@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   db,
   instructors,
+  mentors,
   mentorshipProducts,
   sessionPacks,
   getInstructors,
@@ -139,6 +140,30 @@ export async function POST(req: NextRequest) {
         { error: "Slug already exists" },
         { status: 400 }
       );
+    }
+
+    // Validate mentorId exists if provided
+    if (data.mentorId) {
+      const mentorExists = await db.select().from(mentors).where(eq(mentors.id, data.mentorId)).limit(1);
+      if (mentorExists.length === 0) {
+        return NextResponse.json(
+          { error: "Mentor not found" },
+          { status: 400 }
+        );
+      }
+
+      // Check if mentorId is already assigned to another instructor
+      const existingAssignment = await db
+        .select({ id: instructors.id })
+        .from(instructors)
+        .where(eq(instructors.mentorId, data.mentorId))
+        .limit(1);
+      if (existingAssignment.length > 0) {
+        return NextResponse.json(
+          { error: "Mentor is already assigned to another instructor" },
+          { status: 400 }
+        );
+      }
     }
 
     // Validation: Check for active mentees if creating with isActive: false and mentorId

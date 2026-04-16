@@ -12,9 +12,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
+import { z } from "zod";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
+
+class ApiError extends Error {
+  response?: Record<string, unknown>;
+  status?: number;
+  
+  constructor(message: string, response?: Record<string, unknown>, status?: number) {
+    super(message);
+    this.name = "ApiError";
+    this.response = response;
+    this.status = status;
+  }
+}
 
 type Socials = {
   twitter?: string;
@@ -67,6 +81,63 @@ type InstructorDetail = InstructorFormData & {
   menteeResults: MenteeResult[];
 };
 
+type UpdateInstructorResponse = {
+  success: boolean;
+  message: string;
+  productsDeactivated?: {
+    stripeSuccess: string[];
+    stripeFailed: { id: string; error: string }[];
+  };
+  instructor?: {
+    id: string;
+    name: string;
+    slug: string;
+    tagline: string | null;
+    bio: string | null;
+    specialties: string[];
+    background: string[];
+    profileImageUrl: string | null;
+    portfolioImages: string[];
+    socials: Socials | null;
+    isActive: boolean;
+    userId: string | null;
+    mentorId: string | null;
+    updatedAt: string;
+  };
+};
+
+const updateInstructorResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  productsDeactivated: z.object({
+    stripeSuccess: z.array(z.string()),
+    stripeFailed: z.array(z.object({ id: z.string(), error: z.string() })),
+  }).optional(),
+  instructor: z.object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    tagline: z.string().nullable(),
+    bio: z.string().nullable(),
+    specialties: z.array(z.string()),
+    background: z.array(z.string()),
+    profileImageUrl: z.string().nullable(),
+    portfolioImages: z.array(z.string()),
+    socials: z.record(z.string(), z.string().optional()).nullable(),
+    isActive: z.boolean(),
+    userId: z.string().nullable(),
+    mentorId: z.string().nullable(),
+    updatedAt: z.string(),
+  }).optional(),
+});
+
+const mentorsResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string(),
+    email: z.string().nullable(),
+  })),
+});
+
 const SPECIALTY_OPTIONS = [
   "Concept Art", "Character Design", "Environment Art", "Illustration",
   "UI Art", "UI/UX Design", "Graphic Design", "Motion Design", "Animation",
@@ -90,15 +161,24 @@ const SOCIAL_PLATFORMS = [
   { key: "artstation", label: "ArtStation", placeholder: "https://artstation.com/username" },
 ];
 
+/**
+ * Fetches instructor details by ID including testimonials and mentee results.
+ */
 async function fetchInstructor(id: string): Promise<InstructorDetail> {
   return apiFetch<InstructorDetail>(`/api/admin/instructors/${id}`);
 }
 
+/**
+ * Updates an instructor with the given data.
+ * @param id - The instructor ID
+ * @param data - Partial form data to update
+ * @param deactivateProducts - Whether to deactivate associated Stripe products
+ */
 async function updateInstructor(
   id: string,
   data: Partial<InstructorFormData>,
   deactivateProducts: boolean = false
-) {
+): Promise<UpdateInstructorResponse> {
   const payload = {
     ...data,
     deactivateProducts,
@@ -113,15 +193,19 @@ async function updateInstructor(
   const result = await response.json();
 
   if (!response.ok) {
-    const error = new Error(result.error || "Failed to update instructor");
-    (error as any).response = result;
-    (error as any).status = response.status;
-    throw error;
+    throw new ApiError(
+      result.error || "Failed to update instructor",
+      result,
+      response.status
+    );
   }
 
-  return result;
+  return updateInstructorResponseSchema.parse(result);
 }
 
+/**
+ * Adds a testimonial to an instructor.
+ */
 async function addTestimonial(instructorId: string, data: { name: string; text: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/testimonials`, {
     method: "POST",
@@ -135,6 +219,9 @@ async function addTestimonial(instructorId: string, data: { name: string; text: 
   return response.json();
 }
 
+/**
+ * Deletes a testimonial from an instructor.
+ */
 async function deleteTestimonial(instructorId: string, testimonialId: string) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/testimonials/${testimonialId}`, {
     method: "DELETE",
@@ -146,6 +233,9 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
   return response.json();
 }
 
+/**
+ * Adds a mentee result (before/after image) to an instructor.
+ */
 async function addMenteeResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results`, {
     method: "POST",
@@ -159,6 +249,9 @@ async function addMenteeResult(instructorId: string, data: { imageUrl: string; s
   return response.json();
 }
 
+/**
+ * Deletes a mentee result from an instructor.
+ */
 async function deleteMenteeResult(instructorId: string, resultId: string) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results/${resultId}`, {
     method: "DELETE",
@@ -216,6 +309,14 @@ export default function EditInstructorPage() {
     enabled: !!instructorId,
   });
 
+  const { data: mentorsData } = useQuery({
+    queryKey: ["mentors"],
+    queryFn: async () => {
+      const result = await apiFetch<{ items: { id: string; email: string | null }[] }>("/api/admin/mentors");
+      return mentorsResponseSchema.parse(result);
+    },
+  });
+
   useEffect(() => {
     if (data) {
       setFormData({
@@ -249,19 +350,21 @@ export default function EditInstructorPage() {
         setShowSuccessDialog(true);
       } else {
         setSuccessMessage("Instructor updated successfully");
+        setDeactivationResults(null);
         setShowSuccessDialog(true);
       }
       refetch();
     },
-    onError: (error: any) => {
-      const response = error?.response;
+    onError: (error: Error) => {
+      const apiError = error as ApiError;
+      const response = apiError.response;
       if (response?.requiresProductDeactivation) {
-        setActiveProducts(response.activeProducts || []);
+        setActiveProducts((response.activeProducts as ActiveProduct[]) || []);
         setShowProductDeactivationDialog(true);
       } else if (response?.activeMenteeCount) {
         alert(`Cannot deactivate instructor: ${response.activeMenteeCount} active mentee(s) with remaining sessions.`);
       } else {
-        alert(error instanceof Error ? error.message : "Failed to update instructor");
+        alert(error.message || "Failed to update instructor");
       }
     },
   });
@@ -463,6 +566,25 @@ export default function EditInstructorPage() {
                   className="rounded border-gray-300"
                 />
                 <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
+              </div>
+              <div>
+                <Label htmlFor="mentorId">Mentor</Label>
+                <Select
+                  value={formData.mentorId || ""}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value || null }))}
+                >
+                  <SelectTrigger id="mentorId">
+                    <SelectValue placeholder="Select a mentor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {mentorsData?.items?.map((mentor) => (
+                      <SelectItem key={mentor.id} value={mentor.id}>
+                        {mentor.email || mentor.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex justify-end">
                 <Button onClick={() => setActiveTab("images")}>Next</Button>
