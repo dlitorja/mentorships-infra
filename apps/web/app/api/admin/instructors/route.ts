@@ -3,11 +3,17 @@ import { z } from "zod";
 import {
   db,
   instructors,
+  mentorshipProducts,
+  sessionPacks,
   getInstructors,
   createInstructor,
   isUnauthorizedError,
   isForbiddenError,
   eq,
+  and,
+  gt,
+  isNull,
+  or,
 } from "@mentorships/db";
 
 const createInstructorSchema = z.object({
@@ -17,7 +23,7 @@ const createInstructorSchema = z.object({
   bio: z.string().optional().default(""),
   specialties: z.array(z.string()).optional().default([]),
   background: z.array(z.string()).optional().default([]),
-  profileImageUrl: z.string().url().optional().or(z.literal("")).default(""),
+  profileImageUrl: z.string().optional().or(z.literal("")).default(""),
   profileImageUploadPath: z.string().optional().default(""),
   portfolioImages: z.array(z.string()).optional().default([]),
   socials: z.object({
@@ -30,6 +36,7 @@ const createInstructorSchema = z.object({
   }).optional(),
   isActive: z.boolean().default(true),
   userId: z.string().optional(),
+  mentorId: z.string().uuid().optional(),
 });
 
 const listInstructorsQuerySchema = z.object({
@@ -81,6 +88,7 @@ export async function GET(req: NextRequest) {
         background: inst.background,
         profileImageUrl: inst.profileImageUrl,
         isActive: inst.isActive,
+        mentorId: inst.mentorId,
         createdAt: inst.createdAt.toISOString(),
       })),
       total,
@@ -133,6 +141,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Validation: Check for active mentees if creating with isActive: false and mentorId
+    if (data.isActive === false && data.mentorId) {
+      const activeMentees = await db
+        .select()
+        .from(sessionPacks)
+        .where(
+          and(
+            eq(sessionPacks.mentorId, data.mentorId),
+            eq(sessionPacks.status, "active"),
+            gt(sessionPacks.remainingSessions, 0),
+            or(
+              isNull(sessionPacks.expiresAt),
+              gt(sessionPacks.expiresAt, new Date())
+            )
+          )
+        );
+
+      if (activeMentees.length > 0) {
+        return NextResponse.json(
+          {
+            error: "Cannot create inactive instructor with active mentees",
+            activeMenteeCount: activeMentees.length,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const instructor = await createInstructor({
       name: data.name,
       slug: data.slug,
@@ -146,6 +182,7 @@ export async function POST(req: NextRequest) {
       socials: data.socials || null,
       isActive: data.isActive,
       userId: data.userId || null,
+      mentorId: data.mentorId || null,
     });
 
     return NextResponse.json({
@@ -163,6 +200,7 @@ export async function POST(req: NextRequest) {
         portfolioImages: instructor.portfolioImages,
         socials: instructor.socials,
         isActive: instructor.isActive,
+        mentorId: instructor.mentorId,
         createdAt: instructor.createdAt.toISOString(),
       },
     }, { status: 201 });

@@ -52,6 +52,14 @@ type InstructorFormData = {
   socials: Socials;
   isActive: boolean;
   userId: string | null;
+  mentorId: string | null;
+};
+
+type ActiveProduct = {
+  id: string;
+  title: string;
+  stripeProductId: string | null;
+  stripePriceId: string | null;
 };
 
 type InstructorDetail = InstructorFormData & {
@@ -60,16 +68,16 @@ type InstructorDetail = InstructorFormData & {
 };
 
 const SPECIALTY_OPTIONS = [
-  "Concept Art", "Character Design", "Environment Art", "Illustration", 
+  "Concept Art", "Character Design", "Environment Art", "Illustration",
   "UI Art", "UI/UX Design", "Graphic Design", "Motion Design", "Animation",
   "3D Modeling", "Texturing", "Rigging", "Game Development", "Prop Design",
   "Armor Design", "Weaponry", "World-building", "Pixel Art", "Traditional Art",
-  "Oil Painting", "Watercolor", "Digital Painting", "Painterly Style", 
+  "Oil Painting", "Watercolor", "Digital Painting", "Painterly Style",
   "Self-Taught Journey", "Freelance", "Contract Work"
 ];
 
 const BACKGROUND_OPTIONS = [
-  "Gaming", "Indie", "TV", "Film", "Studio", "Freelance", 
+  "Gaming", "Indie", "TV", "Film", "Studio", "Freelance",
   "Agency", "Art Director", "Lead Artist", "Solo Dev", "Contracting"
 ];
 
@@ -86,17 +94,32 @@ async function fetchInstructor(id: string): Promise<InstructorDetail> {
   return apiFetch<InstructorDetail>(`/api/admin/instructors/${id}`);
 }
 
-async function updateInstructor(id: string, data: Partial<InstructorFormData>) {
+async function updateInstructor(
+  id: string,
+  data: Partial<InstructorFormData>,
+  deactivateProducts: boolean = false
+) {
+  const payload = {
+    ...data,
+    deactivateProducts,
+  };
+
   const response = await fetch(`/api/admin/instructors/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
+
+  const result = await response.json();
+
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to update instructor");
+    const error = new Error(result.error || "Failed to update instructor");
+    (error as any).response = result;
+    (error as any).status = response.status;
+    throw error;
   }
-  return response.json();
+
+  return result;
 }
 
 async function addTestimonial(instructorId: string, data: { name: string; text: string }) {
@@ -151,7 +174,7 @@ export default function EditInstructorPage() {
   const router = useRouter();
   const params = useParams();
   const instructorId = params.id as string;
-  
+
   const [activeTab, setActiveTab] = useState("basic");
   const [formData, setFormData] = useState<InstructorFormData>({
     name: "",
@@ -165,18 +188,27 @@ export default function EditInstructorPage() {
     socials: {},
     isActive: true,
     userId: null,
+    mentorId: null,
   });
   const [customSpecialty, setCustomSpecialty] = useState("");
   const [customBackground, setCustomBackground] = useState("");
   const [portfolioInput, setPortfolioInput] = useState("");
-  
-  // Testimonial dialog
+
   const [showTestimonialDialog, setShowTestimonialDialog] = useState(false);
   const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
-  
-  // Mentee result dialog
+
   const [showMenteeResultDialog, setShowMenteeResultDialog] = useState(false);
   const [menteeResultForm, setMenteeResultForm] = useState({ imageUrl: "", studentName: "" });
+
+  const [showProductDeactivationDialog, setShowProductDeactivationDialog] = useState(false);
+  const [activeProducts, setActiveProducts] = useState<ActiveProduct[]>([]);
+
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [deactivationResults, setDeactivationResults] = useState<{
+    stripeSuccess: string[];
+    stripeFailed: { id: string; error: string }[];
+  } | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["instructor", instructorId],
@@ -198,19 +230,50 @@ export default function EditInstructorPage() {
         socials: data.socials || {},
         isActive: data.isActive ?? true,
         userId: data.userId || null,
+        mentorId: data.mentorId || null,
       });
     }
   }, [data]);
 
   const updateMutation = useMutation({
-    mutationFn: (data: Partial<InstructorFormData>) => updateInstructor(instructorId, data),
-    onSuccess: () => {
+    mutationFn: ({ data, deactivateProducts }: { data: Partial<InstructorFormData>; deactivateProducts: boolean }) =>
+      updateInstructor(instructorId, data, deactivateProducts),
+    onSuccess: (result) => {
+      if (result.productsDeactivated) {
+        setDeactivationResults(result.productsDeactivated);
+        setSuccessMessage(
+          result.productsDeactivated.stripeFailed.length > 0
+            ? "Instructor deactivated, but some products failed to deactivate on Stripe."
+            : "Instructor and all products have been deactivated on Stripe."
+        );
+        setShowSuccessDialog(true);
+      } else {
+        setSuccessMessage("Instructor updated successfully");
+        setShowSuccessDialog(true);
+      }
       refetch();
     },
-    onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to update instructor");
+    onError: (error: any) => {
+      const response = error?.response;
+      if (response?.requiresProductDeactivation) {
+        setActiveProducts(response.activeProducts || []);
+        setShowProductDeactivationDialog(true);
+      } else if (response?.activeMenteeCount) {
+        alert(`Cannot deactivate instructor: ${response.activeMenteeCount} active mentee(s) with remaining sessions.`);
+      } else {
+        alert(error instanceof Error ? error.message : "Failed to update instructor");
+      }
     },
   });
+
+  const handleSave = () => {
+    updateMutation.mutate({ data: formData, deactivateProducts: false });
+  };
+
+  const handleDeactivateWithProducts = () => {
+    setShowProductDeactivationDialog(false);
+    updateMutation.mutate({ data: { ...formData, isActive: false }, deactivateProducts: true });
+  };
 
   const addTestimonialMutation = useMutation({
     mutationFn: (data: { name: string; text: string }) => addTestimonial(instructorId, data),
@@ -297,10 +360,6 @@ export default function EditInstructorPage() {
     }));
   };
 
-  const handleSave = () => {
-    updateMutation.mutate(formData);
-  };
-
   if (isLoading) {
     return (
       <div className="container mx-auto py-8 flex justify-center">
@@ -336,8 +395,8 @@ export default function EditInstructorPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button 
-            onClick={handleSave} 
+          <Button
+            onClick={handleSave}
             disabled={updateMutation.isPending}
           >
             {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -697,7 +756,7 @@ export default function EditInstructorPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowTestimonialDialog(false)}>Cancel</Button>
-            <Button 
+            <Button
               onClick={() => addTestimonialMutation.mutate(testimonialForm)}
               disabled={!testimonialForm.name || !testimonialForm.text || addTestimonialMutation.isPending}
             >
@@ -733,13 +792,117 @@ export default function EditInstructorPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowMenteeResultDialog(false)}>Cancel</Button>
-            <Button 
+            <Button
               onClick={() => addMenteeResultMutation.mutate(menteeResultForm)}
               disabled={!menteeResultForm.imageUrl || addMenteeResultMutation.isPending}
             >
               {addMenteeResultMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Add
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Product Deactivation Confirmation Dialog */}
+      <Dialog open={showProductDeactivationDialog} onOpenChange={setShowProductDeactivationDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Deactivate Products</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This instructor has {activeProducts.length} active product(s) on Stripe.
+              To deactivate this instructor, we will also deactivate these products on Stripe.
+            </p>
+            <div className="max-h-40 overflow-y-auto border rounded p-2">
+              {activeProducts.map((product) => (
+                <div key={product.id} className="text-sm py-1">
+                  <span className="font-medium">{product.title}</span>
+                  {product.stripeProductId && (
+                    <span className="text-muted-foreground ml-2">
+                      (ID: {product.stripeProductId})
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-amber-600">
+              Note: Products will be set to inactive on Stripe. You can manually reactivate them later if needed.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowProductDeactivationDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleDeactivateWithProducts}
+              disabled={updateMutation.isPending}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Deactivate Both
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {deactivationResults?.stripeFailed && deactivationResults.stripeFailed.length > 0 ? "Partial Success" : "Success"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm">{successMessage}</p>
+
+            {deactivationResults && (
+              <div className="space-y-2">
+                {deactivationResults.stripeSuccess.length > 0 && (
+                  <div className="text-sm text-green-600">
+                    <p className="font-medium">Successfully deactivated on Stripe:</p>
+                    <ul className="list-disc pl-4 mt-1">
+                      {deactivationResults.stripeSuccess.map((id, i) => (
+                        <li key={i} className="text-xs">{id}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {deactivationResults.stripeFailed.length > 0 && (
+                  <div className="text-sm text-red-600">
+                    <p className="font-medium">Failed to deactivate on Stripe:</p>
+                    <ul className="list-disc pl-4 mt-1">
+                      {deactivationResults.stripeFailed.map((item, i) => (
+                        <li key={i} className="text-xs">
+                          {item.id}: {item.error}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs">
+                      You can try again manually or deactivate these products directly in the Stripe dashboard.
+                    </p>
+                    <Button
+                      variant="link"
+                      className="h-auto p-0 text-blue-600"
+                      asChild
+                    >
+                      <a
+                        href="https://dashboard.stripe.com/products"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Open Stripe Dashboard
+                      </a>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowSuccessDialog(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

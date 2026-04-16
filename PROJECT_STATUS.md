@@ -423,6 +423,29 @@ ls apps/web/app/api
 
 ---
 
+## 🔧 Testing Required
+
+### Payment Flow Testing (Sandbox Mode)
+- [ ] **Stripe Checkout**: Test complete checkout flow in Stripe sandbox
+- [ ] **PayPal Checkout**: Test complete checkout flow with PayPal
+- [ ] **Refund Processing**: Test refund initiated from admin panel
+- [ ] **Webhook Handling**: Verify Stripe/PayPal webhooks process correctly
+
+### Instructor Active Toggle Testing
+- [ ] **Deactivate with Active Mentees**: Verify blocking when instructor has active mentees (remaining sessions > 0)
+- [ ] **Deactivate with Active Products**: Test modal appears when instructor has Stripe/PayPal products
+- [ ] **Product Deactivation**: Verify products are deactivated on Stripe when confirmed
+- [ ] **Failed Deactivation Handling**: Test UI when Stripe product deactivation fails
+- [ ] **404 for Inactive Instructors**: Verify inactive instructors return 404 on public pages
+
+### Recent Instructor Changes (April 15, 2026)
+- Added `mentorId` column to `instructors` table (migration: `0022_add_instructor_mentor_id.sql`)
+- Added validation to prevent deactivating instructors with active mentees
+- Added validation to handle active Stripe products when deactivating
+- Updated `getInstructorBySlug` to filter hidden/inactive instructors
+
+---
+
 **Next**: Mentorship workspace (notes + links + images), then video access control (Agora).
 
 ---

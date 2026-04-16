@@ -5,6 +5,8 @@ import {
   instructors,
   instructorTestimonials,
   menteeResults,
+  mentorshipProducts,
+  sessionPacks,
   getInstructorById,
   updateInstructor,
   deleteInstructor,
@@ -13,7 +15,8 @@ import {
   isUnauthorizedError,
   isForbiddenError,
 } from "@mentorships/db";
-import { eq } from "drizzle-orm";
+import { eq, gt, and, isNull, or } from "drizzle-orm";
+import { stripe } from "@/lib/stripe";
 
 const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
@@ -22,7 +25,7 @@ const updateInstructorSchema = z.object({
   bio: z.string().optional(),
   specialties: z.array(z.string()).optional(),
   background: z.array(z.string()).optional(),
-  profileImageUrl: z.string().url().optional().or(z.literal("")).optional(),
+  profileImageUrl: z.string().optional().or(z.literal("")),
   profileImageUploadPath: z.string().optional(),
   portfolioImages: z.array(z.string()).optional(),
   socials: z.object({
@@ -35,9 +38,77 @@ const updateInstructorSchema = z.object({
   }).optional().nullable(),
   isActive: z.boolean().optional(),
   userId: z.string().optional().nullable(),
+  mentorId: z.string().uuid().optional().nullable(),
+  deactivateProducts: z.boolean().optional(),
 });
 
 type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
+
+async function checkActiveMentees(mentorId: string): Promise<number> {
+  const activeMentees = await db
+    .select()
+    .from(sessionPacks)
+    .where(
+      and(
+        eq(sessionPacks.mentorId, mentorId),
+        eq(sessionPacks.status, "active"),
+        gt(sessionPacks.remainingSessions, 0),
+        or(
+          isNull(sessionPacks.expiresAt),
+          gt(sessionPacks.expiresAt, new Date())
+        )
+      )
+    );
+  return activeMentees.length;
+}
+
+async function checkActiveProducts(mentorId: string) {
+  const products = await db
+    .select()
+    .from(mentorshipProducts)
+    .where(
+      and(
+        eq(mentorshipProducts.mentorId, mentorId),
+        eq(mentorshipProducts.active, true)
+      )
+    );
+  return products;
+}
+
+async function deactivateProductsOnStripe(products: typeof mentorshipProducts.$inferSelect[]) {
+  const results = {
+    success: [] as string[],
+    failed: [] as { id: string; error: string }[],
+  };
+
+  for (const product of products) {
+    if (product.stripeProductId) {
+      try {
+        await stripe.products.update(product.stripeProductId, { active: false });
+        results.success.push(product.stripeProductId);
+      } catch (error) {
+        results.failed.push({
+          id: product.stripeProductId,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+
+    if (product.stripePriceId) {
+      try {
+        await stripe.prices.update(product.stripePriceId, { active: false });
+        results.success.push(product.stripePriceId);
+      } catch (error) {
+        results.failed.push({
+          id: product.stripePriceId,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+  }
+
+  return results;
+}
 
 /**
  * GET /api/admin/instructors/[id]
@@ -78,6 +149,7 @@ export async function GET(
       socials: instructor.socials,
       isActive: instructor.isActive,
       userId: instructor.userId,
+      mentorId: instructor.mentorId,
       createdAt: instructor.createdAt.toISOString(),
       updatedAt: instructor.updatedAt.toISOString(),
       testimonials: testimonials.map((t) => ({
@@ -127,6 +199,7 @@ export async function PUT(
     const validationResult = updateInstructorSchema.safeParse(body);
 
     if (!validationResult.success) {
+      console.error("Validation error:", validationResult.error.issues);
       return NextResponse.json(
         { error: "Invalid request", details: validationResult.error.issues },
         { status: 400 }
@@ -135,7 +208,6 @@ export async function PUT(
 
     const data = validationResult.data as UpdateInstructorInput;
 
-    // Check if instructor exists
     const existing = await getInstructorById(id);
     if (!existing) {
       return NextResponse.json(
@@ -144,7 +216,6 @@ export async function PUT(
       );
     }
 
-    // Check if slug is being changed and if it's already taken
     if (data.slug && data.slug !== existing.slug) {
       const slugExists = await db.select().from(instructors).where(eq(instructors.slug, data.slug)).limit(1);
       if (slugExists.length > 0) {
@@ -155,20 +226,83 @@ export async function PUT(
       }
     }
 
-    const updated = await updateInstructor(id, {
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.slug !== undefined && { slug: data.slug }),
-      ...(data.tagline !== undefined && { tagline: data.tagline || null }),
-      ...(data.bio !== undefined && { bio: data.bio || null }),
-      ...(data.specialties !== undefined && { specialties: data.specialties }),
-      ...(data.background !== undefined && { background: data.background }),
-      ...(data.profileImageUrl !== undefined && { profileImageUrl: data.profileImageUrl || null }),
-      ...(data.profileImageUploadPath !== undefined && { profileImageUploadPath: data.profileImageUploadPath || null }),
-      ...(data.portfolioImages !== undefined && { portfolioImages: data.portfolioImages }),
-      ...(data.socials !== undefined && { socials: data.socials }),
-      ...(data.isActive !== undefined && { isActive: data.isActive }),
-      ...(data.userId !== undefined && { userId: data.userId }),
-    });
+    const mentorId = data.mentorId || existing.mentorId;
+
+    if (data.isActive === false && existing.isActive !== false) {
+      if (mentorId) {
+        const activeMenteeCount = await checkActiveMentees(mentorId);
+        if (activeMenteeCount > 0) {
+          return NextResponse.json(
+            {
+              error: "Cannot deactivate instructor with active mentees",
+              activeMenteeCount,
+            },
+            { status: 400 }
+          );
+        }
+
+        const activeProducts = await checkActiveProducts(mentorId);
+
+        if (activeProducts.length > 0 && !data.deactivateProducts) {
+          return NextResponse.json(
+            {
+              error: "Instructor has active products",
+              activeProducts: activeProducts.map((p) => ({
+                id: p.id,
+                title: p.title,
+                stripeProductId: p.stripeProductId,
+                stripePriceId: p.stripePriceId,
+              })),
+              requiresProductDeactivation: true,
+            },
+            { status: 400 }
+          );
+        }
+
+        if (activeProducts.length > 0 && data.deactivateProducts) {
+          const stripeResults = await deactivateProductsOnStripe(activeProducts);
+
+          await db
+            .update(mentorshipProducts)
+            .set({ active: false })
+            .where(
+              and(
+                eq(mentorshipProducts.mentorId, mentorId),
+                eq(mentorshipProducts.active, true)
+              )
+            );
+
+          await updateInstructor(id, { isActive: false });
+
+          return NextResponse.json({
+            success: true,
+            message: "Instructor and products deactivated",
+            productsDeactivated: {
+              stripeSuccess: stripeResults.success,
+              stripeFailed: stripeResults.failed,
+            },
+          });
+        }
+      }
+    }
+
+    const updateData: Partial<typeof instructors.$inferInsert> = {};
+
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.slug !== undefined) updateData.slug = data.slug;
+    if (data.tagline !== undefined) updateData.tagline = data.tagline || null;
+    if (data.bio !== undefined) updateData.bio = data.bio || null;
+    if (data.specialties !== undefined) updateData.specialties = data.specialties;
+    if (data.background !== undefined) updateData.background = data.background;
+    if (data.profileImageUrl !== undefined) updateData.profileImageUrl = data.profileImageUrl || null;
+    if (data.profileImageUploadPath !== undefined) updateData.profileImageUploadPath = data.profileImageUploadPath || null;
+    if (data.portfolioImages !== undefined) updateData.portfolioImages = data.portfolioImages;
+    if (data.socials !== undefined) updateData.socials = data.socials;
+    if (data.isActive !== undefined) updateData.isActive = data.isActive;
+    if (data.userId !== undefined) updateData.userId = data.userId;
+    if (data.mentorId !== undefined) updateData.mentorId = data.mentorId || null;
+
+    const updated = await updateInstructor(id, updateData);
 
     return NextResponse.json({
       success: true,
@@ -186,6 +320,7 @@ export async function PUT(
         socials: updated.socials,
         isActive: updated.isActive,
         userId: updated.userId,
+        mentorId: updated.mentorId,
         updatedAt: updated.updatedAt.toISOString(),
       },
     });
