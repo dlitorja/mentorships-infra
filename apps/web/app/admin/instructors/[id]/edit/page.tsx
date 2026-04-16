@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
@@ -67,6 +68,31 @@ type InstructorDetail = InstructorFormData & {
   menteeResults: MenteeResult[];
 };
 
+type UpdateInstructorResponse = {
+  success: boolean;
+  message: string;
+  productsDeactivated?: {
+    stripeSuccess: string[];
+    stripeFailed: { id: string; error: string }[];
+  };
+  instructor?: {
+    id: string;
+    name: string;
+    slug: string;
+    tagline: string | null;
+    bio: string | null;
+    specialties: string[];
+    background: string[];
+    profileImageUrl: string | null;
+    portfolioImages: string[];
+    socials: Socials | null;
+    isActive: boolean;
+    userId: string | null;
+    mentorId: string | null;
+    updatedAt: string;
+  };
+};
+
 const SPECIALTY_OPTIONS = [
   "Concept Art", "Character Design", "Environment Art", "Illustration",
   "UI Art", "UI/UX Design", "Graphic Design", "Motion Design", "Animation",
@@ -90,15 +116,24 @@ const SOCIAL_PLATFORMS = [
   { key: "artstation", label: "ArtStation", placeholder: "https://artstation.com/username" },
 ];
 
+/**
+ * Fetches instructor details by ID including testimonials and mentee results.
+ */
 async function fetchInstructor(id: string): Promise<InstructorDetail> {
   return apiFetch<InstructorDetail>(`/api/admin/instructors/${id}`);
 }
 
+/**
+ * Updates an instructor with the given data.
+ * @param id - The instructor ID
+ * @param data - Partial form data to update
+ * @param deactivateProducts - Whether to deactivate associated Stripe products
+ */
 async function updateInstructor(
   id: string,
   data: Partial<InstructorFormData>,
   deactivateProducts: boolean = false
-) {
+): Promise<UpdateInstructorResponse> {
   const payload = {
     ...data,
     deactivateProducts,
@@ -122,6 +157,9 @@ async function updateInstructor(
   return result;
 }
 
+/**
+ * Adds a testimonial to an instructor.
+ */
 async function addTestimonial(instructorId: string, data: { name: string; text: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/testimonials`, {
     method: "POST",
@@ -135,6 +173,9 @@ async function addTestimonial(instructorId: string, data: { name: string; text: 
   return response.json();
 }
 
+/**
+ * Deletes a testimonial from an instructor.
+ */
 async function deleteTestimonial(instructorId: string, testimonialId: string) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/testimonials/${testimonialId}`, {
     method: "DELETE",
@@ -146,6 +187,9 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
   return response.json();
 }
 
+/**
+ * Adds a mentee result (before/after image) to an instructor.
+ */
 async function addMenteeResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results`, {
     method: "POST",
@@ -159,6 +203,9 @@ async function addMenteeResult(instructorId: string, data: { imageUrl: string; s
   return response.json();
 }
 
+/**
+ * Deletes a mentee result from an instructor.
+ */
 async function deleteMenteeResult(instructorId: string, resultId: string) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results/${resultId}`, {
     method: "DELETE",
@@ -216,6 +263,11 @@ export default function EditInstructorPage() {
     enabled: !!instructorId,
   });
 
+  const { data: mentorsData } = useQuery({
+    queryKey: ["mentors"],
+    queryFn: () => apiFetch<{ items: { id: string; email: string | null }[] }>("/api/admin/mentors"),
+  });
+
   useEffect(() => {
     if (data) {
       setFormData({
@@ -249,6 +301,7 @@ export default function EditInstructorPage() {
         setShowSuccessDialog(true);
       } else {
         setSuccessMessage("Instructor updated successfully");
+        setDeactivationResults(null);
         setShowSuccessDialog(true);
       }
       refetch();
@@ -463,6 +516,25 @@ export default function EditInstructorPage() {
                   className="rounded border-gray-300"
                 />
                 <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
+              </div>
+              <div>
+                <Label htmlFor="mentorId">Mentor</Label>
+                <Select
+                  value={formData.mentorId || ""}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value || null }))}
+                >
+                  <SelectTrigger id="mentorId">
+                    <SelectValue placeholder="Select a mentor" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {mentorsData?.items?.map((mentor) => (
+                      <SelectItem key={mentor.id} value={mentor.id}>
+                        {mentor.email || mentor.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex justify-end">
                 <Button onClick={() => setActiveTab("images")}>Next</Button>

@@ -262,15 +262,24 @@ export async function PUT(
         if (activeProducts.length > 0 && data.deactivateProducts) {
           const stripeResults = await deactivateProductsOnStripe(activeProducts);
 
-          await db
-            .update(mentorshipProducts)
-            .set({ active: false })
-            .where(
-              and(
-                eq(mentorshipProducts.mentorId, mentorId),
-                eq(mentorshipProducts.active, true)
-              )
-            );
+          // Only mark products inactive in DB where Stripe succeeded
+          const successfulStripeIds = new Set([...stripeResults.success]);
+
+          for (const product of activeProducts) {
+            const productStripeId = product.stripeProductId;
+            const priceStripeId = product.stripePriceId;
+
+            const stripeSucceeded =
+              (productStripeId && successfulStripeIds.has(productStripeId)) ||
+              (priceStripeId && successfulStripeIds.has(priceStripeId));
+
+            if (stripeSucceeded) {
+              await db
+                .update(mentorshipProducts)
+                .set({ active: false })
+                .where(eq(mentorshipProducts.id, product.id));
+            }
+          }
 
           await updateInstructor(id, { isActive: false });
 

@@ -120,6 +120,13 @@
       "when": 1776207790183,
       "tag": "0016_funny_black_cat",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1776351156378,
+      "tag": "0017_cloudy_kid_colt",
+      "breakpoints": true
     }
   ]
 }
