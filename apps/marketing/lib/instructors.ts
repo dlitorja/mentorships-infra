@@ -652,7 +652,9 @@ background: ["Gaming", "Indie"],
 ];
 
 export function getInstructorBySlug(slug: string): Instructor | undefined {
-  return instructors.find((instructor) => instructor.slug === slug);
+  return instructors.find(
+    (instructor) => instructor.slug === slug && !instructor.isHidden
+  );
 }
 
 export function getAlphabeticalInstructors(): Instructor[] {
