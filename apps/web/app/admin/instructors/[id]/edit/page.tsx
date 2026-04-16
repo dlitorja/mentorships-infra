@@ -570,14 +570,14 @@ export default function EditInstructorPage() {
               <div>
                 <Label htmlFor="mentorId">Mentor</Label>
                 <Select
-                  value={formData.mentorId || ""}
-                  onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value || null }))}
+                  value={formData.mentorId ?? "__none__"}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value === "__none__" ? null : value }))}
                 >
                   <SelectTrigger id="mentorId">
                     <SelectValue placeholder="Select a mentor" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="__none__">None</SelectItem>
                     {mentorsData?.items?.map((mentor) => (
                       <SelectItem key={mentor.id} value={mentor.id}>
                         {mentor.email || mentor.id}
