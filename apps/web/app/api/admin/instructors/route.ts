@@ -151,6 +151,19 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+
+      // Check if mentorId is already assigned to another instructor
+      const existingAssignment = await db
+        .select({ id: instructors.id })
+        .from(instructors)
+        .where(eq(instructors.mentorId, data.mentorId))
+        .limit(1);
+      if (existingAssignment.length > 0) {
+        return NextResponse.json(
+          { error: "Mentor is already assigned to another instructor" },
+          { status: 400 }
+        );
+      }
     }
 
     // Validation: Check for active mentees if creating with isActive: false and mentorId

@@ -14,8 +14,21 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
+import { z } from "zod";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
+
+class ApiError extends Error {
+  response?: Record<string, unknown>;
+  status?: number;
+  
+  constructor(message: string, response?: Record<string, unknown>, status?: number) {
+    super(message);
+    this.name = "ApiError";
+    this.response = response;
+    this.status = status;
+  }
+}
 
 type Socials = {
   twitter?: string;
@@ -93,6 +106,38 @@ type UpdateInstructorResponse = {
   };
 };
 
+const updateInstructorResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  productsDeactivated: z.object({
+    stripeSuccess: z.array(z.string()),
+    stripeFailed: z.array(z.object({ id: z.string(), error: z.string() })),
+  }).optional(),
+  instructor: z.object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    tagline: z.string().nullable(),
+    bio: z.string().nullable(),
+    specialties: z.array(z.string()),
+    background: z.array(z.string()),
+    profileImageUrl: z.string().nullable(),
+    portfolioImages: z.array(z.string()),
+    socials: z.record(z.string(), z.string().optional()).nullable(),
+    isActive: z.boolean(),
+    userId: z.string().nullable(),
+    mentorId: z.string().nullable(),
+    updatedAt: z.string(),
+  }).optional(),
+});
+
+const mentorsResponseSchema = z.object({
+  items: z.array(z.object({
+    id: z.string(),
+    email: z.string().nullable(),
+  })),
+});
+
 const SPECIALTY_OPTIONS = [
   "Concept Art", "Character Design", "Environment Art", "Illustration",
   "UI Art", "UI/UX Design", "Graphic Design", "Motion Design", "Animation",
@@ -148,13 +193,14 @@ async function updateInstructor(
   const result = await response.json();
 
   if (!response.ok) {
-    const error = new Error(result.error || "Failed to update instructor");
-    (error as any).response = result;
-    (error as any).status = response.status;
-    throw error;
+    throw new ApiError(
+      result.error || "Failed to update instructor",
+      result,
+      response.status
+    );
   }
 
-  return result;
+  return updateInstructorResponseSchema.parse(result);
 }
 
 /**
@@ -265,7 +311,10 @@ export default function EditInstructorPage() {
 
   const { data: mentorsData } = useQuery({
     queryKey: ["mentors"],
-    queryFn: () => apiFetch<{ items: { id: string; email: string | null }[] }>("/api/admin/mentors"),
+    queryFn: async () => {
+      const result = await apiFetch<{ items: { id: string; email: string | null }[] }>("/api/admin/mentors");
+      return mentorsResponseSchema.parse(result);
+    },
   });
 
   useEffect(() => {
@@ -306,15 +355,16 @@ export default function EditInstructorPage() {
       }
       refetch();
     },
-    onError: (error: any) => {
-      const response = error?.response;
+    onError: (error: Error) => {
+      const apiError = error as ApiError;
+      const response = apiError.response;
       if (response?.requiresProductDeactivation) {
-        setActiveProducts(response.activeProducts || []);
+        setActiveProducts((response.activeProducts as ActiveProduct[]) || []);
         setShowProductDeactivationDialog(true);
       } else if (response?.activeMenteeCount) {
         alert(`Cannot deactivate instructor: ${response.activeMenteeCount} active mentee(s) with remaining sessions.`);
       } else {
-        alert(error instanceof Error ? error.message : "Failed to update instructor");
+        alert(error.message || "Failed to update instructor");
       }
     },
   });
