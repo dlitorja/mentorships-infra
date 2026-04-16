@@ -82,20 +82,28 @@ async function deactivateProductsOnStripe(products: typeof mentorshipProducts.$i
   };
 
   for (const product of products) {
-    try {
-      if (product.stripeProductId) {
+    if (product.stripeProductId) {
+      try {
         await stripe.products.update(product.stripeProductId, { active: false });
         results.success.push(product.stripeProductId);
+      } catch (error) {
+        results.failed.push({
+          id: product.stripeProductId,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
       }
-      if (product.stripePriceId) {
+    }
+
+    if (product.stripePriceId) {
+      try {
         await stripe.prices.update(product.stripePriceId, { active: false });
         results.success.push(product.stripePriceId);
+      } catch (error) {
+        results.failed.push({
+          id: product.stripePriceId,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
       }
-    } catch (error) {
-      results.failed.push({
-        id: product.id,
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
     }
   }
 
@@ -263,6 +271,8 @@ export async function PUT(
                 eq(mentorshipProducts.active, true)
               )
             );
+
+          await updateInstructor(id, { isActive: false });
 
           return NextResponse.json({
             success: true,
