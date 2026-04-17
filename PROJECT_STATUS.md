@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: April 14, 2026  
-**Status**: Payments + Booking + Google Calendar Scheduling Implemented, Security (Arcjet) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented
+**Last Updated**: April 17, 2026  
+**Status**: Architecture Migration to Convex In Progress - Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented
 
 ---
 
@@ -14,12 +14,18 @@ This monorepo contains multiple applications with distinct responsibilities:
 | **apps/marketing** | Public-facing marketing site, instructor profiles (`/instructors`), landing pages |
 | **apps/web** | Dashboards (admin, instructor, mentee), payment flow (Stripe/PayPal), calendar booking |
 | **apps/bot** | Discord bot (slash commands, automation) |
-| **apps/video** | Video integration (Agora) |
+| **apps/video** | Video integration (Agora/Amazon Chime) |
 
-**Data flow**: 
-- apps/marketing reads instructor data from static JSON (future: will migrate to Supabase)
-- apps/web manages all user data in Supabase via Drizzle ORM
-- Both apps share the `@mentorships/db` package for database schema
+**Data flow (Current - Migrating)**:
+- apps/marketing reads instructor data from static JSON
+- apps/web manages all user data in Supabase via Drizzle ORM (MIGRATING to Convex)
+- Both apps share the `@mentorships/db` package for database schema (MIGRATING to Convex)
+
+**Data flow (Target - After Convex Migration)**:
+- apps/marketing reads instructor data from Convex
+- apps/web manages all user data in Convex (real-time queries, built-in reactivity)
+- Auth via Clerk (unchanged), file storage via Convex Storage
+- Video recordings remain on Backblaze B2 with Cloudflare egress
 
 ---
 
@@ -184,17 +190,18 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 ---
 
-### 7. Platform-wide Security & Rate Limiting (Arcjet)
+### 7. Platform-wide Security & Rate Limiting (Upstash/Redis)
 **Status**: ✅ **COMPLETED** - Platform-wide protection via middleware policy matrix
 
 **Completed Tasks**:
-- [x] Arcjet integrated (`@arcjet/next`) in `apps/web`
-- [x] Centralized enforcement in `apps/web/middleware.ts` for `/api/*` (excluding `/api/health` and `/api/inngest/*`)
-- [x] Policy matrix implemented in `apps/web/lib/arcjet.ts`:
-  - `default`, `user`, `auth`, `checkout`, `booking`, `availability`, `instructor`, `forms`, `webhook`
+- [x] Upstash Redis-based rate limiting integrated in `apps/web`
+- [x] Centralized enforcement in `apps/web/proxy.ts` for `/api/*`
+- [x] Policy matrix implemented in `apps/web/lib/ratelimit.ts`:
+  - `default`, `user`, `auth`, `checkout`, `booking`, `availability`, `instructor`, `forms`, `webhook`, `admin`
+- [x] Dual-window rate limiting (short-term + long-term)
 - [x] Verified runtime enforcement (429/403) on production deployments
 
-**Reference**: PR #22 - `feat(security): add Arcjet protection in middleware`
+**Reference**: Custom implementation using Upstash Redis (replaced earlier Arcjet approach)
 
 ---
 
@@ -227,7 +234,6 @@ This monorepo contains multiple applications with distinct responsibilities:
 - [x] Discord actions queued in `discord_action_queue` for future bot automation
 
 **Reference**: PR #27 - `feat(web): mentorship onboarding + purchase email`
-<<<<<<< HEAD
 
 ### 10. Instructor Management (Admin + Dashboard)
 **Status**: ✅ **COMPLETED** - Full CRUD for instructors via admin UI, instructor dashboard for testimonials and mentee results
@@ -264,8 +270,112 @@ This monorepo contains multiple applications with distinct responsibilities:
   - Mentee results with image URL + optional student name
 
 **Estimated Time**: 2-3 days (completed)
-=======
->>>>>>> main
+
+---
+
+### 11. Manual Session Count Tracking (Kajabi Mentees)
+**Status**: ✅ **COMPLETED** - Manual session tracking for mentees who paid through Kajabi (not through app's Stripe/PayPal)
+
+**Completed Tasks**:
+- [x] New database table `mentee_session_counts`:
+  - `id`, `user_id`, `instructor_id`, `session_count`, `notes`, timestamps
+  - UNIQUE constraint on `(user_id, instructor_id)` to prevent duplicates
+  - Foreign keys to `users` and `instructors` tables
+- [x] Drizzle query functions (`packages/db/src/lib/queries/menteeSessionCounts.ts`):
+  - `getSessionCountsForMentee()` - Get all counts for a mentee
+  - `getSessionCountForInstructorMentee()` - Get specific instructor/mentee pair
+  - `createSessionCount()`, `updateSessionCount()`, `adjustSessionCount()`
+  - `upsertSessionCount()` - Atomic upsert with uniqueness handling
+  - `deleteSessionCount()` - Remove session count records
+- [x] Admin API routes (`/api/admin/mentees/[userId]/session-count`):
+  - `GET` - List all session counts for a mentee
+  - `POST` - Create/upsert session count (sets total)
+  - `PATCH` - Adjust session count (add/subtract) or update total
+  - `DELETE` - Remove session count record
+- [x] Instructor API routes (`/api/instructor/mentees/session-counts/[userId]`):
+  - `GET` - Get session count for own mentee
+  - `POST` - Create/upsert for own mentee
+  - `PATCH` - Adjust session count for own mentee
+  - Authorization: verifies instructor owns the mentee relationship
+- [x] Admin UI (`/admin/mentees`):
+  - Added "Set Sessions" button to manually set session counts
+  - Input validation: rejects non-integer, negative, or empty values
+  - Uses `Number.isInteger()` to catch ambiguous input like "2abc", "1.5"
+  - Query invalidation after update to refresh UI
+
+**Security Fixes** (during review):
+- [x] BOLA vulnerability fixed - Instructor PATCH now verifies record ownership
+- [x] Race condition fixed - `adjustSessionCount` uses atomic SQL update
+- [x] Unique constraint added - Prevents duplicate `(user_id, instructor_id)` pairs
+
+**Reference**: PR #137 - `feat: add manual session count tracking for mentees`
+
+---
+
+### 12. Convex Migration (Database + Real-time)
+**Status**: 🚧 **IN PROGRESS** - Migrating from Supabase/PostgreSQL to Convex
+
+**Goal**: Replace Supabase with Convex for database, real-time queries, and file storage while keeping other services unchanged.
+
+**Rationale**:
+- Real-time by default (no polling needed for notes, messages, images)
+- Simpler DX (no API routes, direct database queries)
+- Built-in file storage for workspace images
+- Clerk integration works seamlessly
+- Free tier sufficient initially (1M calls/month, 0.5GB DB, 1GB storage)
+
+**Phase 1: Setup - COMPLETED** ✅
+- [x] Installed `convex` package to workspace
+- [x] Initialized Convex project (`npx convex init`)
+- [x] Created `convex.config.ts` with auth configuration
+- [x] Created `convex/auth.config.ts` with Clerk JWT issuer
+- [x] Created `convex/schema.ts` with basic users table (email index)
+- [x] Created `convex/users.ts` with test queries
+- [x] Created `ConvexClientProvider` component for Next.js
+- [x] Updated `apps/web/app/layout.tsx` to include Convex provider
+- [x] Set `CLERK_JWT_ISSUER_DOMAIN` in Convex environment
+- [x] Verified build succeeds with Convex integration
+
+**Files Created/Modified**:
+- `convex.config.ts` - Convex configuration
+- `convex/auth.config.ts` - Clerk auth integration
+- `convex/schema.ts` - Database schema (users table)
+- `convex/users.ts` - Test queries
+- `apps/web/components/convex-client-provider.tsx` - Client provider (NEW)
+- `apps/web/app/layout.tsx` - Updated with Convex provider
+- `.env.local` - Added Convex and NEXT_PUBLIC_CONVEX_URL
+- `.env` - Added CLERK_JWT_ISSUER_DOMAIN
+
+**Current Status**:
+- Local Convex deployment running at `http://127.0.0.1:3210`
+- Schema pushed: users table with email index
+- Build verified successful
+
+**Phase 2: Schema Translation - PENDING**
+- Translate Drizzle schemas to Convex schema
+- Create all tables: mentors, sessions, seatReservations, sessionPacks, orders, payments, products, instructors, workspace tables, etc.
+
+**What Moves to Convex**:
+- Database (all tables: users, mentors, sessions, etc.)
+- API Routes (replaced with Convex queries/mutations)
+- File Storage (images ≤1MB free, ≤5MB Pro)
+- Workspace features (notes, links, images, messages)
+
+**What Stays**:
+- Auth: Clerk (unchanged)
+- Email: Resend (unchanged)
+- Payments: Stripe + PayPal (unchanged)
+- Background Jobs: Trigger.dev (unchanged)
+- Security: Upstash/Redis rate limiting (unchanged)
+- Video Storage: Backblaze B2 + Cloudflare (unchanged)
+- Video Calls: TBD (Agora or Amazon Chime) - not yet implemented
+
+**Technical Notes**:
+- Max file size: 1MB (Free) / 5MB (Pro) - video recordings still go to B2
+- Real-time: Automatic reactivity for all queries
+- Auth: Convex configured with Clerk JWT issuer
+
+**Estimated Timeline**: ~3-4 weeks (21 days)
 
 ---
 
@@ -357,7 +467,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 Based on the plan in `mentorship-platform-plan.md`:
 
-1. ✅ **Database schema** - DONE
+1. ✅ **Database schema** - DONE (Supabase)
 2. ✅ **Database migrations** - DONE (applied to Supabase)
 3. ✅ **Session pack + seat logic** - DONE (implemented with Inngest functions)
 4. ✅ **Stripe one-time checkout** - DONE (fully implemented with webhooks)
@@ -365,12 +475,14 @@ Based on the plan in `mentorship-platform-plan.md`:
 6. ✅ **Instructor Session Management** - DONE (dashboard, sessions page, API)
 7. ✅ **PayPal one-time checkout** - DONE (fully implemented with webhooks)
 8. ✅ **Booking system + Google Calendar scheduling** - DONE (availability + booking + settings)
-9. ✅ **Platform-wide security/rate limiting** - DONE (Arcjet middleware policy matrix)
+9. ✅ **Platform-wide security/rate limiting** - DONE (Upstash/Redis middleware policy matrix)
 10. ✅ **Observability** - DONE (Axiom + Better Stack)
 11. ✅ **Onboarding (email + form)** - DONE (purchase email + onboarding submissions)
 12. ✅ **Discord automation + expanded notifications** - DONE (consume `discord_action_queue`, Discord delivery for `notification/send`)
-13. ⏳ **Mentorship workspace (notes + links + images)** - NEXT (HIGHER PRIORITY THAN AGORA)
-14. ⏳ **Video access control** - After #13
+13. ✅ **Manual session count tracking (Kajabi mentees)** - DONE (PR #137)
+14. 🚧 **Convex migration** - IN PROGRESS (database + real-time + file storage)
+15. ⏳ **Mentorship workspace (notes + links + images + messages)** - After Convex migration (built on Convex)
+16. ⏳ **Video access control** - After workspace
 
 ---
 
@@ -381,12 +493,12 @@ Based on the plan in `mentorship-platform-plan.md`:
 3. **✅ Instructor session management** (completed - dashboard, sessions page, API)
 4. **✅ PayPal integration** (secondary payment option) - COMPLETED
 5. ✅ **Row Level Security (RLS) enabled** - All tables secured with proper policies
-6. ✅ **Arcjet platform-wide security/rate limiting** (middleware policy matrix)
-7. ✅ **Observability (Axiom + Better Stack)** (errors + Arcjet failures)
-8. **Discord automation + expanded notifications**
-   - Consume `discord_action_queue` for mentee role assignment + instructor DMs
-   - Add Discord delivery for `notification/send` events (renewals, grace warnings, session reminders)
-   - Keep idempotency/dedupe guarantees (queue locks + existing seat warning dedupe)
+6. ✅ **Upstash/Redis platform-wide security/rate limiting** (middleware policy matrix)
+7. ✅ **Observability (Axiom + Better Stack)** (errors + rate limit failures)
+8. ✅ **Discord automation + expanded notifications** - COMPLETED
+9. ✅ **Manual session count tracking (Kajabi mentees)** - COMPLETED (PR #137)
+10. 🚧 **Convex migration (database + real-time)** - IN PROGRESS
+11. ⏳ **Mentorship workspace (notes + links + images + messages)** - After Convex migration
 
 
 ---
@@ -446,13 +558,29 @@ ls apps/web/app/api
 
 ---
 
-**Next**: Mentorship workspace (notes + links + images), then video access control (Agora).
+**Next**: Mentorship workspace (notes + links + images) - Priority 8, then video access control (Agora) - Priority 9
 
 ---
 
 ## 📊 Recent Progress Summary
 
 ### April 2026
+- 🚧 **Convex Migration Decision** (Major Architecture Change)
+  - Decided to migrate from Supabase/PostgreSQL to Convex
+  - Rationale: Real-time by default, simpler DX, built-in file storage, better for workspace features
+  - Services unchanged: Clerk (auth), Resend (email), Stripe/PayPal (payments), Trigger.dev (background jobs), Upstash/Redis (rate limiting), Backblaze B2 + Cloudflare (video storage)
+  - Video calls: TBD (Agora or Amazon Chime) - remains on roadmap
+  - Plan: Fresh start (no data migration needed), ~3-4 week implementation
+  - Free tier initially ($0), upgrade when limits reached
+
+- ✅ **Manual Session Count Tracking** (PR #137)
+  - New `mentee_session_counts` table for manual session tracking
+  - Admin API: CRUD for session counts at `/api/admin/mentees/[userId]/session-count`
+  - Instructor API: Manage own mentee session counts at `/api/instructor/mentees/session-counts/[userId]`
+  - Admin UI: "Set Sessions" button on `/admin/mentees` with proper input validation
+  - Security fixes: BOLA vulnerability, race condition, unique constraint
+  - Supports mentees who paid through Kajabi (not through app's Stripe/PayPal)
+
 - ✅ **Instructor Management** (Admin + Dashboard)
   - Full CRUD for instructors via `/admin/instructors`
   - Create/edit forms with tabs (Basic Info, Images, Tags, Social Links, Testimonials, Results)
