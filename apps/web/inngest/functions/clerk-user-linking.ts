@@ -1,5 +1,5 @@
 import { inngest } from "../client";
-import { db, instructors, eq, ilike, isNull, and } from "@mentorships/db";
+import { db, instructors, menteeInvitations, sessionPacks, eq, ilike, isNull, and, gt } from "@mentorships/db";
 
 export const linkClerkUserToInstructor = inngest.createFunction(
   {
@@ -11,11 +11,22 @@ export const linkClerkUserToInstructor = inngest.createFunction(
   async ({ event, step }) => {
     const { userId, email } = event.data;
 
-    const result = await step.run("link-instructor", async () => {
+    if (!email || typeof email !== "string") {
+      return { 
+        linked: false, 
+        reason: "No email in event data, skipping", 
+        instructorLinking: { linked: false, reason: "No email provided" },
+        menteeLinking: { linked: false, reason: "No email provided" }
+      };
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    const instructorResult = await step.run("link-instructor", async () => {
       const instructorsToLink = await db
         .select()
         .from(instructors)
-        .where(ilike(instructors.email, email.toLowerCase()));
+        .where(ilike(instructors.email, normalizedEmail));
 
       if (instructorsToLink.length === 0) {
         return { linked: false, reason: "No instructor found with matching email", email };
@@ -42,6 +53,42 @@ export const linkClerkUserToInstructor = inngest.createFunction(
       };
     });
 
-    return result;
+    const menteeResult = await step.run("link-mentee", async () => {
+      const pendingInvitation = await db
+        .select()
+        .from(menteeInvitations)
+        .where(
+          and(
+            eq(menteeInvitations.email, normalizedEmail),
+            eq(menteeInvitations.status, "pending"),
+            gt(menteeInvitations.expiresAt, new Date())
+          )
+        )
+        .limit(1);
+
+      if (pendingInvitation.length === 0) {
+        return { linked: false, reason: "No pending mentee invitation found", email };
+      }
+
+      const invitation = pendingInvitation[0];
+
+      await db
+        .update(menteeInvitations)
+        .set({ status: "accepted", updatedAt: new Date() })
+        .where(eq(menteeInvitations.id, invitation.id));
+
+      return {
+        linked: true,
+        invitationId: invitation.id,
+        mentorId: invitation.instructorId,
+        email,
+        needsSessionPack: true,
+      };
+    });
+
+    return {
+      instructorLinking: instructorResult,
+      menteeLinking: menteeResult,
+    };
   }
 );
