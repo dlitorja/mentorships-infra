@@ -119,23 +119,11 @@ export async function adjustSessionCount(
   adjustment: number,
   notes?: string
 ): Promise<MenteeSessionCount | null> {
-  const [existing] = await db
-    .select()
-    .from(menteeSessionCounts)
-    .where(eq(menteeSessionCounts.id, id))
-    .limit(1);
-
-  if (!existing) {
-    return null;
-  }
-
-  const newCount = existing.sessionCount + adjustment;
-
   const [result] = await db
     .update(menteeSessionCounts)
     .set({
-      sessionCount: newCount,
-      notes: notes !== undefined ? notes : existing.notes,
+      sessionCount: sql`GREATEST(${menteeSessionCounts.sessionCount} + ${adjustment}, 0)`,
+      notes: notes !== undefined ? notes : menteeSessionCounts.notes,
       updatedAt: new Date(),
     })
     .where(eq(menteeSessionCounts.id, id))

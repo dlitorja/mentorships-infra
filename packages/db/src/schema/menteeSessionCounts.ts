@@ -1,4 +1,4 @@
-import { pgTable, uuid, integer, text, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, integer, text, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { instructors } from "./instructors";
 
@@ -22,7 +22,7 @@ export const menteeSessionCounts = pgTable(
   (t) => ({
     userIdIdx: index("mentee_session_counts_user_id_idx").on(t.userId),
     instructorIdIdx: index("mentee_session_counts_instructor_id_idx").on(t.instructorId),
-    userInstructorIdx: index("mentee_session_counts_user_instructor_idx").on(t.userId, t.instructorId),
+    userInstructorUnique: uniqueIndex("mentee_session_counts_user_instructor_unique_idx").on(t.userId, t.instructorId),
   })
 );
 

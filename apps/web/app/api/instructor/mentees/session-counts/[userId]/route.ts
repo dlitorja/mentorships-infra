@@ -11,6 +11,7 @@ import {
   isUnauthorizedError,
   isForbiddenError,
   instructors,
+  menteeSessionCounts,
   eq,
   db,
 } from "@mentorships/db";
@@ -176,6 +177,24 @@ export async function PATCH(
     const body = await req.json();
 
     const { id, adjustment, sessionCount, notes } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "Missing id parameter" }, { status: 400 });
+    }
+
+    const existingRecord = await db
+      .select()
+      .from(menteeSessionCounts)
+      .where(eq(menteeSessionCounts.id, id))
+      .limit(1);
+
+    if (existingRecord.length === 0) {
+      return NextResponse.json({ error: "Session count not found" }, { status: 404 });
+    }
+
+    if (existingRecord[0].instructorId !== instructor[0].id) {
+      return NextResponse.json({ error: "Forbidden: You can only modify your own mentee session counts" }, { status: 403 });
+    }
 
     if (adjustment !== undefined) {
       if (typeof adjustment !== "number") {
