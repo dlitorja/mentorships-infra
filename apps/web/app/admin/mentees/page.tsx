@@ -107,12 +107,6 @@ async function adjustSessionCount(userId: string, data: { id: string; adjustment
 export default function MenteesPage() {
   const [search, setSearch] = useState("");
   const [instructorFilter, setInstructorFilter] = useState("");
-  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
-  const [selectedMentee, setSelectedMentee] = useState<Mentee | null>(null);
-  const [newSessionCount, setNewSessionCount] = useState("");
-  const [selectedInstructorId, setSelectedInstructorId] = useState("");
-  const [notes, setNotes] = useState("");
-  const [adjustmentValue, setAdjustmentValue] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -125,38 +119,6 @@ export default function MenteesPage() {
     queryKey: ["instructors"],
     queryFn: fetchInstructors,
   });
-
-  const { data: sessionCountsData, isLoading: loadingSessionCounts } = useQuery({
-    queryKey: ["session-counts", selectedMentee?.userId],
-    queryFn: () => selectedMentee ? fetchSessionCounts(selectedMentee.userId) : Promise.resolve({ items: [] }),
-    enabled: !!selectedMentee,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: (data: { instructorId: string; sessionCount: number; notes?: string }) => 
-      selectedMentee ? createOrUpdateSessionCount(selectedMentee.userId, data) : Promise.resolve(null),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session-counts", selectedMentee?.userId] });
-      setNewSessionCount("");
-      setSelectedInstructorId("");
-      setNotes("");
-    },
-  });
-
-  const adjustMutation = useMutation({
-    mutationFn: (data: { id: string; adjustment: number; notes?: string }) =>
-      selectedMentee ? adjustSessionCount(selectedMentee.userId, data) : Promise.resolve(null),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["session-counts", selectedMentee?.userId] });
-      setAdjustmentValue("");
-    },
-  });
-
-  const openSessionDialog = async (mentee: Mentee) => {
-    setSelectedMentee(mentee);
-    setSelectedInstructorId(mentee.instructorId);
-    setSessionDialogOpen(true);
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -237,19 +199,14 @@ export default function MenteesPage() {
                   <tr className="border-b">
                     <th className="text-left py-3 px-4 font-medium">Mentee</th>
                     <th className="text-left py-3 px-4 font-medium">Instructor</th>
-                    <th className="text-left py-3 px-4 font-medium">Pack Sessions</th>
-                    <th className="text-left py-3 px-4 font-medium">Manual</th>
+                    <th className="text-left py-3 px-4 font-medium">Sessions</th>
                     <th className="text-left py-3 px-4 font-medium">Status</th>
                     <th className="text-left py-3 px-4 font-medium">Expires</th>
                     <th className="text-left py-3 px-4 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.items.map((mentee) => {
-                    const manualCount = sessionCountsData?.items.find(
-                      sc => sc.instructorId === mentee.instructorId
-                    );
-                    return (
+                  {data?.items.map((mentee) => (
                     <tr key={mentee.id} className="border-b hover:bg-muted/50">
                       <td className="py-3 px-4">
                         <div>
@@ -286,22 +243,7 @@ export default function MenteesPage() {
                         </span>
                       </td>
                       <td className="py-3 px-4">
-                        {manualCount !== undefined && (
-                          <span
-                            className={
-                              manualCount.sessionCount <= 0
-                                ? "text-destructive font-medium"
-                                : manualCount.sessionCount <= 2
-                                ? "text-yellow-600 font-medium"
-                                : "text-green-600 font-medium"
-                            }
-                          >
-                            {manualCount.sessionCount}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant={getStatusColor(mentee.status)}>
+                          <Badge variant={getStatusColor(mentee.status)}>
                           {mentee.status}
                         </Badge>
                       </td>
@@ -312,16 +254,28 @@ export default function MenteesPage() {
                       </td>
                       <td className="py-3 px-4">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          onClick={() => openSessionDialog(mentee)}
+                          onClick={async () => {
+                            const count = prompt(`Sessions for ${mentee.email} (${mentee.instructorName}):`);
+                            if (count && !isNaN(parseInt(count, 10))) {
+                              try {
+                                await createOrUpdateSessionCount(mentee.userId, {
+                                  instructorId: mentee.instructorId,
+                                  sessionCount: parseInt(count, 10),
+                                });
+                                alert("Sessions added!");
+                              } catch {
+                                alert("Failed to add sessions");
+                              }
+                            }
+                          }}
                         >
-                          <Settings2 className="h-4 w-4" />
+                          Add Sessions
                         </Button>
                       </td>
                     </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
