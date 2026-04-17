@@ -26,6 +26,7 @@ type Socials = {
 type InstructorFormData = {
   name: string;
   slug: string;
+  email: string;
   tagline: string;
   bio: string;
   specialties: string[];
@@ -74,6 +75,7 @@ export default function CreateInstructorPage() {
   const [formData, setFormData] = useState<InstructorFormData>({
     name: "",
     slug: "",
+    email: "",
     tagline: "",
     bio: "",
     specialties: [],
@@ -214,6 +216,17 @@ export default function CreateInstructorPage() {
                   placeholder="john-doe"
                 />
                 <p className="text-sm text-muted-foreground mt-1">URL: /instructors/{formData.slug || "..."}</p>
+              </div>
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                  placeholder="instructor@example.com"
+                />
+                <p className="text-sm text-muted-foreground mt-1">Send a Clerk invitation to this email</p>
               </div>
               <div>
                 <Label htmlFor="tagline">Tagline</Label>
@@ -440,6 +453,10 @@ export default function CreateInstructorPage() {
                 <div>
                   <Label>Slug</Label>
                   <p className="text-lg font-mono">{formData.slug || "-"}</p>
+                </div>
+                <div>
+                  <Label>Email</Label>
+                  <p className="text-lg">{formData.email || "-"}</p>
                 </div>
                 <div className="col-span-2">
                   <Label>Tagline</Label>

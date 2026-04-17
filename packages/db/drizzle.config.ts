@@ -71,6 +71,13 @@ function tryDeriveDirectUrlFromPooler(poolerUrl: string): string | null {
 loadDatabaseUrlFromEnvFiles();
 
 let databaseUrl = process.env.DATABASE_URL;
+
+if (databaseUrl && !databaseUrl.includes("sslmode")) {
+  const url = new URL(databaseUrl);
+  url.searchParams.set("sslmode", "require");
+  databaseUrl = url.toString();
+}
+
 if (!databaseUrl) {
   // Keep existing behavior, but with a clearer error message.
   // drizzle-kit will otherwise try localhost and fail with ECONNREFUSED.
