@@ -127,6 +127,20 @@
       "when": 1776351156378,
       "tag": "0017_cloudy_kid_colt",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1776444455467,
+      "tag": "0018_brave_betty_brant",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1776449708478,
+      "tag": "0019_overjoyed_prowler",
+      "breakpoints": true
     }
   ]
 }
