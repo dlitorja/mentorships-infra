@@ -9,11 +9,13 @@ import {
   Package,
   ShoppingCart,
   Users,
+  GraduationCap,
 } from "lucide-react";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/instructors", label: "Instructors", icon: Users },
+  { href: "/admin/mentees", label: "Mentees", icon: GraduationCap },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
 ];
