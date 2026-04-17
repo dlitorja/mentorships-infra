@@ -16,10 +16,12 @@ import {
   isNull,
   or,
 } from "@mentorships/db";
+import { createClerkInvitation } from "@/lib/clerk-invitations";
 
 const createInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
   slug: z.string().min(1, "Slug is required").max(200).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with dashes"),
+  email: z.string().email().optional().or(z.literal("")).default(""),
   tagline: z.string().optional().default(""),
   bio: z.string().optional().default(""),
   specialties: z.array(z.string()).optional().default([]),
@@ -84,6 +86,8 @@ export async function GET(req: NextRequest) {
         id: inst.id,
         name: inst.name,
         slug: inst.slug,
+        email: inst.email,
+        userId: inst.userId,
         tagline: inst.tagline,
         specialties: inst.specialties,
         background: inst.background,
@@ -208,7 +212,25 @@ export async function POST(req: NextRequest) {
       isActive: data.isActive,
       userId: data.userId || null,
       mentorId: data.mentorId || null,
+      email: data.email ? data.email.toLowerCase() : null,
     });
+
+    let invitationSent = false;
+    let invitationError: string | undefined;
+
+    if (data.email) {
+      const invitationResult = await createClerkInvitation({
+        emailAddress: data.email,
+        instructorId: instructor.id,
+      });
+
+      invitationSent = invitationResult.success;
+      invitationError = invitationResult.error;
+
+      if (!invitationResult.success) {
+        console.warn(`Failed to send Clerk invitation to ${data.email}:`, invitationResult.error);
+      }
+    }
 
     return NextResponse.json({
       success: true,
@@ -226,8 +248,11 @@ export async function POST(req: NextRequest) {
         socials: instructor.socials,
         isActive: instructor.isActive,
         mentorId: instructor.mentorId,
+        email: instructor.email,
         createdAt: instructor.createdAt.toISOString(),
       },
+      invitationSent,
+      invitationError,
     }, { status: 201 });
   } catch (error) {
     if (isUnauthorizedError(error)) {

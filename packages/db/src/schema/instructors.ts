@@ -8,6 +8,7 @@ export const instructors = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     mentorId: uuid("mentor_id").references(() => mentors.id, { onDelete: "set null" }),
+    email: text("email"),
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
     tagline: text("tagline"),
@@ -32,6 +33,7 @@ export const instructors = pgTable(
   (t) => ({
     slugIdx: index("instructors_slug_idx").on(t.slug),
     userIdIdx: index("instructors_user_id_idx").on(t.userId),
+    emailIdx: index("instructors_email_idx").on(t.email),
     mentorIdUnique: unique("instructors_mentor_id_unique").on(t.mentorId),
     isActiveIdx: index("instructors_is_active_idx").on(t.isActive),
     createdAtIdx: index("instructors_created_at_idx").on(t.createdAt),

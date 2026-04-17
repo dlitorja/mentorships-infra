@@ -140,6 +140,7 @@ export async function GET(
       id: instructor.id,
       name: instructor.name,
       slug: instructor.slug,
+      email: instructor.email,
       tagline: instructor.tagline,
       bio: instructor.bio,
       specialties: instructor.specialties,

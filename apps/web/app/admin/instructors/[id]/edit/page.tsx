@@ -59,6 +59,7 @@ type MenteeResult = {
 type InstructorFormData = {
   name: string;
   slug: string;
+  email: string;
   tagline: string;
   bio: string;
   specialties: string[];
@@ -274,6 +275,7 @@ export default function EditInstructorPage() {
   const [formData, setFormData] = useState<InstructorFormData>({
     name: "",
     slug: "",
+    email: "",
     tagline: "",
     bio: "",
     specialties: [],
@@ -324,6 +326,7 @@ export default function EditInstructorPage() {
       setFormData({
         name: data.name || "",
         slug: data.slug || "",
+        email: data.email || "",
         tagline: data.tagline || "",
         bio: data.bio || "",
         specialties: data.specialties || [],
@@ -541,6 +544,33 @@ export default function EditInstructorPage() {
                   value={formData.slug}
                   onChange={(e) => setFormData((prev) => ({ ...prev, slug: e.target.value }))}
                 />
+              </div>
+              <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+                <div>
+                  <Label htmlFor="email">Email (for Clerk Invitation)</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="instructor@example.com"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Clerk Status:</span>
+                  {formData.userId ? (
+                    <Badge variant="default" className="bg-green-600">
+                      Connected
+                    </Badge>
+                  ) : formData.email ? (
+                    <Badge variant="outline">Not Connected</Badge>
+                  ) : (
+                    <Badge variant="secondary">No Email</Badge>
+                  )}
+                </div>
+                {formData.userId && (
+                  <p className="text-xs text-muted-foreground">Clerk User ID: {formData.userId}</p>
+                )}
               </div>
               <div>
                 <Label htmlFor="tagline">Tagline</Label>
