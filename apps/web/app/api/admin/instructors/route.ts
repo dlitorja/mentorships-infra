@@ -219,8 +219,9 @@ export async function POST(req: NextRequest) {
     let invitationError: string | undefined;
 
     if (data.email) {
+      const normalizedEmail = data.email.toLowerCase();
       const invitationResult = await createClerkInvitation({
-        emailAddress: data.email,
+        emailAddress: normalizedEmail,
         instructorId: instructor.id,
       });
 

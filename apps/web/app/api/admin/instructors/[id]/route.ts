@@ -22,6 +22,7 @@ import { stripe } from "@/lib/stripe";
 const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
   slug: z.string().min(1, "Slug is required").max(200).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with dashes").optional(),
+  email: z.string().email().optional().or(z.literal("")).nullable(),
   tagline: z.string().optional(),
   bio: z.string().optional(),
   specialties: z.array(z.string()).optional(),
@@ -351,6 +352,7 @@ export async function PUT(
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
     if (data.userId !== undefined) updateData.userId = data.userId;
     if (data.mentorId !== undefined) updateData.mentorId = data.mentorId || null;
+    if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : null;
 
     const updated = await updateInstructor(id, updateData);
 
@@ -361,6 +363,7 @@ export async function PUT(
         id: updated.id,
         name: updated.name,
         slug: updated.slug,
+        email: updated.email,
         tagline: updated.tagline,
         bio: updated.bio,
         specialties: updated.specialties,

@@ -11,6 +11,7 @@ import {
 } from "@/inngest/functions/sessions";
 import { onboardingFlow } from "@/inngest/functions/onboarding";
 import { linkClerkUserToInstructor } from "@/inngest/functions/clerk-user-linking";
+import { unlinkClerkUserFromInstructor } from "@/inngest/functions/clerk-user-deleted";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -26,6 +27,7 @@ export const { GET, POST, PUT } = serve({
     handleNotificationSend,
     processDiscordActionQueue,
     linkClerkUserToInstructor,
+    unlinkClerkUserFromInstructor,
   ],
 });
 

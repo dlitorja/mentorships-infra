@@ -5,12 +5,12 @@ ALTER TABLE instructors ADD COLUMN email TEXT;
 CREATE INDEX IF NOT EXISTS instructors_email_idx ON instructors (email);
 
 -- Backfill email from existing mentor relationships
--- This assumes mentors have a userId that links to the users table which has email
+-- This assumes mentors have a user_id that links to the users table which has email
 UPDATE instructors
 SET email = (
   SELECT u.email
   FROM mentors m
-  JOIN users u ON m.userId = u.id
-  WHERE m.id = instructors.mentorId
+  JOIN users u ON m.user_id = u.id
+  WHERE m.id = instructors.mentor_id
 )
-WHERE instructors.email IS NULL AND instructors.mentorId IS NOT NULL;
+WHERE instructors.email IS NULL AND instructors.mentor_id IS NOT NULL;

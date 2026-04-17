@@ -1,5 +1,5 @@
 import { inngest } from "../client";
-import { db, instructors, eq, ilike } from "@mentorships/db";
+import { db, instructors, eq, ilike, isNull, and } from "@mentorships/db";
 
 export const linkClerkUserToInstructor = inngest.createFunction(
   {
@@ -23,14 +23,15 @@ export const linkClerkUserToInstructor = inngest.createFunction(
 
       const instructor = instructorsToLink[0];
 
-      if (instructor.userId) {
-        return { linked: false, reason: "Instructor already linked to a Clerk user", instructorId: instructor.id };
-      }
-
-      await db
+      const [updated] = await db
         .update(instructors)
         .set({ userId, updatedAt: new Date() })
-        .where(eq(instructors.id, instructor.id));
+        .where(and(eq(instructors.id, instructor.id), isNull(instructors.userId)))
+        .returning({ id: instructors.id });
+
+      if (!updated) {
+        return { linked: false, reason: "Instructor already linked to a Clerk user", instructorId: instructor.id };
+      }
 
       return {
         linked: true,

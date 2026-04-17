@@ -454,6 +454,10 @@ export default function CreateInstructorPage() {
                   <Label>Slug</Label>
                   <p className="text-lg font-mono">{formData.slug || "-"}</p>
                 </div>
+                <div>
+                  <Label>Email</Label>
+                  <p className="text-lg">{formData.email || "-"}</p>
+                </div>
                 <div className="col-span-2">
                   <Label>Tagline</Label>
                   <p>{formData.tagline || "-"}</p>
