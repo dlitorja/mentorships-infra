@@ -257,21 +257,35 @@ export default function MenteesPage() {
                           variant="outline"
                           size="sm"
                           onClick={async () => {
-                            const count = prompt(`Sessions for ${mentee.email} (${mentee.instructorName}):`);
-                            if (count && !isNaN(parseInt(count, 10))) {
-                              try {
-                                await createOrUpdateSessionCount(mentee.userId, {
-                                  instructorId: mentee.instructorId,
-                                  sessionCount: parseInt(count, 10),
-                                });
-                                alert("Sessions added!");
-                              } catch {
-                                alert("Failed to add sessions");
-                              }
+                            const input = prompt(
+                              `Set manual sessions for ${mentee.email} (${mentee.instructorName}):`
+                            );
+                            if (input === null) return;
+
+                            const trimmed = input.trim();
+                            const sessionCount = Number(trimmed);
+                            if (
+                              trimmed === "" ||
+                              !Number.isInteger(sessionCount) ||
+                              sessionCount < 0
+                            ) {
+                              alert("Enter a non-negative whole number of sessions");
+                              return;
+                            }
+
+                            try {
+                              await createOrUpdateSessionCount(mentee.userId, {
+                                instructorId: mentee.instructorId,
+                                sessionCount,
+                              });
+                              await queryClient.invalidateQueries({ queryKey: ["mentees"] });
+                              alert("Sessions updated!");
+                            } catch {
+                              alert("Failed to update sessions");
                             }
                           }}
                         >
-                          Add Sessions
+                          Set Sessions
                         </Button>
                       </td>
                     </tr>
