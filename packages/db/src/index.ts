@@ -49,6 +49,7 @@ export * from "./lib/queries/videoEditorAssignments";
 export * from "./lib/queries/instructorUploads";
 export * from "./lib/queries/monthlyStorageCosts";
 export * from "./lib/queries/instructors";
+export * from "./lib/queries/menteeSessionCounts";
 
 // Export types
 export type { Database } from "./types/database.types";

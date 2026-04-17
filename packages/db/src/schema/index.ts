@@ -19,6 +19,7 @@ export * from "./instructorUploads";
 export * from "./monthlyStorageCosts";
 export * from "./instructors";
 export * from "./menteeInvitations";
+export * from "./menteeSessionCounts";
 
 // Re-export drizzle-orm for convenience
 export * from "drizzle-orm";
