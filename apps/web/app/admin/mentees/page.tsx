@@ -161,13 +161,17 @@ export default function MenteesPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <Link
-                          href={`/instructors/${mentee.instructorSlug}`}
-                          target="_blank"
-                          className="text-primary hover:underline"
-                        >
-                          {mentee.instructorName}
-                        </Link>
+                        {mentee.instructorSlug ? (
+                          <Link
+                            href={`/instructors/${mentee.instructorSlug}`}
+                            target="_blank"
+                            className="text-primary hover:underline"
+                          >
+                            {mentee.instructorName}
+                          </Link>
+                        ) : (
+                          <span>{mentee.instructorName}</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <span

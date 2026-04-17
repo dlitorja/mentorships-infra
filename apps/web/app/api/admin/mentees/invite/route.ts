@@ -184,10 +184,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create Clerk invitation
+    // Create Clerk invitation with instructorId as metadata
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
+      || (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : null)
+      || "https://huckleberry.art";
+    
     const invitationResult = await createClerkInvitation({
       emailAddress: normalizedEmail,
-      redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://huckleberry.art"}/dashboard`,
+      instructorId,
+      redirectUrl: `${baseUrl}/dashboard`,
     });
 
     if (!invitationResult.success) {

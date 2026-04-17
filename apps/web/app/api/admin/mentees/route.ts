@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     const conditions = [];
 
     if (search) {
-      const searchPattern = `%${search.toLowerCase()}%`;
+      const searchPattern = `%${search.toLowerCase().replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
       conditions.push(
         or(
           ilike(users.email, searchPattern),
@@ -60,8 +60,18 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    let resolvedMentorId: string | undefined;
     if (instructorId) {
-      conditions.push(eq(sessionPacks.mentorId, instructorId));
+      const instructor = await db
+        .select({ mentorId: instructors.mentorId })
+        .from(instructors)
+        .where(eq(instructors.id, instructorId))
+        .limit(1);
+      
+      if (instructor.length > 0 && instructor[0].mentorId) {
+        resolvedMentorId = instructor[0].mentorId;
+        conditions.push(eq(sessionPacks.mentorId, resolvedMentorId));
+      }
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;

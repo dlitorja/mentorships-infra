@@ -10,6 +10,16 @@ export const linkClerkUserToInstructor = inngest.createFunction(
   { event: "clerk/user.created" },
   async ({ event, step }) => {
     const { userId, email } = event.data;
+
+    if (!email || typeof email !== "string") {
+      return { 
+        linked: false, 
+        reason: "No email in event data, skipping", 
+        instructorLinking: { linked: false, reason: "No email provided" },
+        menteeLinking: { linked: false, reason: "No email provided" }
+      };
+    }
+
     const normalizedEmail = email.toLowerCase();
 
     const instructorResult = await step.run("link-instructor", async () => {

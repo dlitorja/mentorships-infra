@@ -1,5 +1,5 @@
 import { pgTable, uuid, text, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
-import { mentors } from "./mentors";
+import { instructors } from "./instructors";
 
 export const menteeInvitationStatusEnum = pgEnum("mentee_invitation_status", [
   "pending",
@@ -19,7 +19,7 @@ export const menteeInvitations = pgTable(
     email: text("email").notNull(),
     instructorId: uuid("instructor_id")
       .notNull()
-      .references(() => mentors.id, { onDelete: "cascade" }),
+      .references(() => instructors.id, { onDelete: "cascade" }),
     clerkInvitationId: text("clerk_invitation_id"),
     expiresAt: timestamp("expires_at").notNull(),
     status: menteeInvitationStatusEnum("status").notNull().default("pending"),

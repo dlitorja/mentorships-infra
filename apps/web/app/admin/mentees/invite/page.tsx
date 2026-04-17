@@ -14,7 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Mail, ArrowLeft, RefreshCw, X } from "lucide-react";
+import { Loader2, Mail, ArrowLeft } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 
 type Invitation = {
@@ -95,11 +95,18 @@ export default function InviteMenteePage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !instructorId) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !instructorId) {
       setError("Please fill in all fields");
       return;
     }
-    createMutation.mutate({ email, instructorId });
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setError("Please enter a valid email address");
+      return;
+    }
+    setError("");
+    createMutation.mutate({ email: trimmedEmail, instructorId });
   };
 
   const getStatusBadge = (status: string) => {
