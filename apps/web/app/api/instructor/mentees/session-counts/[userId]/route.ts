@@ -7,7 +7,6 @@ import {
   updateSessionCount,
   adjustSessionCount,
   getMentorByUserId,
-  getMentorById,
   upsertSessionCount,
   isUnauthorizedError,
   isForbiddenError,
@@ -31,10 +30,6 @@ const adjustSchema = z.object({
   notes: z.string().optional(),
 });
 
-/**
- * GET /api/instructor/mentees/[userId]/session-count
- * Get session count for a specific mentee (if instructor owns that mentee)
- */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
@@ -91,10 +86,6 @@ export async function GET(
   }
 }
 
-/**
- * POST /api/instructor/mentees/[userId]/session-count
- * Create or set session count for a mentee (instructor can only modify their own mentees)
- */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
@@ -158,10 +149,6 @@ export async function POST(
   }
 }
 
-/**
- * PATCH /api/instructor/mentees/[userId]/session-count
- * Adjust session count (add/subtract sessions)
- */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
