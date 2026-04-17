@@ -54,7 +54,7 @@ export default function RootLayout({
   if (isBuildTime) {
     return (
       <QueryProvider>
-        <ConvexClientProvider>
+        <ConvexClientProvider skipClerk={true}>
           {layoutContent}
         </ConvexClientProvider>
       </QueryProvider>
