@@ -23,7 +23,7 @@ jobs:
           node-version: '22'
 
       - name: Install Vercel CLI
-        run: npm install --global vercel@44
+        run: npm install --global vercel@latest
 
       - name: Deploy to Vercel
         run: vercel --prod --token=${{ env.VERCEL_TOKEN }}
