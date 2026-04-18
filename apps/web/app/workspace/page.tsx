@@ -8,8 +8,7 @@ import { useCurrentUser } from '@/lib/queries/convex';
 import { useUserWorkspaces } from '@/lib/queries/convex/use-workspaces';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { MessageSquare, FileText, Image as ImageIcon, Download, Loader2 } from 'lucide-react';
+import { MessageSquare, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
 import WorkspaceChat from '@/components/workspace/chat';
 import WorkspaceNotes from '@/components/workspace/notes';
 import WorkspaceImages from '@/components/workspace/images';
@@ -42,6 +41,12 @@ export default function WorkspacePage() {
     }
   }, [workspaces, selectedWorkspaceId]);
 
+  useEffect(() => {
+    if (clerkLoaded && !dbLoading && (!clerkUser || !dbUser)) {
+      router.push('/sign-in');
+    }
+  }, [clerkLoaded, dbLoading, clerkUser, dbUser, router]);
+
   if (!clerkLoaded || dbLoading || workspacesLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -51,7 +56,6 @@ export default function WorkspacePage() {
   }
 
   if (!clerkUser || !dbUser) {
-    router.push('/sign-in');
     return null;
   }
 
@@ -106,20 +110,12 @@ export default function WorkspacePage() {
           {selectedWorkspace ? (
             <Card className="h-full flex flex-col">
               <CardHeader className="pb-3 shrink-0">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
-                    {selectedWorkspace.description && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {selectedWorkspace.description}
-                      </p>
-                    )}
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Download className="h-4 w-4 mr-2" />
-                    Export
-                  </Button>
-                </div>
+                <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
+                {selectedWorkspace.description && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {selectedWorkspace.description}
+                  </p>
+                )}
               </CardHeader>
               <CardContent className="flex-1 min-h-0 pt-0">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
