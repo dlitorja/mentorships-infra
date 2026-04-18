@@ -1,6 +1,0 @@
-{
-  "buildCommand": "pnpm --filter @mentorships/web build",
-  "installCommand": "pnpm install",
-  "framework": "nextjs",
-  "outputDirectory": "apps/web/.next"
-}

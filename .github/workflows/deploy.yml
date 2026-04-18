@@ -3,10 +3,14 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target: web or marketing'
+        required: true
+        default: 'web'
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
 jobs:
@@ -16,6 +20,20 @@ jobs:
     environment: Production
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        run: |
+          TARGET="${{ github.event.inputs.target }}"
+          echo "Target: $TARGET"
+          
+          if [ "$TARGET" = "web" ]; then
+            echo "project=mentorships-infra-web-ril3" >> $GITHUB_OUTPUT
+          else
+            echo "project=mentorships-infra-web" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -26,4 +44,4 @@ jobs:
         run: npm install --global vercel@latest
 
       - name: Deploy to Vercel
-        run: vercel --prod --token=${{ env.VERCEL_TOKEN }}
+        run: vercel --prod --token=${{ env.VERCEL_TOKEN }} --project=${{ steps.changes.outputs.project }}
