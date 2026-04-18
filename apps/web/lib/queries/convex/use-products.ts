@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
-import { api } from "../../../../convex/_generated/api";
+import { api } from "../../../../../convex/_generated/api";
+import { Id } from "../../../../../convex/_generated/dataModel";
 
 export function useActiveProducts() {
   return useQuery({
@@ -8,16 +9,16 @@ export function useActiveProducts() {
   });
 }
 
-export function useProductById(id: string) {
+export function useProductById(id: Id<"products">) {
   return useQuery({
-    ...convexQuery(api.products.getProductById, { id: id as any }),
+    ...convexQuery(api.products.getProductById, { id }),
     enabled: !!id,
   });
 }
 
-export function useMentorProducts(mentorId: string) {
+export function useMentorProducts(mentorId: Id<"mentors">) {
   return useQuery({
-    ...convexQuery(api.products.getMentorProducts, { mentorId: mentorId as any }),
+    ...convexQuery(api.products.getMentorProducts, { mentorId }),
     enabled: !!mentorId,
   });
 }

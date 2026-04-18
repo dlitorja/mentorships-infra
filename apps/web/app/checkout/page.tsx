@@ -17,24 +17,6 @@ import { createCheckoutSession } from "@/lib/queries/api-client";
 import { useActiveProducts } from "@/lib/queries/convex";
 import { clsx } from "clsx";
 
-type Product = {
-  _id: string;
-  _creationTime: number;
-  mentorId: string;
-  title: string;
-  description?: string;
-  imageUrl?: string;
-  price: string;
-  currency: string;
-  sessionsPerPack: number;
-  validityDays: number;
-  stripePriceId?: string;
-  stripeProductId?: string;
-  paypalProductId?: string;
-  mentorshipType: string;
-  active: boolean;
-};
-
 type PaymentMethod = "stripe" | "paypal";
 
 function CheckoutContent(): React.JSX.Element {
@@ -51,7 +33,8 @@ function CheckoutContent(): React.JSX.Element {
     error: productsError,
   } = useActiveProducts();
 
-  const selectedProduct = products?.find((p) => p._id === selectedProductId);
+  const productList = products as any[] | undefined;
+  const selectedProduct = productList?.find((p) => p._id === selectedProductId);
 
   // Reset payment method to a supported option when product changes
   useEffect(() => {
@@ -68,12 +51,12 @@ function CheckoutContent(): React.JSX.Element {
   }, [selectedProduct, paymentMethod]);
 
   const checkoutMutation = useMutation({
-    mutationFn: async (data: { packId: string; paymentMethod: PaymentMethod }) => {
+    mutationFn: async (data: { productId: string; paymentMethod: PaymentMethod }) => {
       if (data.paymentMethod === "paypal") {
         const response = await fetch("/api/checkout/paypal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ packId: data.packId }),
+          body: JSON.stringify({ productId: data.productId }),
         });
         if (!response.ok) {
           const error = await response.json().catch(() => ({ error: "PayPal checkout failed" }));
@@ -81,7 +64,7 @@ function CheckoutContent(): React.JSX.Element {
         }
         return response.json();
       }
-      return createCheckoutSession({ packId: data.packId });
+      return createCheckoutSession({ productId: data.productId });
     },
     onSuccess: (data) => {
       const url = data.url || data.approvalUrl;
@@ -95,7 +78,7 @@ function CheckoutContent(): React.JSX.Element {
 
   const handleCheckout = () => {
     if (!selectedProduct) return;
-    checkoutMutation.mutate({ packId: selectedProduct._id, paymentMethod });
+    checkoutMutation.mutate({ productId: selectedProduct._id, paymentMethod });
   };
 
   const canCheckout = selectedProduct && (
@@ -144,7 +127,7 @@ function CheckoutContent(): React.JSX.Element {
     );
   }
 
-  if (!products || products.length === 0) {
+  if (!productList || productList.length === 0) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
         <Card className="max-w-2xl w-full">
@@ -177,7 +160,7 @@ function CheckoutContent(): React.JSX.Element {
           <div className="space-y-3">
             <label className="text-sm font-medium">Select a Session Pack</label>
             <div className="grid gap-3">
-              {products!.map((product) => {
+              {productList!.map((product) => {
                 const isSelected = selectedProductId === product._id;
                 const isAvailable = product.stripePriceId || product.paypalProductId;
                 

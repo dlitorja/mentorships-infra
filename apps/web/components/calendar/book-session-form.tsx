@@ -27,7 +27,7 @@ const bookSessionSchema = z.object({
   selectedPackId: z.string().min(1, "Please select a pack"),
 });
 
-export function BookSessionForm({ packs }: { packs: PackOption[] }) {
+export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId: string }) {
   const form = useForm({
     defaultValues: {
       selectedPackId: "",
@@ -37,9 +37,16 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
     },
   });
 
+  const now = Date.now();
+
   const eligiblePacks = React.useMemo(
-    () => packs.filter((p) => p.status === "active" && p.remainingSessions > 0),
-    [packs]
+    () => packs.filter((p) => {
+      const isActive = p.status === "active";
+      const hasSessions = p.remainingSessions > 0;
+      const notExpired = !p.expiresAt || new Date(p.expiresAt).getTime() > now;
+      return isActive && hasSessions && notExpired;
+    }),
+    [packs, now]
   );
 
   const selectedPackId = form.getFieldValue("selectedPackId") as string;
@@ -114,11 +121,11 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
   const createSession = useCreateSession();
 
   const handleBookSession = async (scheduledAtIso: string) => {
-    if (!selectedPack) return;
+    if (!selectedPack || !userId) return;
     try {
       await createSession.mutateAsync({
         mentorId: selectedPack.mentorId as any,
-        studentId: selectedPack.id,
+        studentId: userId,
         sessionPackId: selectedPack.id as any,
         scheduledAt: new Date(scheduledAtIso).getTime(),
       });

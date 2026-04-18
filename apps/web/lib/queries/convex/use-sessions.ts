@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
-import { api } from "../../../../convex/_generated/api";
+import { api } from "../../../../../convex/_generated/api";
+import { Id } from "../../../../../convex/_generated/dataModel";
 
 export function useStudentSessions(studentId: string) {
   return useQuery({
@@ -16,16 +17,16 @@ export function useUpcomingSessions(studentId: string) {
   });
 }
 
-export function useMentorSessions(mentorId: string) {
+export function useMentorSessions(mentorId: Id<"mentors">) {
   return useQuery({
-    ...convexQuery(api.sessions.getMentorSessions, { mentorId: mentorId as any }),
+    ...convexQuery(api.sessions.getMentorSessions, { mentorId }),
     enabled: !!mentorId,
   });
 }
 
-export function useSessionById(id: string) {
+export function useSessionById(id: Id<"sessions">) {
   return useQuery({
-    ...convexQuery(api.sessions.getSessionById, { id: id as any }),
+    ...convexQuery(api.sessions.getSessionById, { id }),
     enabled: !!id,
   });
 }

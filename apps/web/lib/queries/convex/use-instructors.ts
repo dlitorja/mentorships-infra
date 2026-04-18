@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
-import { api } from "../../../../convex/_generated/api";
+import { api } from "../../../../../convex/_generated/api";
+import { Id } from "../../../../../convex/_generated/dataModel";
 
 export function useInstructorBySlug(slug: string) {
   return useQuery({
@@ -9,9 +10,9 @@ export function useInstructorBySlug(slug: string) {
   });
 }
 
-export function useInstructorById(id: string) {
+export function useInstructorById(id: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.instructors.getInstructorById, { id: id as any }),
+    ...convexQuery(api.instructors.getInstructorById, { id }),
     enabled: !!id,
   });
 }
@@ -35,16 +36,16 @@ export function useActiveInstructors() {
   });
 }
 
-export function useInstructorTestimonials(instructorId: string) {
+export function useInstructorTestimonials(instructorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.instructors.getTestimonials, { instructorId: instructorId as any }),
+    ...convexQuery(api.instructors.getTestimonials, { instructorId }),
     enabled: !!instructorId,
   });
 }
 
-export function useMenteeResults(instructorId: string) {
+export function useMenteeResults(instructorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.instructors.getMenteeResults, { instructorId: instructorId as any }),
+    ...convexQuery(api.instructors.getMenteeResults, { instructorId }),
     enabled: !!instructorId,
   });
 }
