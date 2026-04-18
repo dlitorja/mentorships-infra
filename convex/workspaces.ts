@@ -373,6 +373,11 @@ export const getWorkspaceExportData = query({
       return null;
     }
 
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return null;
+    }
+
     const notes = await ctx.db
       .query("workspaceNotes")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
@@ -466,6 +471,21 @@ export const createWorkspaceExport = mutation({
     format: v.union(v.literal("pdf"), v.literal("markdown"), v.literal("zip")),
   },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to export this workspace");
+    }
+
     const exportId = await ctx.db.insert("workspaceExports", {
       ...args,
       status: "pending",
@@ -476,7 +496,7 @@ export const createWorkspaceExport = mutation({
 
     if (triggerApiKey && args.format === "zip") {
       try {
-        await fetch(`https://app.trigger.dev/api/v1/projects/${triggerProjectRef}/tasks/process-workspace-export/trigger`, {
+        const response = await fetch(`https://app.trigger.dev/api/v1/projects/${triggerProjectRef}/tasks/process-workspace-export/trigger`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -489,8 +509,15 @@ export const createWorkspaceExport = mutation({
             },
           }),
         });
+
+        if (!response.ok) {
+          await ctx.db.patch(exportId, { status: "failed" });
+          throw new Error(`Trigger.dev request failed: ${response.status}`);
+        }
       } catch (error) {
+        await ctx.db.patch(exportId, { status: "failed" });
         console.error("Failed to trigger export task:", error);
+        throw error;
       }
     }
 

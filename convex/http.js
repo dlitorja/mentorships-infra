@@ -5,6 +5,8 @@ import {
   httpDeleteAllWorkspaceContent,
   httpCreateRetentionNotification,
   httpGetUserEmail,
+  httpGetWorkspaceExportData,
+  httpUpdateWorkspaceExportStatus,
 } from "./http";
 
 const http = httpRouter();
@@ -37,6 +39,18 @@ http.route({
   path: "/users/email",
   method: "POST",
   handler: httpGetUserEmail,
+});
+
+http.route({
+  path: "/workspace/export/data",
+  method: "POST",
+  handler: httpGetWorkspaceExportData,
+});
+
+http.route({
+  path: "/workspace/export/update-status",
+  method: "POST",
+  handler: httpUpdateWorkspaceExportStatus,
 });
 
 export default http;

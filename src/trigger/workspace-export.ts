@@ -10,6 +10,7 @@ const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY;
 const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";
 const B2_REGION = process.env.B2_REGION || "us-west-002";
 const B2_ENDPOINT = `https://s3.${B2_REGION}.backblazeb2.com`;
+const B2_DOWNLOAD_HOST = process.env.B2_DOWNLOAD_HOST || "download.backblazeb2.com";
 
 const EXPORT_URL_EXPIRY_DAYS = 7;
 
@@ -90,7 +91,7 @@ async function uploadZipToB2(zipBuffer: Buffer, workspaceId: string, workspaceNa
     })
   );
 
-  return `${B2_ENDPOINT}/${B2_BUCKET_NAME}/${key}`;
+  return `https://${B2_DOWNLOAD_HOST}/file/${B2_BUCKET_NAME}/${key}`;
 }
 
 function generateMarkdown(notes: Array<{ title: string; content: string; updatedAt: number }>): string {
@@ -138,8 +139,6 @@ export const processWorkspaceExport = task({
         }
 
         if (exportData.images.length > 0) {
-          const imagesDir: Array<{ name: string; data: string }> = [];
-          
           for (let i = 0; i < exportData.images.length; i++) {
             const img = exportData.images[i];
             const dataUrl = img.imageUrl;

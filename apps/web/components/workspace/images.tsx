@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Upload, Trash2, Image as ImageIcon, X, ZoomIn, Download, FileArchive } from 'lucide-react';
 import { clsx } from 'clsx';
+import { toast } from 'sonner';
 
 interface Image {
   _id: Id<'workspaceImages'>;
@@ -57,14 +58,13 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const handleExport = async () => {
     setDownloadUrl(null);
     try {
-      const result = await createExport.mutateAsync({
+      await createExport.mutateAsync({
         workspaceId,
         userId: currentUserId,
         format: 'zip',
       });
-      console.log('Export created:', result);
     } catch (error) {
-      console.error('Failed to create export:', error);
+      toast.error('Failed to create export. Please try again.');
     }
   };
 
