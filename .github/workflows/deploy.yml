@@ -3,10 +3,14 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      vercel_project:
+        description: 'Vercel project name (e.g., mentorships-infra-web-ril3)'
+        required: true
+        default: 'mentorships-infra-web-ril3'
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
 jobs:
@@ -26,4 +30,4 @@ jobs:
         run: npm install --global vercel@latest
 
       - name: Deploy to Vercel
-        run: vercel --prod --token=${{ env.VERCEL_TOKEN }}
+        run: vercel --prod --token=${{ env.VERCEL_TOKEN }} --project=${{ github.event.inputs.vercel_project }}
