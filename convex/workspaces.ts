@@ -1,6 +1,43 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+const WORKSPACE_IMAGE_CAPS = {
+  mentee: 75,
+  mentor: 150,
+} as const;
+
+const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
+
+async function getWorkspaceRole(
+  ctx: any,
+  workspace: { mentorId?: any; ownerId: string },
+  userId: string
+): Promise<"mentor" | "mentee" | null> {
+  if (workspace.mentorId) {
+    const mentor = await ctx.db
+      .query("mentors")
+      .withIndex("by_userId", (q: any) => q.eq("userId", userId))
+      .first();
+    if (mentor && mentor._id === workspace.mentorId) {
+      return "mentor";
+    }
+  }
+  if (workspace.ownerId === userId) {
+    return "mentee";
+  }
+  if (workspace.mentorId) {
+    const seatReservation = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_userId", (q: any) => q.eq("userId", userId))
+      .filter((q: any) => q.eq(q.field("mentorId"), workspace.mentorId))
+      .first();
+    if (seatReservation) {
+      return "mentee";
+    }
+  }
+  return null;
+}
+
 export const getWorkspaceById = query({
   args: { id: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -40,6 +77,81 @@ export const getMentorWorkspaces = query({
   },
 });
 
+export const getWorkspaceBySeatReservation = query({
+  args: { seatReservationId: v.id("seatReservations") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    return await ctx.db
+      .query("workspaces")
+      .withIndex("by_seatReservationId", (q) =>
+        q.eq("seatReservationId", args.seatReservationId)
+      )
+      .first();
+  },
+});
+
+export const getWorkspacesNeedingRetentionDeletion = query({
+  args: {},
+  handler: async (ctx, args) => {
+    const cutoff = Date.now() - EIGHTEEN_MONTHS_MS;
+    return await ctx.db
+      .query("workspaces")
+      .withIndex("by_endedAt", (q) => q.lt("endedAt", cutoff))
+      .filter((q) => q.or(q.eq(q.field("deletedAt"), undefined), q.gt(q.field("deletedAt"), cutoff)))
+      .collect();
+  },
+});
+
+export const getWorkspacesForRetentionNotification = query({
+  args: {},
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const notifications: {
+      workspace: any;
+      daysUntilDeletion: number;
+    }[] = [];
+
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_endedAt")
+      .collect();
+
+    for (const workspace of workspaces) {
+      if (!workspace.endedAt) continue;
+
+      const daysUntilDeletion = Math.floor(
+        (workspace.endedAt + EIGHTEEN_MONTHS_MS - now) / dayMs
+      );
+
+      if (daysUntilDeletion === 90 || daysUntilDeletion === 30 || daysUntilDeletion === 7) {
+        notifications.push({ workspace, daysUntilDeletion });
+      }
+    }
+
+    return notifications;
+  },
+});
+
+export const getUserWorkspaceRole = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+    const role = await getWorkspaceRole(ctx, { mentorId: workspace.mentorId, ownerId: workspace.ownerId }, user.subject);
+    return role;
+  },
+});
+
 export const createWorkspace = mutation({
   args: {
     name: v.string(),
@@ -48,11 +160,14 @@ export const createWorkspace = mutation({
     mentorId: v.optional(v.id("mentors")),
     imageUrl: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
+    seatReservationId: v.optional(v.id("seatReservations")),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("workspaces", {
       ...args,
       isPublic: args.isPublic ?? false,
+      menteeImageCount: 0,
+      mentorImageCount: 0,
     });
   },
 });
@@ -168,10 +283,35 @@ export const getWorkspaceImages = query({
     if (!user) {
       return [];
     }
-    return await ctx.db
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    const images = await ctx.db
       .query("workspaceImages")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
+
+    if (role === "mentor") {
+      return images;
+    }
+
+    if (!workspace.mentorId) {
+      return images.filter((img) => img.createdBy === user.subject);
+    }
+
+    const seats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_mentorId_status", (q) =>
+        q.eq("mentorId", workspace.mentorId!).eq("status", "active")
+      )
+      .collect();
+    const mentorUserIds = new Set(seats.map((s) => s.userId));
+
+    return images.filter(
+      (img) => img.createdBy === user.subject || mentorUserIds.has(img.createdBy)
+    );
   },
 });
 
@@ -183,7 +323,42 @@ export const createWorkspaceImage = mutation({
     createdBy: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaceImages", args);
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, args.createdBy);
+    if (!role) {
+      throw new Error("Not authorized to add images to this workspace");
+    }
+
+    const isMentee = role === "mentee";
+    const currentCount = isMentee
+      ? (workspace.menteeImageCount ?? 0)
+      : (workspace.mentorImageCount ?? 0);
+    const cap = isMentee
+      ? WORKSPACE_IMAGE_CAPS.mentee
+      : WORKSPACE_IMAGE_CAPS.mentor;
+
+    if (currentCount >= cap) {
+      throw new Error(
+        `Image limit reached (${cap} ${role} images allowed per workspace)`
+      );
+    }
+
+    const imageId = await ctx.db.insert("workspaceImages", args);
+
+    await ctx.db.patch(args.workspaceId, {
+      menteeImageCount: isMentee
+        ? (workspace.menteeImageCount ?? 0) + 1
+        : workspace.menteeImageCount ?? 0,
+      mentorImageCount: !isMentee
+        ? (workspace.mentorImageCount ?? 0) + 1
+        : workspace.mentorImageCount ?? 0,
+    });
+
+    return imageId;
   },
 });
 
@@ -285,5 +460,49 @@ export const acknowledgeNotification = mutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.id, { acknowledgedAt: Date.now() });
     return await ctx.db.get(args.id);
+  },
+});
+
+export const deleteAllWorkspaceContent = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const notes = await ctx.db
+      .query("workspaceNotes")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const note of notes) {
+      await ctx.db.delete(note._id);
+    }
+
+    const links = await ctx.db
+      .query("workspaceLinks")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const link of links) {
+      await ctx.db.delete(link._id);
+    }
+
+    const images = await ctx.db
+      .query("workspaceImages")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const image of images) {
+      await ctx.db.delete(image._id);
+    }
+
+    const messages = await ctx.db
+      .query("workspaceMessages")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    for (const message of messages) {
+      await ctx.db.delete(message._id);
+    }
+
+    await ctx.db.patch(args.workspaceId, {
+      menteeImageCount: 0,
+      mentorImageCount: 0,
+    });
+
+    return { deleted: { notes: notes.length, links: links.length, images: images.length, messages: messages.length } };
   },
 });

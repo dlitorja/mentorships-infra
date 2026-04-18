@@ -4,11 +4,13 @@ import { v } from "convex/values";
 export default defineSchema({
   users: defineTable({
     email: v.string(),
+    clerkId: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
-  }).index("by_email", ["email"]),
+  }).index("by_email", ["email"])
+    .index("by_clerkId", ["clerkId"]),
 
   mentors: defineTable({
     userId: v.string(),
@@ -167,8 +169,14 @@ export default defineSchema({
     imageUrl: v.optional(v.string()),
     isPublic: v.boolean(),
     deletedAt: v.optional(v.number()),
+    seatReservationId: v.optional(v.id("seatReservations")),
+    endedAt: v.optional(v.number()),
+    menteeImageCount: v.number(),
+    mentorImageCount: v.number(),
   }).index("by_ownerId", ["ownerId"])
-    .index("by_mentorId", ["mentorId"]),
+    .index("by_mentorId", ["mentorId"])
+    .index("by_seatReservationId", ["seatReservationId"])
+    .index("by_endedAt", ["endedAt"]),
 
   workspaceNotes: defineTable({
     workspaceId: v.id("workspaces"),
@@ -222,5 +230,6 @@ export default defineSchema({
     sentAt: v.number(),
     acknowledgedAt: v.optional(v.number()),
   }).index("by_workspaceId", ["workspaceId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    .index("by_workspaceId_userId", ["workspaceId", "userId"]),
 });
