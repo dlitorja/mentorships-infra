@@ -1,0 +1,185 @@
+import { query, mutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export const getSessionPackById = query({
+  args: { id: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    return await ctx.db.get(args.id);
+  },
+});
+
+export const getUserSessionPacks = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    return await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .collect();
+  },
+});
+
+export const getUserActiveSessionPacks = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    const now = Date.now();
+    return await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId_status_expiresAt", (q) => 
+        q.eq("userId", args.userId).eq("status", "active")
+      )
+      .filter((q) => 
+        q.or(
+          q.eq(q.field("expiresAt"), undefined),
+          q.gt(q.field("expiresAt"), now)
+        )
+      )
+      .collect();
+  },
+});
+
+export const getMentorSessionPacks = query({
+  args: { mentorId: v.id("mentors") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    return await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .collect();
+  },
+});
+
+export const getSessionPackByPaymentId = query({
+  args: { paymentId: v.id("payments") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    return await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_paymentId", (q) => q.eq("paymentId", args.paymentId))
+      .first();
+  },
+});
+
+export const createSessionPack = mutation({
+  args: {
+    userId: v.string(),
+    mentorId: v.id("mentors"),
+    totalSessions: v.optional(v.number()),
+    remainingSessions: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    paymentId: v.id("payments"),
+  },
+  handler: async (ctx, args) => {
+    const totalSessions = args.totalSessions ?? 4;
+    return await ctx.db.insert("sessionPacks", {
+      userId: args.userId,
+      mentorId: args.mentorId,
+      totalSessions,
+      remainingSessions: args.remainingSessions ?? totalSessions,
+      purchasedAt: Date.now(),
+      expiresAt: args.expiresAt,
+      status: "active",
+      paymentId: args.paymentId,
+    });
+  },
+});
+
+export const updateSessionPack = mutation({
+  args: {
+    id: v.id("sessionPacks"),
+    remainingSessions: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
+  },
+  handler: async (ctx, args) => {
+    const { id, ...updates } = args;
+    await ctx.db.patch(id, updates);
+    return await ctx.db.get(id);
+  },
+});
+
+export const useSession = mutation({
+  args: { id: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const pack = await ctx.db.get(args.id);
+    if (!pack) {
+      throw new Error("Session pack not found");
+    }
+    
+    if (pack.remainingSessions <= 0) {
+      throw new Error("No sessions remaining");
+    }
+    
+    const newRemaining = pack.remainingSessions - 1;
+    const newStatus = newRemaining <= 0 ? "depleted" : pack.status;
+    
+    await ctx.db.patch(args.id, {
+      remainingSessions: newRemaining,
+      status: newStatus,
+    });
+    
+    return await ctx.db.get(args.id);
+  },
+});
+
+export const refundSessionPack = mutation({
+  args: { id: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { status: "refunded" });
+    return await ctx.db.get(args.id);
+  },
+});
+
+export const expireSessionPack = mutation({
+  args: { id: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { status: "expired" });
+    return await ctx.db.get(args.id);
+  },
+});
+
+export const processExpiredSessionPacks = mutation({
+  handler: async (ctx) => {
+    const now = Date.now();
+    const expiredPacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .filter((q) => 
+        q.and(
+          q.neq(q.field("expiresAt"), undefined),
+          q.lt(q.field("expiresAt"), now)
+        )
+      )
+      .collect();
+    
+    for (const pack of expiredPacks) {
+      await ctx.db.patch(pack._id, { status: "expired" });
+    }
+    
+    return expiredPacks;
+  },
+});
+
+export const deleteSessionPack = mutation({
+  args: { id: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, { deletedAt: Date.now() });
+  },
+});

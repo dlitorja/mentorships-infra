@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
 **Last Updated**: April 17, 2026  
-**Status**: Architecture Migration to Convex In Progress - Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented
+**Status**: Architecture Migration to Convex In Progress - Convex Schema + Query/Mutation Functions Complete (Phase 2), Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented
 
 ---
 
@@ -348,12 +348,29 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 **Current Status**:
 - Local Convex deployment running at `http://127.0.0.1:3210`
-- Schema pushed: users table with email index
+- Schema pushed: 16 tables with indexes
 - Build verified successful
+- Phase 2 (Schema Translation) COMPLETED ✅
 
-**Phase 2: Schema Translation - PENDING**
-- Translate Drizzle schemas to Convex schema
-- Create all tables: mentors, sessions, seatReservations, sessionPacks, orders, payments, products, instructors, workspace tables, etc.
+**Phase 3: Frontend Integration - PENDING**
+- Replace API calls with Convex queries/mutations
+- Add @convex-dev/react hooks to frontend
+- Update components to use useQuery and useMutation
+- [x] Created Convex schema in `convex/schema.ts` with 16 tables:
+  - users, mentors, sessions, seatReservations, sessionPacks, orders, payments, products
+  - instructors, instructorTestimonials, menteeResults
+  - workspaces, workspaceNotes, workspaceLinks, workspaceImages, workspaceMessages, workspaceExports, workspaceRetentionNotifications
+- [x] Created query/mutation functions in `convex/`:
+  - `users.ts` - getUserByEmail, getCurrentUser, createUser, updateUser
+  - `mentors.ts` - getMentorByUserId, listMentors, createMentor, updateMentor, decrement/incrementInventory
+  - `sessions.ts` - getStudentSessions, getMentorSessions, getUpcomingSessions, createSession, completeSession, cancelSession
+  - `seatReservations.ts` - getUserSeatReservations, getMentorActiveSeats, createSeatReservation, releaseSeat, processExpiredSeats
+  - `sessionPacks.ts` - getUserSessionPacks, getUserActiveSessionPacks, createSessionPack, useSession, processExpiredSessionPacks
+  - `orders.ts` / `payments.ts` - CRUD operations
+  - `products.ts` - getMentorProducts, getActiveProducts, getProductByStripePriceId
+  - `instructors.ts` - full CRUD + testimonials, menteeResults
+  - `workspaces.ts` - full CRUD for all workspace tables
+- [x] Schema compiles successfully with Convex
 
 **What Moves to Convex**:
 - Database (all tables: users, mentors, sessions, etc.)
