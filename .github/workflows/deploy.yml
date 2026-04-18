@@ -44,4 +44,4 @@ jobs:
         run: npm install --global vercel@latest
 
       - name: Deploy to Vercel
-        run: vercel --prod --token=${{ env.VERCEL_TOKEN }} --project=${{ steps.changes.outputs.project }}
+        run: vercel --prod --token=${{ env.VERCEL_TOKEN }} --project-name=${{ steps.changes.outputs.project }}
