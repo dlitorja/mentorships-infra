@@ -4,3 +4,4 @@ export * from "./use-session-packs";
 export * from "./use-users";
 export * from "./use-instructors";
 export * from "./use-mutations";
+export * from "./use-workspaces";

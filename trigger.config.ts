@@ -23,6 +23,7 @@ export default defineConfig({
         files: ["packages/storage/**", "packages/db/**"],
       }),
     ],
+    external: ["archiver", "@aws-sdk/client-s3"],
     autoDetectExternal: true,
     keepNames: true,
     minify: false,

@@ -3,6 +3,13 @@ import { requireDbUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getMentorByUserId } from "@mentorships/db";
+import { MessageSquare, type LucideIcon } from "lucide-react";
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon?: LucideIcon;
+}
 
 interface ProtectedLayoutProps {
   children: React.ReactNode;
@@ -13,8 +20,13 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   const user = await requireDbUser();
   const mentor = await getMentorByUserId(user.id);
 
+  // Common navigation items
+  const commonItems: NavItem[] = [
+    { href: "/workspace", label: "Workspace", icon: MessageSquare },
+  ];
+
   // Determine navigation items based on user role
-  const navItems = mentor
+  const roleSpecificItems: NavItem[] = mentor
     ? [
         // Instructor navigation
         { href: "/instructor/dashboard", label: "Instructor Dashboard" },
@@ -31,24 +43,30 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
         { href: "/settings", label: "Settings" },
       ];
 
+  const navItems = [...commonItems, ...roleSpecificItems];
+
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation Sidebar */}
       <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 border-r bg-card">
         <nav className="p-4 space-y-2">
-          {navItems.map((item) => (
-            <Link key={item.href} href={item.href}>
-              <Button
-                variant={currentPath === item.href ? "secondary" : "ghost"}
-                className={cn(
-                  "w-full justify-start",
-                  currentPath === item.href && "bg-secondary"
-                )}
-              >
-                {item.label}
-              </Button>
-            </Link>
-          ))}
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href}>
+                <Button
+                  variant={currentPath === item.href ? "secondary" : "ghost"}
+                  className={cn(
+                    "w-full justify-start",
+                    currentPath === item.href && "bg-secondary"
+                  )}
+                >
+                  {Icon && <Icon className="mr-2 h-4 w-4" />}
+                  {item.label}
+                </Button>
+              </Link>
+            );
+          })}
         </nav>
       </aside>
 

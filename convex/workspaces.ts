@@ -123,13 +123,15 @@ export const getWorkspacesForRetentionNotification = query({
     for (const workspace of workspaces) {
       if (!workspace.endedAt) continue;
 
-      const daysUntilDeletion = Math.floor(
-        (workspace.endedAt + EIGHTEEN_MONTHS_MS - now) / dayMs
-      );
+    const daysUntilDeletion = Math.floor(
+      (workspace.endedAt + EIGHTEEN_MONTHS_MS - now) / dayMs
+    );
 
-      if (daysUntilDeletion === 90 || daysUntilDeletion === 30 || daysUntilDeletion === 7) {
-        notifications.push({ workspace, daysUntilDeletion });
-      }
+    // Use ±1 window for robustness against timing drift
+    const inWindow = (target: number) => daysUntilDeletion >= target - 1 && daysUntilDeletion <= target + 1;
+    if (inWindow(90) || inWindow(30) || inWindow(7)) {
+      notifications.push({ workspace, daysUntilDeletion });
+    }
     }
 
     return notifications;
@@ -301,16 +303,12 @@ export const getWorkspaceImages = query({
       return images.filter((img) => img.createdBy === user.subject);
     }
 
-    const seats = await ctx.db
-      .query("seatReservations")
-      .withIndex("by_mentorId_status", (q) =>
-        q.eq("mentorId", workspace.mentorId!).eq("status", "active")
-      )
-      .collect();
-    const mentorUserIds = new Set(seats.map((s) => s.userId));
+    // Get the mentor's userId so mentee can see mentor's images
+    const mentor = await ctx.db.get(workspace.mentorId);
+    const mentorUserId = mentor?.userId;
 
     return images.filter(
-      (img) => img.createdBy === user.subject || mentorUserIds.has(img.createdBy)
+      (img) => img.createdBy === user.subject || img.createdBy === mentorUserId
     );
   },
 });
@@ -362,10 +360,72 @@ export const createWorkspaceImage = mutation({
   },
 });
 
+export const getWorkspaceExportData = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+
+    const notes = await ctx.db
+      .query("workspaceNotes")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .collect();
+
+    const images = await ctx.db
+      .query("workspaceImages")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .collect();
+
+    return {
+      workspaceName: workspace.name || "Workspace",
+      notes: notes.map((n) => ({
+        title: n.title,
+        content: n.content,
+        updatedAt: n.updatedAt,
+      })),
+      images: images.map((img) => ({
+        imageUrl: img.imageUrl,
+        createdBy: img.createdBy,
+        createdAt: img._creationTime,
+      })),
+    };
+  },
+});
+
 export const deleteWorkspaceImage = mutation({
   args: { id: v.id("workspaceImages") },
   handler: async (ctx, args) => {
+    const image = await ctx.db.get(args.id);
+    if (!image) return;
+
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
+
+    // Determine if the image was created by mentee or mentor and decrement counter
+    const workspace = await ctx.db.get(image.workspaceId);
+    if (!workspace) return;
+
+    const isMentee = image.createdBy === workspace.ownerId;
+    const mentor = workspace.mentorId ? await ctx.db.get(workspace.mentorId) : null;
+    const isMentor = mentor && image.createdBy === mentor.userId;
+
+    if (isMentee) {
+      await ctx.db.patch(workspace._id, {
+        menteeImageCount: Math.max(0, (workspace.menteeImageCount ?? 1) - 1),
+      });
+    } else if (isMentor) {
+      await ctx.db.patch(workspace._id, {
+        mentorImageCount: Math.max(0, (workspace.mentorImageCount ?? 1) - 1),
+      });
+    }
   },
 });
 
@@ -406,10 +466,35 @@ export const createWorkspaceExport = mutation({
     format: v.union(v.literal("pdf"), v.literal("markdown"), v.literal("zip")),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaceExports", {
+    const exportId = await ctx.db.insert("workspaceExports", {
       ...args,
       status: "pending",
     });
+
+    const triggerApiKey = process.env.TRIGGER_API_KEY;
+    const triggerProjectRef = process.env.NEXT_PUBLIC_TRIGGER_PROJECT_REF || "proj_fvyorgaijayllujsxzgb";
+
+    if (triggerApiKey && args.format === "zip") {
+      try {
+        await fetch(`https://app.trigger.dev/api/v1/projects/${triggerProjectRef}/tasks/process-workspace-export/trigger`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${triggerApiKey}`,
+          },
+          body: JSON.stringify({
+            payload: {
+              workspaceId: args.workspaceId,
+              exportId: String(exportId),
+            },
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to trigger export task:", error);
+      }
+    }
+
+    return exportId;
   },
 });
 
@@ -424,6 +509,21 @@ export const updateWorkspaceExport = mutation({
     const { id, ...updates } = args;
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
+  },
+});
+
+export const getWorkspaceExports = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    return await ctx.db
+      .query("workspaceExports")
+      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(10);
   },
 });
 

@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: April 17, 2026  
-**Status**: Architecture Migration to Convex In Progress - Convex Schema + Query/Mutation Functions Complete (Phase 2), Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented
+**Last Updated**: April 18, 2026  
+**Status**: Architecture Migration to Convex Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, Video Integration TBD
 
 ---
 
@@ -410,6 +410,81 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 ---
 
+### 13. Mentorship Workspace UI (Chat + Notes + Images)
+**Status**: ✅ **COMPLETED** - Workspace UI with real-time chat, TipTap rich text notes, and image gallery
+
+**P1 Bug Fixes Applied** (April 18, 2026):
+- [x] Added Authorization header verification to all HTTP endpoints in `convex/http.ts`
+- [x] Fixed mentee image filter: now shows mentor's images instead of other mentees' images
+- [x] Fixed `processExpiredSeats` to set `endedAt` on workspace when seat auto-expires
+- [x] Fixed soft-delete of images to decrement workspace counter (frees quota on delete)
+- [x] Changed notification day checks from exact equality to ±1 window for robustness
+- [x] Removed duplicate `WORKSPACE_IMAGE_CAPS` constant from seatReservations.ts
+
+**Completed Tasks**:
+- [x] Created `/workspace` page at `apps/web/app/workspace/page.tsx`:
+  - Sidebar with workspace list (grouped by mentor)
+  - Tab navigation: Chat | Notes | Images
+  - Empty states for no workspaces/content
+- [x] Created workspace query hooks at `apps/web/lib/queries/convex/use-workspaces.ts`:
+  - Queries: useWorkspace, useWorkspaceNotes, useWorkspaceImages, useWorkspaceMessages, useWorkspaceRole
+  - Mutations: useCreateWorkspace*, useUpdateWorkspace*, useDeleteWorkspace*
+- [x] Created Chat component (`apps/web/components/workspace/chat.tsx`):
+  - Real-time message display with user identification
+  - Text input + send
+  - **Drag-and-drop image upload** using react-dropzone
+  - Image preview before sending
+  - Visual feedback on drag hover
+  - Exportable for video call overlay (Sheet component ready)
+- [x] Created Notes component (`apps/web/components/workspace/notes.tsx`):
+  - TipTap rich text editor with StarterKit + Placeholder
+  - Notes list with create/edit/delete
+  - Auto-save on content change (debounced 1s)
+  - Title editing
+  - Timestamps
+- [x] Created Images component (`apps/web/components/workspace/images.tsx`):
+  - Grid gallery with lightbox modal
+  - Image upload with cap enforcement (75 mentee / 150 mentor)
+  - Remaining count display
+  - Delete capability (own images only)
+  - Drag-and-drop upload support
+- [x] Added TipTap dependencies: `@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-placeholder`
+- [x] Added workspace navigation to protected layout:
+  - "Workspace" link in sidebar navigation
+  - Icon: MessageSquare
+
+**Files Created/Modified**:
+- `apps/web/app/workspace/page.tsx` - Main workspace page (NEW)
+- `apps/web/lib/queries/convex/use-workspaces.ts` - Query/mutation hooks (NEW)
+- `apps/web/lib/queries/convex/index.ts` - Export hooks (MODIFIED)
+- `apps/web/components/workspace/chat.tsx` - Chat component (NEW)
+- `apps/web/components/workspace/notes.tsx` - Notes component (NEW)
+- `apps/web/components/workspace/images.tsx` - Images component (NEW)
+- `apps/web/components/navigation/protected-layout.tsx` - Added workspace nav (MODIFIED)
+- `package.json` - Added TipTap dependencies (MODIFIED)
+
+**Features Implemented**:
+- ✅ Chat with real-time updates
+- ✅ Drag-and-drop image upload in chat
+- ✅ Rich text notes with TipTap editor
+- ✅ Notes auto-save
+- ✅ Image gallery with caps
+- ✅ Image caps enforced (75 mentee / 150 mentor)
+- ✅ Lightbox for image viewing
+- ✅ Navigation link in sidebar
+
+**Not Yet Implemented**:
+- Video call integration with chat sidebar
+- In-app retention warning banner
+
+**Reference**: This implementation builds on the Convex workspace backend (`convex/workspaces.ts`) which includes:
+- Auto-create workspace on seat reservation
+- Workspace auto-deletion timer (18 months after seat release)
+- Image caps enforcement
+- Role-based filtering
+
+---
+
 ## 🚧 In Progress / Next Steps
 
 ### Priority 1: Notifications & Automation (Discord + Email)
@@ -462,19 +537,41 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 8: Mentorship Workspace (Notes + Links + Images)
-**Status**: ⏳ NEXT
+**Status**: ✅ **COMPLETED** - Full implementation with real-time chat, TipTap notes, image gallery, and ZIP export
+
+**ZIP Export Implementation** (April 18, 2026):
+- [x] Created Trigger.dev task `process-workspace-export` in `src/trigger/workspace-export.ts`
+- [x] Fetches workspace notes and images from Convex via HTTP endpoints
+- [x] Generates ZIP with `notes.md` and `images/` folder
+- [x] Uploads ZIP to Backblaze B2 storage
+- [x] Provides 7-day download URL
+- [x] UI: "Download All" button in Images tab with progress state
+- [x] Exports images + notes (no chat history per spec)
+- [x] Added environment variables: `TRIGGER_API_KEY`, `NEXT_PUBLIC_TRIGGER_PROJECT_REF`
+
+**Files Created/Modified**:
+- `packages/storage/src/zip.ts` - ZIP creation and B2 upload (NEW)
+- `packages/storage/package.json` - Added archiver dependency
+- `src/trigger/workspace-export.ts` - Trigger.dev task (NEW)
+- `convex/workspaces.ts` - Added `getWorkspaceExportData`, `getWorkspaceExports`, updated `createWorkspaceExport` to trigger task
+- `convex/http.ts` - Added HTTP endpoints for export data and status updates
+- `apps/web/components/workspace/images.tsx` - Added "Download All" button with progress
+- `apps/web/lib/queries/convex/use-workspaces.ts` - Added `useWorkspaceExports` hook
+- `trigger.config.ts` - Added external packages: archiver, @aws-sdk/client-s3
+- `.env.example` - Added Trigger.dev environment variables
+- `package.json` - Added archiver and @aws-sdk/client-s3 as root dependencies
 
 **Goal**: Add a mentorship-wide shared space (per active mentorship) where mentees and instructors can:
 - Record notes and share links (both can read; only authors can edit/delete their own entries)
 - Upload images:
   - Mentee cap: 75 images per mentorship
   - Mentor cap: 150 images per mentorship
-- “Download all images” (mentee downloads a ZIP containing ALL images in the workspace, including instructor uploads)
+- "Download all images" (mentee downloads a ZIP containing ALL images in the workspace, including instructor uploads)
 
 **Retention policy**:
 - Delete ALL workspace content (notes + links + images) **18 months after mentorship ends**
-- “Mentorship ends” is defined as when the **seat reservation is released** (`seat_reservations.status = released`)
-- Notify mentees ahead of deletion at **90 / 30 / 7 days** (email + in-app banner) with a one-click “Download all” button
+- "Mentorship ends" is defined as when the **seat reservation is released** (`seat_reservations.status = released`)
+- Notify mentees ahead of deletion at **90 / 30 / 7 days** (email + in-app banner) with a one-click "Download all" button
 - No need to notify instructors about deletion
 
 ---
@@ -512,8 +609,10 @@ Based on the plan in `mentorship-platform-plan.md`:
 12. ✅ **Discord automation + expanded notifications** - DONE (consume `discord_action_queue`, Discord delivery for `notification/send`)
 13. ✅ **Manual session count tracking (Kajabi mentees)** - DONE (PR #137)
 14. ✅ **Convex migration** - COMPLETED (database + real-time + file storage) (PR #139)
-15. ⏳ **Mentorship workspace (notes + links + images + messages)** - NEXT (built on Convex)
-16. ⏳ **Video access control** - After workspace
+15. ✅ **Mentorship workspace UI (notes + links + images + messages)** - COMPLETED (frontend built on Convex)
+16. ✅ **Workspace P1 bug fixes** - Auth, image filter, retention, counter decrements
+17. ✅ **ZIP export for workspace images + notes** - COMPLETED (Trigger.dev task)
+18. ⏳ **Video access control** - After export (Daily.co recommended)
 
 ---
 
@@ -529,7 +628,10 @@ Based on the plan in `mentorship-platform-plan.md`:
 8. ✅ **Discord automation + expanded notifications** - COMPLETED
 9. ✅ **Manual session count tracking (Kajabi mentees)** - COMPLETED (PR #137)
 10. ✅ **Convex migration (database + real-time)** - COMPLETED (Phase 1-3)
-11. ⏳ **Mentorship workspace (notes + links + images + messages)** - NEXT
+11. ✅ **Mentorship workspace UI (Chat + Notes + Images)** - COMPLETED
+12. ✅ **Workspace P1 bug fixes** - Auth, image filter, retention, counters
+13. ✅ **ZIP export for workspace images + notes** - COMPLETED (Trigger.dev task)
+14. ⏳ **Video access control** - NEXT
 
 
 ---
@@ -589,7 +691,7 @@ ls apps/web/app/api
 
 ---
 
-**Next**: Mentorship workspace (notes + links + images) - Priority 8, then video access control (Agora) - Priority 9
+**Next**: Video access control (Daily.co recommended), then in-app retention warning banner
 
 ---
 
