@@ -8,9 +8,11 @@
   "scripts": {},
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
-    "@aws-sdk/s3-request-presigner": "^3.0.0"
+    "@aws-sdk/s3-request-presigner": "^3.0.0",
+    "archiver": "^7.0.0"
   },
   "devDependencies": {
+    "@types/archiver": "^6.0.3",
     "@types/node": "20.19.25",
     "typescript": "5.9.3"
   }

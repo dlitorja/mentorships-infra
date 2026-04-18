@@ -1,10 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
-const WORKSPACE_IMAGE_CAPS = {
-  mentee: 75,
-  mentor: 150,
-} as const;
+
 
 export const getSeatReservationById = query({
   args: { id: v.id("seatReservations") },
@@ -216,6 +213,14 @@ export const processExpiredSeats = mutation({
     for (const seat of expiredSeats) {
       if (seat.gracePeriodEndsAt && now >= seat.gracePeriodEndsAt) {
         await ctx.db.patch(seat._id, { status: "released" });
+        // Set endedAt on associated workspace to start 18-month countdown
+        const workspaces = await ctx.db
+          .query("workspaces")
+          .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
+          .collect();
+        for (const ws of workspaces) {
+          await ctx.db.patch(ws._id, { endedAt: now });
+        }
       } else if (!seat.gracePeriodEndsAt) {
         const gracePeriodEnd = now + (7 * 24 * 60 * 60 * 1000);
         await ctx.db.patch(seat._id, { 
@@ -235,6 +240,14 @@ export const processExpiredSeats = mutation({
     
     for (const seat of expiredGraceSeats) {
       await ctx.db.patch(seat._id, { status: "released" });
+      // Set endedAt on associated workspace to start 18-month countdown
+      const workspaces = await ctx.db
+        .query("workspaces")
+        .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
+        .collect();
+      for (const ws of workspaces) {
+        await ctx.db.patch(ws._id, { endedAt: now });
+      }
     }
     
     return expiredSeats;
