@@ -1,5 +1,6 @@
 {
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "buildCommand": "cd ../.. && pnpm --filter @mentorships/web build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "nodeVersion": "22"
 }
