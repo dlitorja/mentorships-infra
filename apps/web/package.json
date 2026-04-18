@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",
+    "@convex-dev/react-query": "^0.1.0",
     "@mentorships/db": "workspace:*",
     "@mentorships/payments": "workspace:*",
     "@mentorships/schemas": "workspace:*",

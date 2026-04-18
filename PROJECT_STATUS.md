@@ -351,11 +351,25 @@ This monorepo contains multiple applications with distinct responsibilities:
 - Schema pushed: 16 tables with indexes
 - Build verified successful
 - Phase 2 (Schema Translation) COMPLETED ✅
+- Phase 3 (Frontend Integration) COMPLETED ✅
 
-**Phase 3: Frontend Integration - PENDING**
-- Replace API calls with Convex queries/mutations
-- Add @convex-dev/react hooks to frontend
-- Update components to use useQuery and useMutation
+**Phase 3: Frontend Integration - COMPLETED** ✅
+- [x] Installed `@convex-dev/react-query` package
+- [x] Created Convex hooks layer at `/apps/web/lib/queries/convex/`:
+  - `use-products.ts` - Active products, product by ID
+  - `use-sessions.ts` - Student/mentor sessions, upcoming sessions
+  - `use-session-packs.ts` - User session packs, active packs
+  - `use-users.ts` - Current user, user by ID/email
+  - `use-instructors.ts` - Instructor profiles, testimonials
+  - `use-mutations.ts` - All CRUD mutations with auto-invalidation
+- [x] Migrated 3 key components to Convex:
+  - `checkout/page.tsx` - Products now use Convex query
+  - `book-session-form.tsx` - Session booking uses Convex mutation (availability still external)
+  - `timezone-selector.tsx` - User settings use Convex
+- [x] Hybrid approach maintained: TanStack Query kept for external APIs (Google Calendar, Stripe, PayPal)
+- [x] TypeScript typecheck passes (0 errors)
+
+**Phase 3: Frontend Integration (continued)**
 - [x] Created Convex schema in `convex/schema.ts` with 16 tables:
   - users, mentors, sessions, seatReservations, sessionPacks, orders, payments, products
   - instructors, instructorTestimonials, menteeResults
@@ -497,8 +511,8 @@ Based on the plan in `mentorship-platform-plan.md`:
 11. ✅ **Onboarding (email + form)** - DONE (purchase email + onboarding submissions)
 12. ✅ **Discord automation + expanded notifications** - DONE (consume `discord_action_queue`, Discord delivery for `notification/send`)
 13. ✅ **Manual session count tracking (Kajabi mentees)** - DONE (PR #137)
-14. 🚧 **Convex migration** - IN PROGRESS (database + real-time + file storage)
-15. ⏳ **Mentorship workspace (notes + links + images + messages)** - After Convex migration (built on Convex)
+14. ✅ **Convex migration** - COMPLETED (database + real-time + file storage) (PR #139)
+15. ⏳ **Mentorship workspace (notes + links + images + messages)** - NEXT (built on Convex)
 16. ⏳ **Video access control** - After workspace
 
 ---
@@ -514,8 +528,8 @@ Based on the plan in `mentorship-platform-plan.md`:
 7. ✅ **Observability (Axiom + Better Stack)** (errors + rate limit failures)
 8. ✅ **Discord automation + expanded notifications** - COMPLETED
 9. ✅ **Manual session count tracking (Kajabi mentees)** - COMPLETED (PR #137)
-10. 🚧 **Convex migration (database + real-time)** - IN PROGRESS
-11. ⏳ **Mentorship workspace (notes + links + images + messages)** - After Convex migration
+10. ✅ **Convex migration (database + real-time)** - COMPLETED (Phase 1-3)
+11. ⏳ **Mentorship workspace (notes + links + images + messages)** - NEXT
 
 
 ---

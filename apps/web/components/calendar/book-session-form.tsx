@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { queryKeys } from "@/lib/queries/query-keys";
 import { toast } from "sonner";
-import { fetchMentorAvailability, bookSession } from "@/lib/queries/api-client";
+import { fetchMentorAvailability } from "@/lib/queries/api-client";
+import { useCreateSession } from "@/lib/queries/convex";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
 
@@ -27,8 +28,6 @@ const bookSessionSchema = z.object({
 });
 
 export function BookSessionForm({ packs }: { packs: PackOption[] }) {
-  const queryClient = useQueryClient();
-  
   const form = useForm({
     defaultValues: {
       selectedPackId: "",
@@ -112,28 +111,28 @@ export function BookSessionForm({ packs }: { packs: PackOption[] }) {
     return info;
   }, [error, info, availabilityError]);
 
-  const bookSessionMutation = useMutation({
-    mutationFn: (scheduledAtIso: string) =>
-      bookSession({ sessionPackId: selectedPack!.id, scheduledAt: scheduledAtIso }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sessions.all });
-      setShouldLoadSlots(false);
-      toast.success("Session booked successfully!");
-    },
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Failed to book session");
-    },
-  });
+  const createSession = useCreateSession();
 
-  const booking = bookSessionMutation.isPending;
+  const handleBookSession = async (scheduledAtIso: string) => {
+    if (!selectedPack) return;
+    try {
+      await createSession.mutateAsync({
+        mentorId: selectedPack.mentorId as any,
+        studentId: selectedPack.id,
+        sessionPackId: selectedPack.id as any,
+        scheduledAt: new Date(scheduledAtIso).getTime(),
+      });
+      toast.success("Session booked successfully!");
+      setShouldLoadSlots(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to book session");
+    }
+  };
+
+  const booking = createSession.isPending;
 
   function loadSlots() {
     setShouldLoadSlots(true);
-  }
-
-  function handleBookSession(scheduledAtIso: string) {
-    if (!selectedPack) return;
-    bookSessionMutation.mutate(scheduledAtIso);
   }
 
   function handlePackChange(packId: string) {
