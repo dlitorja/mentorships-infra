@@ -1,11 +1,9 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { getUserSettings, updateUserTimeZoneSetting } from "@/lib/queries/api-client";
+import { useCurrentUser, useUpdateUser } from "@/lib/queries/convex";
 
 function getTimeZones(): string[] {
   const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
@@ -74,27 +72,23 @@ function formatTimeZone(tz: string): string {
 
 export function TimeZoneSelector() {
   const timeZones = useMemo(() => getTimeZones(), []);
-  const queryClient = useQueryClient();
   const browserTz = useMemo(() => getBrowserTimeZone(), []);
 
-  const { data: settings, isLoading } = useQuery({
-    queryKey: ["userSettings"],
-    queryFn: getUserSettings,
-  });
+  const { data: user, isLoading } = useCurrentUser();
+  const updateUser = useUpdateUser();
 
-  const updateMutation = useMutation({
-    mutationFn: (timeZone: string) => updateUserTimeZoneSetting(timeZone),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["userSettings"] });
+  const handleTimeZoneChange = async (timeZone: string) => {
+    if (!user) return;
+    try {
+      await updateUser.mutateAsync({ id: user._id, timeZone });
       toast.success("Timezone saved");
-    },
-    onError: (error) => {
+    } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to save timezone");
-    },
-  });
+    }
+  };
 
-  const currentTimeZone = settings?.timeZone;
-  const isSaving = updateMutation.isPending;
+  const currentTimeZone = user?.timeZone;
+  const isSaving = updateUser.isPending;
 
   return (
     <Card>
@@ -113,7 +107,7 @@ export function TimeZoneSelector() {
             <select
               className="w-full rounded-md border bg-background px-3 py-2 text-sm"
               value={currentTimeZone || ""}
-              onChange={(e) => updateMutation.mutate(e.target.value)}
+              onChange={(e) => handleTimeZoneChange(e.target.value)}
               disabled={isSaving}
             >
               <option value="">Select your timezone...</option>

@@ -129,7 +129,7 @@ export default async function CalendarPage() {
         )}
 
         {/* Booking */}
-        {activePacks.length > 0 && <BookSessionForm packs={activePacks} />}
+        {activePacks.length > 0 && <BookSessionForm packs={activePacks} userId={user.id} />}
 
         {/* Upcoming Sessions */}
         <Card>

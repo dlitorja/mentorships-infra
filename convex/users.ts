@@ -42,9 +42,10 @@ export const getCurrentUser = query({
     if (!identity || !identity.email) {
       return null;
     }
+    const email = identity.email;
     return await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email))
+      .withIndex("by_email", (q) => q.eq("email", email))
       .first();
   },
 });
