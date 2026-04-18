@@ -1,6 +1,11 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+const WORKSPACE_IMAGE_CAPS = {
+  mentee: 75,
+  mentor: 150,
+} as const;
+
 export const getSeatReservationById = query({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
@@ -104,11 +109,29 @@ export const createSeatReservation = mutation({
     if (existing) {
       throw new Error("Seat reservation already exists for this session pack");
     }
-    
-    return await ctx.db.insert("seatReservations", {
+
+    const mentor = await ctx.db.get(args.mentorId);
+    if (!mentor) {
+      throw new Error("Mentor not found");
+    }
+
+    const seatId = await ctx.db.insert("seatReservations", {
       ...args,
       status: args.status ?? "active",
     });
+
+    const workspaceId = await ctx.db.insert("workspaces", {
+      name: `Mentorship Workspace`,
+      description: `Workspace for mentorship with ${mentor.userId}`,
+      ownerId: args.userId,
+      mentorId: args.mentorId,
+      isPublic: false,
+      seatReservationId: seatId,
+      menteeImageCount: 0,
+      mentorImageCount: 0,
+    });
+
+    return { seatId, workspaceId };
   },
 });
 
@@ -130,7 +153,22 @@ export const updateSeatReservation = mutation({
 export const releaseSeat = mutation({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
+    const seat = await ctx.db.get(args.id);
+    if (!seat) {
+      throw new Error("Seat reservation not found");
+    }
+
     await ctx.db.patch(args.id, { status: "released" });
+
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", args.id))
+      .collect();
+
+    for (const workspace of workspaces) {
+      await ctx.db.patch(workspace._id, { endedAt: Date.now() });
+    }
+
     return await ctx.db.get(args.id);
   },
 });
