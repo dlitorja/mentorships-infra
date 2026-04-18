@@ -157,11 +157,12 @@ export async function syncClerkUserToSupabase(
   }
 
   if (existingUser.length > 0) {
-    // Update existing user
+    // Update existing user (including role in case it changed in Clerk)
     const [updated] = await db
       .update(users)
       .set({
         email,
+        role,
         updatedAt: new Date(),
       })
       .where(eq(users.id, clerkUserId))

@@ -3,7 +3,7 @@ import type { AuthConfig } from "convex/server";
 export default {
   providers: [
     {
-      domain: process.env.CLERK_JWT_ISSUER_DOMAIN || "clerk.clerk.com",
+      domain: process.env.CLERK_JWT_ISSUER_DOMAIN || process.env.CLERK_FRONTEND_API_URL || "https://clerk.mentorships.huckleberry.art",
       applicationID: "convex",
     },
   ],
