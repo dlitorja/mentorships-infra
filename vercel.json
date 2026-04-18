@@ -1,6 +1,0 @@
-{
-  "buildCommand": "pnpm --filter @mentorships/web build && pnpm --filter @mentorships/marketing build",
-  "installCommand": "pnpm install",
-  "framework": "nextjs"
-}
-
