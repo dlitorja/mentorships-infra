@@ -22,7 +22,12 @@ export const getWorkspacesForNotification = query({
     const now = Date.now();
     const notifications: { workspaceId: string; userId: string; daysUntilDeletion: number }[] = [];
 
-    const workspaces = await ctx.db.query("workspaces").collect();
+    const cutoff = Date.now() + EIGHTEEN_MONTHS_MS;
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_endedAt", (q) => q.gt("endedAt", 0))
+      .filter((q) => q.lt(q.field("endedAt"), cutoff))
+      .collect();
 
     for (const workspace of workspaces) {
       if (!workspace.endedAt) continue;
