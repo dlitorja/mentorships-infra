@@ -41,11 +41,16 @@ export const listMentors = query({
 
 export const getActiveMentors = query({
   handler: async (ctx) => {
-    return await ctx.db
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    const mentors = await ctx.db
       .query("mentors")
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .filter((q) => q.gt(q.field("oneOnOneInventory"), 0))
       .collect();
+    return mentors.map(({ googleRefreshToken, ...rest }) => rest);
   },
 });
 

@@ -187,6 +187,18 @@ export const processExpiredSeats = mutation({
       }
     }
     
+    const expiredGraceSeats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_mentorId_status", (q) => 
+        q.eq("mentorId", args.mentorId).eq("status", "grace")
+      )
+      .filter((q) => q.lt(q.field("gracePeriodEndsAt"), now))
+      .collect();
+    
+    for (const seat of expiredGraceSeats) {
+      await ctx.db.patch(seat._id, { status: "released" });
+    }
+    
     return expiredSeats;
   },
 });

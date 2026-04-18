@@ -82,6 +82,10 @@ export const deleteWorkspace = mutation({
 export const getWorkspaceNotes = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
     return await ctx.db
       .query("workspaceNotes")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
@@ -127,6 +131,10 @@ export const deleteWorkspaceNote = mutation({
 export const getWorkspaceLinks = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
     return await ctx.db
       .query("workspaceLinks")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
@@ -156,6 +164,10 @@ export const deleteWorkspaceLink = mutation({
 export const getWorkspaceImages = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
     return await ctx.db
       .query("workspaceImages")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
@@ -185,6 +197,10 @@ export const deleteWorkspaceImage = mutation({
 export const getWorkspaceMessages = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
     return await ctx.db
       .query("workspaceMessages")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
@@ -239,6 +255,10 @@ export const updateWorkspaceExport = mutation({
 export const getWorkspaceRetentionNotifications = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
     return await ctx.db
       .query("workspaceRetentionNotifications")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))

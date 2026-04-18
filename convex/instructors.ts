@@ -15,10 +15,6 @@ export const getInstructorById = query({
 export const getInstructorBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
-      return null;
-    }
     return await ctx.db
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))

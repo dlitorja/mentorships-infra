@@ -16,13 +16,13 @@ export const getUserByEmail = query({
 });
 
 export const getUserById = query({
-  args: { id: v.string() },
+  args: { id: v.id("users") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       return null;
     }
-    return await ctx.db.get(args.id as any);
+    return await ctx.db.get(args.id);
   },
 });
 
@@ -39,12 +39,12 @@ export const listUsers = query({
 export const getCurrentUser = query({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
+    if (!identity || !identity.email) {
       return null;
     }
     return await ctx.db
       .query("users")
-      .withIndex("by_email", (q) => q.eq("email", identity.email!))
+      .withIndex("by_email", (q) => q.eq("email", identity.email))
       .first();
   },
 });
