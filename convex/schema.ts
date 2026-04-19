@@ -232,4 +232,13 @@ export default defineSchema({
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_workspaceId_userId", ["workspaceId", "userId"]),
+
+  marketingWaitlist: defineTable({
+    email: v.string(),
+    instructorSlug: v.string(),
+    mentorshipType: v.union(v.literal("oneOnOne"), v.literal("group")),
+    notifiedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_instructorSlug_mentorshipType", ["instructorSlug", "mentorshipType"])
+    .index("by_email_instructorSlug", ["email", "instructorSlug"]),
 });

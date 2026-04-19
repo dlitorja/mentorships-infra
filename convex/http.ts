@@ -11,6 +11,8 @@ import {
   createRetentionNotification,
   updateWorkspaceExportStatus,
 } from "./mutations/http";
+import { decrementInventory, incrementInventory, updateMentor } from "./mentors";
+import { markNotifiedByInstructor } from "./waitlist";
 
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 
@@ -133,6 +135,121 @@ export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) =
   }
 });
 
+const typeMap: Record<string, "oneOnOne" | "group"> = {
+  "one-on-one": "oneOnOne",
+  "oneOnOne": "oneOnOne",
+  group: "group",
+};
+
+export const httpDecrementInventory = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { mentorId, type } = await request.json();
+
+  const normalizedType = typeMap[type] || type;
+  const mentorIdTyped = mentorId as any;
+
+  try {
+    const result = await ctx.runMutation(decrementInventory as any, {
+      id: mentorIdTyped,
+      type: normalizedType,
+    });
+    return new Response(JSON.stringify({ success: true, inventory: result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpIncrementInventory = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { mentorId, type, quantity } = await request.json();
+
+  const normalizedType = typeMap[type] || type;
+  const mentorIdTyped = mentorId as any;
+  const qty = quantity || 1;
+
+  try {
+    let result;
+    for (let i = 0; i < qty; i++) {
+      result = await ctx.runMutation(incrementInventory as any, {
+        id: mentorIdTyped,
+        type: normalizedType,
+      });
+    }
+    return new Response(JSON.stringify({ success: true, inventory: result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpSetInventory = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { mentorId, oneOnOneInventory, groupInventory } = await request.json();
+  const mentorIdTyped = mentorId as any;
+
+  try {
+    const updates: Record<string, any> = {};
+    if (oneOnOneInventory !== undefined) {
+      updates.oneOnOneInventory = oneOnOneInventory;
+    }
+    if (groupInventory !== undefined) {
+      updates.groupInventory = groupInventory;
+    }
+
+    const result = await ctx.runMutation(updateMentor as any, {
+      id: mentorIdTyped,
+      ...updates,
+    });
+    return new Response(JSON.stringify({ success: true, inventory: result }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { instructorSlug, mentorshipType } = await request.json();
+
+  const normalizedType = mentorshipType ? typeMap[mentorshipType] || mentorshipType : undefined;
+
+  try {
+    const result = await ctx.runMutation(markNotifiedByInstructor as any, {
+      instructorSlug,
+      mentorshipType: normalizedType,
+    });
+    return new Response(JSON.stringify({ success: true, notifiedCount: result.count }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
 const http = httpRouter();
 
 http.route({
@@ -175,6 +292,30 @@ http.route({
   path: "/workspace/export/update-status",
   method: "POST",
   handler: httpUpdateWorkspaceExportStatus,
+});
+
+http.route({
+  path: "/inventory/decrement",
+  method: "POST",
+  handler: httpDecrementInventory,
+});
+
+http.route({
+  path: "/inventory/increment",
+  method: "POST",
+  handler: httpIncrementInventory,
+});
+
+http.route({
+  path: "/inventory/set",
+  method: "POST",
+  handler: httpSetInventory,
+});
+
+http.route({
+  path: "/waitlist/notify",
+  method: "POST",
+  handler: httpNotifyWaitlist,
 });
 
 export default http;
