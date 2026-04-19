@@ -1,6 +1,12 @@
 import { clerkClient } from "@clerk/nextjs/server";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://dev.mentorships.huckleberry.art";
+const isDev = process.env.NODE_ENV === "development";
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (isDev ? "https://dev.mentorships.huckleberry.art" : undefined);
+
+if (!APP_URL) {
+  throw new Error("NEXT_PUBLIC_APP_URL must be configured in non-development environments");
+}
 
 export interface CreateClerkInvitationOptions {
   emailAddress: string;
@@ -22,8 +28,6 @@ export async function createClerkInvitation(
   options: CreateClerkInvitationOptions
 ): Promise<ClerkInvitationResult> {
   const { emailAddress, instructorId, redirectUrl = `${APP_URL}/dashboard` } = options;
-
-  console.log(`[Clerk Invitation] APP_URL: ${APP_URL}, redirectUrl: ${redirectUrl}`);
 
   try {
     const client = await getClerkApi();
