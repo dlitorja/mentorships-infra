@@ -34,7 +34,7 @@ export const linkClerkUserToInstructor = inngest.createFunction(
 
       const instructor = instructorsToLink[0];
 
-      // If already linked to the same Clerk user, treat as success so we can complete the mentor backfill on retry
+// If already linked to the same Clerk user, treat as success so we can complete the mentor backfill on retry
       if (instructor.userId && instructor.userId !== userId) {
         return { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor.id };
       }
