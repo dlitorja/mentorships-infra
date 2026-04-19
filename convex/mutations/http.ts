@@ -58,7 +58,7 @@ export const createRetentionNotification = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     userId: v.string(),
-    notificationType: v.string(),
+    notificationType: v.union(v.literal("expiry_warning"), v.literal("deleted")),
   },
   handler: async (ctx, args) => {
     const { workspaceId, userId, notificationType } = args;

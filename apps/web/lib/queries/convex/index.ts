@@ -3,5 +3,7 @@ export * from "./use-sessions";
 export * from "./use-session-packs";
 export * from "./use-users";
 export * from "./use-instructors";
+export * from "./use-mentors";
+export * from "./use-waitlist";
 export * from "./use-mutations";
 export * from "./use-workspaces";
