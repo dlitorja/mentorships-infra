@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,20 +44,20 @@ interface ProfileFormProps {
 
 const UPLOAD_ENDPOINT = "/api/instructor/mentees-results/upload";
 
-type Testimonial = {
+interface Testimonial {
   id: string;
   name: string;
   text: string;
   createdAt: string;
-};
+}
 
-type MenteeResult = {
+interface MenteeResult {
   id: string;
   imageUrl: string | null;
   imageUploadPath: string | null;
   studentName: string | null;
   createdAt: string;
-};
+}
 
 async function fetchTestimonials(): Promise<{ items: Testimonial[] }> {
   return apiFetch<{ items: Testimonial[] }>("/api/instructor/testimonials");
@@ -91,7 +91,7 @@ async function deleteTestimonial(id: string) {
   return response.json();
 }
 
-async function addMenteeResult(data: { imageUrl: string; studentName: string }) {
+async function addMenteeResult(data: { imageUrl: string; imageUploadPath?: string; studentName?: string }): Promise<{ success: boolean }> {
   const response = await fetch("/api/instructor/mentees-results", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -117,6 +117,7 @@ async function deleteMenteeResult(id: string) {
 
 export function ProfileForm({ initialData }: ProfileFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -134,7 +135,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
   const [showTestimonialDialog, setShowTestimonialDialog] = useState(false);
   const [showMenteeResultDialog, setShowMenteeResultDialog] = useState(false);
   const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
-  const [menteeResultForm, setMenteeResultForm] = useState({ imageUrl: "", studentName: "" });
+  const [menteeResultForm, setMenteeResultForm] = useState({ imageUrl: "", imageUploadPath: "", studentName: "" });
 
   const { data: testimonialsData, refetch: refetchTestimonials } = useQuery({
     queryKey: ["instructor-testimonials"],
@@ -168,10 +169,9 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
 
   const addMenteeResultMutation = useMutation({
     mutationFn: addMenteeResult,
-    onSuccess: () => {
+    onSuccess: async () => {
       setShowMenteeResultDialog(false);
-      setMenteeResultForm({ imageUrl: "", studentName: "" });
-      refetchMenteeResults();
+      setMenteeResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
     },
     onError: (error) => {
       alert(error instanceof Error ? error.message : "Failed to add result");
@@ -669,6 +669,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
               label="Result Image"
               value={menteeResultForm.imageUrl}
               onChange={(url) => setMenteeResultForm((prev) => ({ ...prev, imageUrl: url }))}
+              onUploadComplete={(_url, path) => setMenteeResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
               uploadEndpoint={UPLOAD_ENDPOINT}
             />
             <div>
