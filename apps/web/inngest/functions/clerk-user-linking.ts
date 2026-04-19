@@ -1,5 +1,5 @@
 import { inngest } from "../client";
-import { db, instructors, menteeInvitations, sessionPacks, eq, ilike, isNull, and, gt } from "@mentorships/db";
+import { db, instructors, mentors, menteeInvitations, sessionPacks, eq, ilike, isNull, and, gt } from "@mentorships/db";
 
 export const linkClerkUserToInstructor = inngest.createFunction(
   {
@@ -38,17 +38,28 @@ export const linkClerkUserToInstructor = inngest.createFunction(
         .update(instructors)
         .set({ userId, updatedAt: new Date() })
         .where(and(eq(instructors.id, instructor.id), isNull(instructors.userId)))
-        .returning({ id: instructors.id });
+        .returning({ id: instructors.id, name: instructors.name });
 
       if (!updated) {
         return { linked: false, reason: "Instructor already linked to a Clerk user", instructorId: instructor.id };
       }
+
+      const [newMentor] = await db
+        .insert(mentors)
+        .values({ userId })
+        .returning({ id: mentors.id });
+
+      await db
+        .update(instructors)
+        .set({ mentorId: newMentor.id, updatedAt: new Date() })
+        .where(eq(instructors.id, instructor.id));
 
       return {
         linked: true,
         instructorId: instructor.id,
         instructorName: instructor.name,
         userId,
+        mentorId: newMentor.id,
         email,
       };
     });
