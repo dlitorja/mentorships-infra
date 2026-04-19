@@ -191,33 +191,7 @@ export const processStripeCheckout = inngest.createFunction(
       return pack;
     });
 
-    // Step 9: Decrement inventory
-    const inventoryType = product.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
-    await step.run("decrement-inventory", async () => {
-      const convexUrl = process.env.CONVEX_URL;
-      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
-      if (!convexUrl || !convexHttpKey) {
-        console.error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
-        return;
-      }
-      const response = await fetch(`${convexUrl}/inventory/decrement`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${convexHttpKey}`,
-        },
-        body: JSON.stringify({
-          mentorId: product.mentorId,
-          type: inventoryType,
-        }),
-      });
-      if (!response.ok) {
-        const error = await response.text();
-        console.error("Failed to decrement inventory:", error);
-      }
-    });
-
-    // Step 10: Create seat reservation (check for existing reservation first)
+    // Step 9: Create seat reservation (check for existing reservation first)
     await step.run("create-seat-reservation", async () => {
       // Check if reservation already exists (idempotency)
       const existingReservation = await db
@@ -237,6 +211,31 @@ export const processStripeCheckout = inngest.createFunction(
         seatExpiresAt: expiresAt,
         status: "active",
       });
+    });
+
+    // Step 10: Decrement inventory (after seat reservation confirmed)
+    const inventoryType = product.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
+    await step.run("decrement-inventory", async () => {
+      const convexUrl = process.env.CONVEX_URL;
+      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
+      if (!convexUrl || !convexHttpKey) {
+        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
+      }
+      const response = await fetch(`${convexUrl}/inventory/decrement`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${convexHttpKey}`,
+        },
+        body: JSON.stringify({
+          mentorId: product.mentorId,
+          type: inventoryType,
+        }),
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to decrement inventory: ${error}`);
+      }
     });
 
     // Step 11: Send purchase/mentorship event for onboarding
@@ -304,8 +303,7 @@ export const processStripeRefund = inngest.createFunction(
       const convexUrl = process.env.CONVEX_URL;
       const convexHttpKey = process.env.CONVEX_HTTP_KEY;
       if (!convexUrl || !convexHttpKey) {
-        console.error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
-        return;
+        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
       }
       const response = await fetch(`${convexUrl}/inventory/increment`, {
         method: "POST",
@@ -320,8 +318,7 @@ export const processStripeRefund = inngest.createFunction(
       });
       if (!response.ok) {
         const error = await response.text();
-        console.error("Failed to increment inventory:", error);
-        return;
+        throw new Error(`Failed to increment inventory: ${error}`);
       }
       const result = await response.json();
       const newInventory = result.inventory?.[refundInventoryType === "oneOnOne" ? "oneOnOneInventory" : "groupInventory"];
@@ -333,7 +330,7 @@ export const processStripeRefund = inngest.createFunction(
           .limit(1)
           .then((rows) => rows[0]);
         if (instructor) {
-          await fetch(`${convexUrl}/waitlist/notify`, {
+          const notifyResponse = await fetch(`${convexUrl}/waitlist/notify`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -344,6 +341,10 @@ export const processStripeRefund = inngest.createFunction(
               mentorshipType: sessionPack.mentorshipType,
             }),
           });
+          if (!notifyResponse.ok) {
+            const error = await notifyResponse.text();
+            console.error("Failed to notify waitlist:", error);
+          }
         }
       }
     });
@@ -484,32 +485,6 @@ export const processPayPalCheckout = inngest.createFunction(
       return pack;
     });
 
-    // Step 8: Decrement inventory
-    const paypalInventoryType = product.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
-    await step.run("decrement-inventory", async () => {
-      const convexUrl = process.env.CONVEX_URL;
-      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
-      if (!convexUrl || !convexHttpKey) {
-        console.error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
-        return;
-      }
-      const response = await fetch(`${convexUrl}/inventory/decrement`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${convexHttpKey}`,
-        },
-        body: JSON.stringify({
-          mentorId: product.mentorId,
-          type: paypalInventoryType,
-        }),
-      });
-      if (!response.ok) {
-        const error = await response.text();
-        console.error("Failed to decrement inventory:", error);
-      }
-    });
-
     // Step 9: Create seat reservation (check for existing reservation first)
     await step.run("create-seat-reservation", async () => {
       // Check if reservation already exists (idempotency)
@@ -532,7 +507,32 @@ export const processPayPalCheckout = inngest.createFunction(
       });
     });
 
-    // Step 10: Send purchase/mentorship event for onboarding
+    // Step 10: Decrement inventory (after seat reservation confirmed)
+    const paypalInventoryType = product.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
+    await step.run("decrement-inventory", async () => {
+      const convexUrl = process.env.CONVEX_URL;
+      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
+      if (!convexUrl || !convexHttpKey) {
+        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
+      }
+      const response = await fetch(`${convexUrl}/inventory/decrement`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${convexHttpKey}`,
+        },
+        body: JSON.stringify({
+          mentorId: product.mentorId,
+          type: paypalInventoryType,
+        }),
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to decrement inventory: ${error}`);
+      }
+    });
+
+    // Step 11: Send purchase/mentorship event for onboarding
     await step.run("trigger-onboarding", async () => {
       await inngest.send({
         name: "purchase/mentorship",
@@ -606,8 +606,7 @@ export const processPayPalRefund = inngest.createFunction(
       const convexUrl = process.env.CONVEX_URL;
       const convexHttpKey = process.env.CONVEX_HTTP_KEY;
       if (!convexUrl || !convexHttpKey) {
-        console.error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
-        return;
+        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
       }
       const response = await fetch(`${convexUrl}/inventory/increment`, {
         method: "POST",
@@ -622,8 +621,7 @@ export const processPayPalRefund = inngest.createFunction(
       });
       if (!response.ok) {
         const error = await response.text();
-        console.error("Failed to increment inventory:", error);
-        return;
+        throw new Error(`Failed to increment inventory: ${error}`);
       }
       const result = await response.json();
       const newInventory = result.inventory?.[paypalRefundInventoryType === "oneOnOne" ? "oneOnOneInventory" : "groupInventory"];
@@ -635,7 +633,7 @@ export const processPayPalRefund = inngest.createFunction(
           .limit(1)
           .then((rows) => rows[0]);
         if (instructor) {
-          await fetch(`${convexUrl}/waitlist/notify`, {
+          const notifyResponse = await fetch(`${convexUrl}/waitlist/notify`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -646,6 +644,10 @@ export const processPayPalRefund = inngest.createFunction(
               mentorshipType: sessionPack.mentorshipType,
             }),
           });
+          if (!notifyResponse.ok) {
+            const error = await notifyResponse.text();
+            console.error("Failed to notify waitlist:", error);
+          }
         }
       }
     });
