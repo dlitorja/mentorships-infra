@@ -392,6 +392,8 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                   <img
                     src={url}
                     alt={`Portfolio ${index + 1}`}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-32 object-cover rounded-lg border"
                   />
                   <button
@@ -535,7 +537,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                 <CardTitle>Testimonials</CardTitle>
                 <CardDescription>Showcase student feedback</CardDescription>
               </div>
-              <Button size="sm" onClick={() => setShowTestimonialDialog(true)}>
+              <Button size="sm" type="button" onClick={() => setShowTestimonialDialog(true)}>
                 <Plus className="h-4 w-4 mr-1" />
                 Add
               </Button>
@@ -556,6 +558,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                       <Button
                         variant="ghost"
                         size="icon"
+                        type="button"
                         onClick={() => deleteTestimonialMutation.mutate(t.id)}
                         disabled={deleteTestimonialMutation.isPending}
                       >
@@ -576,7 +579,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                 <CardTitle>Mentee Results</CardTitle>
                 <CardDescription>Before/after images from students</CardDescription>
               </div>
-              <Button size="sm" onClick={() => setShowMenteeResultDialog(true)}>
+              <Button size="sm" type="button" onClick={() => setShowMenteeResultDialog(true)}>
                 <Plus className="h-4 w-4 mr-1" />
                 Add
               </Button>
@@ -590,7 +593,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                 {menteeResults.map((r) => (
                   <div key={r.id} className="relative group">
                     {r.imageUrl ? (
-                      <img src={r.imageUrl} alt="Result" className="w-full h-20 object-cover rounded" />
+                      <img src={r.imageUrl} alt={r.studentName ? `Result from ${r.studentName}` : "Mentee result"} loading="lazy" decoding="async" className="w-full h-20 object-cover rounded" />
                     ) : (
                       <div className="w-full h-20 bg-muted rounded flex items-center justify-center">
                         <ImageIcon className="h-6 w-6 text-muted-foreground" />
@@ -600,6 +603,7 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                       <Button
                         variant="destructive"
                         size="icon"
+                        type="button"
                         onClick={() => deleteMenteeResultMutation.mutate(r.id)}
                         disabled={deleteMenteeResultMutation.isPending}
                       >
@@ -642,8 +646,9 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowTestimonialDialog(false)}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => setShowTestimonialDialog(false)}>Cancel</Button>
             <Button 
+              type="button"
               onClick={() => addTestimonialMutation.mutate(testimonialForm)}
               disabled={!testimonialForm.name || !testimonialForm.text || addTestimonialMutation.isPending}
             >
@@ -676,8 +681,9 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowMenteeResultDialog(false)}>Cancel</Button>
+            <Button variant="outline" type="button" onClick={() => setShowMenteeResultDialog(false)}>Cancel</Button>
             <Button 
+              type="button"
               onClick={() => addMenteeResultMutation.mutate(menteeResultForm)}
               disabled={!menteeResultForm.imageUrl || addMenteeResultMutation.isPending}
             >

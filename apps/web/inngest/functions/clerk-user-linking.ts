@@ -34,32 +34,39 @@ export const linkClerkUserToInstructor = inngest.createFunction(
 
       const instructor = instructorsToLink[0];
 
-      const [updated] = await db
-        .update(instructors)
-        .set({ userId, updatedAt: new Date() })
-        .where(and(eq(instructors.id, instructor.id), isNull(instructors.userId)))
-        .returning({ id: instructors.id, name: instructors.name });
-
-      if (!updated) {
-        return { linked: false, reason: "Instructor already linked to a Clerk user", instructorId: instructor.id };
+      // If already linked to the same Clerk user, treat as success so we can complete the mentor backfill on retry
+      if (instructor.userId && instructor.userId !== userId) {
+        return { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor.id };
       }
 
-      const [newMentor] = await db
-        .insert(mentors)
-        .values({ userId })
-        .returning({ id: mentors.id });
+      // Use transaction for idempotency: check for existing mentor first, then create/update atomically
+      const mentorId = await db.transaction(async (tx) => {
+        // Check if mentor already exists for this user
+        const existingMentor = await tx
+          .select({ id: mentors.id })
+          .from(mentors)
+          .where(eq(mentors.userId, userId))
+          .limit(1);
 
-      await db
-        .update(instructors)
-        .set({ mentorId: newMentor.id, updatedAt: new Date() })
-        .where(eq(instructors.id, instructor.id));
+        const id =
+          existingMentor[0]?.id ??
+          (await tx.insert(mentors).values({ userId }).returning({ id: mentors.id }))[0].id;
+
+        // Update instructor with both userId and mentorId atomically
+        await tx
+          .update(instructors)
+          .set({ userId, mentorId: id, updatedAt: new Date() })
+          .where(eq(instructors.id, instructor.id));
+
+        return id;
+      });
 
       return {
         linked: true,
         instructorId: instructor.id,
         instructorName: instructor.name,
         userId,
-        mentorId: newMentor.id,
+        mentorId,
         email,
       };
     });
