@@ -1,6 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://huckleberry.art";
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://dev.mentorships.huckleberry.art";
 
 export interface CreateClerkInvitationOptions {
   emailAddress: string;
@@ -22,6 +22,8 @@ export async function createClerkInvitation(
   options: CreateClerkInvitationOptions
 ): Promise<ClerkInvitationResult> {
   const { emailAddress, instructorId, redirectUrl = `${APP_URL}/dashboard` } = options;
+
+  console.log(`[Clerk Invitation] APP_URL: ${APP_URL}, redirectUrl: ${redirectUrl}`);
 
   try {
     const client = await getClerkApi();
