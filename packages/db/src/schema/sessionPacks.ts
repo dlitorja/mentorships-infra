@@ -34,6 +34,7 @@ export const sessionPacks = pgTable(
     paymentId: uuid("payment_id")
       .notNull()
       .references(() => payments.id, { onDelete: "restrict" }),
+    mentorshipType: text("mentorship_type").notNull().default("one-on-one"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
     // Soft deletion for audit trails

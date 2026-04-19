@@ -613,9 +613,11 @@ This monorepo contains multiple applications with distinct responsibilities:
   - `POST /waitlist/notify` - Mark waitlist as notified
 - [x] Create frontend hooks: `use-mentors.ts`, `use-waitlist.ts`
 
-**Phase 2: Inngest Integration** (NEXT)
-- [ ] Wire up inventory decrement in Inngest payment flow (after seat reservation created)
-- [ ] Add inventory restore on refund
+**Phase 2: Inngest Integration** ✅ COMPLETE
+- [x] Wire up inventory decrement in Inngest payment flow (after seat reservation created)
+- [x] Add inventory restore on refund
+- [x] Added `mentorshipType` to `sessionPacks` table for refund lookup
+- [x] Added environment variables: `CONVEX_URL`, `CONVEX_HTTP_KEY`
 
 **Phase 2: Admin UI**
 - [ ] Add inventory fields to instructor create form (new "Inventory" tab)
@@ -793,15 +795,19 @@ ls apps/web/app/api
 ## 📊 Recent Progress Summary
 
 ### April 2026
-- ✅ **Inventory + Waitlist System** (PR #163 READY FOR MERGE - Phase 1 COMPLETE)
-  - **Phase 1 COMPLETE**: Convex backend
+- ✅ **Inventory + Waitlist System** (PR #163 MERGED - Phases 1-2 COMPLETE)
+  - **Phase 1 COMPLETE**: Convex backend (PR #163)
     - Added `marketingWaitlist` table to Convex schema
     - Created waitlist queries/mutations in `convex/waitlist.ts`
     - Added inventory HTTP endpoints (`/inventory/decrement`, `/inventory/increment`, `/inventory/set`, `/waitlist/notify`)
     - Created frontend hooks: `use-mentors.ts`, `use-waitlist.ts`
     - Type normalization: converts 'one-on-one' to 'oneOnOne' for consistent inventory handling
-  - **Next Phases**:
-    - Phase 2: Wire up inventory decrement in Inngest payment flow
+  - **Phase 2 COMPLETE**: Inngest Integration
+    - Added `mentorshipType` column to `sessionPacks` table for refund lookup
+    - Inventory decrement after seat reservation in payment flow (Stripe + PayPal)
+    - Inventory increment + waitlist notification on refund (Stripe + PayPal)
+    - Added `CONVEX_URL` and `CONVEX_HTTP_KEY` environment variables
+  - **Remaining Phases**:
     - Phase 3: Add inventory tabs to create/edit forms
     - Phase 4: Create `/admin/inventory` page
     - Phase 5: Show waitlist form on instructor pages when inventory = 0
