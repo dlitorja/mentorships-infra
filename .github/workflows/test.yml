@@ -72,7 +72,6 @@ jobs:
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-22.04
-    environment: Preview
     steps:
       - uses: actions/checkout@v4
       

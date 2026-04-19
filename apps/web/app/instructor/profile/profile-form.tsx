@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { InstructorImageUpload } from "@/components/admin/instructor-image-upload";
-import { Loader2, Save, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Loader2, Save, AlertCircle, CheckCircle2, Plus, Trash2, ImageIcon } from "lucide-react";
+import { apiFetch } from "@/lib/queries/api-client";
 
 interface Socials {
   twitter?: string;
@@ -41,8 +44,80 @@ interface ProfileFormProps {
 
 const UPLOAD_ENDPOINT = "/api/instructor/mentees-results/upload";
 
+interface Testimonial {
+  id: string;
+  name: string;
+  text: string;
+  createdAt: string;
+}
+
+interface MenteeResult {
+  id: string;
+  imageUrl: string | null;
+  imageUploadPath: string | null;
+  studentName: string | null;
+  createdAt: string;
+}
+
+async function fetchTestimonials(): Promise<{ items: Testimonial[] }> {
+  return apiFetch<{ items: Testimonial[] }>("/api/instructor/testimonials");
+}
+
+async function fetchMenteeResults(): Promise<{ items: MenteeResult[] }> {
+  return apiFetch<{ items: MenteeResult[] }>("/api/instructor/mentees-results");
+}
+
+async function addTestimonial(data: { name: string; text: string }) {
+  const response = await fetch("/api/instructor/testimonials", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to add testimonial");
+  }
+  return response.json();
+}
+
+async function deleteTestimonial(id: string) {
+  const response = await fetch(`/api/instructor/testimonials/${id}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to delete testimonial");
+  }
+  return response.json();
+}
+
+async function addMenteeResult(data: { imageUrl: string; imageUploadPath?: string; studentName?: string }): Promise<{ success: boolean }> {
+  const response = await fetch("/api/instructor/mentees-results", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to add result");
+  }
+  return response.json();
+}
+
+async function deleteMenteeResult(id: string) {
+  const response = await fetch(`/api/instructor/mentees-results/${id}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || "Failed to delete result");
+  }
+  return response.json();
+}
+
 export function ProfileForm({ initialData }: ProfileFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -56,6 +131,63 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
   const [profileImageUploadPath, setProfileImageUploadPath] = useState(initialData.profileImageUploadPath ?? "");
   const [portfolioImages, setPortfolioImages] = useState<string[]>(initialData.portfolioImages ?? []);
   const [socials, setSocials] = useState<Socials>(initialData.socials ?? {});
+
+  const [showTestimonialDialog, setShowTestimonialDialog] = useState(false);
+  const [showMenteeResultDialog, setShowMenteeResultDialog] = useState(false);
+  const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
+  const [menteeResultForm, setMenteeResultForm] = useState({ imageUrl: "", imageUploadPath: "", studentName: "" });
+
+  const { data: testimonialsData, refetch: refetchTestimonials } = useQuery({
+    queryKey: ["instructor-testimonials"],
+    queryFn: fetchTestimonials,
+  });
+
+  const { data: menteeResultsData, refetch: refetchMenteeResults } = useQuery({
+    queryKey: ["instructor-mentee-results"],
+    queryFn: fetchMenteeResults,
+  });
+
+  const addTestimonialMutation = useMutation({
+    mutationFn: addTestimonial,
+    onSuccess: () => {
+      setShowTestimonialDialog(false);
+      setTestimonialForm({ name: "", text: "" });
+      refetchTestimonials();
+    },
+    onError: (error) => {
+      alert(error instanceof Error ? error.message : "Failed to add testimonial");
+    },
+  });
+
+  const deleteTestimonialMutation = useMutation({
+    mutationFn: deleteTestimonial,
+    onSuccess: () => refetchTestimonials(),
+    onError: (error) => {
+      alert(error instanceof Error ? error.message : "Failed to delete testimonial");
+    },
+  });
+
+  const addMenteeResultMutation = useMutation({
+    mutationFn: addMenteeResult,
+    onSuccess: async () => {
+      setShowMenteeResultDialog(false);
+      setMenteeResultForm({ imageUrl: "", imageUploadPath: "", studentName: "" });
+    },
+    onError: (error) => {
+      alert(error instanceof Error ? error.message : "Failed to add result");
+    },
+  });
+
+  const deleteMenteeResultMutation = useMutation({
+    mutationFn: deleteMenteeResult,
+    onSuccess: () => refetchMenteeResults(),
+    onError: (error) => {
+      alert(error instanceof Error ? error.message : "Failed to delete result");
+    },
+  });
+
+  const testimonials = testimonialsData?.items || [];
+  const menteeResults = menteeResultsData?.items || [];
 
   const handlePortfolioAdd = (url: string) => {
     if (url && !portfolioImages.includes(url)) {
@@ -260,6 +392,8 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
                   <img
                     src={url}
                     alt={`Portfolio ${index + 1}`}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-32 object-cover rounded-lg border"
                   />
                   <button
@@ -394,6 +528,172 @@ export function ProfileForm({ initialData }: ProfileFormProps) {
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle>Testimonials</CardTitle>
+                <CardDescription>Showcase student feedback</CardDescription>
+              </div>
+              <Button size="sm" type="button" onClick={() => setShowTestimonialDialog(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {testimonials.length === 0 ? (
+              <p className="text-muted-foreground text-center py-4 text-sm">No testimonials yet</p>
+            ) : (
+              <div className="space-y-3">
+                {testimonials.map((t) => (
+                  <div key={t.id} className="border rounded-lg p-3">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <p className="font-medium text-sm">{t.name}</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2">{t.text}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        onClick={() => deleteTestimonialMutation.mutate(t.id)}
+                        disabled={deleteTestimonialMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle>Mentee Results</CardTitle>
+                <CardDescription>Before/after images from students</CardDescription>
+              </div>
+              <Button size="sm" type="button" onClick={() => setShowMenteeResultDialog(true)}>
+                <Plus className="h-4 w-4 mr-1" />
+                Add
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {menteeResults.length === 0 ? (
+              <p className="text-muted-foreground text-center py-4 text-sm">No results yet</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {menteeResults.map((r) => (
+                  <div key={r.id} className="relative group">
+                    {r.imageUrl ? (
+                      <img src={r.imageUrl} alt={r.studentName ? `Result from ${r.studentName}` : "Mentee result"} loading="lazy" decoding="async" className="w-full h-20 object-cover rounded" />
+                    ) : (
+                      <div className="w-full h-20 bg-muted rounded flex items-center justify-center">
+                        <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        type="button"
+                        onClick={() => deleteMenteeResultMutation.mutate(r.id)}
+                        disabled={deleteMenteeResultMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {r.studentName && (
+                      <p className="text-xs text-center mt-1 truncate">{r.studentName}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={showTestimonialDialog} onOpenChange={setShowTestimonialDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Testimonial</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Name</Label>
+              <Input
+                value={testimonialForm.name}
+                onChange={(e) => setTestimonialForm((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Student name"
+              />
+            </div>
+            <div>
+              <Label>Testimonial</Label>
+              <Textarea
+                value={testimonialForm.text}
+                onChange={(e) => setTestimonialForm((prev) => ({ ...prev, text: e.target.value }))}
+                placeholder="What they said..."
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setShowTestimonialDialog(false)}>Cancel</Button>
+            <Button 
+              type="button"
+              onClick={() => addTestimonialMutation.mutate(testimonialForm)}
+              disabled={!testimonialForm.name || !testimonialForm.text || addTestimonialMutation.isPending}
+            >
+              {addTestimonialMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMenteeResultDialog} onOpenChange={setShowMenteeResultDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Mentee Result</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <InstructorImageUpload
+              label="Result Image"
+              value={menteeResultForm.imageUrl}
+              onChange={(url) => setMenteeResultForm((prev) => ({ ...prev, imageUrl: url }))}
+              onUploadComplete={(_url, path) => setMenteeResultForm((prev) => ({ ...prev, imageUploadPath: path }))}
+              uploadEndpoint={UPLOAD_ENDPOINT}
+            />
+            <div>
+              <Label>Student Name (optional)</Label>
+              <Input
+                value={menteeResultForm.studentName}
+                onChange={(e) => setMenteeResultForm((prev) => ({ ...prev, studentName: e.target.value }))}
+                placeholder="Student name"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setShowMenteeResultDialog(false)}>Cancel</Button>
+            <Button 
+              type="button"
+              onClick={() => addMenteeResultMutation.mutate(menteeResultForm)}
+              disabled={!menteeResultForm.imageUrl || addMenteeResultMutation.isPending}
+            >
+              {addMenteeResultMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Add
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex justify-end">
         <Button type="submit" disabled={isSubmitting} size="lg">
