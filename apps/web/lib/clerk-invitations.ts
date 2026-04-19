@@ -2,8 +2,9 @@ import { clerkClient } from "@clerk/nextjs/server";
 
 const isDev = process.env.NODE_ENV === "development";
 const isPreview = process.env.VERCEL_ENV === "preview" || process.env.CF_PAGES_BRANCH;
+const isCloudflare = process.env.CF_PAGES !== undefined;
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (isDev || isPreview ? "https://dev.mentorships.huckleberry.art" : undefined);
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (isDev || isPreview || isCloudflare ? "https://dev.mentorships.huckleberry.art" : undefined);
 
 if (!APP_URL) {
   throw new Error("NEXT_PUBLIC_APP_URL must be configured in production environments");
