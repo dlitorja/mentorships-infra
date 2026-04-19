@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
 **Last Updated**: April 19, 2026  
-**Status**: Architecture Migration to Convex Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory + Waitlist System (Convex Backend COMPLETE, PR #163 Ready for Merge)**, Video Integration TBD
+**Status**: Architecture Migration to Convex Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, Video Integration TBD
 
 ---
 
@@ -592,13 +592,13 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 10: Inventory Management (Convex + Admin UI)
-**Status**: ✅ **PR #163 READY FOR MERGE** - Convex backend COMPLETE
+**Status**: 🚧 **IN PROGRESS** - Phases 1-2 COMPLETE, Admin UI in progress
 
 **Goal**: Implement inventory counts for instructors in Convex with easy admin management and integration with purchase flow.
 
 **Architecture Decision**: Inventory lives on `mentors` table (already has `oneOnOneInventory` and `groupInventory` fields). Instructors link to mentors via `mentorId`.
 
-**Phase 1: Convex Backend** ✅ COMPLETE (PR #163)
+**Phase 1: Convex Backend** ✅ COMPLETE
 - [x] Add waitlist table to Convex schema (`marketingWaitlist`)
 - [x] Add waitlist query/mutation functions in Convex:
   - `getWaitlistForInstructor(slug, type)` - list waitlist entries
@@ -619,7 +619,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 - [x] Added `mentorshipType` to `sessionPacks` table for refund lookup
 - [x] Added environment variables: `CONVEX_URL`, `CONVEX_HTTP_KEY`
 
-**Phase 2: Admin UI**
+**Phase 3: Admin UI**
 - [ ] Add inventory fields to instructor create form (new "Inventory" tab)
 - [ ] Add inventory fields to instructor edit form (new "Inventory" tab)
 - [ ] Create `/admin/inventory` page:
@@ -641,7 +641,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 11: Waitlist System (Convex + Resend + Sold-Out UI)
-**Status**: ✅ **PARTIALLY COMPLETE** - Convex backend in PR #163, remaining phases in progress
+**Status**: 🚧 **IN PROGRESS** - Phases 1-2 COMPLETE, Frontend in progress
 
 **Goal**: Allow users to join waitlist when instructor inventory is sold out, and notify them when spots become available.
 
@@ -652,17 +652,17 @@ This monorepo contains multiple applications with distinct responsibilities:
 - **Deduplication**: Track `notifiedAt` timestamp, only notify once per availability window
 - **Batching**: Notifications batched with 5-minute delay to consolidate rapid changes
 
-**Phase 1: Backend (Convex)** ✅ COMPLETE (PR #163)
+**Phase 1: Backend (Convex)** ✅ COMPLETE
 - [x] Create waitlist queries/mutations in Convex
 - [x] Handle email deduplication (unique per instructor + type)
-- [x] Add Resend email template for waitlist notification (pending dashboard setup)
+- [x] Add Resend email template for waitlist notification
 
-**Phase 2: Waitlist Notifications (Inngest)** - NEXT
-- [ ] Create Inngest function to trigger notifications when inventory changes 0→N
-- [ ] Use Resend template for email delivery
-- [ ] Batch notifications with 5-minute delay
+**Phase 2: Trigger on Inventory Change** ✅ COMPLETE
+- [x] Create Inngest function to trigger waitlist notifications when inventory changes 0→N
+- [x] Send emails to all un-notified waitlisted users for that mentorship type
+- [x] Mark users as notified after sending
 
-**Phase 2: Trigger on Inventory Change**
+**Phase 3: Frontend - Sold Out Handling**
 - [ ] Create Inngest function to trigger waitlist notifications when inventory changes 0→N
 - [ ] Send emails to all un-notified waitlisted users for that mentorship type
 - [ ] Mark users as notified after sending
@@ -795,8 +795,8 @@ ls apps/web/app/api
 ## 📊 Recent Progress Summary
 
 ### April 2026
-- ✅ **Inventory + Waitlist System** (PR #163 MERGED - Phases 1-2 COMPLETE)
-  - **Phase 1 COMPLETE**: Convex backend (PR #163)
+- ✅ **Inventory + Waitlist System** (Phases 1-2 COMPLETE)
+  - **Phase 1 COMPLETE**: Convex backend
     - Added `marketingWaitlist` table to Convex schema
     - Created waitlist queries/mutations in `convex/waitlist.ts`
     - Added inventory HTTP endpoints (`/inventory/decrement`, `/inventory/increment`, `/inventory/set`, `/waitlist/notify`)
