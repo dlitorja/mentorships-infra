@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
 **Last Updated**: April 19, 2026  
-**Status**: Architecture Migration to Convex Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Convex Backend COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Convex Backend COMPLETE, Frontend IN PROGRESS)**, Video Integration TBD
+**Status**: Architecture Migration to Convex Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, Video Integration TBD
 
 ---
 
@@ -592,7 +592,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 10: Inventory Management (Convex + Admin UI)
-**Status**: 🚧 **IN PROGRESS** - Convex backend COMPLETE, Admin UI in progress
+**Status**: 🚧 **IN PROGRESS** - Phases 1-2 COMPLETE, Admin UI in progress
 
 **Goal**: Implement inventory counts for instructors in Convex with easy admin management and integration with purchase flow.
 
@@ -611,9 +611,15 @@ This monorepo contains multiple applications with distinct responsibilities:
   - `POST /inventory/increment` - Called on refund
   - `POST /inventory/set` - For direct inventory setting
   - `POST /waitlist/notify` - Mark waitlist as notified
-- [ ] Wire up inventory decrement in Inngest payment flow (after seat reservation created)
+- [x] Create frontend hooks: `use-mentors.ts`, `use-waitlist.ts`
 
-**Phase 2: Admin UI**
+**Phase 2: Inngest Integration** ✅ COMPLETE
+- [x] Wire up inventory decrement in Inngest payment flow (after seat reservation created)
+- [x] Add inventory restore on refund
+- [x] Added `mentorshipType` to `sessionPacks` table for refund lookup
+- [x] Added environment variables: `CONVEX_URL`, `CONVEX_HTTP_KEY`
+
+**Phase 3: Admin UI**
 - [ ] Add inventory fields to instructor create form (new "Inventory" tab)
 - [ ] Add inventory fields to instructor edit form (new "Inventory" tab)
 - [ ] Create `/admin/inventory` page:
@@ -635,7 +641,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 11: Waitlist System (Convex + Resend + Sold-Out UI)
-**Status**: 🚧 **IN PROGRESS** - Convex backend COMPLETE, Frontend in progress
+**Status**: 🚧 **IN PROGRESS** - Phases 1-2 COMPLETE, Frontend in progress
 
 **Goal**: Allow users to join waitlist when instructor inventory is sold out, and notify them when spots become available.
 
@@ -651,7 +657,12 @@ This monorepo contains multiple applications with distinct responsibilities:
 - [x] Handle email deduplication (unique per instructor + type)
 - [x] Add Resend email template for waitlist notification
 
-**Phase 2: Trigger on Inventory Change**
+**Phase 2: Trigger on Inventory Change** ✅ COMPLETE
+- [x] Create Inngest function to trigger waitlist notifications when inventory changes 0→N
+- [x] Send emails to all un-notified waitlisted users for that mentorship type
+- [x] Mark users as notified after sending
+
+**Phase 3: Frontend - Sold Out Handling**
 - [ ] Create Inngest function to trigger waitlist notifications when inventory changes 0→N
 - [ ] Send emails to all un-notified waitlisted users for that mentorship type
 - [ ] Mark users as notified after sending
@@ -784,19 +795,23 @@ ls apps/web/app/api
 ## 📊 Recent Progress Summary
 
 ### April 2026
-- 🚧 **Inventory + Waitlist System** (IN PROGRESS - Phase 1 COMPLETE)
+- ✅ **Inventory + Waitlist System** (Phases 1-2 COMPLETE)
   - **Phase 1 COMPLETE**: Convex backend
     - Added `marketingWaitlist` table to Convex schema
     - Created waitlist queries/mutations in `convex/waitlist.ts`
     - Added inventory HTTP endpoints (`/inventory/decrement`, `/inventory/increment`, `/inventory/set`, `/waitlist/notify`)
     - Created frontend hooks: `use-mentors.ts`, `use-waitlist.ts`
-    - Type normalization: converts "one-on-one" → "oneOnOne"
-  - **Phase 2 (Inngest)**: Wire up inventory decrement in payment flow
-  - **Phase 3 (Admin UI)**: Add inventory tabs to create/edit forms
-  - **Phase 4 (Admin Inventory Page)**: Create `/admin/inventory` page
-  - **Phase 5 (Frontend)**: Show waitlist form on instructor pages when inventory = 0
-  - **Phase 6 (Email)**: Resend template for waitlist notifications
-  - UX: Products stay active when sold out, just show waitlist instead of buy button
+    - Type normalization: converts 'one-on-one' to 'oneOnOne' for consistent inventory handling
+  - **Phase 2 COMPLETE**: Inngest Integration
+    - Added `mentorshipType` column to `sessionPacks` table for refund lookup
+    - Inventory decrement after seat reservation in payment flow (Stripe + PayPal)
+    - Inventory increment + waitlist notification on refund (Stripe + PayPal)
+    - Added `CONVEX_URL` and `CONVEX_HTTP_KEY` environment variables
+  - **Remaining Phases**:
+    - Phase 3: Add inventory tabs to create/edit forms
+    - Phase 4: Create `/admin/inventory` page
+    - Phase 5: Show waitlist form on instructor pages when inventory = 0
+    - Phase 6: Resend template for waitlist notifications
 
 - 🚧 **Convex Migration Decision** (Major Architecture Change)
   - Decided to migrate from Supabase/PostgreSQL to Convex
