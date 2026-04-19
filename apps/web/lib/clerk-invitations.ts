@@ -1,11 +1,12 @@
 import { clerkClient } from "@clerk/nextjs/server";
 
 const isDev = process.env.NODE_ENV === "development";
+const isCloudflare = process.env.CF_PAGES !== undefined;
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (isDev ? "https://dev.mentorships.huckleberry.art" : undefined);
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || (isDev || isCloudflare ? "https://dev.mentorships.huckleberry.art" : undefined);
 
 if (!APP_URL) {
-  throw new Error("NEXT_PUBLIC_APP_URL must be configured in non-development environments");
+  throw new Error("NEXT_PUBLIC_APP_URL must be configured in production environments");
 }
 
 export interface CreateClerkInvitationOptions {
