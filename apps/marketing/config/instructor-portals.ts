@@ -30,7 +30,7 @@ export const instructorPortals: InstructorPortal[] = [
       {
 title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
-        url: "https://home.huckleberry.art/clothing-and-drapery-with-neil-gray",
+url: "https://home.huckleberry.art/drawing-drapery-and-clothing-with-neil-gray",
         imageUrl: "/instructors/neil-gray/course-2.jpg",
         promoText: "Over 54% off regular price",
         buttonText: "BUY NOW AND SAVE 54%",
