@@ -3,6 +3,7 @@ export interface Course {
   description: string;
   url: string;
   imageUrl?: string;
+  promoText?: string;
 }
 
 export type Bundle = Course;
@@ -28,22 +29,25 @@ export const instructorPortals: InstructorPortal[] = [
       {
         title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
-        url: "https://home.huckleberry.art/clothing-and-drapery-with-neil-gray",
+        url: "https://home.huckleberry.art/offers/usC72n8B/checkout",
         imageUrl: "/instructors/neil-gray/course-2.jpg",
+        promoText: "Over 54% off regular price",
       },
       {
         title: "Character Design with Neil Gray",
         description: "Learn the fundamentals of character design from concept to final artwork.",
-        url: "https://home.huckleberry.art/character-design-with-neil-gray",
+        url: "https://home.huckleberry.art/offers/DbzkjVwo/checkout",
         imageUrl: "/instructors/neil-gray/course-1.jpg",
+        promoText: "Over 58% off regular price",
       },
     ],
     bundles: [
       {
         title: "Complete Character Art Bundle",
         description: "Get both courses together and save on your character art education.",
-        url: "https://your-site.kajabi.com/checkout/complete-bundle",
+        url: "https://home.huckleberry.art/offers/gkAXKN2g/checkout",
         imageUrl: "/instructors/neil-gray/bundle.jpg",
+        promoText: "Save over 67% on both courses combined!",
       },
     ],
   },

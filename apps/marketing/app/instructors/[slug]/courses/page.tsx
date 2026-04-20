@@ -1,8 +1,19 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { CourseCard } from "@/components/portals/course-card";
 import { BundleCard } from "@/components/portals/bundle-card";
+import { CountdownTimer } from "@/components/portals/countdown-timer";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Gift } from "lucide-react";
 import { getPortalBySlug, getAllPortals } from "@/config/instructor-portals";
+
+const SALE_END_DATE = new Date("2026-05-05T00:00:00-07:00");
+
+function isNeilGrayPortal(slug: string): boolean {
+  return slug === "neil-gray";
+}
 
 interface InstructorCoursesPageProps {
   params: Promise<{ slug: string }>;
@@ -39,11 +50,19 @@ export default async function InstructorCoursesPage({
   }
 
   const { bundles, courses } = portal;
+  const showLaunchSale = isNeilGrayPortal(slug);
 
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 md:py-12">
         <div className="mx-auto max-w-2xl">
+          {showLaunchSale && (
+            <CountdownTimer
+              endDate={SALE_END_DATE}
+              title="Launch Sale - Learn to illustrate cloth & drapery"
+            />
+          )}
+
           {bundles.length > 0 && (
             <section className="mb-12">
               <h2 className="mb-6 text-3xl font-bold tracking-tight text-center md:text-left">
@@ -58,6 +77,7 @@ export default async function InstructorCoursesPage({
                     description={bundle.description}
                     url={bundle.url}
                     imageUrl={bundle.imageUrl}
+                    promoText={showLaunchSale ? bundle.promoText : undefined}
                   />
                 ))}
               </div>
@@ -77,9 +97,34 @@ export default async function InstructorCoursesPage({
                     description={course.description}
                     url={course.url}
                     imageUrl={course.imageUrl}
+                    promoText={showLaunchSale ? course.promoText : undefined}
                   />
                 ))}
               </div>
+            </section>
+          )}
+
+          {showLaunchSale && (
+            <section className="mt-12">
+              <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 to-indigo-500/5">
+                <CardHeader className="text-center">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <Gift className="h-6 w-6 text-primary" />
+                    <CardTitle className="text-2xl">Free Mentorship Session</CardTitle>
+                  </div>
+                  <CardDescription className="text-base">
+                    Sign up to potentially be selected for a free one-on-one mentorship session with{" "}
+                    {portal.name}. Sessions may be recorded for educational content.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <Button asChild size="lg" className="vibrant-gradient-button w-full text-lg font-semibold">
+                    <Link href={`/free-mentorship?instructor=${slug}`}>
+                      Sign Up for Free Mentorship
+                    </Link>
+                  </Button>
+                </CardContent>
+              </Card>
             </section>
           )}
         </div>
