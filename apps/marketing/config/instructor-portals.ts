@@ -28,7 +28,7 @@ export const instructorPortals: InstructorPortal[] = [
     imageUrl: "/images/instructors/neil-gray.jpg",
     courses: [
       {
-        title: "Drawing Drapery and Clothing with Neil Gray",
+title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
         url: "https://home.huckleberry.art/clothing-and-drapery-with-neil-gray",
         imageUrl: "/instructors/neil-gray/course-2.jpg",
@@ -36,7 +36,7 @@ export const instructorPortals: InstructorPortal[] = [
         buttonText: "BUY NOW AND SAVE 54%",
       },
       {
-        title: "Character Design with Neil Gray",
+title: "Character Design with Neil Gray",
         description: "Learn the fundamentals of character design from concept to final artwork.",
         url: "https://home.huckleberry.art/character-design-with-neil-gray",
         imageUrl: "/instructors/neil-gray/course-1.jpg",

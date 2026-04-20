@@ -59,7 +59,7 @@ export default async function InstructorCoursesPage({
           {showLaunchSale && (
             <CountdownTimer
               endDate={SALE_END_DATE}
-              title="LAUNCH SALE - ENDS MAY 5TH"
+title="LAUNCH SALE - ENDS MAY 5TH"
             />
           )}
 
@@ -98,7 +98,7 @@ export default async function InstructorCoursesPage({
                     url={course.url}
                     imageUrl={course.imageUrl}
                     promoText={showLaunchSale ? course.promoText : undefined}
-                    buttonText={course.buttonText}
+buttonText={course.buttonText}
                   />
                 ))}
               </div>
