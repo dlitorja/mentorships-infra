@@ -49,7 +49,9 @@ function runConvexMutation(functionName: string, args: Record<string, any>): Pro
         try {
           resolve(JSON.parse(trimmed));
           return;
-        } catch {}
+        } catch {
+          // Continue to try JSON parsing
+        }
       }
       
       // Parse the JSON output
