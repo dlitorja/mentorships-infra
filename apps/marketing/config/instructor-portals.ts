@@ -4,6 +4,7 @@ export interface Course {
   url: string;
   imageUrl?: string;
   promoText?: string;
+  buttonText?: string;
 }
 
 export type Bundle = Course;
@@ -29,16 +30,18 @@ export const instructorPortals: InstructorPortal[] = [
       {
         title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
-        url: "https://home.huckleberry.art/offers/usC72n8B/checkout",
+        url: "https://home.huckleberry.art/clothing-and-drapery-with-neil-gray",
         imageUrl: "/instructors/neil-gray/course-2.jpg",
         promoText: "Over 54% off regular price",
+        buttonText: "BUY NOW AND SAVE 54%",
       },
       {
         title: "Character Design with Neil Gray",
         description: "Learn the fundamentals of character design from concept to final artwork.",
-        url: "https://home.huckleberry.art/offers/DbzkjVwo/checkout",
+        url: "https://home.huckleberry.art/character-design-with-neil-gray",
         imageUrl: "/instructors/neil-gray/course-1.jpg",
         promoText: "Over 58% off regular price",
+        buttonText: "BUY NOW AND SAVE 58%",
       },
     ],
     bundles: [
