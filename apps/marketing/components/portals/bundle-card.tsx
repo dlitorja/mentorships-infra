@@ -15,7 +15,7 @@ export function BundleCard({ title, description, url, imageUrl, promoText }: Bun
       description={description}
       url={url}
       imageUrl={imageUrl}
-      buttonText="Get the Bundle — Save 20%"
+      buttonText="Get the Bundle — Over 67% Off"
       promoText={
         promoText ||
         "Save more with this bundle! Get both courses together at a discounted rate."
