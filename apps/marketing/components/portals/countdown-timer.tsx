@@ -31,9 +31,11 @@ function calculateTimeLeft(endDate: Date): TimeLeft | null {
 }
 
 export function CountdownTimer({ endDate, title }: CountdownTimerProps): React.JSX.Element {
-  const [timeLeft, setTimeLeft] = useState<TimeLeft | null>(() => calculateTimeLeft(endDate));
+  const [timeLeft, setTimeLeft] = useState<TimeLeft | null>(null);
 
   useEffect(() => {
+    setTimeLeft(calculateTimeLeft(endDate));
+
     const timer = setInterval(() => {
       setTimeLeft(calculateTimeLeft(endDate));
     }, 1000);
@@ -59,7 +61,7 @@ export function CountdownTimer({ endDate, title }: CountdownTimerProps): React.J
       <div className="flex justify-center gap-4 md:gap-6">
         <div className="text-center">
           <div className="text-3xl md:text-4xl font-bold text-red-600 dark:text-red-400 tabular-nums">
-            {timeLeft.days}
+            {String(timeLeft.days).padStart(2, "0")}
           </div>
           <div className="text-xs md:text-sm text-muted-foreground uppercase tracking-wide">
             Days

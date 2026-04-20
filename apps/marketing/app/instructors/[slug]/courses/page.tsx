@@ -77,7 +77,7 @@ export default async function InstructorCoursesPage({
                     description={bundle.description}
                     url={bundle.url}
                     imageUrl={bundle.imageUrl}
-                    promoText={bundle.promoText}
+                    promoText={showLaunchSale ? bundle.promoText : undefined}
                   />
                 ))}
               </div>
@@ -97,7 +97,7 @@ export default async function InstructorCoursesPage({
                     description={course.description}
                     url={course.url}
                     imageUrl={course.imageUrl}
-                    promoText={course.promoText}
+                    promoText={showLaunchSale ? course.promoText : undefined}
                   />
                 ))}
               </div>
