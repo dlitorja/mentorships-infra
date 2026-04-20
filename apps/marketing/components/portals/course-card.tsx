@@ -6,16 +6,17 @@ interface CourseCardProps {
   url: string;
   imageUrl?: string;
   promoText?: string;
+  buttonText?: string;
 }
 
-export function CourseCard({ title, description, url, imageUrl, promoText }: CourseCardProps) {
+export function CourseCard({ title, description, url, imageUrl, promoText, buttonText }: CourseCardProps) {
   return (
     <BaseCard
       title={title}
       description={description}
       url={url}
       imageUrl={imageUrl}
-      buttonText="View Course"
+      buttonText={buttonText || "View Course"}
       promoText={promoText}
     />
   );
