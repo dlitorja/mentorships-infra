@@ -26,6 +26,9 @@
       "@/*": [
         "./*"
       ],
+      "@/convex/*": [
+        "../../convex/*"
+      ],
       "@mentorships/db": [
         "../../packages/db/src"
       ],

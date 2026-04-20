@@ -29,3 +29,25 @@ export function useProductByStripePriceId(stripePriceId: string) {
     enabled: !!stripePriceId,
   });
 }
+
+// Public queries - no auth required
+
+export function usePublicActiveProducts() {
+  return useQuery({
+    ...convexQuery(api.products.getPublicActiveProducts, {}),
+  });
+}
+
+export function useProductsByMentorId(mentorId: Id<"mentors">) {
+  return useQuery({
+    ...convexQuery(api.products.getProductsByMentorId, { mentorId }),
+    enabled: !!mentorId,
+  });
+}
+
+export function useProductsByMentorAndType(mentorId: Id<"mentors">, mentorshipType?: string) {
+  return useQuery({
+    ...convexQuery(api.products.getProductsByMentorAndType, { mentorId, mentorshipType }),
+    enabled: !!mentorId,
+  });
+}

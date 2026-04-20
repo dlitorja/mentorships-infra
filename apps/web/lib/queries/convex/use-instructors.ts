@@ -49,3 +49,18 @@ export function useMenteeResults(instructorId: Id<"instructors">) {
     enabled: !!instructorId,
   });
 }
+
+// Public queries - no auth required
+
+export function usePublicInstructorBySlug(slug: string) {
+  return useQuery({
+    ...convexQuery(api.instructors.getPublicInstructorBySlug, { slug }),
+    enabled: !!slug,
+  });
+}
+
+export function usePublicInstructors() {
+  return useQuery({
+    ...convexQuery(api.instructors.getPublicInstructors, {}),
+  });
+}

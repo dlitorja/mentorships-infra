@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { Id } from "./_generated/dataModel";
 
 export const getInstructorById = query({
   args: { id: v.id("instructors") },
@@ -19,6 +20,72 @@ export const getInstructorBySlug = query({
       .query("instructors")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .first();
+  },
+});
+
+// Public query - no auth required
+export const getPublicInstructorBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    if (!instructor || !instructor.isActive) {
+      return null;
+    }
+
+    // Get mentor data (inventory) if linked
+    let mentor = null;
+    if (instructor.mentorId) {
+      mentor = await ctx.db.get(instructor.mentorId as Id<"mentors">);
+    }
+
+    // Get testimonials
+    const testimonials = await ctx.db
+      .query("instructorTestimonials")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", instructor._id))
+      .collect();
+
+    // Get mentee results
+    const menteeResults = await ctx.db
+      .query("menteeResults")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", instructor._id))
+      .collect();
+
+    return {
+      instructor,
+      mentor,
+      testimonials,
+      menteeResults,
+    };
+  },
+});
+
+// Public query - no auth required
+export const getPublicInstructors = query({
+  handler: async (ctx) => {
+    const instructors = await ctx.db
+      .query("instructors")
+      .withIndex("by_isActive", (q) => q.eq("isActive", true))
+      .collect();
+
+    // Get mentor data for each instructor
+    const instructorsWithMentors = await Promise.all(
+      instructors.map(async (instructor) => {
+        let mentor = null;
+        if (instructor.mentorId) {
+          mentor = await ctx.db.get(instructor.mentorId as Id<"mentors">);
+        }
+        return {
+          ...instructor,
+          mentor,
+        };
+      })
+    );
+
+    return instructorsWithMentors;
   },
 });
 
@@ -71,6 +138,7 @@ export const createInstructor = mutation({
     portfolioImages: v.optional(v.array(v.string())),
     socials: v.optional(v.any()),
     isActive: v.optional(v.boolean()),
+    isNew: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
