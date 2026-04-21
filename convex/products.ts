@@ -53,6 +53,46 @@ export const getProductByStripePriceId = query({
   },
 });
 
+// Public query - get all active products (no auth required)
+export const getPublicActiveProducts = query({
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("products")
+      .withIndex("by_active", (q) => q.eq("active", true))
+      .collect();
+  },
+});
+
+// Public query - get products by mentor ID (no auth required)
+export const getProductsByMentorId = query({
+  args: { mentorId: v.id("mentors") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("products")
+      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .collect();
+  },
+});
+
+// Public query - get products by mentor ID and mentorship type (no auth required)
+export const getProductsByMentorAndType = query({
+  args: {
+    mentorId: v.id("mentors"),
+    mentorshipType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const products = await ctx.db
+      .query("products")
+      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .collect();
+
+    if (args.mentorshipType) {
+      return products.filter((p) => p.mentorshipType === args.mentorshipType);
+    }
+    return products;
+  },
+});
+
 export const createProduct = mutation({
   args: {
     mentorId: v.id("mentors"),

@@ -14,27 +14,69 @@ import {
 import { Loader2, Check, CreditCard, Wallet } from "lucide-react";
 import Link from "next/link";
 import { createCheckoutSession } from "@/lib/queries/api-client";
-import { useActiveProducts } from "@/lib/queries/convex";
+import { usePublicInstructorBySlug } from "@/lib/queries/convex/use-instructors";
+import { useProductsByMentorId } from "@/lib/queries/convex/use-products";
+import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
 
 type PaymentMethod = "stripe" | "paypal";
+
+type InstructorData = {
+  instructor: {
+    _id: string;
+    name: string;
+    slug: string;
+    mentorId?: string;
+  };
+  mentor: {
+    _id: string;
+  } | null;
+};
+
+type Product = {
+  _id: string;
+  title: string;
+  price: string;
+  sessionsPerPack: number;
+  validityDays: number;
+  mentorshipType: string;
+  stripePriceId?: string;
+  paypalProductId?: string;
+  active: boolean;
+};
 
 function CheckoutContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
   const instructorSlug = searchParams.get("instructor");
+  const mentorshipType = searchParams.get("type"); // "one-on-one" or "group"
   
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe");
 
+  // Get instructor data to find mentorId
+  const { data: instructorData, isLoading: isLoadingInstructor } = usePublicInstructorBySlug(
+    instructorSlug || ""
+  );
+
+  const data = instructorData as InstructorData | null;
+  const mentorId = data?.instructor?.mentorId as Id<"mentors"> | undefined;
+  
+  // Get products for this specific mentor
   const {
-    data: products,
+    data: productsData,
     isLoading: isLoadingProducts,
     error: productsError,
-  } = useActiveProducts();
+  } = useProductsByMentorId(mentorId!);
 
-  const productList = products as any[] | undefined;
-  const selectedProduct = productList?.find((p) => p._id === selectedProductId);
+  const allProducts = (productsData as Product[] || []).filter(p => p.active);
+  
+  // Filter by mentorship type if provided
+  const productList = mentorshipType 
+    ? allProducts.filter(p => p.mentorshipType === mentorshipType)
+    : allProducts;
+    
+  const selectedProduct = productList.find((p) => p._id === selectedProductId);
 
   // Reset payment method to a supported option when product changes
   useEffect(() => {
@@ -92,7 +134,10 @@ function CheckoutContent(): React.JSX.Element {
 
   const loading = checkoutMutation.isPending;
 
-  if (isLoadingProducts) {
+  const isLoading = instructorSlug ? (isLoadingInstructor || isLoadingProducts) : isLoadingProducts;
+  const instructorName = data?.instructor?.name;
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
         <Card className="max-w-2xl w-full">
@@ -133,12 +178,27 @@ function CheckoutContent(): React.JSX.Element {
         <Card className="max-w-2xl w-full">
           <CardHeader>
             <CardTitle>Checkout</CardTitle>
-            <CardDescription>No products available</CardDescription>
+            {instructorSlug ? (
+              <CardDescription>No products available for this instructor</CardDescription>
+            ) : (
+              <CardDescription>No products available</CardDescription>
+            )}
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">
-              There are no session packs available for purchase at this time.
-            </p>
+            {instructorSlug ? (
+              <div className="space-y-4">
+                <p className="text-muted-foreground">
+                  This instructor currently has no active mentorship packages available for purchase.
+                </p>
+                <Button asChild variant="outline">
+                  <Link href={`/instructors/${instructorSlug}`}>Back to Instructor Profile</Link>
+                </Button>
+              </div>
+            ) : (
+              <p className="text-muted-foreground">
+                There are no session packs available for purchase at this time.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -151,8 +211,8 @@ function CheckoutContent(): React.JSX.Element {
         <CardHeader>
           <CardTitle>Checkout</CardTitle>
           <CardDescription>
-            {instructorSlug
-              ? `Complete your purchase with ${instructorSlug}`
+            {instructorName
+              ? `Complete your purchase with ${instructorName}`
               : "Select a session pack to proceed with checkout"}
           </CardDescription>
         </CardHeader>

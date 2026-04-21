@@ -140,6 +140,7 @@ export default defineSchema({
     portfolioImages: v.optional(v.array(v.string())),
     socials: v.optional(v.any()),
     isActive: v.boolean(),
+    isNew: v.optional(v.boolean()),
   }).index("by_slug", ["slug"])
     .index("by_userId", ["userId"])
     .index("by_email", ["email"])
