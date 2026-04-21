@@ -183,17 +183,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   }
 
   if (!instructor) {
-    return (
-      <div className="min-h-screen bg-background">
-        <div className="container mx-auto px-4 py-8 md:py-12">
-          <div className="mx-auto max-w-6xl">
-            <div className="text-center py-20">
-              <p className="text-muted-foreground">Coming soon</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    notFound();
   }
 
   return (

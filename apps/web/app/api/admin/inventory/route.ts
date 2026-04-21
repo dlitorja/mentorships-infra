@@ -5,6 +5,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { protectWithRateLimit } from "@/lib/ratelimit";
 
 const updateInventorySchema = z.object({
+  mentorId: z.string().min(1),
   oneOnOneInventory: z.number().int().min(0).optional(),
   groupInventory: z.number().int().min(0).optional(),
   maxActiveStudents: z.number().int().min(0).optional(),
@@ -22,13 +23,12 @@ export async function PATCH(
     await requireRoleForApi("admin");
 
     const body = await request.json();
-    const { mentorId } = body;
     const validated = updateInventorySchema.parse(body);
 
     const [existingMentor] = await db
       .select()
       .from(mentors)
-      .where(eq(mentors.id, mentorId))
+      .where(eq(mentors.id, validated.mentorId))
       .limit(1);
 
     if (!existingMentor) {

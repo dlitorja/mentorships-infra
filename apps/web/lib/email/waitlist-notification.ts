@@ -43,8 +43,9 @@ export async function sendWaitlistNotifications(
   }));
 
   try {
+    const idempotencyKey = `waitlist-notify-${data.instructorSlug}-${data.mentorshipType}-${entries.map(e => e.id).sort().join("-")}`;
     const { data: result, error } = await resend.batch.send(emails, {
-      idempotencyKey: `waitlist-notify-${data.instructorSlug}-${data.mentorshipType}-${Date.now()}`,
+      idempotencyKey,
     });
 
     if (error) {

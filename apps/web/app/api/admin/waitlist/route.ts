@@ -203,12 +203,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         notifiedAt: e.notified ? e.updatedAt?.getTime() ?? null : null,
       })),
       {
-        instructorName: validated.instructorSlug,
+        instructorName: instructorName,
         instructorSlug: validated.instructorSlug,
         mentorshipType: validated.mentorshipType,
         purchaseUrl: `/instructors/${validated.instructorSlug}`,
       }
     );
+
+    // Mark entries as notified after successful send
+    if (result.success > 0) {
+      const entryIds = entries.filter(e => !e.notified).map(e => e.id);
+      if (entryIds.length > 0) {
+        await db
+          .update(waitlist)
+          .set({ notified: true, updatedAt: new Date() })
+          .where(inArray(waitlist.id, entryIds));
+      }
+    }
 
     return NextResponse.json({
       success: true,
