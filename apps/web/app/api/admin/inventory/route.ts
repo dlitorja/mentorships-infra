@@ -53,12 +53,12 @@ export async function PATCH(
     await db
       .update(mentors)
       .set(updates)
-      .where(eq(mentors.id, mentorId));
+      .where(eq(mentors.id, validated.mentorId));
 
     const [updatedMentor] = await db
       .select()
       .from(mentors)
-      .where(eq(mentors.id, mentorId))
+      .where(eq(mentors.id, validated.mentorId))
       .limit(1);
 
     return NextResponse.json({
