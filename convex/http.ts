@@ -25,8 +25,13 @@ function unauthorizedResponse(): Response {
 }
 
 function verifyAuth(request: Request): boolean {
-  // Skip auth for seed endpoint (it checks for existing data anyway)
+  // Only skip auth for seed endpoint in development
   if (request.url.includes("/seed/")) {
+    const allowDevSeed = process.env.ALLOW_DEV_SEED === "true" && process.env.NODE_ENV !== "production";
+    if (!allowDevSeed) {
+      console.warn("Seed endpoint access denied - set ALLOW_DEV_SEED=true in dev only");
+      return false;
+    }
     return true;
   }
   

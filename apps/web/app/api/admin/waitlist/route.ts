@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, waitlist, eq, and, desc, inArray, isUnauthorizedError, isForbiddenError } from "@mentorships/db";
+import { db, waitlist, eq, and, desc, inArray, isUnauthorizedError, isForbiddenError, instructors } from "@mentorships/db";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { protectWithRateLimit } from "@/lib/ratelimit";
 import { z } from "zod";
@@ -186,6 +186,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (entries.length === 0) {
       return NextResponse.json({ success: true, sent: 0, message: "No entries to notify" });
     }
+
+    const [instructor] = await db
+      .select({ name: instructors.name })
+      .from(instructors)
+      .where(eq(instructors.slug, validated.instructorSlug))
+      .limit(1);
+
+    const instructorName = instructor?.name || validated.instructorSlug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
     const result = await sendWaitlistNotifications(
       entries.map((e) => ({

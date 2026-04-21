@@ -86,17 +86,17 @@ async function fetchMentors(): Promise<MentorsResponse> {
 }
 
 async function fetchWaitlist(instructorSlug: string): Promise<WaitlistResponse> {
-  return apiFetch<WaitlistResponse>(`/api/admin/waitlist/${instructorSlug}`);
+  return apiFetch<WaitlistResponse>(`/api/admin/waitlist?slug=${instructorSlug}`);
 }
 
 async function updateInventory(
   mentorId: string,
   data: { oneOnOneInventory?: number; groupInventory?: number }
 ) {
-  const response = await fetch(`/api/admin/inventory/${mentorId}`, {
+  const response = await fetch(`/api/admin/inventory`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ mentorId, ...data }),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -122,7 +122,7 @@ async function markNotified(entryIds: string[]) {
   const response = await fetch(`/api/admin/waitlist`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entryIds }),
+    body: JSON.stringify({ entryIds: entryIds.map(Number) }),
   });
   if (!response.ok) {
     const error = await response.json();
