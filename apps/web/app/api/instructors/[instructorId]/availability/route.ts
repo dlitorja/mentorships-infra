@@ -115,23 +115,25 @@ function ceilToSlot(date: Date, slotMinutes: number): Date {
 }
 
 /**
- * GET /api/mentors/:mentorId/availability?start=...&end=...
+ * GET /api/instructors/:instructorId/availability?start=...&end=...
  *
- * Returns Google Calendar free/busy windows for the mentor.
+ * Returns Google Calendar free/busy windows for the instructor.
  * Google Calendar is the source of truth for availability.
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ mentorId: string }> }
+  { params }: { params: Promise<{ instructorId: string }> }
 ): Promise<NextResponse> {
   try {
-    const { mentorId } = await params;
-    if (!mentorId) {
+    const { instructorId } = await params;
+    if (!instructorId) {
       return NextResponse.json(
-        { error: "Mentor ID is required" },
+        { error: "Instructor ID is required" },
         { status: 400 }
       );
     }
+
+    const mentorId = instructorId; // For db function compatibility
 
     const { searchParams } = new URL(request.url);
     const parsed = querySchema.safeParse({
@@ -166,7 +168,7 @@ export async function GET(
       );
     }
 
-    const mentor = await getMentorById(mentorId);
+    const mentor = await getMentorById(instructorId);
     if (!mentor) {
       return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
     }
