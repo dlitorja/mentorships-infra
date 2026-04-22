@@ -477,8 +477,13 @@ export default function CreateInstructorPage() {
                       id="oneOnOneInventory"
                       type="number"
                       min="0"
+                      max="999"
                       value={formData.oneOnOneInventory}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, oneOnOneInventory: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) => {
+                        const parsed = parseInt(e.target.value);
+                        const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(999, parsed));
+                        setFormData((prev) => ({ ...prev, oneOnOneInventory: clamped }));
+                      }}
                       placeholder="0"
                     />
                     <p className="text-sm text-muted-foreground mt-1">Available 1-on-1 mentorship slots</p>
@@ -489,8 +494,13 @@ export default function CreateInstructorPage() {
                       id="groupInventory"
                       type="number"
                       min="0"
+                      max="999"
                       value={formData.groupInventory}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, groupInventory: parseInt(e.target.value) || 0 }))}
+                      onChange={(e) => {
+                        const parsed = parseInt(e.target.value);
+                        const clamped = isNaN(parsed) ? 0 : Math.max(0, Math.min(999, parsed));
+                        setFormData((prev) => ({ ...prev, groupInventory: clamped }));
+                      }}
                       placeholder="0"
                     />
                     <p className="text-sm text-muted-foreground mt-1">Available group mentorship slots</p>
@@ -503,7 +513,11 @@ export default function CreateInstructorPage() {
                       min="1"
                       max="100"
                       value={formData.maxActiveStudents}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, maxActiveStudents: parseInt(e.target.value) || 10 }))}
+                      onChange={(e) => {
+                        const parsed = parseInt(e.target.value);
+                        const clamped = isNaN(parsed) ? 10 : Math.max(1, Math.min(100, parsed));
+                        setFormData((prev) => ({ ...prev, maxActiveStudents: clamped }));
+                      }}
                       placeholder="10"
                     />
                     <p className="text-sm text-muted-foreground mt-1">Maximum concurrent mentees</p>
