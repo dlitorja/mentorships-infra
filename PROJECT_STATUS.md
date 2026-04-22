@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: April 19, 2026  
-**Status**: Architecture Migration to Convex Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, Video Integration TBD
+**Last Updated**: April 22, 2026  
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, Video Integration TBD
 
 ---
 
@@ -15,6 +15,9 @@ This monorepo contains multiple applications with distinct responsibilities:
 | **apps/web** | Dashboards (admin, instructor, mentee), payment flow (Stripe/PayPal), calendar booking |
 | **apps/bot** | Discord bot (slash commands, automation) |
 | **apps/video** | Video integration (Agora/Amazon Chime) |
+
+**Potential Additions**:
+- None currently
 
 **Data flow (Current - Migrating)**:
 - apps/marketing reads instructor data from static JSON
@@ -30,6 +33,14 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ## ✅ Completed
+
+### 0. AI Crawl Control (Cloudflare)
+- ✅ robots.txt created at `apps/marketing/public/robots.txt`:
+  - Allows search engines (Googlebot, Bingbot, DuckDuckBot, Yandex, Baiduspider)
+  - Blocks AI training crawlers (GPTBot, ClaudeBot, PerplexityBot, etc.)
+  - Disallows private routes (/admin/, /instructor/, /dashboard/, /api/)
+- ✅ sitemap.xml created at `apps/marketing/public/sitemap.xml`
+- ⏳ Cloudflare Dashboard: Toggle AI Crawl Control ON
 
 ### 1. Infrastructure & Setup
 - ✅ Monorepo structure (apps/web, apps/bot, apps/video, packages/*)
