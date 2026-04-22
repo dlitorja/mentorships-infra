@@ -441,7 +441,7 @@ export default function CreateInstructorPage() {
               ))}
               <div className="flex justify-between">
                 <Button variant="outline" onClick={() => setActiveTab("tags")}>Back</Button>
-                <Button onClick={() => setActiveTab("review")}>Next</Button>
+                <Button onClick={() => setActiveTab("inventory")}>Next</Button>
               </div>
             </CardContent>
           </Card>
@@ -572,7 +572,7 @@ export default function CreateInstructorPage() {
               </div>
               
               <div className="flex justify-between pt-4">
-                <Button variant="outline" onClick={() => setActiveTab("social")}>Back</Button>
+                <Button variant="outline" onClick={() => setActiveTab("inventory")}>Back</Button>
                 <Button 
                   onClick={handleSubmit} 
                   disabled={createMutation.isPending || !formData.name || !formData.slug}

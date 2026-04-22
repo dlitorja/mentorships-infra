@@ -219,6 +219,27 @@ export async function POST(req: NextRequest) {
       email: data.email ? data.email.toLowerCase() : null,
     });
 
+    // Create mentor record if createMentor is true
+    if (data.createMentor) {
+      const userId = data.userId || `instructor-${instructor.id}`;
+      
+      const [createdMentor] = await db
+        .insert(mentors)
+        .values({
+          userId,
+          maxActiveStudents: data.maxActiveStudents,
+          oneOnOneInventory: data.oneOnOneInventory,
+          groupInventory: data.groupInventory,
+        })
+        .returning();
+
+      // Update instructor with mentorId
+      await db
+        .update(instructors)
+        .set({ mentorId: createdMentor.id })
+        .where(eq(instructors.id, instructor.id));
+    }
+
     let invitationSent = false;
     let invitationError: string | undefined;
 
@@ -237,6 +258,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Fetch updated instructor to get mentorId if created
+    const [updatedInstructor] = await db
+      .select()
+      .from(instructors)
+      .where(eq(instructors.id, instructor.id))
+      .limit(1);
+
     return NextResponse.json({
       success: true,
       message: "Instructor created successfully",
@@ -252,10 +280,15 @@ export async function POST(req: NextRequest) {
         portfolioImages: instructor.portfolioImages,
         socials: instructor.socials,
         isActive: instructor.isActive,
-        mentorId: instructor.mentorId,
+        mentorId: updatedInstructor?.mentorId || instructor.mentorId,
         email: instructor.email,
         createdAt: instructor.createdAt.toISOString(),
       },
+      inventory: data.createMentor ? {
+        oneOnOneInventory: data.oneOnOneInventory,
+        groupInventory: data.groupInventory,
+        maxActiveStudents: data.maxActiveStudents,
+      } : undefined,
       invitationSent,
       invitationError,
     }, { status: 201 });
