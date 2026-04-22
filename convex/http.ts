@@ -12,7 +12,7 @@ import {
   createRetentionNotification,
   updateWorkspaceExportStatus,
 } from "./mutations/http";
-import { decrementInventory, incrementInventory, updateMentor } from "./mentors";
+import { decrementInventory, incrementInventory, updateInstructor } from "./instructors";
 import { markNotifiedByInstructor } from "./waitlist";
 
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
@@ -226,7 +226,7 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
       updates.groupInventory = groupInventory;
     }
 
-    const result = await ctx.runMutation(updateMentor as any, {
+    const result = await ctx.runMutation(updateInstructor as any, {
       id: mentorIdTyped,
       ...updates,
     });
@@ -370,8 +370,8 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
   const oneOnOneInventory = 3;
   const groupInventory = pricing?.group ? 2 : 0;
 
-  // Create mentor using runMutation
-  const mentorId = await ctx.runMutation(api.mentors.createMentor, {
+  // Create instructor using runMutation
+  const mentorId = await ctx.runMutation(api.instructors.createInstructor, {
     userId: `seed-${slug}`,
     oneOnOneInventory,
     groupInventory,

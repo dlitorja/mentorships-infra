@@ -17,7 +17,7 @@ export function useUserActiveSessionPacks(userId: string) {
   });
 }
 
-export function useMentorSessionPacks(mentorId: Id<"mentors">) {
+export function useInstructorSessionPacks(mentorId: Id<"instructors">) {
   return useQuery({
     ...convexQuery(api.sessionPacks.getMentorSessionPacks, { mentorId }),
     enabled: !!mentorId,

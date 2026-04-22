@@ -12,7 +12,7 @@ export default defineSchema({
   }).index("by_email", ["email"])
     .index("by_clerkId", ["clerkId"]),
 
-  mentors: defineTable({
+  instructors: defineTable({
     userId: v.string(),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
@@ -28,7 +28,7 @@ export default defineSchema({
     .index("by_deletedAt", ["deletedAt"]),
 
   sessions: defineTable({
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     studentId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     scheduledAt: v.number(),
@@ -50,7 +50,7 @@ export default defineSchema({
     .index("by_googleCalendarEventId", ["googleCalendarEventId"]),
 
   seatReservations: defineTable({
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     userId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     seatExpiresAt: v.number(),
@@ -67,7 +67,7 @@ export default defineSchema({
 
   sessionPacks: defineTable({
     userId: v.string(),
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     totalSessions: v.number(),
     remainingSessions: v.number(),
     purchasedAt: v.number(),
@@ -107,7 +107,7 @@ export default defineSchema({
     .index("by_provider_providerPaymentId", ["provider", "providerPaymentId"]),
 
   products: defineTable({
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
@@ -125,7 +125,7 @@ export default defineSchema({
     .index("by_stripePriceId", ["stripePriceId"])
     .index("by_active", ["active"]),
 
-  instructors: defineTable({
+  instructorProfiles: defineTable({
     userId: v.optional(v.string()),
     mentorId: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -148,13 +148,13 @@ export default defineSchema({
     .index("by_isActive", ["isActive"]),
 
   instructorTestimonials: defineTable({
-    instructorId: v.id("instructors"),
+    instructorId: v.id("instructorProfiles"),
     name: v.string(),
     text: v.string(),
   }).index("by_instructorId", ["instructorId"]),
 
   menteeResults: defineTable({
-    instructorId: v.id("instructors"),
+    instructorId: v.id("instructorProfiles"),
     imageUrl: v.optional(v.string()),
     imageUploadPath: v.optional(v.string()),
     studentName: v.optional(v.string()),
@@ -166,7 +166,7 @@ export default defineSchema({
     name: v.string(),
     description: v.optional(v.string()),
     ownerId: v.string(),
-    mentorId: v.optional(v.id("mentors")),
+    mentorId: v.optional(v.id("instructors")),
     imageUrl: v.optional(v.string()),
     isPublic: v.boolean(),
     deletedAt: v.optional(v.number()),

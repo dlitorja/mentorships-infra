@@ -1,12 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
-import { convexQuery } from "@convex-dev/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 
-export function useInstructorBySlug(slug: string) {
+export function useInstructorByUserId(userId: string) {
   return useQuery({
-    ...convexQuery(api.instructors.getInstructorBySlug, { slug }),
-    enabled: !!slug,
+    ...convexQuery(api.instructors.getInstructorByUserId, { userId }),
+    enabled: !!userId,
   });
 }
 
@@ -14,13 +14,6 @@ export function useInstructorById(id: Id<"instructors">) {
   return useQuery({
     ...convexQuery(api.instructors.getInstructorById, { id }),
     enabled: !!id,
-  });
-}
-
-export function useInstructorByMentorId(mentorId: string) {
-  return useQuery({
-    ...convexQuery(api.instructors.getInstructorByMentorId, { mentorId }),
-    enabled: !!mentorId,
   });
 }
 
@@ -32,35 +25,61 @@ export function useListInstructors() {
 
 export function useActiveInstructors() {
   return useQuery({
-    ...convexQuery(api.instructors.listActiveInstructors, {}),
+    ...convexQuery(api.instructors.getActiveInstructors, {}),
   });
 }
 
-export function useInstructorTestimonials(instructorId: Id<"instructors">) {
-  return useQuery({
-    ...convexQuery(api.instructors.getTestimonials, { instructorId }),
-    enabled: !!instructorId,
+export function useDecrementInventory() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.decrementInventory),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
   });
 }
 
-export function useMenteeResults(instructorId: Id<"instructors">) {
-  return useQuery({
-    ...convexQuery(api.instructors.getMenteeResults, { instructorId }),
-    enabled: !!instructorId,
+export function useIncrementInventory() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.incrementInventory),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
   });
 }
 
-// Public queries - no auth required
+export function useUpdateInstructor() {
+  const queryClient = useQueryClient();
 
-export function usePublicInstructorBySlug(slug: string) {
-  return useQuery({
-    ...convexQuery(api.instructors.getPublicInstructorBySlug, { slug }),
-    enabled: !!slug,
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.updateInstructor),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
   });
 }
 
-export function usePublicInstructors() {
-  return useQuery({
-    ...convexQuery(api.instructors.getPublicInstructors, {}),
+export function useCreateInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.createInstructor),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+export function useDeleteInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.deleteInstructor),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
   });
 }

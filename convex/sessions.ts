@@ -27,7 +27,7 @@ export const getStudentSessions = query({
 });
 
 export const getMentorSessions = query({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -75,7 +75,7 @@ export const getSessionByCalendarEventId = query({
 
 export const createSession = mutation({
   args: {
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     studentId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     scheduledAt: v.number(),

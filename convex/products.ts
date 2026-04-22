@@ -13,7 +13,7 @@ export const getProductById = query({
 });
 
 export const getMentorProducts = query({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -65,7 +65,7 @@ export const getPublicActiveProducts = query({
 
 // Public query - get products by mentor ID (no auth required)
 export const getProductsByMentorId = query({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("products")
@@ -77,7 +77,7 @@ export const getProductsByMentorId = query({
 // Public query - get products by mentor ID and mentorship type (no auth required)
 export const getProductsByMentorAndType = query({
   args: {
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     mentorshipType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -95,7 +95,7 @@ export const getProductsByMentorAndType = query({
 
 export const createProduct = mutation({
   args: {
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),

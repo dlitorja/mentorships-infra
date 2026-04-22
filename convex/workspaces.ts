@@ -15,7 +15,7 @@ async function getWorkspaceRole(
 ): Promise<"mentor" | "mentee" | null> {
   if (workspace.mentorId) {
     const mentor = await ctx.db
-      .query("mentors")
+      .query("instructors")
       .withIndex("by_userId", (q: any) => q.eq("userId", userId))
       .first();
     if (mentor && mentor._id === workspace.mentorId) {
@@ -64,7 +64,7 @@ export const getUserWorkspaces = query({
 });
 
 export const getMentorWorkspaces = query({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -159,7 +159,7 @@ export const createWorkspace = mutation({
     name: v.string(),
     description: v.optional(v.string()),
     ownerId: v.string(),
-    mentorId: v.optional(v.id("mentors")),
+    mentorId: v.optional(v.id("instructors")),
     imageUrl: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
     seatReservationId: v.optional(v.id("seatReservations")),

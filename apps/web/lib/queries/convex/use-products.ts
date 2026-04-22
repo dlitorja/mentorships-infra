@@ -16,7 +16,7 @@ export function useProductById(id: Id<"products">) {
   });
 }
 
-export function useMentorProducts(mentorId: Id<"mentors">) {
+export function useInstructorProducts(mentorId: Id<"instructors">) {
   return useQuery({
     ...convexQuery(api.products.getMentorProducts, { mentorId }),
     enabled: !!mentorId,

@@ -50,7 +50,7 @@ export const getUserActiveSessionPacks = query({
 });
 
 export const getMentorSessionPacks = query({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -80,7 +80,7 @@ export const getSessionPackByPaymentId = query({
 export const createSessionPack = mutation({
   args: {
     userId: v.string(),
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     totalSessions: v.optional(v.number()),
     remainingSessions: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
