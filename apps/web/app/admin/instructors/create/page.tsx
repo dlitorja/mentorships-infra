@@ -462,11 +462,11 @@ export default function CreateInstructorPage() {
                   onChange={(e) => setFormData((prev) => ({ ...prev, createMentor: e.target.checked }))}
                   className="h-4 w-4"
                 />
-                <Label htmlFor="createMentor">Create mentor record for bookings</Label>
+                <Label htmlFor="createMentor">Create instructor record for bookings</Label>
               </div>
               <p className="text-sm text-muted-foreground">
                 Enable this to allow students to book mentorship sessions with this instructor.
-                This creates a mentor record with inventory tracking.
+                This creates an instructor record with inventory tracking.
               </p>
 
               {formData.createMentor && (

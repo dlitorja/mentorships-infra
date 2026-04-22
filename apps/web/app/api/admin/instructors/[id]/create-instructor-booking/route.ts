@@ -28,7 +28,7 @@ export async function POST(
     }
 
     if (instructor.mentorId) {
-      return NextResponse.json({ error: "Instructor already has a mentor linked" }, { status: 400 });
+      return NextResponse.json({ error: "Instructor already has a booking record linked" }, { status: 400 });
     }
 
     const [createdMentor] = await db
@@ -48,7 +48,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      mentorId: createdMentor.id,
+      instructorBookingId: createdMentor.id,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
@@ -58,7 +58,7 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 
-    console.error("Error creating mentor:", error);
-    return NextResponse.json({ error: "Failed to create mentor" }, { status: 500 });
+    console.error("Error creating instructor booking record:", error);
+    return NextResponse.json({ error: "Failed to create instructor booking record" }, { status: 500 });
   }
 }

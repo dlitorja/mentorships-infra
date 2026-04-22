@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
 **Last Updated**: April 22, 2026  
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, Video Integration TBD
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, Video Integration TBD
 
 ---
 
@@ -493,6 +493,28 @@ This monorepo contains multiple applications with distinct responsibilities:
 - Workspace auto-deletion timer (18 months after seat release)
 - Image caps enforcement
 - Role-based filtering
+
+---
+
+### 12. Mentor → Instructor Terminology Migration (Frontend)
+**Status**: ✅ **COMPLETED** - User-facing strings migrated from "mentor" to "instructor"
+
+**Completed Tasks**:
+- [x] Admin UI labels updated:
+  - [x] "Select a mentor" → "Select an instructor"
+  - [x] "No mentor record linked" → "No instructor record linked"
+  - [x] "Create mentor record" → "Create instructor record"
+  - [x] "Manage mentor inventory" → "Manage instructor inventory"
+  - [x] "No mentors found" → "No instructors found"
+- [x] Booking flow messages updated:
+  - [x] "This mentor hasn't connected Google Calendar" → "This instructor hasn't connected Google Calendar"
+  - [x] "mentor's Google Calendar" → "instructor's Google Calendar"
+- [x] API route renamed:
+  - [x] `/api/admin/instructors/[id]/create-mentor` → `/api/admin/instructors/[id]/create-instructor-booking`
+- [x] Error messages updated in API routes
+- [x] Route build artifacts cleaned and rebuilt
+
+**Note**: Internal database fields (`mentors` table, `mentorId`), variable names, query keys, and API endpoints remain unchanged as they are backend/internal concerns. Only user-facing frontend strings were updated for consistency.
 
 ---
 

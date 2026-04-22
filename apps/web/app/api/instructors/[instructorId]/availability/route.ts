@@ -250,9 +250,9 @@ export async function GET(
       workingHoursConfigured: Boolean(mentor.workingHours),
     });
   } catch (error) {
-    console.error("Mentor availability error:", error);
+    console.error("Instructor availability error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch mentor availability" },
+      { error: "Failed to fetch instructor availability" },
       { status: 500 }
     );
   }

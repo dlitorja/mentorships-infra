@@ -113,7 +113,7 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
       ((availabilityError as Error & { code?: string }).code === "GOOGLE_CALENDAR_NOT_CONNECTED" ||
         availabilityError.message.includes("GOOGLE_CALENDAR_NOT_CONNECTED"))
     ) {
-      return "This mentor hasn't connected Google Calendar yet.";
+      return "This instructor hasn't connected Google Calendar yet.";
     }
     return info;
   }, [error, info, availabilityError]);
@@ -152,7 +152,7 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
       <CardHeader>
         <CardTitle>Book a Session</CardTitle>
         <CardDescription>
-          Availability is checked against the mentor's Google Calendar before booking.
+          Availability is checked against the instructor's Google Calendar before booking.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
