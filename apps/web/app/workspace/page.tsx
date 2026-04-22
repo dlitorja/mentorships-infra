@@ -18,7 +18,7 @@ interface WorkspaceWithMentor {
   name: string;
   description?: string;
   ownerId: string;
-  mentorId?: Id<'mentors'>;
+  mentorId?: Id<'instructors'>;
   mentorEmail?: string;
   menteeImageCount: number;
   mentorImageCount: number;

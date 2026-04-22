@@ -43,7 +43,7 @@ export const getUserSeatReservations = query({
 });
 
 export const getMentorSeatReservations = query({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -57,7 +57,7 @@ export const getMentorSeatReservations = query({
 });
 
 export const getMentorActiveSeats = query({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -73,7 +73,7 @@ export const getMentorActiveSeats = query({
 });
 
 export const getUserMentorSeat = query({
-  args: { userId: v.string(), mentorId: v.id("mentors") },
+  args: { userId: v.string(), mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -90,7 +90,7 @@ export const getUserMentorSeat = query({
 
 export const createSeatReservation = mutation({
   args: {
-    mentorId: v.id("mentors"),
+    mentorId: v.id("instructors"),
     userId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     seatExpiresAt: v.number(),
@@ -199,7 +199,7 @@ export const deleteSeatReservation = mutation({
 });
 
 export const processExpiredSeats = mutation({
-  args: { mentorId: v.id("mentors") },
+  args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const now = Date.now();
     const expiredSeats = await ctx.db

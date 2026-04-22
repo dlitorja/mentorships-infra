@@ -237,7 +237,7 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       // Availability endpoints (read-heavy).
       if (
         pathname.startsWith("/api/seats/availability/") ||
-        (pathname.startsWith("/api/mentors/") && pathname.endsWith("/availability"))
+        (pathname.startsWith("/api/instructors/") && pathname.endsWith("/availability"))
       ) {
         return { policy: "availability", requested: 1 };
       }
@@ -340,7 +340,7 @@ export default hasClerkKey
 
           if (
             pathname.startsWith("/api/seats/availability/") ||
-            (pathname.startsWith("/api/mentors/") && pathname.endsWith("/availability"))
+            (pathname.startsWith("/api/instructors/") && pathname.endsWith("/availability"))
           ) {
             return { policy: "availability", requested: 1 };
           }

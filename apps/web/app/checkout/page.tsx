@@ -60,7 +60,7 @@ function CheckoutContent(): React.JSX.Element {
   );
 
   const data = instructorData as InstructorData | null;
-  const mentorId = data?.instructor?.mentorId as Id<"mentors"> | undefined;
+  const mentorId = data?.instructor?.mentorId as Id<"instructors"> | undefined;
   
   // Get products for this specific mentor
   const {

@@ -145,16 +145,16 @@ export async function verifyCheckoutSession(sessionId: string) {
 }
 
 /**
- * Get mentor availability
+ * Get instructor availability
  */
-export async function fetchMentorAvailability(
-  mentorId: string,
+export async function fetchInstructorAvailability(
+  instructorId: string,
   start: string,
   end: string,
   slotMinutes: number = 60
 ) {
   const response = await fetch(
-    `/api/mentors/${mentorId}/availability?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&slotMinutes=${slotMinutes}`
+    `/api/instructors/${instructorId}/availability?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&slotMinutes=${slotMinutes}`
   );
 
   if (!response.ok) {

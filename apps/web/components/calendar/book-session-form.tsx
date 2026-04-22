@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { queryKeys } from "@/lib/queries/query-keys";
 import { toast } from "sonner";
-import { fetchMentorAvailability } from "@/lib/queries/api-client";
+import { fetchInstructorAvailability } from "@/lib/queries/api-client";
 import { useCreateSession } from "@/lib/queries/convex";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
@@ -72,7 +72,7 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
       dateRange?.end || ""
     ),
     queryFn: () =>
-      fetchMentorAvailability(
+      fetchInstructorAvailability(
         selectedPack!.mentorId,
         dateRange!.start,
         dateRange!.end,
