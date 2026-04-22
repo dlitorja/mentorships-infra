@@ -26,6 +26,20 @@ export const getInstructorById = query({
   },
 });
 
+export const getInstructorBySlug = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const profile = await ctx.db
+      .query("instructorProfiles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    if (!profile) {
+      return null;
+    }
+    return profile;
+  },
+});
+
 export const listInstructors = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -45,6 +59,17 @@ export const getActiveInstructors = query({
     if (!user) {
       return [];
     }
+    const instructors = await ctx.db
+      .query("instructors")
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .filter((q) => q.gt(q.field("oneOnOneInventory"), 0))
+      .collect();
+    return instructors.map(({ googleRefreshToken, ...rest }) => rest);
+  },
+});
+
+export const getPublicInstructors = query({
+  handler: async (ctx) => {
     const instructors = await ctx.db
       .query("instructors")
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
@@ -152,5 +177,33 @@ export const incrementInventory = mutation({
     
     await ctx.db.patch(args.id, { [field]: currentValue + 1 });
     return await ctx.db.get(args.id);
+  },
+});
+
+export const createTestimonial = mutation({
+  args: {
+    instructorId: v.id("instructorProfiles"),
+    name: v.string(),
+    text: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("instructorTestimonials", {
+      instructorId: args.instructorId,
+      name: args.name,
+      text: args.text,
+    });
+  },
+});
+
+export const createMenteeResult = mutation({
+  args: {
+    instructorId: v.id("instructorProfiles"),
+    imageUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("menteeResults", {
+      instructorId: args.instructorId,
+      imageUrl: args.imageUrl,
+    });
   },
 });

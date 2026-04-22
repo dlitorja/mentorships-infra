@@ -29,6 +29,19 @@ export function useActiveInstructors() {
   });
 }
 
+export function usePublicInstructors() {
+  return useQuery({
+    ...convexQuery(api.instructors.getPublicInstructors, {}),
+  });
+}
+
+export function usePublicInstructorBySlug(slug: string) {
+  return useQuery({
+    ...convexQuery(api.instructors.getInstructorBySlug, { slug }),
+    enabled: !!slug,
+  });
+}
+
 export function useDecrementInventory() {
   const queryClient = useQueryClient();
 

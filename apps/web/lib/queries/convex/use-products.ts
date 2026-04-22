@@ -51,3 +51,6 @@ export function useProductsByInstructorAndType(instructorId: Id<"instructors">, 
     enabled: !!instructorId,
   });
 }
+
+// Alias for backward compatibility
+export const useProductsByMentorId = useInstructorProducts;

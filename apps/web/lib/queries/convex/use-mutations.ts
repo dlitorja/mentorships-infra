@@ -146,28 +146,6 @@ export function useUpdateUser() {
   });
 }
 
-export function useCreateInstructor() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.createInstructor),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
-  });
-}
-
-export function useUpdateInstructor() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.updateInstructor),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
-  });
-}
-
 export function useCreateTestimonial() {
   const queryClient = useQueryClient();
 

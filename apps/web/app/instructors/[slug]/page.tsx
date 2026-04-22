@@ -124,7 +124,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructorData, isLoading } = usePublicInstructorBySlug(slug);
   const data = instructorData as InstructorData | null;
   const instructor = data?.instructor;
-  const instructorData = data?.mentor; // Renamed from mentor for clarity
+  const instructorProfile = data?.mentor;
   const testimonials = data?.testimonials || [];
   const menteeResults = data?.menteeResults || [];
 
@@ -135,8 +135,8 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const oneOnOneProduct = products.find(p => p.mentorshipType === "one-on-one");
   const groupProduct = products.find(p => p.mentorshipType === "group");
 
-  const oneOnOneInventory = instructorData?.oneOnOneInventory ?? 0;
-  const groupInventory = instructorData?.groupInventory ?? 0;
+  const oneOnOneInventory = instructorProfile?.oneOnOneInventory ?? 0;
+  const groupInventory = instructorProfile?.groupInventory ?? 0;
 
   const renderSpotsAvailable = (spots: number) => {
     if (spots === 0) {
