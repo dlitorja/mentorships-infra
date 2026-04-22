@@ -36,10 +36,18 @@ export const getPublicInstructorBySlug = query({
       return null;
     }
 
-    // Get mentor data (inventory) if linked
+    // Get mentor data (inventory) if linked - only expose safe public fields
     let mentor = null;
     if (instructor.mentorId) {
-      mentor = await ctx.db.get(instructor.mentorId as Id<"mentors">);
+      const fullMentor = await ctx.db.get(instructor.mentorId as Id<"mentors">);
+      if (fullMentor) {
+        mentor = {
+          _id: fullMentor._id,
+          oneOnOneInventory: fullMentor.oneOnOneInventory,
+          groupInventory: fullMentor.groupInventory,
+          maxActiveStudents: fullMentor.maxActiveStudents,
+        };
+      }
     }
 
     // Get testimonials
@@ -71,12 +79,20 @@ export const getPublicInstructors = query({
       .withIndex("by_isActive", (q) => q.eq("isActive", true))
       .collect();
 
-    // Get mentor data for each instructor
+    // Get mentor data for each instructor - only expose safe public fields
     const instructorsWithMentors = await Promise.all(
       instructors.map(async (instructor) => {
         let mentor = null;
         if (instructor.mentorId) {
-          mentor = await ctx.db.get(instructor.mentorId as Id<"mentors">);
+          const fullMentor = await ctx.db.get(instructor.mentorId as Id<"mentors">);
+          if (fullMentor) {
+            mentor = {
+              _id: fullMentor._id,
+              oneOnOneInventory: fullMentor.oneOnOneInventory,
+              groupInventory: fullMentor.groupInventory,
+              maxActiveStudents: fullMentor.maxActiveStudents,
+            };
+          }
         }
         return {
           ...instructor,
