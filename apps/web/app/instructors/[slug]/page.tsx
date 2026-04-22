@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
 import { usePublicInstructorBySlug } from "@/lib/queries/convex/use-instructors";
-import { useProductsByMentorId } from "@/lib/queries/convex/use-products";
+import { useProductsByInstructorId } from "@/lib/queries/convex/use-products";
 import { Id } from "@/convex/_generated/dataModel";
 
 interface InstructorProfilePageProps {
@@ -124,19 +124,19 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructorData, isLoading } = usePublicInstructorBySlug(slug);
   const data = instructorData as InstructorData | null;
   const instructor = data?.instructor;
-  const mentor = data?.mentor;
+  const instructorData = data?.mentor; // Renamed from mentor for clarity
   const testimonials = data?.testimonials || [];
   const menteeResults = data?.menteeResults || [];
 
-  const mentorId = instructor?.mentorId as Id<"mentors"> | undefined;
-  const { data: productsData } = useProductsByMentorId(mentorId!);
+  const instructorId = instructor?.mentorId as Id<"instructors"> | undefined;
+  const { data: productsData } = useProductsByInstructorId(instructorId!);
   const products = (productsData as Product[] || []).filter(p => p.active);
 
   const oneOnOneProduct = products.find(p => p.mentorshipType === "one-on-one");
   const groupProduct = products.find(p => p.mentorshipType === "group");
 
-  const oneOnOneInventory = mentor?.oneOnOneInventory ?? 0;
-  const groupInventory = mentor?.groupInventory ?? 0;
+  const oneOnOneInventory = instructorData?.oneOnOneInventory ?? 0;
+  const groupInventory = instructorData?.groupInventory ?? 0;
 
   const renderSpotsAvailable = (spots: number) => {
     if (spots === 0) {
