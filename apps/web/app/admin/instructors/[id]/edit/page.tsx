@@ -70,6 +70,9 @@ type InstructorFormData = {
   isActive: boolean;
   userId: string | null;
   mentorId: string | null;
+  oneOnOneInventory: number;
+  groupInventory: number;
+  maxActiveStudents: number;
 };
 
 type ActiveProduct = {
@@ -286,6 +289,9 @@ export default function EditInstructorPage() {
     isActive: true,
     userId: null,
     mentorId: null,
+    oneOnOneInventory: 0,
+    groupInventory: 0,
+    maxActiveStudents: 10,
   });
   const [customSpecialty, setCustomSpecialty] = useState("");
   const [customBackground, setCustomBackground] = useState("");
@@ -337,6 +343,9 @@ export default function EditInstructorPage() {
         isActive: data.isActive ?? true,
         userId: data.userId || null,
         mentorId: data.mentorId || null,
+        oneOnOneInventory: (data as any).oneOnOneInventory ?? 0,
+        groupInventory: (data as any).groupInventory ?? 0,
+        maxActiveStudents: (data as any).maxActiveStudents ?? 10,
       });
     }
   }, [data]);
@@ -514,11 +523,12 @@ export default function EditInstructorPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="basic">Basic Info</TabsTrigger>
           <TabsTrigger value="images">Images</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
           <TabsTrigger value="social">Social Links</TabsTrigger>
+          <TabsTrigger value="inventory">Inventory</TabsTrigger>
           <TabsTrigger value="testimonials">Testimonials</TabsTrigger>
           <TabsTrigger value="results">Results</TabsTrigger>
         </TabsList>
@@ -877,6 +887,64 @@ export default function EditInstructorPage() {
               )}
               <div className="flex justify-between mt-4">
                 <Button variant="outline" onClick={() => setActiveTab("testimonials")}>Back</Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="inventory">
+          <Card>
+            <CardHeader>
+              <CardTitle>Inventory & Bookings</CardTitle>
+              <CardDescription>Configure mentorship availability and booking settings</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {formData.mentorId ? (
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="oneOnOneInventory">One-on-One Inventory</Label>
+                    <Input
+                      id="oneOnOneInventory"
+                      type="number"
+                      min="0"
+                      value={formData.oneOnOneInventory}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, oneOnOneInventory: parseInt(e.target.value) || 0 }))}
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">Available 1-on-1 mentorship slots</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="groupInventory">Group Inventory</Label>
+                    <Input
+                      id="groupInventory"
+                      type="number"
+                      min="0"
+                      value={formData.groupInventory}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, groupInventory: parseInt(e.target.value) || 0 }))}
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">Available group mentorship slots</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="maxActiveStudents">Max Active Students</Label>
+                    <Input
+                      id="maxActiveStudents"
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={formData.maxActiveStudents}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, maxActiveStudents: parseInt(e.target.value) || 10 }))}
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">Maximum concurrent mentees</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground mb-4">No mentor record linked to this instructor.</p>
+                  <p className="text-sm text-muted-foreground">To enable bookings, create a mentor record via the Create Mentor API or admin inventory page.</p>
+                </div>
+              )}
+              <div className="flex justify-between pt-4">
+                <Button variant="outline" onClick={() => setActiveTab("social")}>Back</Button>
+                <Button onClick={() => setActiveTab("testimonials")}>Next</Button>
               </div>
             </CardContent>
           </Card>

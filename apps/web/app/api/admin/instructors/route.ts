@@ -40,6 +40,10 @@ const createInstructorSchema = z.object({
   isActive: z.boolean().default(true),
   userId: z.string().optional(),
   mentorId: z.string().uuid().optional(),
+  createMentor: z.boolean().optional().default(false),
+  oneOnOneInventory: z.number().int().min(0).optional().default(0),
+  groupInventory: z.number().int().min(0).optional().default(0),
+  maxActiveStudents: z.number().int().min(1).optional().default(10),
 });
 
 const listInstructorsQuerySchema = z.object({
