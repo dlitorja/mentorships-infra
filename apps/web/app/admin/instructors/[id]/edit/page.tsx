@@ -610,13 +610,13 @@ export default function EditInstructorPage() {
                 <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
               </div>
               <div>
-                <Label htmlFor="mentorId">Instructor</Label>
+                <Label htmlFor="mentorId">Booking record</Label>
                 <Select
                   value={formData.mentorId ?? NONE_SENTINEL}
                   onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value === NONE_SENTINEL ? null : value }))}
                 >
                   <SelectTrigger id="mentorId">
-                    <SelectValue placeholder="Select an instructor" />
+                    <SelectValue placeholder="Select a booking record" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NONE_SENTINEL}>None</SelectItem>
@@ -952,8 +952,8 @@ export default function EditInstructorPage() {
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-muted-foreground mb-4">No instructor record linked to this instructor.</p>
-                  <p className="text-sm text-muted-foreground">To enable bookings, create an instructor record via the Create Instructor API or admin inventory page.</p>
+                  <p className="text-muted-foreground mb-4">No booking record exists for this instructor.</p>
+                  <p className="text-sm text-muted-foreground">To enable bookings, create a booking record via the POST /api/admin/instructors/[id]/create-instructor-booking endpoint or admin inventory page.</p>
                 </div>
               )}
               <div className="flex justify-between pt-4">
