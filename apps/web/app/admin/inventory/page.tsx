@@ -280,7 +280,7 @@ export default function InventoryPage() {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold">Inventory Management</h1>
-          <p className="text-muted-foreground mt-1">Manage mentor inventory and waitlists</p>
+          <p className="text-muted-foreground mt-1">Manage instructor inventory and waitlists</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -307,7 +307,7 @@ export default function InventoryPage() {
       ) : filteredMentors?.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
-            No mentors found.
+            No instructors found.
           </CardContent>
         </Card>
       ) : (

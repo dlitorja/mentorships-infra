@@ -40,9 +40,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 
-    console.error("Error listing mentors:", error);
+    console.error("Error listing instructors:", error);
     return NextResponse.json(
-      { error: "Failed to list mentors" },
+      { error: "Failed to list instructors" },
       { status: 500 }
     );
   }

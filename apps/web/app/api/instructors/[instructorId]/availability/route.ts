@@ -170,13 +170,13 @@ export async function GET(
 
     const mentor = await getMentorById(instructorId);
     if (!mentor) {
-      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
+      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
     const refreshToken = decryptMentorRefreshToken(mentor);
     if (!refreshToken) {
       return NextResponse.json(
-        { error: "Mentor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
+        { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
         { status: 409 }
       );
     }
@@ -250,9 +250,9 @@ export async function GET(
       workingHoursConfigured: Boolean(mentor.workingHours),
     });
   } catch (error) {
-    console.error("Mentor availability error:", error);
+    console.error("Instructor availability error:", error);
     return NextResponse.json(
-      { error: "Failed to fetch mentor availability" },
+      { error: "Failed to fetch instructor availability" },
       { status: 500 }
     );
   }
