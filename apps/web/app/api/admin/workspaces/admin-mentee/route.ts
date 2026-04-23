@@ -27,6 +27,13 @@ export async function POST(req: NextRequest) {
       menteeUserId,
     });
 
+    if (!workspace) {
+      return NextResponse.json(
+        { error: "Failed to create workspace" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       id: workspace._id,
       name: workspace.name,
