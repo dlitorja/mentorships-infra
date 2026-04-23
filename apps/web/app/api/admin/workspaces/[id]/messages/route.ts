@@ -14,7 +14,14 @@ export async function POST(
 ) {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    const user = await requireRoleForApi("admin");
+    await requireRoleForApi("admin");
+
+    const { auth } = await import("@clerk/nextjs/server");
+    const { userId: clerkUserId } = await auth();
+
+    if (!clerkUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const { id } = await params;
     const body = await req.json();
@@ -40,7 +47,7 @@ export async function POST(
 
     const messageId = await convex.mutation(api.workspaces.createWorkspaceMessage, {
       workspaceId: id as any,
-      userId: user.clerkId,
+      userId: clerkUserId,
       content,
       type: "text",
     });
