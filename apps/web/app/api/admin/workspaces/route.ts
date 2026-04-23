@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
       cursor: null as string | null,
     };
 
-    const result = await convex.query(api.workspaces.getAllWorkspaces, {
+    const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
       paginationOpts,
       type: type || undefined,
     });
