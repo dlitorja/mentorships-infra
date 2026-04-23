@@ -27,7 +27,7 @@ export async function POST(
       );
     }
 
-    const workspace = await convex.query(api.workspaces.getWorkspaceByIdAdmin, {
+    const workspace = await convex.query(api.adminWorkspaces.getWorkspaceByIdAdmin, {
       id: id as any,
     });
 
