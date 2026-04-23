@@ -4,15 +4,48 @@ import { v } from "convex/values";
 const WORKSPACE_IMAGE_CAPS = {
   mentee: 75,
   mentor: 150,
+  admin: 150,
 } as const;
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 
+type WorkspaceRole = "mentor" | "mentee" | "admin" | null;
+
+async function isAdmin(ctx: any, userId: string): Promise<boolean> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q: any) => q.eq("userId", userId))
+    .first();
+  return user?.role === "admin";
+}
+
 async function getWorkspaceRole(
   ctx: any,
-  workspace: { mentorId?: any; ownerId: string },
+  workspace: { mentorId?: any; ownerId: string; type?: string },
   userId: string
-): Promise<"mentor" | "mentee" | null> {
+): Promise<WorkspaceRole> {
+  const userIsAdmin = await isAdmin(ctx, userId);
+  if (userIsAdmin) {
+    return "admin";
+  }
+
+  if (workspace.type === "admin_mentee") {
+    return workspace.ownerId === userId ? "mentee" : null;
+  }
+
+  if (workspace.type === "admin_instructor") {
+    if (workspace.mentorId) {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q: any) => q.eq("userId", userId))
+        .first();
+      if (instructor && instructor._id === workspace.mentorId) {
+        return "mentor";
+      }
+    }
+    return null;
+  }
+
   if (workspace.mentorId) {
     const mentor = await ctx.db
       .query("instructors")
@@ -36,6 +69,22 @@ async function getWorkspaceRole(
     }
   }
   return null;
+}
+
+async function logWorkspaceAudit(
+  ctx: any,
+  workspaceId: any,
+  adminId: string,
+  action: "view_workspace" | "send_message" | "create_workspace" | "create_admin_mentee_workspace" | "create_admin_instructor_workspace",
+  details?: string
+) {
+  await ctx.db.insert("workspaceAuditLogs", {
+    workspaceId,
+    adminId,
+    action,
+    details,
+    timestamp: Date.now(),
+  });
 }
 
 export const getWorkspaceById = query({
@@ -149,7 +198,7 @@ export const getUserWorkspaceRole = query({
     if (!workspace) {
       return null;
     }
-    const role = await getWorkspaceRole(ctx, { mentorId: workspace.mentorId, ownerId: workspace.ownerId }, user.subject);
+    const role = await getWorkspaceRole(ctx, { mentorId: workspace.mentorId, ownerId: workspace.ownerId, type: workspace.type }, user.subject);
     return role;
   },
 });
@@ -332,12 +381,15 @@ export const createWorkspaceImage = mutation({
     }
 
     const isMentee = role === "mentee";
+    const isAdmin = role === "admin";
     const currentCount = isMentee
       ? (workspace.menteeImageCount ?? 0)
       : (workspace.mentorImageCount ?? 0);
     const cap = isMentee
       ? WORKSPACE_IMAGE_CAPS.mentee
-      : WORKSPACE_IMAGE_CAPS.mentor;
+      : isAdmin
+        ? WORKSPACE_IMAGE_CAPS.admin
+        : WORKSPACE_IMAGE_CAPS.mentor;
 
     if (currentCount >= cap) {
       throw new Error(
@@ -457,10 +509,46 @@ export const createWorkspaceMessage = mutation({
     type: v.optional(v.union(v.literal("text"), v.literal("image"), v.literal("file"))),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaceMessages", {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    let senderRole: "mentor" | "mentee" | "admin" | undefined;
+
+    if (isUserAdmin) {
+      senderRole = "admin";
+    } else if (workspace.mentorId) {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q: any) => q.eq("userId", user.subject))
+        .first();
+      if (instructor && instructor._id === workspace.mentorId) {
+        senderRole = "mentor";
+      } else if (workspace.ownerId === user.subject) {
+        senderRole = "mentee";
+      }
+    } else if (workspace.ownerId === user.subject) {
+      senderRole = "mentee";
+    }
+
+    const messageId = await ctx.db.insert("workspaceMessages", {
       ...args,
       type: args.type ?? "text",
+      senderRole,
     });
+
+    if (isUserAdmin) {
+      await logWorkspaceAudit(ctx, args.workspaceId, user.subject, "send_message");
+    }
+
+    return messageId;
   },
 });
 
