@@ -142,7 +142,12 @@ export function SaleBanner() {
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {SALE_ITEMS.map((item) => (
+          {SALE_ITEMS.filter(
+            (item) =>
+              item.title !== "COURSE_NAME_HERE" &&
+              item.description !== "COURSE_DESCRIPTION_HERE" &&
+              item.description !== "BUNDLE_DESCRIPTION_HERE"
+          ).map((item) => (
             <a
               key={item.id}
               href={item.link}
@@ -169,12 +174,11 @@ export function SaleBanner() {
                 <h3 className="text-base font-semibold text-white group-hover:text-[#7c3aed] transition-colors line-clamp-2">
                   {item.title}
                 </h3>
-                {item.description !== "COURSE_DESCRIPTION_HERE" &&
-                  item.description !== "BUNDLE_DESCRIPTION_HERE" && (
-                    <p className="text-sm text-[#a0a0b0] line-clamp-2">
-                      {item.description}
-                    </p>
-                  )}
+                {item.description && (
+                  <p className="text-sm text-[#a0a0b0] line-clamp-2">
+                    {item.description}
+                  </p>
+                )}
                 <CountdownTimer endsAt={item.endsAt} />
               </div>
             </a>

@@ -19,6 +19,11 @@ import {
   isForbiddenError,
 } from "@mentorships/db";
 
+interface ClerkUserName {
+  firstName?: string | null;
+  lastName?: string | null;
+}
+
 const listMenteesQuerySchema = z.object({
   search: z.string().trim().default(""),
   instructorId: z.string().uuid().optional(),
@@ -107,13 +112,8 @@ export async function GET(req: NextRequest) {
         .where(whereClause),
     ]);
 
-    // Batch-fetch Clerk user data for firstName/lastName
+// Batch-fetch Clerk user data for firstName/lastName
     const userIds = [...new Set(mentees.map((m) => m.userId))];
-    interface ClerkUserName {
-      firstName?: string | null;
-      lastName?: string | null;
-    }
-
     let clerkUserMap = new Map<string, ClerkUserName>();
 
     if (userIds.length > 0) {
