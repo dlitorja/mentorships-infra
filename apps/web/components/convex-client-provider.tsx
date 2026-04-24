@@ -3,7 +3,7 @@
 import { ReactElement, ReactNode } from 'react';
 import { ConvexProviderWithClerk } from 'convex/react-clerk';
 import { useAuth } from '@clerk/nextjs';
-import { convexClient } from '@/lib/convex-client';
+import { convexClient } from '@/lib/providers/query-provider';
 
 interface ConvexClientProviderProps {
   children: ReactNode;

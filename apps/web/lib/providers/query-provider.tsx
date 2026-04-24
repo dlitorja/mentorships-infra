@@ -1,9 +1,22 @@
 "use client";
 
+import { ConvexReactClient } from "convex/react";
+import { ConvexQueryClient } from "@convex-dev/react-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useEffect, useRef, useState } from "react";
-import { convexQueryClient } from "@/lib/convex-client";
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+
+let convexQueryClient: ConvexQueryClient | null = null;
+let convexClient: ConvexReactClient | null = null;
+
+if (convexUrl) {
+  convexClient = new ConvexReactClient(convexUrl);
+  convexQueryClient = new ConvexQueryClient(convexClient);
+}
+
+export { convexClient, convexQueryClient };
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   const connected = useRef(false);

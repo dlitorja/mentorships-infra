@@ -18,7 +18,7 @@ type PublicInstructor = {
 const MAX_SHOWCASE_INSTRUCTORS = 4;
 
 export function InstructorShowcase() {
-  const { data: instructorsData, isLoading, isError } = usePublicInstructors();
+  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors();
   const [featured, setFeatured] = useState<PublicInstructor[]>([]);
 
   useEffect(() => {
@@ -28,6 +28,7 @@ export function InstructorShowcase() {
   }, [instructorsData]);
 
   if (isError) {
+    console.error("Failed to load public instructors", error);
     return null;
   }
 

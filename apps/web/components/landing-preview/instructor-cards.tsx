@@ -33,7 +33,7 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 export function InstructorCards() {
-  const { data: instructorsData, isLoading, isError } = usePublicInstructors();
+  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors();
   const [instructors, setInstructors] = useState<PublicInstructor[]>([]);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
@@ -68,6 +68,7 @@ export function InstructorCards() {
   }, [api, instructors.length]);
 
   if (isError) {
+    console.error("Failed to load public instructors", error);
     return (
       <section id="instructors" className="bg-gray-50 py-20 px-6">
         <div className="mx-auto max-w-6xl">
