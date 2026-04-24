@@ -103,10 +103,47 @@ export const getPublicInstructors = query({
   },
 });
 
+/** Returns all non-deleted instructors for admin with inventory data, excluding sensitive fields. */
+export const getInstructorsForAdmin = query({
+  handler: async (ctx) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    const instructors = await ctx.db
+      .query("instructors")
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .collect();
+    return instructors.map(({ googleRefreshToken, ...rest }) => rest);
+  },
+});
+
+/** Returns an instructor by slug from the instructors table (not instructorProfiles). */
+export const getInstructorBySlugForAdmin = query({
+  args: { slug: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    if (!instructor) {
+      return null;
+    }
+    return instructor;
+  },
+});
+
 /** Creates a new instructor or returns the existing instructor id if one already exists. */
 export const createInstructor = mutation({
   args: {
     userId: v.string(),
+    name: v.optional(v.string()),
+    slug: v.optional(v.string()),
+    email: v.optional(v.string()),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     timeZone: v.optional(v.string()),
@@ -129,6 +166,9 @@ export const createInstructor = mutation({
     
     return await ctx.db.insert("instructors", {
       ...args,
+      name: args.name ?? undefined,
+      slug: args.slug ?? undefined,
+      email: args.email ?? undefined,
       maxActiveStudents: args.maxActiveStudents ?? 10,
       oneOnOneInventory: args.oneOnOneInventory ?? 0,
       groupInventory: args.groupInventory ?? 0,
@@ -140,6 +180,9 @@ export const createInstructor = mutation({
 export const updateInstructor = mutation({
   args: {
     id: v.id("instructors"),
+    name: v.optional(v.string()),
+    slug: v.optional(v.string()),
+    email: v.optional(v.string()),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     timeZone: v.optional(v.string()),
@@ -212,7 +255,7 @@ export const incrementInventory = mutation({
 /** Creates a testimonial for an instructor profile. */
 export const createTestimonial = mutation({
   args: {
-    instructorId: v.id("instructorProfiles"),
+    instructorId: v.id("instructors"),
     name: v.string(),
     text: v.string(),
   },
@@ -228,7 +271,7 @@ export const createTestimonial = mutation({
 /** Creates a mentee result with an image URL for an instructor profile. */
 export const createMenteeResult = mutation({
   args: {
-    instructorId: v.id("instructorProfiles"),
+    instructorId: v.id("instructors"),
     imageUrl: v.string(),
   },
   handler: async (ctx, args) => {

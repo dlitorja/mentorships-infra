@@ -18,6 +18,7 @@ import {
 } from "@mentorships/db";
 import { eq, gt, and, isNull, or } from "drizzle-orm";
 import { stripe } from "@/lib/stripe";
+import { inngest } from "@/inngest/client";
 
 const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
@@ -42,6 +43,9 @@ const updateInstructorSchema = z.object({
   userId: z.string().optional().nullable(),
   mentorId: z.string().uuid().optional().nullable(),
   deactivateProducts: z.boolean().optional(),
+  oneOnOneInventory: z.number().int().min(0).optional(),
+  groupInventory: z.number().int().min(0).optional(),
+  maxActiveStudents: z.number().int().min(1).optional(),
 });
 
 type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
@@ -354,7 +358,28 @@ export async function PUT(
     if (data.mentorId !== undefined) updateData.mentorId = data.mentorId || null;
     if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : null;
 
+    // Check if inventory fields are being updated
+    const inventoryFieldsChanged =
+      data.oneOnOneInventory !== undefined ||
+      data.groupInventory !== undefined ||
+      data.maxActiveStudents !== undefined;
+
     const updated = await updateInstructor(id, updateData);
+
+    // Sync inventory to Convex via Inngest if inventory fields changed
+    if (inventoryFieldsChanged && existing.slug) {
+      await inngest.send({
+        name: "instructor/updated",
+        data: {
+          slug: existing.slug,
+          name: existing.name,
+          email: existing.email,
+          oneOnOneInventory: data.oneOnOneInventory,
+          groupInventory: data.groupInventory,
+          maxActiveStudents: data.maxActiveStudents,
+        },
+      });
+    }
 
     return NextResponse.json({
       success: true,

@@ -42,6 +42,23 @@ export function usePublicInstructorBySlug(slug: string) {
   });
 }
 
+export function useAdminInstructors() {
+  return useQuery({
+    ...convexQuery(api.instructors.getInstructorsForAdmin, {}),
+  });
+}
+
+export function useUpdateInventory() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.updateInstructor),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
 export function useDecrementInventory() {
   const queryClient = useQueryClient();
 

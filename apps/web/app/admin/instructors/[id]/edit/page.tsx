@@ -384,7 +384,16 @@ export default function EditInstructorPage() {
   });
 
   const handleSave = () => {
-    updateMutation.mutate({ data: formData, deactivateProducts: false });
+    updateMutation.mutate({
+      data: {
+        ...formData,
+        // Include inventory fields (were in formData but not being sent)
+        oneOnOneInventory: formData.oneOnOneInventory,
+        groupInventory: formData.groupInventory,
+        maxActiveStudents: formData.maxActiveStudents,
+      },
+      deactivateProducts: false,
+    });
   };
 
   const handleDeactivateWithProducts = () => {

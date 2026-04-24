@@ -17,6 +17,7 @@ import {
   or,
 } from "@mentorships/db";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
+import { inngest } from "@/inngest/client";
 
 const createInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -239,6 +240,21 @@ export async function POST(req: NextRequest) {
         .update(instructors)
         .set({ mentorId: createdMentor.id })
         .where(eq(instructors.id, instructor.id));
+    }
+
+    // Sync inventory to Convex via Inngest
+    if (data.createMentor) {
+      await inngest.send({
+        name: "instructor/created",
+        data: {
+          slug: data.slug,
+          name: data.name,
+          email: data.email,
+          oneOnOneInventory: data.oneOnOneInventory,
+          groupInventory: data.groupInventory,
+          maxActiveStudents: data.maxActiveStudents,
+        },
+      });
     }
 
     let invitationSent = false;

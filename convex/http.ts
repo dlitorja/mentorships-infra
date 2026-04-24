@@ -252,6 +252,53 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
   }
 });
 
+/** Syncs instructor inventory from admin (called by Inngest after Drizzle writes). Looks up by slug and creates/updates. */
+export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { slug, name, email, oneOnOneInventory, groupInventory, maxActiveStudents } = await request.json();
+
+  try {
+    // Look up existing instructor by slug using runQuery
+    const existing: any = await ctx.runQuery(api.instructors.getInstructorBySlugForAdmin, { slug });
+
+    if (existing) {
+      // Update existing record using runMutation
+      const updated = await ctx.runMutation(api.instructors.updateInstructor, {
+        id: existing._id,
+        name: name ?? undefined,
+        email: email ?? undefined,
+        oneOnOneInventory: oneOnOneInventory ?? existing.oneOnOneInventory,
+        groupInventory: groupInventory ?? existing.groupInventory,
+        maxActiveStudents: maxActiveStudents ?? existing.maxActiveStudents,
+      });
+      return new Response(JSON.stringify({ success: true, action: "updated", id: existing._id }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } else {
+      // Create new instructor record using runMutation
+      const id = await ctx.runMutation(api.instructors.createInstructor, {
+        userId: `admin-${slug}`,
+        name: name ?? undefined,
+        slug: slug,
+        email: email ?? undefined,
+        oneOnOneInventory: oneOnOneInventory ?? 0,
+        groupInventory: groupInventory ?? 0,
+        maxActiveStudents: maxActiveStudents ?? 10,
+      });
+      return new Response(JSON.stringify({ success: true, action: "created", id }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  } catch (error) {
+    const message = (error as Error).message;
+    return new Response(JSON.stringify({ success: false, error: message }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
 /** Marks waitlist entries as notified when an instructor has availability. */
 export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
@@ -343,6 +390,12 @@ http.route({
   path: "/waitlist/notify",
   method: "POST",
   handler: httpNotifyWaitlist,
+});
+
+http.route({
+  path: "/inventory/admin-sync",
+  method: "POST",
+  handler: httpAdminSyncInventory,
 });
 
 const httpSeedInstructor = httpAction(async (ctx, request) => {
