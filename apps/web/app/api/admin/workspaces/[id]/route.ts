@@ -85,7 +85,9 @@ export async function GET(
       await convex.mutation(api.workspaces.logViewWorkspaceAudit, {
         workspaceId: validatedId,
         adminId: clerkUserId,
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn("Failed to log workspace view audit:", err);
+      });
     }
 
     const messageItems = (Array.isArray(messages) ? messages : []).map((m) => ({

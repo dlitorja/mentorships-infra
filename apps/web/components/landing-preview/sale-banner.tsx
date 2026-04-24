@@ -61,6 +61,9 @@ const SALE_ITEMS: SaleItem[] = [
   },
 ];
 
+const PLACEHOLDER_TITLES = new Set(["COURSE_NAME_HERE"]);
+const PLACEHOLDER_DESCRIPTIONS = new Set(["COURSE_DESCRIPTION_HERE", "BUNDLE_DESCRIPTION_HERE"]);
+
 function useCountdown(targetDate: string | null) {
   const calculate = useCallback(() => {
     if (!targetDate || targetDate === "END_DATE_HERE") return null;
@@ -129,6 +132,12 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
 }
 
 export function SaleBanner() {
+  const liveItems = SALE_ITEMS.filter(
+    (item) =>
+      !PLACEHOLDER_TITLES.has(item.title) &&
+      !PLACEHOLDER_DESCRIPTIONS.has(item.description)
+  );
+
   return (
     <section className="bg-[#161822] py-20 px-6">
       <div className="mx-auto max-w-6xl">
@@ -142,7 +151,7 @@ export function SaleBanner() {
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {SALE_ITEMS.map((item) => (
+          {liveItems.map((item) => (
             <a
               key={item.id}
               href={item.link}
@@ -166,17 +175,14 @@ export function SaleBanner() {
               </div>
 
               <div className="p-4 space-y-3">
-                {item.title !== "COURSE_NAME_HERE" && (
-                  <h3 className="text-base font-semibold text-white group-hover:text-[#7c3aed] transition-colors line-clamp-2">
-                    {item.title}
-                  </h3>
+                <h3 className="text-base font-semibold text-white group-hover:text-[#7c3aed] transition-colors line-clamp-2">
+                  {item.title}
+                </h3>
+                {item.description && (
+                  <p className="text-sm text-[#a0a0b0] line-clamp-2">
+                    {item.description}
+                  </p>
                 )}
-                {item.description !== "COURSE_DESCRIPTION_HERE" &&
-                  item.description !== "BUNDLE_DESCRIPTION_HERE" && (
-                    <p className="text-sm text-[#a0a0b0] line-clamp-2">
-                      {item.description}
-                    </p>
-                  )}
                 <CountdownTimer endsAt={item.endsAt} />
               </div>
             </a>
