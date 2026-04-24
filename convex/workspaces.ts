@@ -699,6 +699,25 @@ export const getWorkspaceRetentionNotifications = query({
   },
 });
 
+/** Returns unacknowledged retention notifications for the current user across all workspaces. */
+export const getUnacknowledgedRetentionNotifications = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+
+    const notifications = await ctx.db
+      .query("workspaceRetentionNotifications")
+      .withIndex("by_userId", (q) => q.eq("userId", user.subject))
+      .filter((q) => q.eq(q.field("acknowledgedAt"), undefined))
+      .collect();
+
+    return notifications;
+  },
+});
+
 /** Creates a retention notification (expiry warning or deleted). */
 export const createRetentionNotification = mutation({
   args: {

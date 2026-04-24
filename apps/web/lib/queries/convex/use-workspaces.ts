@@ -206,3 +206,20 @@ export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
     enabled: !!workspaceId,
   });
 }
+
+export function useUnacknowledgedRetentionNotifications() {
+  return useQuery({
+    ...convexQuery(api.workspaces.getUnacknowledgedRetentionNotifications, {}),
+  });
+}
+
+export function useAcknowledgeRetentionNotification() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.acknowledgeNotification),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaceRetentionNotifications"] });
+    },
+  });
+}

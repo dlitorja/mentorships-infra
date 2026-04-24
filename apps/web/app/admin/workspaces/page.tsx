@@ -37,10 +37,12 @@ type WorkspacesResponse = {
   isDone: boolean;
 };
 
+const PAGE_SIZE = 20;
+
 async function fetchWorkspaces(type?: string, cursor?: string | null): Promise<WorkspacesResponse> {
   const params = new URLSearchParams();
   if (type) params.set("type", type);
-  params.set("numItems", "50");
+  params.set("numItems", String(PAGE_SIZE));
   if (cursor) params.set("cursor", cursor);
   
   const url = `/api/admin/workspaces${params.toString() ? `?${params.toString()}` : ""}`;

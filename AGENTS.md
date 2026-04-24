@@ -1455,6 +1455,11 @@ Configure the S3 client for Backblaze B2. use context7
 - Backblaze B2 S3-compatible API
 - Trigger.dev tasks
 - Recharts (charts)
+- Convex (reactive database, queries, mutations, pagination, schema)
+- TanStack React Query (useInfiniteQuery, useQuery, caching, debouncing patterns)
+- GitHub (REST API, Actions, repository management)
+- GitHub CLI (`gh` command usage, PR creation, issue management)
+- Vercel (deployment, CLI, configuration, hosting)
 
 <!-- CONTEXT7 END -->
 

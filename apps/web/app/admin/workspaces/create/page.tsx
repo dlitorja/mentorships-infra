@@ -1,6 +1,7 @@
 "use client";
 
-import React, { use, useState, useDeferredValue } from "react";
+import React, { use, useState } from "react";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -89,12 +90,12 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const workspaceType = resolvedSearchParams.type || "admin_mentee";
   
   const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search);
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const { data: usersData, isLoading: loadingUsers } = useQuery({
-    queryKey: ["users", deferredSearch],
-    queryFn: () => fetchUsers(deferredSearch),
+    queryKey: ["users", debouncedSearch],
+    queryFn: () => fetchUsers(debouncedSearch),
     enabled: workspaceType === "admin_mentee",
   });
 
@@ -130,11 +131,10 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
 
   const isLoading = workspaceType === "admin_mentee" ? loadingUsers : loadingInstructors;
   const isCreating = createMenteeMutation.isPending || createInstructorMutation.isPending;
-  const items = workspaceType === "admin_mentee" 
+  const isSearching = search !== debouncedSearch;
+const items = workspaceType === "admin_mentee" 
     ? usersData?.items || [] 
     : instructorsData?.items || [];
-
-  const isStale = search !== deferredSearch;
 
   return (
     <div className="container mx-auto py-8">
@@ -188,7 +188,7 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
             ) : (
-              <div className={`max-h-96 overflow-y-auto space-y-2 ${isStale ? "opacity-50" : ""}`}>
+              <div className={`max-h-96 overflow-y-auto space-y-2 ${isSearching ? "opacity-50" : ""}`}>
                 {items.map((item) => {
                   const itemId = workspaceType === "admin_mentee" ? item.userId : item.id;
                   const displayName = isMenteeItem(item) 

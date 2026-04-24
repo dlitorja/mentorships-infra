@@ -30,9 +30,11 @@ type AuditLogsResponse = {
   isDone: boolean;
 };
 
+const PAGE_SIZE = 50;
+
 async function fetchAuditLogs(cursor?: string | null): Promise<AuditLogsResponse> {
   const params = new URLSearchParams();
-  params.set("numItems", "100");
+  params.set("numItems", String(PAGE_SIZE));
   if (cursor) params.set("cursor", cursor);
   
   return apiFetch<AuditLogsResponse>(`/api/admin/audit-logs?${params.toString()}`);
