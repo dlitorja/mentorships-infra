@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -60,7 +60,7 @@ export default function WorkspacesPage() {
     queryKey: ["admin-workspaces", typeFilter],
     queryFn: ({ pageParam }) => fetchWorkspaces(typeFilter || undefined, pageParam),
     initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.isDone ? null : lastPage.continueCursor,
+    getNextPageParam: (lastPage) => lastPage.isDone ? undefined : lastPage.continueCursor,
   });
 
   const allWorkspaces = data?.pages.flatMap((page) => page.items) || [];

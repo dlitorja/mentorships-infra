@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
+import React from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -49,7 +49,7 @@ export default function AuditLogsPage() {
     queryKey: ["admin-audit-logs"],
     queryFn: ({ pageParam }) => fetchAuditLogs(pageParam),
     initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) => lastPage.isDone ? null : lastPage.continueCursor,
+    getNextPageParam: (lastPage) => lastPage.isDone ? undefined : lastPage.continueCursor,
   });
 
   const allLogs = data?.pages.flatMap((page) => page.items) || [];
