@@ -72,10 +72,14 @@ export async function GET(
       console.error("Failed to fetch workspace audit logs:", auditLogsResult.reason);
     }
 
-    const messages = messagesResult.status === "fulfilled" ? messagesResult.value : [];
-    const auditLogs = auditLogsResult.status === "fulfilled"
+    const emptyPagination = { page: [], continueCursor: null, isDone: true };
+
+    const messages = messagesResult.status === "fulfilled" && messagesResult.value
+      ? messagesResult.value
+      : [];
+    const auditLogs = auditLogsResult.status === "fulfilled" && auditLogsResult.value
       ? auditLogsResult.value
-      : { page: [] };
+      : emptyPagination;
 
     if (clerkUserId) {
       await convex.mutation(api.workspaces.logViewWorkspaceAudit, {
@@ -84,7 +88,7 @@ export async function GET(
       }).catch(() => {});
     }
 
-    const messageItems = (Array.isArray(messages) ? messages : []).map((m: any) => ({
+    const messageItems = (Array.isArray(messages) ? messages : []).map((m) => ({
       id: m._id,
       userId: m.userId,
       content: m.content,
@@ -93,7 +97,7 @@ export async function GET(
       createdAt: m._creationTime,
     }));
 
-    const auditLogItems = ("page" in auditLogs ? (auditLogs as any).page : []).map((log: any) => ({
+    const auditLogItems = auditLogs.page.map((log) => ({
       id: log._id,
       adminId: log.adminId,
       action: log.action,

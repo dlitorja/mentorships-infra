@@ -39,6 +39,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const { instructorId } = parsedBody.data;
 
+    // convexIdSchema validates format only; table affinity is enforced by Convex at runtime
     const workspace = await convex.mutation(api.adminWorkspaces.createAdminInstructorWorkspace, {
       instructorId: instructorId as Id<"instructors">,
     });

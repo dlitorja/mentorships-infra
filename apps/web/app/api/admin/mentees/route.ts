@@ -114,7 +114,7 @@ export async function GET(req: NextRequest) {
     if (userIds.length > 0) {
       try {
         const client = await clerkClient();
-        const clerkResponse = await client.users.getUserList({ userId: userIds, limit: userIds.length });
+        const clerkResponse = await client.users.getUserList({ userId: userIds, limit: Math.min(userIds.length, 500) });
         clerkUserMap = new Map(clerkResponse.data.map((u) => [u.id, { firstName: u.firstName, lastName: u.lastName }]));
       } catch (error) {
         console.error("Failed to fetch Clerk user names for mentees:", error);
