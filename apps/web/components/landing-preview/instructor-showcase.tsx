@@ -18,7 +18,7 @@ type PublicInstructor = {
 const MAX_SHOWCASE_INSTRUCTORS = 4;
 
 export function InstructorShowcase() {
-  const { data: instructorsData, isLoading } = usePublicInstructors();
+  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors();
   const [featured, setFeatured] = useState<PublicInstructor[]>([]);
 
   useEffect(() => {
@@ -27,7 +27,12 @@ export function InstructorShowcase() {
     setFeatured(visible.slice(0, MAX_SHOWCASE_INSTRUCTORS));
   }, [instructorsData]);
 
-  if (isLoading || featured.length === 0) {
+  if (isError) {
+    console.error("Failed to load public instructors", error);
+    return null;
+  }
+
+  if (isLoading) {
     return (
       <section className="bg-white py-20 px-6">
         <div className="mx-auto max-w-5xl text-center">
@@ -38,6 +43,10 @@ export function InstructorShowcase() {
         </div>
       </section>
     );
+  }
+
+  if (featured.length === 0) {
+    return null;
   }
 
   return (

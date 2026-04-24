@@ -33,23 +33,18 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 export function InstructorCards() {
-  const { data: instructorsData, isLoading } = usePublicInstructors();
+  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors();
   const [instructors, setInstructors] = useState<PublicInstructor[]>([]);
-  const [isClient, setIsClient] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    setIsClient(true);
-  }, []);
-
-  useEffect(() => {
     if (!instructorsData) return;
     const visible = instructorsData.filter((inst: any) => !inst.isHidden);
-    const shuffled = isClient ? shuffleArray(visible) : visible;
+    const shuffled = shuffleArray(visible);
     setInstructors(shuffled);
-  }, [instructorsData, isClient]);
+  }, [instructorsData]);
 
   useEffect(() => {
     if (!api) return;
@@ -72,7 +67,33 @@ export function InstructorCards() {
     return () => clearInterval(interval);
   }, [api, instructors.length]);
 
-  if (isLoading || instructors.length === 0) {
+  if (isError) {
+    console.error("Failed to load public instructors", error);
+    return (
+      <section id="instructors" className="bg-gray-50 py-20 px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-12 text-center">
+            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+              Mentorships Open Now
+            </h2>
+            <p className="mt-4 text-gray-500">
+              1-on-1 personalized guidance from industry professionals
+            </p>
+            <div className="mt-8">
+              <Link
+                href="/instructors"
+                className="text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
+              >
+                See All Instructors &rarr;
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (isLoading) {
     return (
       <section id="instructors" className="bg-gray-50 py-20 px-6">
         <div className="mx-auto max-w-6xl">
@@ -81,6 +102,31 @@ export function InstructorCards() {
               Mentorships Open Now
             </h2>
             <p className="mt-4 text-gray-500">Loading instructors...</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (instructors.length === 0) {
+    return (
+      <section id="instructors" className="bg-gray-50 py-20 px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="mb-12 text-center">
+            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+              Mentorships Open Now
+            </h2>
+            <p className="mt-4 text-gray-500">
+              1-on-1 personalized guidance from industry professionals
+            </p>
+            <div className="mt-8">
+              <Link
+                href="/instructors"
+                className="text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
+              >
+                See All Instructors &rarr;
+              </Link>
+            </div>
           </div>
         </div>
       </section>
