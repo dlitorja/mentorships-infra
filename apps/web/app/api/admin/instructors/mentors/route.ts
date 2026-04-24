@@ -3,6 +3,7 @@ import { db, mentors, users, eq, isUnauthorizedError, isForbiddenError } from "@
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { protectWithRateLimit } from "@/lib/ratelimit";
 
+/** Fetch all mentors with their associated user emails */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const rateLimitResponse = await protectWithRateLimit(request, { policy: "default" });
   if (rateLimitResponse) {

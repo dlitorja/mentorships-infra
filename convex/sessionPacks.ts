@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/** Returns a session pack by its ID, or null if not authenticated. */
 export const getSessionPackById = query({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
@@ -12,6 +13,7 @@ export const getSessionPackById = query({
   },
 });
 
+/** Returns all session packs belonging to a given user. */
 export const getUserSessionPacks = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -26,6 +28,7 @@ export const getUserSessionPacks = query({
   },
 });
 
+/** Returns active, non-expired session packs for a given user. */
 export const getUserActiveSessionPacks = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -49,6 +52,7 @@ export const getUserActiveSessionPacks = query({
   },
 });
 
+/** Returns all session packs associated with a given mentor. */
 export const getMentorSessionPacks = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -63,6 +67,7 @@ export const getMentorSessionPacks = query({
   },
 });
 
+/** Returns the session pack linked to a specific payment. */
 export const getSessionPackByPaymentId = query({
   args: { paymentId: v.id("payments") },
   handler: async (ctx, args) => {
@@ -77,6 +82,7 @@ export const getSessionPackByPaymentId = query({
   },
 });
 
+/** Creates a new session pack for a user and mentor. */
 export const createSessionPack = mutation({
   args: {
     userId: v.string(),
@@ -101,6 +107,7 @@ export const createSessionPack = mutation({
   },
 });
 
+/** Updates remaining sessions, expiration, or status of a session pack. */
 export const updateSessionPack = mutation({
   args: {
     id: v.id("sessionPacks"),
@@ -115,6 +122,7 @@ export const updateSessionPack = mutation({
   },
 });
 
+/** Decrements remaining sessions and marks the pack as depleted when zero. */
 export const useSession = mutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
@@ -139,6 +147,7 @@ export const useSession = mutation({
   },
 });
 
+/** Marks a session pack as refunded. */
 export const refundSessionPack = mutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
@@ -147,6 +156,7 @@ export const refundSessionPack = mutation({
   },
 });
 
+/** Marks a session pack as expired. */
 export const expireSessionPack = mutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
@@ -155,6 +165,7 @@ export const expireSessionPack = mutation({
   },
 });
 
+/** Bulk-updates all active packs past their expiration date to expired status. */
 export const processExpiredSessionPacks = mutation({
   handler: async (ctx) => {
     const now = Date.now();
@@ -177,6 +188,7 @@ export const processExpiredSessionPacks = mutation({
   },
 });
 
+/** Soft-deletes a session pack by setting its deletedAt timestamp. */
 export const deleteSessionPack = mutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {

@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/** Returns waitlist entries for an instructor, optionally filtered by mentorship type. */
 export const getWaitlistForInstructor = query({
   args: {
     instructorSlug: v.string(),
@@ -25,6 +26,7 @@ export const getWaitlistForInstructor = query({
   },
 });
 
+/** Returns the count of oneOnOne and group waitlist entries for an instructor. */
 export const getWaitlistCounts = query({
   args: { instructorSlug: v.string() },
   handler: async (ctx, args) => {
@@ -52,6 +54,7 @@ export const getWaitlistCounts = query({
   },
 });
 
+/** Checks whether an email is on an instructor's waitlist and returns its status. */
 export const getWaitlistStatus = query({
   args: {
     email: v.string(),
@@ -78,6 +81,7 @@ export const getWaitlistStatus = query({
   },
 });
 
+/** Creates a new waitlist entry or updates the mentorship type if already registered. */
 export const addToWaitlist = mutation({
   args: {
     email: v.string(),
@@ -110,6 +114,7 @@ export const addToWaitlist = mutation({
   },
 });
 
+/** Deletes a single waitlist entry by ID. */
 export const removeFromWaitlist = mutation({
   args: { id: v.id("marketingWaitlist") },
   handler: async (ctx, args) => {
@@ -118,6 +123,7 @@ export const removeFromWaitlist = mutation({
   },
 });
 
+/** Deletes multiple waitlist entries by their IDs. */
 export const removeMultipleFromWaitlist = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
@@ -128,6 +134,7 @@ export const removeMultipleFromWaitlist = mutation({
   },
 });
 
+/** Deletes waitlist entries matching an email and instructor, optionally filtered by mentorship type. */
 export const removeByEmail = mutation({
   args: {
     email: v.string(),
@@ -153,6 +160,7 @@ export const removeByEmail = mutation({
   },
 });
 
+/** Marks multiple waitlist entries as notified by their IDs. */
 export const markNotified = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
@@ -163,6 +171,7 @@ export const markNotified = mutation({
   },
 });
 
+/** Marks all unnotified waitlist entries as notified for an instructor, optionally filtered by mentorship type. */
 export const markNotifiedByInstructor = mutation({
   args: {
     instructorSlug: v.string(),
@@ -187,6 +196,7 @@ export const markNotifiedByInstructor = mutation({
   },
 });
 
+/** Returns waitlist entries that have not yet been notified for an instructor, optionally filtered by mentorship type. */
 export const getUnnotifiedWaitlist = query({
   args: {
     instructorSlug: v.string(),

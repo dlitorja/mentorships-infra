@@ -1,6 +1,8 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 
+/** Returns a user matching the given email address. */
 export const getUserByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
@@ -15,6 +17,7 @@ export const getUserByEmail = query({
   },
 });
 
+/** Returns a user by their document ID. */
 export const getUserById = query({
   args: { id: v.id("users") },
   handler: async (ctx, args) => {
@@ -26,6 +29,7 @@ export const getUserById = query({
   },
 });
 
+/** Returns a user by their auth userId. Requires admin auth. */
 export const getUserByUserId = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -50,6 +54,29 @@ export const getUserByUserId = query({
   },
 });
 
+/** Returns users matching the given auth userIds. */
+export const getUsersByUserIds = query({
+  args: { userIds: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    
+    const users = await Promise.all(
+      args.userIds.map((userId) =>
+        ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", userId))
+          .first()
+      )
+    );
+    
+    return users.filter((u): u is Doc<"users"> => u !== null);
+  },
+});
+
+/** Returns all users in the database. */
 export const listUsers = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -60,6 +87,7 @@ export const listUsers = query({
   },
 });
 
+/** Returns the currently authenticated user based on their auth identity. */
 export const getCurrentUser = query({
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -74,6 +102,7 @@ export const getCurrentUser = query({
   },
 });
 
+/** Creates a new user if one doesn't already exist with the given email. */
 export const createUser = mutation({
   args: {
     userId: v.string(),
@@ -97,6 +126,7 @@ export const createUser = mutation({
   },
 });
 
+/** Updates the specified user's fields and returns the updated document. */
 export const updateUser = mutation({
   args: {
     id: v.id("users"),
@@ -112,6 +142,7 @@ export const updateUser = mutation({
   },
 });
 
+/** Deletes a user by their document ID. Requires admin auth. */
 export const deleteUser = mutation({
   args: { id: v.id("users") },
   handler: async (ctx, args) => {

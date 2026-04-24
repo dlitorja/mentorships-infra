@@ -3,6 +3,7 @@ import { db, instructors, mentors, isUnauthorizedError, isForbiddenError, eq } f
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { protectWithRateLimit } from "@/lib/ratelimit";
 
+/** Create a mentor booking record for an instructor */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }

@@ -16,7 +16,8 @@ import { Loader2, ArrowLeft, User, Users } from "lucide-react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/queries/api-client";
 
-type UserListItem = {
+type MenteeItem = {
+  kind: "mentee";
   id: string;
   userId: string;
   email: string;
@@ -24,23 +25,36 @@ type UserListItem = {
   lastName: string | null;
 };
 
-type Instructor = {
+type InstructorItem = {
+  kind: "instructor";
   id: string;
   userId: string;
+  name?: string;
+  email?: string;
 };
 
-async function fetchUsers(search?: string): Promise<{ items: UserListItem[] }> {
+type SelectableItem = MenteeItem | InstructorItem;
+
+/** Type guard that narrows a SelectableItem to MenteeItem. */
+function isMenteeItem(item: SelectableItem): item is MenteeItem {
+  return item.kind === "mentee";
+}
+
+/** Fetches mentees from the admin API, optionally filtered by search. */
+async function fetchUsers(search?: string): Promise<{ items: MenteeItem[] }> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   params.set("includeInactive", "true");
   
-  return apiFetch<{ items: UserListItem[] }>(`/api/admin/mentees?${params.toString()}`);
+  return apiFetch<{ items: MenteeItem[] }>(`/api/admin/mentees?${params.toString()}`);
 }
 
-async function fetchInstructors(): Promise<{ items: Instructor[] }> {
-  return apiFetch<{ items: Instructor[] }>("/api/admin/instructors?includeInactive=true");
+/** Fetches all instructors from the admin API. */
+async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
+  return apiFetch<{ items: InstructorItem[] }>("/api/admin/instructors?includeInactive=true");
 }
 
+/** Creates an admin-mentee workspace and returns the result. */
 async function createAdminMenteeWorkspace(menteeUserId: string) {
   const response = await fetch("/api/admin/workspaces/admin-mentee", {
     method: "POST",
@@ -54,6 +68,7 @@ async function createAdminMenteeWorkspace(menteeUserId: string) {
   return response.json();
 }
 
+/** Creates an admin-instructor workspace and returns the result. */
 async function createAdminInstructorWorkspace(instructorId: string) {
   const response = await fetch("/api/admin/workspaces/admin-instructor", {
     method: "POST",
@@ -67,6 +82,7 @@ async function createAdminInstructorWorkspace(instructorId: string) {
   return response.json();
 }
 
+/** Page for creating admin workspaces (mentee or instructor type). */
 export default function CreateWorkspacePage({ searchParams }: { searchParams: Promise<{ type?: string }> }) {
   const resolvedSearchParams = use(searchParams);
   const router = useRouter();
@@ -175,9 +191,9 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
               <div className={`max-h-96 overflow-y-auto space-y-2 ${isStale ? "opacity-50" : ""}`}>
                 {items.map((item) => {
                   const itemId = workspaceType === "admin_mentee" ? item.userId : item.id;
-                  const displayName = workspaceType === "admin_mentee" 
-                    ? ((item as UserListItem).firstName || (item as UserListItem).email || item.userId)
-                    : item.userId.slice(0, 8);
+                  const displayName = isMenteeItem(item) 
+                    ? (item.firstName || item.email || item.userId)
+                    : (item.name || item.email || item.userId.slice(0, 8));
                   
                   return (
                     <div
@@ -190,8 +206,8 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                       onClick={() => setSelectedUserId(itemId)}
                     >
                       <div className="font-medium">{displayName}</div>
-                      {workspaceType === "admin_mentee" && (item as UserListItem).email && (
-                        <div className="text-sm text-muted-foreground">{(item as UserListItem).email}</div>
+                      {isMenteeItem(item) && item.email && (
+                        <div className="text-sm text-muted-foreground">{item.email}</div>
                       )}
                     </div>
                   );
@@ -227,7 +243,7 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                 {selectedUserId ? (
                   workspaceType === "admin_mentee" 
                     ? usersData?.items.find((u) => u.userId === selectedUserId)?.email || selectedUserId
-                    : selectedUserId
+                    : instructorsData?.items.find((i) => i.id === selectedUserId)?.name || selectedUserId
                 ) : (
                   <span className="text-muted-foreground">None selected</span>
                 )}

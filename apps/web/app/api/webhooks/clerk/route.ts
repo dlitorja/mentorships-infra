@@ -12,6 +12,7 @@ interface ClerkUserCreatedEvent {
   };
 }
 
+/** Handle incoming Clerk webhook events for user lifecycle */
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
 

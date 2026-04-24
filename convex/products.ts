@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/** Returns a single product by ID, or null if not authenticated. */
 export const getProductById = query({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
@@ -12,6 +13,7 @@ export const getProductById = query({
   },
 });
 
+/** Returns all products belonging to a specific instructor. */
 export const getInstructorProducts = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -26,6 +28,7 @@ export const getInstructorProducts = query({
   },
 });
 
+/** Returns all products marked as active (requires auth). */
 export const getActiveProducts = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -39,6 +42,7 @@ export const getActiveProducts = query({
   },
 });
 
+/** Returns a product matching the given Stripe price ID. */
 export const getProductByStripePriceId = query({
   args: { stripePriceId: v.string() },
   handler: async (ctx, args) => {
@@ -53,7 +57,7 @@ export const getProductByStripePriceId = query({
   },
 });
 
-// Public query - get all active products (no auth required)
+/** Returns all active products without requiring authentication. */
 export const getPublicActiveProducts = query({
   handler: async (ctx) => {
     return await ctx.db
@@ -63,7 +67,7 @@ export const getPublicActiveProducts = query({
   },
 });
 
-// Public query - get products by instructor ID (no auth required)
+/** Returns products for a given instructor without requiring authentication. */
 export const getProductsByInstructorId = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -74,7 +78,7 @@ export const getProductsByInstructorId = query({
   },
 });
 
-// Public query - get products by instructor ID and mentorship type (no auth required)
+/** Returns products for an instructor, optionally filtered by mentorship type (no auth). */
 export const getProductsByInstructorAndType = query({
   args: {
     mentorId: v.id("instructors"),
@@ -93,6 +97,7 @@ export const getProductsByInstructorAndType = query({
   },
 });
 
+/** Creates a new product with the given details. */
 export const createProduct = mutation({
   args: {
     mentorId: v.id("instructors"),
@@ -121,6 +126,7 @@ export const createProduct = mutation({
   },
 });
 
+/** Updates an existing product's fields and returns the updated document. */
 export const updateProduct = mutation({
   args: {
     id: v.id("products"),
@@ -143,6 +149,7 @@ export const updateProduct = mutation({
   },
 });
 
+/** Soft-deletes a product by setting its deletedAt timestamp. */
 export const deleteProduct = mutation({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
@@ -150,6 +157,7 @@ export const deleteProduct = mutation({
   },
 });
 
+/** Deactivates a product by setting active to false and returns the updated document. */
 export const deactivateProduct = mutation({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
@@ -158,6 +166,7 @@ export const deactivateProduct = mutation({
   },
 });
 
+/** Activates a product by setting active to true and returns the updated document. */
 export const activateProduct = mutation({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {

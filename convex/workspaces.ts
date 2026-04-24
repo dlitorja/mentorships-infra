@@ -87,6 +87,23 @@ async function logWorkspaceAudit(
   });
 }
 
+/** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
+export const logViewWorkspaceAudit = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    adminId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("workspaceAuditLogs", {
+      workspaceId: args.workspaceId,
+      adminId: args.adminId,
+      action: "view_workspace",
+      timestamp: Date.now(),
+    });
+  },
+});
+
+/** Returns a workspace by ID. Requires auth. */
 export const getWorkspaceById = query({
   args: { id: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -98,6 +115,7 @@ export const getWorkspaceById = query({
   },
 });
 
+/** Returns all workspaces owned by a user. Requires auth. */
 export const getUserWorkspaces = query({
   args: { ownerId: v.string() },
   handler: async (ctx, args) => {
@@ -112,6 +130,7 @@ export const getUserWorkspaces = query({
   },
 });
 
+/** Returns all workspaces assigned to a mentor. Requires auth. */
 export const getMentorWorkspaces = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -126,6 +145,7 @@ export const getMentorWorkspaces = query({
   },
 });
 
+/** Returns a workspace by seat reservation ID. Requires auth. */
 export const getWorkspaceBySeatReservation = query({
   args: { seatReservationId: v.id("seatReservations") },
   handler: async (ctx, args) => {
@@ -142,6 +162,7 @@ export const getWorkspaceBySeatReservation = query({
   },
 });
 
+/** Returns workspaces past the 18-month retention period that are pending deletion. */
 export const getWorkspacesNeedingRetentionDeletion = query({
   args: {},
   handler: async (ctx, args) => {
@@ -154,6 +175,7 @@ export const getWorkspacesNeedingRetentionDeletion = query({
   },
 });
 
+/** Returns workspaces approaching retention deletion within 90, 30, or 7 days. */
 export const getWorkspacesForRetentionNotification = query({
   args: {},
   handler: async (ctx, args) => {
@@ -187,6 +209,7 @@ export const getWorkspacesForRetentionNotification = query({
   },
 });
 
+/** Returns the authenticated user's role (mentor/mentee/admin) in a workspace. Requires auth. */
 export const getUserWorkspaceRole = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -203,6 +226,7 @@ export const getUserWorkspaceRole = query({
   },
 });
 
+/** Creates a new workspace with the given owner, mentor, and settings. */
 export const createWorkspace = mutation({
   args: {
     name: v.string(),
@@ -223,6 +247,7 @@ export const createWorkspace = mutation({
   },
 });
 
+/** Updates a workspace's name, description, image, or visibility. */
 export const updateWorkspace = mutation({
   args: {
     id: v.id("workspaces"),
@@ -238,6 +263,7 @@ export const updateWorkspace = mutation({
   },
 });
 
+/** Soft-deletes a workspace by setting the deletedAt timestamp. */
 export const deleteWorkspace = mutation({
   args: { id: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -245,6 +271,7 @@ export const deleteWorkspace = mutation({
   },
 });
 
+/** Returns all notes for a workspace. Requires auth. */
 export const getWorkspaceNotes = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -259,6 +286,7 @@ export const getWorkspaceNotes = query({
   },
 });
 
+/** Creates a new note in a workspace. */
 export const createWorkspaceNote = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -274,6 +302,7 @@ export const createWorkspaceNote = mutation({
   },
 });
 
+/** Updates a workspace note's title and content. */
 export const updateWorkspaceNote = mutation({
   args: {
     id: v.id("workspaceNotes"),
@@ -287,6 +316,7 @@ export const updateWorkspaceNote = mutation({
   },
 });
 
+/** Soft-deletes a workspace note by setting deletedAt. */
 export const deleteWorkspaceNote = mutation({
   args: { id: v.id("workspaceNotes") },
   handler: async (ctx, args) => {
@@ -294,6 +324,7 @@ export const deleteWorkspaceNote = mutation({
   },
 });
 
+/** Returns all links for a workspace. Requires auth. */
 export const getWorkspaceLinks = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -308,6 +339,7 @@ export const getWorkspaceLinks = query({
   },
 });
 
+/** Creates a new link in a workspace. */
 export const createWorkspaceLink = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -320,6 +352,7 @@ export const createWorkspaceLink = mutation({
   },
 });
 
+/** Soft-deletes a workspace link by setting deletedAt. */
 export const deleteWorkspaceLink = mutation({
   args: { id: v.id("workspaceLinks") },
   handler: async (ctx, args) => {
@@ -327,6 +360,7 @@ export const deleteWorkspaceLink = mutation({
   },
 });
 
+/** Returns images for a workspace, filtered by role (mentors see all, mentees see own and mentor's). Requires auth. */
 export const getWorkspaceImages = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -362,6 +396,7 @@ export const getWorkspaceImages = query({
   },
 });
 
+/** Creates an image in a workspace, enforcing role-based upload caps. Requires auth. */
 export const createWorkspaceImage = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -412,6 +447,7 @@ export const createWorkspaceImage = mutation({
   },
 });
 
+/** Returns workspace notes and images for export. Requires auth. */
 export const getWorkspaceExportData = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -458,6 +494,7 @@ export const getWorkspaceExportData = query({
   },
 });
 
+/** Soft-deletes a workspace image and decrements the role-based image counter. */
 export const deleteWorkspaceImage = mutation({
   args: { id: v.id("workspaceImages") },
   handler: async (ctx, args) => {
@@ -486,6 +523,7 @@ export const deleteWorkspaceImage = mutation({
   },
 });
 
+/** Returns all messages for a workspace in chronological order. Requires auth. */
 export const getWorkspaceMessages = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -501,6 +539,7 @@ export const getWorkspaceMessages = query({
   },
 });
 
+/** Creates a message in a workspace with automatic sender role detection. Requires auth. */
 export const createWorkspaceMessage = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -552,6 +591,7 @@ export const createWorkspaceMessage = mutation({
   },
 });
 
+/** Creates a workspace export record and triggers a Trigger.dev task for zip format. Requires auth. */
 export const createWorkspaceExport = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -613,6 +653,7 @@ export const createWorkspaceExport = mutation({
   },
 });
 
+/** Updates an export's status, download URL, or expiration time. */
 export const updateWorkspaceExport = mutation({
   args: {
     id: v.id("workspaceExports"),
@@ -627,6 +668,7 @@ export const updateWorkspaceExport = mutation({
   },
 });
 
+/** Returns the 10 most recent exports for a workspace. Requires auth. */
 export const getWorkspaceExports = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -642,6 +684,7 @@ export const getWorkspaceExports = query({
   },
 });
 
+/** Returns all retention notifications for a workspace. Requires auth. */
 export const getWorkspaceRetentionNotifications = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -656,6 +699,7 @@ export const getWorkspaceRetentionNotifications = query({
   },
 });
 
+/** Creates a retention notification (expiry warning or deleted). */
 export const createRetentionNotification = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -670,6 +714,7 @@ export const createRetentionNotification = mutation({
   },
 });
 
+/** Marks a retention notification as acknowledged. */
 export const acknowledgeNotification = mutation({
   args: { id: v.id("workspaceRetentionNotifications") },
   handler: async (ctx, args) => {
@@ -678,6 +723,7 @@ export const acknowledgeNotification = mutation({
   },
 });
 
+/** Permanently deletes all notes, links, images, and messages in a workspace and resets image counters. */
 export const deleteAllWorkspaceContent = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {

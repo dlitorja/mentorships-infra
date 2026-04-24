@@ -15,6 +15,7 @@ const checkoutSchema = z.object({
   promotionCode: z.string().optional(), // Optional promotion code from customer input
 });
 
+/** Create a Stripe Checkout session for a product pack */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
 
 function getConvexClient() {
@@ -14,7 +15,7 @@ function getConvexClient() {
  * POST /api/admin/workspaces/admin-instructor
  * Create an admin-instructor workspace for communication
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     const workspace = await convex.mutation(api.adminWorkspaces.createAdminInstructorWorkspace, {
-      instructorId: instructorId as any,
+      instructorId: instructorId as Id<"instructors">,
     });
 
     if (!workspace) {
@@ -49,11 +50,9 @@ export async function POST(req: NextRequest) {
       type: workspace.type,
       mentorId: workspace.mentorId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create workspace";
     console.error("Error creating admin-instructor workspace:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to create workspace" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

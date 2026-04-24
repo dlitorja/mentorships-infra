@@ -1,6 +1,8 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 
+/** Returns the instructor matching the given userId, or null if not authenticated. */
 export const getInstructorByUserId = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -15,6 +17,7 @@ export const getInstructorByUserId = query({
   },
 });
 
+/** Returns the instructor document by id, or null if not authenticated. */
 export const getInstructorById = query({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -26,6 +29,24 @@ export const getInstructorById = query({
   },
 });
 
+/** Returns non-deleted instructors matching the given ids. */
+export const getInstructorsByIds = query({
+  args: { ids: v.array(v.id("instructors")) },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    
+    const instructors = await Promise.all(
+      args.ids.map((id) => ctx.db.get(id))
+    );
+    
+    return instructors.filter((inst): inst is Doc<"instructors"> => inst !== null && !inst.deletedAt);
+  },
+});
+
+/** Returns the instructor profile matching the given slug. */
 export const getInstructorBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
@@ -40,6 +61,7 @@ export const getInstructorBySlug = query({
   },
 });
 
+/** Returns all non-deleted instructors. Requires authentication. */
 export const listInstructors = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -53,6 +75,7 @@ export const listInstructors = query({
   },
 });
 
+/** Returns active instructors with inventory, excluding sensitive fields. Requires authentication. */
 export const getActiveInstructors = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -68,6 +91,7 @@ export const getActiveInstructors = query({
   },
 });
 
+/** Returns publicly available active instructors with inventory, excluding sensitive fields. */
 export const getPublicInstructors = query({
   handler: async (ctx) => {
     const instructors = await ctx.db
@@ -79,6 +103,7 @@ export const getPublicInstructors = query({
   },
 });
 
+/** Creates a new instructor or returns the existing instructor id if one already exists. */
 export const createInstructor = mutation({
   args: {
     userId: v.string(),
@@ -111,6 +136,7 @@ export const createInstructor = mutation({
   },
 });
 
+/** Updates the specified instructor fields and returns the updated document. */
 export const updateInstructor = mutation({
   args: {
     id: v.id("instructors"),
@@ -131,6 +157,7 @@ export const updateInstructor = mutation({
   },
 });
 
+/** Soft-deletes an instructor by setting deletedAt to the current timestamp. */
 export const deleteInstructor = mutation({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -138,6 +165,7 @@ export const deleteInstructor = mutation({
   },
 });
 
+/** Decrements the oneOnOne or group inventory for an instructor by 1. */
 export const decrementInventory = mutation({
   args: { 
     id: v.id("instructors"), 
@@ -161,6 +189,7 @@ export const decrementInventory = mutation({
   },
 });
 
+/** Increments the oneOnOne or group inventory for an instructor by 1. */
 export const incrementInventory = mutation({
   args: { 
     id: v.id("instructors"), 
@@ -180,6 +209,7 @@ export const incrementInventory = mutation({
   },
 });
 
+/** Creates a testimonial for an instructor profile. */
 export const createTestimonial = mutation({
   args: {
     instructorId: v.id("instructorProfiles"),
@@ -195,6 +225,7 @@ export const createTestimonial = mutation({
   },
 });
 
+/** Creates a mentee result with an image URL for an instructor profile. */
 export const createMenteeResult = mutation({
   args: {
     instructorId: v.id("instructorProfiles"),

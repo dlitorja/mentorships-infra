@@ -1,6 +1,7 @@
 import { mutation } from "../_generated/server";
 import { v } from "convex/values";
 
+/** Deletes all notes, links, images, and messages belonging to a workspace and resets its image counts. */
 export const deleteAllWorkspaceContent = mutation({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -54,6 +55,7 @@ export const deleteAllWorkspaceContent = mutation({
   },
 });
 
+/** Creates a retention notification for a workspace user if one of the same type doesn't already exist. */
 export const createRetentionNotification = mutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -86,6 +88,7 @@ export const createRetentionNotification = mutation({
   },
 });
 
+/** Updates a workspace export record's status and optionally its download URL and expiration time. */
 export const updateWorkspaceExportStatus = mutation({
   args: {
     exportId: v.id("workspaceExports"),

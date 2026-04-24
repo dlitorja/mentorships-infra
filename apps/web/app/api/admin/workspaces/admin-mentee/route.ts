@@ -14,7 +14,7 @@ function getConvexClient() {
  * POST /api/admin/workspaces/admin-mentee
  * Create an admin-mentee workspace for communication
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
@@ -49,11 +49,9 @@ export async function POST(req: NextRequest) {
       type: workspace.type,
       ownerId: workspace.ownerId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create workspace";
     console.error("Error creating admin-mentee workspace:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to create workspace" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

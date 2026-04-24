@@ -46,6 +46,7 @@ function verifyAuth(request: Request): boolean {
   return authHeader === expected;
 }
 
+/** Returns workspaces past the 18-month retention period that are pending deletion. */
 export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -56,6 +57,7 @@ export const httpGetWorkspacesNeedingDeletion = httpAction(async (ctx, request) 
   });
 });
 
+/** Returns workspaces approaching deletion that are due for a retention notification. */
 export const httpGetWorkspacesForNotification = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -66,6 +68,7 @@ export const httpGetWorkspacesForNotification = httpAction(async (ctx, request) 
   });
 });
 
+/** Deletes all notes, links, images, and messages associated with a workspace. */
 export const httpDeleteAllWorkspaceContent = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -78,6 +81,7 @@ export const httpDeleteAllWorkspaceContent = httpAction(async (ctx, request) => 
   });
 });
 
+/** Creates a retention notification record for a workspace user. */
 export const httpCreateRetentionNotification = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -94,6 +98,7 @@ export const httpCreateRetentionNotification = httpAction(async (ctx, request) =
   });
 });
 
+/** Retrieves a user's email address by their Clerk ID. */
 export const httpGetUserEmail = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -106,6 +111,7 @@ export const httpGetUserEmail = httpAction(async (ctx, request) => {
   });
 });
 
+/** Fetches a workspace's notes and images for data export. */
 export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -126,6 +132,7 @@ export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
   }
 });
 
+/** Updates a workspace export record's status, download URL, and expiration. */
 export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -157,6 +164,7 @@ const typeMap: Record<string, "oneOnOne" | "group"> = {
   group: "group",
 };
 
+/** Decrements an instructor's mentorship inventory slot for a given type. */
 export const httpDecrementInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -182,6 +190,7 @@ export const httpDecrementInventory = httpAction(async (ctx, request) => {
   }
 });
 
+/** Increments an instructor's mentorship inventory by a given quantity and type. */
 export const httpIncrementInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -211,6 +220,7 @@ export const httpIncrementInventory = httpAction(async (ctx, request) => {
   }
 });
 
+/** Sets an instructor's one-on-one and/or group inventory to specific values. */
 export const httpSetInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
@@ -242,6 +252,7 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
   }
 });
 
+/** Marks waitlist entries as notified when an instructor has availability. */
 export const httpNotifyWaitlist = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 

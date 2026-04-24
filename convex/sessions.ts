@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/** Returns a session by its ID. */
 export const getSessionById = query({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {
@@ -12,6 +13,7 @@ export const getSessionById = query({
   },
 });
 
+/** Returns all sessions for a given student. */
 export const getStudentSessions = query({
   args: { studentId: v.string() },
   handler: async (ctx, args) => {
@@ -26,6 +28,7 @@ export const getStudentSessions = query({
   },
 });
 
+/** Returns all sessions for a given mentor. */
 export const getMentorSessions = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -40,6 +43,7 @@ export const getMentorSessions = query({
   },
 });
 
+/** Returns upcoming scheduled sessions for a student. */
 export const getUpcomingSessions = query({
   args: { studentId: v.string() },
   handler: async (ctx, args) => {
@@ -59,6 +63,7 @@ export const getUpcomingSessions = query({
   },
 });
 
+/** Returns a session matching a Google Calendar event ID. */
 export const getSessionByCalendarEventId = query({
   args: { eventId: v.string() },
   handler: async (ctx, args) => {
@@ -73,6 +78,7 @@ export const getSessionByCalendarEventId = query({
   },
 });
 
+/** Creates a new session with scheduled status. */
 export const createSession = mutation({
   args: {
     mentorId: v.id("instructors"),
@@ -91,6 +97,7 @@ export const createSession = mutation({
   },
 });
 
+/** Updates specified fields on an existing session. */
 export const updateSession = mutation({
   args: {
     id: v.id("sessions"),
@@ -111,6 +118,7 @@ export const updateSession = mutation({
   },
 });
 
+/** Marks a session as completed with a timestamp and optional recording/notes. */
 export const completeSession = mutation({
   args: { 
     id: v.id("sessions"),
@@ -129,6 +137,7 @@ export const completeSession = mutation({
   },
 });
 
+/** Cancels a session by setting its status to canceled. */
 export const cancelSession = mutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {
@@ -140,6 +149,7 @@ export const cancelSession = mutation({
   },
 });
 
+/** Soft-deletes a session by setting its deletedAt timestamp. */
 export const deleteSession = mutation({
   args: { id: v.id("sessions") },
   handler: async (ctx, args) => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAuth } from "@mentorships/db";
 import { stripe } from "@/lib/stripe";
 
+/** Verify a Stripe Checkout session's payment status */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     // Require authentication

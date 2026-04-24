@@ -14,7 +14,7 @@ function getConvexClient() {
  * GET /api/admin/audit-logs
  * List all workspace audit logs for admin with pagination
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      items: result.page.map((log: any) => ({
+      items: result.page.map((log) => ({
         id: log._id,
         workspaceId: log.workspaceId,
         adminId: log.adminId,
@@ -46,11 +46,9 @@ export async function GET(req: NextRequest) {
       continueCursor: result.continueCursor,
       isDone: result.isDone,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to list audit logs";
     console.error("Error listing audit logs:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to list audit logs" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
