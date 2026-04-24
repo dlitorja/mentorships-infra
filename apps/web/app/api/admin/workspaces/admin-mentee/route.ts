@@ -49,11 +49,9 @@ export async function POST(req: NextRequest) {
       type: workspace.type,
       ownerId: workspace.ownerId,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to create workspace";
     console.error("Error creating admin-mentee workspace:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to create workspace" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

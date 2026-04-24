@@ -3,6 +3,7 @@ import { v } from "convex/values";
 
 
 
+/** Returns a seat reservation by its ID, or null if unauthenticated. */
 export const getSeatReservationById = query({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
@@ -14,6 +15,7 @@ export const getSeatReservationById = query({
   },
 });
 
+/** Returns the seat reservation matching a given session pack ID, or null if unauthenticated. */
 export const getSeatReservationBySessionPack = query({
   args: { sessionPackId: v.id("sessionPacks") },
   handler: async (ctx, args) => {
@@ -28,6 +30,7 @@ export const getSeatReservationBySessionPack = query({
   },
 });
 
+/** Returns all seat reservations for a given user ID. */
 export const getUserSeatReservations = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -42,6 +45,7 @@ export const getUserSeatReservations = query({
   },
 });
 
+/** Returns all seat reservations for a given mentor ID. */
 export const getMentorSeatReservations = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -56,6 +60,7 @@ export const getMentorSeatReservations = query({
   },
 });
 
+/** Returns all active seat reservations for a given mentor ID. */
 export const getMentorActiveSeats = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -72,6 +77,7 @@ export const getMentorActiveSeats = query({
   },
 });
 
+/** Returns the seat reservation for a specific user-mentor pair, or null if unauthenticated. */
 export const getUserMentorSeat = query({
   args: { userId: v.string(), mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -88,6 +94,7 @@ export const getUserMentorSeat = query({
   },
 });
 
+/** Creates a new seat reservation and associated workspace, returning both IDs. */
 export const createSeatReservation = mutation({
   args: {
     mentorId: v.id("instructors"),
@@ -132,6 +139,7 @@ export const createSeatReservation = mutation({
   },
 });
 
+/** Updates the expiration, grace period, notification status, or status of an existing seat reservation. */
 export const updateSeatReservation = mutation({
   args: {
     id: v.id("seatReservations"),
@@ -147,6 +155,7 @@ export const updateSeatReservation = mutation({
   },
 });
 
+/** Releases a seat reservation and ends its associated workspaces by setting endedAt. */
 export const releaseSeat = mutation({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
@@ -170,6 +179,7 @@ export const releaseSeat = mutation({
   },
 });
 
+/** Extends a seat reservation's expiration date by a number of days and reactivates it. */
 export const extendSeat = mutation({
   args: { 
     id: v.id("seatReservations"), 
@@ -191,6 +201,7 @@ export const extendSeat = mutation({
   },
 });
 
+/** Permanently deletes a seat reservation by ID. */
 export const deleteSeatReservation = mutation({
   args: { id: v.id("seatReservations") },
   handler: async (ctx, args) => {
@@ -198,6 +209,7 @@ export const deleteSeatReservation = mutation({
   },
 });
 
+/** Transitions expired active seats to grace period, and releases seats whose grace period has ended, ending associated workspaces. */
 export const processExpiredSeats = mutation({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {

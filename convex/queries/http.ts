@@ -4,6 +4,7 @@ import { v } from "convex/values";
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
 
+/** Finds workspaces past the 18-month retention window that haven't been marked as deleted. */
 export const getWorkspacesNeedingDeletion = query({
   handler: async (ctx) => {
     const cutoff = Date.now() - EIGHTEEN_MONTHS_MS;
@@ -17,6 +18,7 @@ export const getWorkspacesNeedingDeletion = query({
   },
 });
 
+/** Finds workspaces within 7, 30, or 90 days of deletion that require a retention notification. */
 export const getWorkspacesForNotification = query({
   handler: async (ctx) => {
     const now = Date.now();
@@ -59,6 +61,7 @@ export const getWorkspacesForNotification = query({
   },
 });
 
+/** Looks up a user's email address by their Clerk ID. */
 export const getUserEmail = query({
   args: { clerkId: v.string() },
   handler: async (ctx, args) => {
@@ -73,6 +76,7 @@ export const getUserEmail = query({
   },
 });
 
+/** Fetches a workspace's non-deleted notes and images for data export. */
 export const getWorkspaceExportData = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {

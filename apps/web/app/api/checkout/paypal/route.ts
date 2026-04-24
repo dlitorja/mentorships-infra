@@ -12,6 +12,7 @@ const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
 });
 
+/** Create a PayPal order for a product pack */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 

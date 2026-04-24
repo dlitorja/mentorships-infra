@@ -12,7 +12,9 @@ function getConvexClient() {
 
 /**
  * GET /api/admin/workspaces
- * List all workspaces for admin with filtering and pagination
+ * List all workspaces for admin with filtering and pagination.
+ * Owner and mentor data is enriched server-side by the Convex query,
+ * eliminating the need for separate batch lookups.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -36,52 +38,14 @@ export async function GET(req: NextRequest) {
       type: type || undefined,
     });
 
-    const workspaceOwners = new Map<string, any>();
-    const workspaceMentors = new Map<string, any>();
-
-    for (const workspace of result.page) {
-      if (workspace.ownerId) {
-        try {
-          const user = await convex.query(api.users.getUserByUserId, { userId: workspace.ownerId });
-          workspaceOwners.set(workspace._id, user);
-        } catch {
-          workspaceOwners.set(workspace._id, null);
-        }
-      }
-      if (workspace.mentorId) {
-        try {
-          const instructor = await convex.query(api.instructors.getInstructorById, { id: workspace.mentorId });
-          workspaceMentors.set(workspace._id, instructor);
-        } catch (e) {
-          workspaceMentors.set(workspace._id, null);
-        }
-      }
-    }
-
     return NextResponse.json({
-      items: result.page.map((workspace: any) => ({
-        id: workspace._id,
-        name: workspace.name,
-        description: workspace.description,
-        type: workspace.type || "mentorship",
-        ownerId: workspace.ownerId,
-        owner: workspaceOwners.get(workspace._id),
-        mentorId: workspace.mentorId,
-        mentor: workspaceMentors.get(workspace._id),
-        isPublic: workspace.isPublic,
-        endedAt: workspace.endedAt,
-        createdAt: workspace._creationTime,
-        menteeImageCount: workspace.menteeImageCount,
-        mentorImageCount: workspace.mentorImageCount,
-      })),
+      items: result.page,
       continueCursor: result.continueCursor,
       isDone: result.isDone,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error listing workspaces:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to list workspaces" },
-      { status: 500 }
-    );
+    const message = error instanceof Error ? error.message : "Failed to list workspaces";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

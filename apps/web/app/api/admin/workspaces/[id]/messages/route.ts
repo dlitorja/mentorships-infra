@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
 
 function getConvexClient() {
@@ -43,7 +44,7 @@ export async function POST(
     }
 
     const workspace = await convex.query(api.adminWorkspaces.getWorkspaceByIdAdmin, {
-      id: id as any,
+      id: id as Id<"workspaces">,
     });
 
     if (!workspace) {
@@ -54,18 +55,16 @@ export async function POST(
     }
 
     const messageId = await convex.mutation(api.workspaces.createWorkspaceMessage, {
-      workspaceId: id as any,
+      workspaceId: id as Id<"workspaces">,
       userId: clerkUserId,
       content,
       type: "text",
     });
 
     return NextResponse.json({ id: messageId, success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to send message";
     console.error("Error sending message:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to send message" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

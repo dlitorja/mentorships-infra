@@ -87,6 +87,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       items: allInstructors.map((inst) => ({
+        kind: "instructor" as const,
         id: inst.id,
         name: inst.name,
         slug: inst.slug,

@@ -15,6 +15,7 @@ const markNotifiedSchema = z.object({
   entryIds: z.array(z.number()),
 });
 
+/** Fetch waitlist entries for an instructor by slug */
 export async function GET(
   request: NextRequest
 ): Promise<NextResponse> {
@@ -65,6 +66,7 @@ export async function GET(
   }
 }
 
+/** Mark waitlist entries as notified */
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   const rateLimitResponse = await protectWithRateLimit(request, { policy: "default" });
   if (rateLimitResponse) {
@@ -105,6 +107,7 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+/** Delete waitlist entries by IDs */
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   const rateLimitResponse = await protectWithRateLimit(request, { policy: "default" });
   if (rateLimitResponse) {
@@ -141,6 +144,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   }
 }
 
+/** Send notification emails to waitlist entries */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const rateLimitResponse = await protectWithRateLimit(request, { policy: "default" });
   if (rateLimitResponse) {

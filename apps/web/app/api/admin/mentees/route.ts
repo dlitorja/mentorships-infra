@@ -108,9 +108,12 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       items: mentees.map((m) => ({
+        kind: "mentee" as const,
         id: m.id,
         userId: m.userId,
         email: m.email || "Unknown",
+        firstName: null,
+        lastName: null,
         mentorId: m.mentorId,
         instructorName: m.instructorName || "Unknown",
         instructorSlug: m.instructorSlug,

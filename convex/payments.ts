@@ -1,6 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/** Fetches a payment by its ID, returning null if unauthenticated. */
 export const getPaymentById = query({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
@@ -12,6 +13,7 @@ export const getPaymentById = query({
   },
 });
 
+/** Returns all payments for a given order. */
 export const getOrderPayments = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, args) => {
@@ -26,6 +28,7 @@ export const getOrderPayments = query({
   },
 });
 
+/** Finds a payment by its provider and provider-specific payment ID. */
 export const getPaymentByProviderId = query({
   args: {
     provider: v.union(v.literal("stripe"), v.literal("paypal")),
@@ -45,6 +48,7 @@ export const getPaymentByProviderId = query({
   },
 });
 
+/** Creates a new payment record for an order. */
 export const createPayment = mutation({
   args: {
     orderId: v.id("orders"),
@@ -63,6 +67,7 @@ export const createPayment = mutation({
   },
 });
 
+/** Updates a payment's status and/or refunded amount. */
 export const updatePayment = mutation({
   args: {
     id: v.id("payments"),
@@ -76,6 +81,7 @@ export const updatePayment = mutation({
   },
 });
 
+/** Marks a payment as completed. */
 export const completePayment = mutation({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
@@ -84,6 +90,7 @@ export const completePayment = mutation({
   },
 });
 
+/** Marks a payment as refunded with the given refunded amount. */
 export const refundPayment = mutation({
   args: { id: v.id("payments"), refundedAmount: v.string() },
   handler: async (ctx, args) => {
@@ -95,6 +102,7 @@ export const refundPayment = mutation({
   },
 });
 
+/** Marks a payment as failed. */
 export const failPayment = mutation({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {
@@ -103,6 +111,7 @@ export const failPayment = mutation({
   },
 });
 
+/** Soft-deletes a payment by setting its deletedAt timestamp. */
 export const deletePayment = mutation({
   args: { id: v.id("payments") },
   handler: async (ctx, args) => {

@@ -32,6 +32,7 @@ function generateStoragePath(
   return `instructors/${instructorSlug}/${subfolder}${uuid}${fileExtension}`;
 }
 
+/** Upload an image to Supabase storage for an instructor */
 export async function POST(req: NextRequest) {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");

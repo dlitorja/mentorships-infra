@@ -11,6 +11,7 @@ const updateInventorySchema = z.object({
   maxActiveStudents: z.number().int().min(0).optional(),
 });
 
+/** Update inventory fields for a mentor */
 export async function PATCH(
   request: NextRequest
 ): Promise<NextResponse> {
