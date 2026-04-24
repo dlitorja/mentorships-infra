@@ -14,7 +14,7 @@ function getConvexClient() {
  * GET /api/admin/audit-logs
  * List all workspace audit logs for admin with pagination
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({
-      items: (result.page as Array<Record<string, unknown>>).map((log) => ({
+      items: result.page.map((log) => ({
         id: log._id,
         workspaceId: log.workspaceId,
         adminId: log.adminId,

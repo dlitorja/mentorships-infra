@@ -87,6 +87,22 @@ async function logWorkspaceAudit(
   });
 }
 
+/** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
+export const logViewWorkspaceAudit = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    adminId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("workspaceAuditLogs", {
+      workspaceId: args.workspaceId,
+      adminId: args.adminId,
+      action: "view_workspace",
+      timestamp: Date.now(),
+    });
+  },
+});
+
 /** Returns a workspace by ID. Requires auth. */
 export const getWorkspaceById = query({
   args: { id: v.id("workspaces") },

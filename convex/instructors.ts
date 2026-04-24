@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 
 /** Returns the instructor matching the given userId, or null if not authenticated. */
 export const getInstructorByUserId = query({
@@ -28,7 +29,7 @@ export const getInstructorById = query({
   },
 });
 
-/** Returns a map of non-deleted instructors keyed by id for the given ids. */
+/** Returns non-deleted instructors matching the given ids. */
 export const getInstructorsByIds = query({
   args: { ids: v.array(v.id("instructors")) },
   handler: async (ctx, args) => {
@@ -41,14 +42,7 @@ export const getInstructorsByIds = query({
       args.ids.map((id) => ctx.db.get(id))
     );
     
-    const result = new Map<string, any>();
-    args.ids.forEach((id, index) => {
-      if (instructors[index] && !instructors[index].deletedAt) {
-        result.set(id, instructors[index]);
-      }
-    });
-    
-    return result;
+    return instructors.filter((inst): inst is Doc<"instructors"> => inst !== null && !inst.deletedAt);
   },
 });
 

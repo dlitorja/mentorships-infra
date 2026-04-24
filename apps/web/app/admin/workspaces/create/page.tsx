@@ -35,10 +35,12 @@ type InstructorItem = {
 
 type SelectableItem = MenteeItem | InstructorItem;
 
+/** Type guard that narrows a SelectableItem to MenteeItem. */
 function isMenteeItem(item: SelectableItem): item is MenteeItem {
   return item.kind === "mentee";
 }
 
+/** Fetches mentees from the admin API, optionally filtered by search. */
 async function fetchUsers(search?: string): Promise<{ items: MenteeItem[] }> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
@@ -47,10 +49,12 @@ async function fetchUsers(search?: string): Promise<{ items: MenteeItem[] }> {
   return apiFetch<{ items: MenteeItem[] }>(`/api/admin/mentees?${params.toString()}`);
 }
 
+/** Fetches all instructors from the admin API. */
 async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
   return apiFetch<{ items: InstructorItem[] }>("/api/admin/instructors?includeInactive=true");
 }
 
+/** Creates an admin-mentee workspace and returns the result. */
 async function createAdminMenteeWorkspace(menteeUserId: string) {
   const response = await fetch("/api/admin/workspaces/admin-mentee", {
     method: "POST",
@@ -64,6 +68,7 @@ async function createAdminMenteeWorkspace(menteeUserId: string) {
   return response.json();
 }
 
+/** Creates an admin-instructor workspace and returns the result. */
 async function createAdminInstructorWorkspace(instructorId: string) {
   const response = await fetch("/api/admin/workspaces/admin-instructor", {
     method: "POST",
@@ -77,6 +82,7 @@ async function createAdminInstructorWorkspace(instructorId: string) {
   return response.json();
 }
 
+/** Page for creating admin workspaces (mentee or instructor type). */
 export default function CreateWorkspacePage({ searchParams }: { searchParams: Promise<{ type?: string }> }) {
   const resolvedSearchParams = use(searchParams);
   const router = useRouter();
@@ -187,7 +193,7 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                   const itemId = workspaceType === "admin_mentee" ? item.userId : item.id;
                   const displayName = isMenteeItem(item) 
                     ? (item.firstName || item.email || item.userId)
-                    : item.userId.slice(0, 8);
+                    : (item.name || item.email || item.userId.slice(0, 8));
                   
                   return (
                     <div
@@ -237,7 +243,7 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                 {selectedUserId ? (
                   workspaceType === "admin_mentee" 
                     ? usersData?.items.find((u) => u.userId === selectedUserId)?.email || selectedUserId
-                    : selectedUserId
+                    : instructorsData?.items.find((i) => i.id === selectedUserId)?.name || selectedUserId
                 ) : (
                   <span className="text-muted-foreground">None selected</span>
                 )}

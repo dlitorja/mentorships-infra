@@ -16,7 +16,7 @@ function getConvexClient() {
  * Owner and mentor data is enriched server-side by the Convex query,
  * eliminating the need for separate batch lookups.
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");

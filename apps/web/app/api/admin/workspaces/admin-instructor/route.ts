@@ -15,7 +15,7 @@ function getConvexClient() {
  * POST /api/admin/workspaces/admin-instructor
  * Create an admin-instructor workspace for communication
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");

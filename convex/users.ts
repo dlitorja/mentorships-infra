@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 
 /** Returns a user matching the given email address. */
 export const getUserByEmail = query({
@@ -53,7 +54,7 @@ export const getUserByUserId = query({
   },
 });
 
-/** Returns a map of userId to user document for the given auth userIds. */
+/** Returns users matching the given auth userIds. */
 export const getUsersByUserIds = query({
   args: { userIds: v.array(v.string()) },
   handler: async (ctx, args) => {
@@ -71,14 +72,7 @@ export const getUsersByUserIds = query({
       )
     );
     
-    const result = new Map<string, any>();
-    args.userIds.forEach((userId, index) => {
-      if (users[index]) {
-        result.set(userId, users[index]);
-      }
-    });
-    
-    return result;
+    return users.filter((u): u is Doc<"users"> => u !== null);
   },
 });
 

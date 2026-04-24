@@ -14,14 +14,16 @@ function getConvexClient() {
 /**
  * GET /api/admin/workspaces/[id]
  * Get workspace details by ID for admin, including owner/mentor info,
- * messages, and audit logs.
+ * messages, and audit logs. Logs a view_workspace audit event.
  */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
+    const { auth } = await import("@clerk/nextjs/server");
+    const { userId: clerkUserId } = await auth();
     await requireRoleForApi("admin");
 
     const convex = getConvexClient();
@@ -49,9 +51,16 @@ export async function GET(
       }),
     ]);
 
+    if (clerkUserId) {
+      await convex.mutation(api.workspaces.logViewWorkspaceAudit, {
+        workspaceId: workspace.id as Id<"workspaces">,
+        adminId: clerkUserId,
+      }).catch(() => {});
+    }
+
     return NextResponse.json({
       ...workspace,
-      messages: (messages as Array<Record<string, unknown>>).map((m) => ({
+      messages: messages.map((m) => ({
         id: m._id,
         userId: m.userId,
         content: m.content,
@@ -59,7 +68,7 @@ export async function GET(
         senderRole: m.senderRole,
         createdAt: m._creationTime,
       })),
-      auditLogs: (auditLogs.page as Array<Record<string, unknown>>).map((log) => ({
+      auditLogs: auditLogs.page.map((log) => ({
         id: log._id,
         adminId: log.adminId,
         action: log.action,
