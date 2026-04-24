@@ -1,6 +1,6 @@
 "use client";
 
-import React, { use, useState } from "react";
+import React, { use, useState, useDeferredValue } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -73,11 +73,12 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const workspaceType = resolvedSearchParams.type || "admin_mentee";
   
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const { data: usersData, isLoading: loadingUsers } = useQuery({
-    queryKey: ["users", search],
-    queryFn: () => fetchUsers(search),
+    queryKey: ["users", deferredSearch],
+    queryFn: () => fetchUsers(deferredSearch),
     enabled: workspaceType === "admin_mentee",
   });
 
@@ -116,6 +117,8 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const items = workspaceType === "admin_mentee" 
     ? usersData?.items || [] 
     : instructorsData?.items || [];
+
+  const isStale = search !== deferredSearch;
 
   return (
     <div className="container mx-auto py-8">
@@ -169,11 +172,11 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                 <Loader2 className="h-6 w-6 animate-spin" />
               </div>
             ) : (
-              <div className="max-h-96 overflow-y-auto space-y-2">
-                {items.map((item: any) => {
+              <div className={`max-h-96 overflow-y-auto space-y-2 ${isStale ? "opacity-50" : ""}`}>
+                {items.map((item) => {
                   const itemId = workspaceType === "admin_mentee" ? item.userId : item.id;
                   const displayName = workspaceType === "admin_mentee" 
-                    ? (item.firstName || item.email || item.userId)
+                    ? ((item as UserListItem).firstName || (item as UserListItem).email || item.userId)
                     : item.userId.slice(0, 8);
                   
                   return (
@@ -187,8 +190,8 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                       onClick={() => setSelectedUserId(itemId)}
                     >
                       <div className="font-medium">{displayName}</div>
-                      {workspaceType === "admin_mentee" && item.email && (
-                        <div className="text-sm text-muted-foreground">{item.email}</div>
+                      {workspaceType === "admin_mentee" && (item as UserListItem).email && (
+                        <div className="text-sm text-muted-foreground">{(item as UserListItem).email}</div>
                       )}
                     </div>
                   );
@@ -223,7 +226,7 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
               <div className="text-lg font-semibold">
                 {selectedUserId ? (
                   workspaceType === "admin_mentee" 
-                    ? usersData?.items.find((u: any) => u.userId === selectedUserId)?.email || selectedUserId
+                    ? usersData?.items.find((u) => u.userId === selectedUserId)?.email || selectedUserId
                     : selectedUserId
                 ) : (
                   <span className="text-muted-foreground">None selected</span>

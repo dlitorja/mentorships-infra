@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,10 +37,11 @@ type WorkspacesResponse = {
   isDone: boolean;
 };
 
-async function fetchWorkspaces(type?: string): Promise<WorkspacesResponse> {
+async function fetchWorkspaces(type?: string, cursor?: string | null): Promise<WorkspacesResponse> {
   const params = new URLSearchParams();
   if (type) params.set("type", type);
   params.set("numItems", "50");
+  if (cursor) params.set("cursor", cursor);
   
   const url = `/api/admin/workspaces${params.toString() ? `?${params.toString()}` : ""}`;
   return apiFetch<WorkspacesResponse>(url);
@@ -49,10 +50,20 @@ async function fetchWorkspaces(type?: string): Promise<WorkspacesResponse> {
 export default function WorkspacesPage() {
   const [typeFilter, setTypeFilter] = useState<string>("");
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["admin-workspaces", typeFilter],
-    queryFn: () => fetchWorkspaces(typeFilter || undefined),
+    queryFn: ({ pageParam }) => fetchWorkspaces(typeFilter || undefined, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.isDone ? undefined : lastPage.continueCursor,
   });
+
+  const allWorkspaces = data?.pages.flatMap((page) => page.items) || [];
 
   const getTypeBadge = (type: string) => {
     switch (type) {
@@ -96,7 +107,7 @@ export default function WorkspacesPage() {
             <div>
               <CardTitle>All Workspaces</CardTitle>
               <CardDescription>
-                {data?.items.length || 0} workspaces found
+                {allWorkspaces.length} workspaces found
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -133,7 +144,7 @@ export default function WorkspacesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.items.map((workspace) => (
+                  {allWorkspaces.map((workspace) => (
                     <tr key={workspace.id} className="border-b hover:bg-muted/50">
                       <td className="py-3 px-4">
                         <div className="font-medium">{workspace.name}</div>
@@ -191,7 +202,7 @@ export default function WorkspacesPage() {
                       </td>
                     </tr>
                   ))}
-                  {data?.items.length === 0 && (
+                  {allWorkspaces.length === 0 && (
                     <tr>
                       <td colSpan={7} className="text-center py-8 text-muted-foreground">
                         No workspaces found
@@ -200,6 +211,24 @@ export default function WorkspacesPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          )}
+          {hasNextPage && (
+            <div className="flex justify-center py-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading more...
+                  </>
+                ) : (
+                  "Load More"
+                )}
+              </Button>
             </div>
           )}
         </CardContent>
