@@ -5,11 +5,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePublicInstructors } from "@/lib/queries/convex/use-instructors";
 
+type PublicInstructor = {
+  _id: string;
+  name?: string;
+  slug?: string;
+  tagline?: string;
+  profileImageUrl?: string;
+  specialties?: string[];
+  isHidden?: boolean;
+};
+
 const MAX_SHOWCASE_INSTRUCTORS = 4;
 
 export function InstructorShowcase() {
   const { data: instructorsData, isLoading } = usePublicInstructors();
-  const [featured, setFeatured] = useState<any[]>([]);
+  const [featured, setFeatured] = useState<PublicInstructor[]>([]);
 
   useEffect(() => {
     if (!instructorsData) return;

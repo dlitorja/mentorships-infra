@@ -13,6 +13,16 @@ import {
 } from "@/components/ui/carousel";
 import { usePublicInstructors } from "@/lib/queries/convex/use-instructors";
 
+type PublicInstructor = {
+  _id: string;
+  name?: string;
+  slug?: string;
+  tagline?: string;
+  profileImageUrl?: string;
+  specialties?: string[];
+  isHidden?: boolean;
+};
+
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -24,7 +34,7 @@ function shuffleArray<T>(array: T[]): T[] {
 
 export function InstructorCards() {
   const { data: instructorsData, isLoading } = usePublicInstructors();
-  const [instructors, setInstructors] = useState<any[]>([]);
+  const [instructors, setInstructors] = useState<PublicInstructor[]>([]);
   const [isClient, setIsClient] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
