@@ -366,19 +366,23 @@ export async function PUT(
 
     const updated = await updateInstructor(id, updateData);
 
-    // Sync inventory to Convex via Inngest if inventory fields changed
-    if (inventoryFieldsChanged && existing.slug) {
-      await inngest.send({
-        name: "instructor/updated",
-        data: {
-          slug: existing.slug,
-          name: existing.name,
-          email: existing.email,
-          oneOnOneInventory: data.oneOnOneInventory,
-          groupInventory: data.groupInventory,
-          maxActiveStudents: data.maxActiveStudents,
-        },
-      });
+    // Sync inventory to Convex via Inngest if inventory fields changed (non-blocking)
+    if (inventoryFieldsChanged && (updated.slug || existing.slug)) {
+      try {
+        await inngest.send({
+          name: "instructor/updated",
+          data: {
+            slug: updated.slug ?? existing.slug,
+            name: updated.name ?? existing.name,
+            email: updated.email ?? existing.email,
+            oneOnOneInventory: data.oneOnOneInventory,
+            groupInventory: data.groupInventory,
+            maxActiveStudents: data.maxActiveStudents,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to dispatch instructor/updated Inngest event:", err);
+      }
     }
 
     return NextResponse.json({

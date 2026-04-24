@@ -12,7 +12,7 @@ import {
 import { onboardingFlow } from "@/inngest/functions/onboarding";
 import { linkClerkUserToInstructor } from "@/inngest/functions/clerk-user-linking";
 import { unlinkClerkUserFromInstructor } from "@/inngest/functions/clerk-user-deleted";
-import { syncInstructorInventoryToConvex, syncInstructorInventoryToConvexUpdated } from "@/inngest/functions/inventory-sync";
+import { syncInstructorInventoryToConvex } from "@/inngest/functions/inventory-sync";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -30,7 +30,6 @@ export const { GET, POST, PUT } = serve({
     linkClerkUserToInstructor,
     unlinkClerkUserFromInstructor,
     syncInstructorInventoryToConvex,
-    syncInstructorInventoryToConvexUpdated,
   ],
 });
 

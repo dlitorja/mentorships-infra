@@ -48,39 +48,6 @@ export function useAdminInstructors() {
   });
 }
 
-export function useUpdateInventory() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.updateInstructor),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
-  });
-}
-
-export function useDecrementInventory() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.decrementInventory),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
-  });
-}
-
-export function useIncrementInventory() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.incrementInventory),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
-  });
-}
-
 export function useUpdateInstructor() {
   const queryClient = useQueryClient();
 

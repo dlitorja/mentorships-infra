@@ -242,19 +242,23 @@ export async function POST(req: NextRequest) {
         .where(eq(instructors.id, instructor.id));
     }
 
-    // Sync inventory to Convex via Inngest
+    // Sync inventory to Convex via Inngest (non-blocking)
     if (data.createMentor) {
-      await inngest.send({
-        name: "instructor/created",
-        data: {
-          slug: data.slug,
-          name: data.name,
-          email: data.email,
-          oneOnOneInventory: data.oneOnOneInventory,
-          groupInventory: data.groupInventory,
-          maxActiveStudents: data.maxActiveStudents,
-        },
-      });
+      try {
+        await inngest.send({
+          name: "instructor/created",
+          data: {
+            slug: data.slug,
+            name: data.name,
+            email: data.email,
+            oneOnOneInventory: data.oneOnOneInventory,
+            groupInventory: data.groupInventory,
+            maxActiveStudents: data.maxActiveStudents,
+          },
+        });
+      } catch (err) {
+        console.error("Failed to dispatch instructor/created Inngest event:", err);
+      }
     }
 
     let invitationSent = false;
