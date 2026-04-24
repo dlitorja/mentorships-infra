@@ -26,6 +26,30 @@ export const getUserById = query({
   },
 });
 
+export const getUserByUserId = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    
+    const dbUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", user.subject))
+      .first();
+    
+    if (dbUser?.role !== "admin") {
+      return null;
+    }
+    
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+  },
+});
+
 export const listUsers = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -52,6 +76,7 @@ export const getCurrentUser = query({
 
 export const createUser = mutation({
   args: {
+    userId: v.string(),
     email: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),

@@ -3,6 +3,7 @@ import { v } from "convex/values";
 
 export default defineSchema({
   users: defineTable({
+    userId: v.string(),
     email: v.string(),
     clerkId: v.optional(v.string()),
     firstName: v.optional(v.string()),
@@ -10,7 +11,8 @@ export default defineSchema({
     role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
   }).index("by_email", ["email"])
-    .index("by_clerkId", ["clerkId"]),
+    .index("by_clerkId", ["clerkId"])
+    .index("by_userId", ["userId"]),
 
   instructors: defineTable({
     userId: v.string(),
@@ -174,10 +176,12 @@ export default defineSchema({
     endedAt: v.optional(v.number()),
     menteeImageCount: v.number(),
     mentorImageCount: v.number(),
+    type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_mentee"), v.literal("admin_instructor"))),
   }).index("by_ownerId", ["ownerId"])
     .index("by_mentorId", ["mentorId"])
     .index("by_seatReservationId", ["seatReservationId"])
-    .index("by_endedAt", ["endedAt"]),
+    .index("by_endedAt", ["endedAt"])
+    .index("by_type", ["type"]),
 
   workspaceNotes: defineTable({
     workspaceId: v.id("workspaces"),
@@ -210,8 +214,10 @@ export default defineSchema({
     userId: v.string(),
     content: v.string(),
     type: v.union(v.literal("text"), v.literal("image"), v.literal("file")),
+    senderRole: v.optional(v.union(v.literal("mentor"), v.literal("mentee"), v.literal("admin"))),
   }).index("by_workspaceId", ["workspaceId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    .index("by_senderRole", ["senderRole"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),
@@ -233,6 +239,22 @@ export default defineSchema({
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_workspaceId_userId", ["workspaceId", "userId"]),
+
+  workspaceAuditLogs: defineTable({
+    workspaceId: v.id("workspaces"),
+    adminId: v.string(),
+    action: v.union(
+      v.literal("view_workspace"),
+      v.literal("send_message"),
+      v.literal("create_workspace"),
+      v.literal("create_admin_mentee_workspace"),
+      v.literal("create_admin_instructor_workspace")
+    ),
+    details: v.optional(v.string()),
+    timestamp: v.number(),
+  }).index("by_workspaceId", ["workspaceId"])
+    .index("by_adminId", ["adminId"])
+    .index("by_timestamp", ["timestamp"]),
 
   marketingWaitlist: defineTable({
     email: v.string(),

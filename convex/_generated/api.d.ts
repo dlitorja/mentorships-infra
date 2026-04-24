@@ -8,9 +8,9 @@
  * @module
  */
 
+import type * as adminWorkspaces from "../adminWorkspaces.js";
 import type * as http from "../http.js";
 import type * as instructors from "../instructors.js";
-import type * as mentors from "../mentors.js";
 import type * as mutations_http from "../mutations/http.js";
 import type * as orders from "../orders.js";
 import type * as payments from "../payments.js";
@@ -30,9 +30,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adminWorkspaces: typeof adminWorkspaces;
   http: typeof http;
   instructors: typeof instructors;
-  mentors: typeof mentors;
   "mutations/http": typeof mutations_http;
   orders: typeof orders;
   payments: typeof payments;
