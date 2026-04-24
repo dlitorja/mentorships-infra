@@ -15,13 +15,13 @@ const testimonials = [
 
 export function Testimonials() {
   return (
-    <section className="bg-[#0f1117] py-20 px-6">
+    <section className="bg-white py-20 px-6">
       <div className="mx-auto max-w-5xl">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white">
+          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
             What Students Say
           </h2>
-          <p className="mt-4 text-[#a0a0b0]">
+          <p className="mt-4 text-gray-500">
             Hear from artists who&apos;ve grown their skills with our instructors
           </p>
         </div>
@@ -30,9 +30,9 @@ export function Testimonials() {
           {testimonials.map((testimonial) => (
             <div
               key={testimonial.name}
-              className="rounded-lg border-l-4 border-[#7c3aed] bg-[#161822] p-8"
+              className="border-l-4 border-[#7c3aed] bg-gray-50 p-8"
             >
-              <blockquote className="text-lg leading-relaxed text-[#d0d0e0]">
+              <blockquote className="text-lg leading-relaxed text-[#1a1a2e]">
                 &ldquo;{testimonial.quote}&rdquo;
               </blockquote>
               <div className="mt-6">
@@ -40,7 +40,7 @@ export function Testimonials() {
                   href={testimonial.link}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-semibold text-white hover:text-[#7c3aed] transition-colors underline-offset-2 hover:underline"
+                  className="font-semibold text-[#1a1a2e] hover:text-[#7c3aed] transition-colors"
                 >
                   {testimonial.name}
                 </a>

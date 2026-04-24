@@ -58,16 +58,16 @@ export function NewsletterSection() {
 
   return (
     <>
-      <section className="bg-[#161822] py-20 px-6">
+      <section className="bg-[#1a1a2e] py-16 px-6">
         <div className="mx-auto max-w-xl text-center">
           <div className="mb-2 flex justify-center">
-            <Mail className="h-8 w-8 text-[#a0a0b0]" />
+            <Mail className="h-8 w-8 text-white/60" />
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-white">
             Stay Updated
           </h2>
-          <p className="mt-4 text-[#a0a0b0]">
-            Get notified about new mentorships, courses, and exclusive deals. Don&apos;t miss a spot!
+          <p className="mt-4 text-white/70">
+            Don&apos;t miss a spot and be the first to know when sign-ups open and new classes are announced.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-8 flex flex-col sm:flex-row gap-3">
@@ -77,30 +77,30 @@ export function NewsletterSection() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="flex-1 bg-[#0f1117] border-[#2a2d3e] text-white placeholder:text-[#6b6b80] focus:border-[#7c3aed] focus:ring-[#7c3aed]"
+              className="flex-1 bg-white/10 border-white/20 text-white placeholder:text-white/40 focus:border-white/40"
             />
             <Button
               type="submit"
               disabled={mutation.isPending || !email.trim()}
-              className="vibrant-gradient-button transition-all px-8 min-h-[44px]"
+              className="bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-8 min-h-[44px]"
             >
               {mutation.isPending ? "Signing up..." : "Sign Me Up!"}
             </Button>
           </form>
 
-          <p className="mt-3 text-xs text-[#6b6b80]">
-            We respect your privacy. Unsubscribe at any time.
+          <p className="mt-3 text-xs text-white/40">
+            We don&apos;t spam! Read our privacy policy for more info.
           </p>
         </div>
       </section>
 
-      <section className="bg-[#0f1117] py-20 px-6">
+      <section className="bg-white py-20 px-6">
         <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">
+            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
               Many Ways to Learn
             </h2>
-            <p className="mt-4 text-[#a0a0b0]">
+            <p className="mt-4 text-gray-500">
               We offer multiple avenues, both free and premium, to help you along your artistic journey.
             </p>
           </div>
@@ -112,15 +112,15 @@ export function NewsletterSection() {
                 href={item.href}
                 target={item.external ? "_blank" : undefined}
                 rel={item.external ? "noopener noreferrer" : undefined}
-                className="group rounded-lg border border-[#2a2d3e] bg-[#161822] p-6 transition-colors hover:border-[#7c3aed]/50 hover:bg-[#1a1d2e]"
+                className="group border border-gray-200 bg-white p-6 hover:border-[#7c3aed]/50 transition-colors"
               >
-                <h3 className="text-lg font-semibold text-white group-hover:text-[#7c3aed] transition-colors">
+                <h3 className="text-lg font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors">
                   {item.title}
                 </h3>
-                <p className="mt-2 text-sm text-[#a0a0b0] leading-relaxed">
+                <p className="mt-2 text-sm text-gray-500 leading-relaxed">
                   {item.description}
                 </p>
-                <span className="mt-4 inline-block text-sm text-[#7c3aed] group-hover:text-[#9f67ff]">
+                <span className="mt-4 inline-block text-sm text-[#7c3aed] group-hover:text-[#6d28d9]">
                   Learn more &rarr;
                 </span>
               </a>

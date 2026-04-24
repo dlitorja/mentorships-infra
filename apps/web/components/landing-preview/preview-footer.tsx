@@ -20,18 +20,15 @@ const footerLinks = {
 
 export function PreviewFooter() {
   return (
-    <footer className="bg-[#0a0c14] border-t border-[#2a2d3e]">
+    <footer className="bg-[#1a1a2e] text-white/70">
       <div className="container mx-auto px-6 py-16">
         <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-4">
             <h3 className="text-xl font-bold text-white">
               Huckleberry Art Academy
             </h3>
-            <p className="text-sm leading-relaxed text-[#a0a0b0]">
-              Learning art is hard, but it doesn&apos;t have to be. We&apos;re bringing
-              together artists that have successfully built creative careers of
-              their own to help you skip many of the pitfalls of a professional
-              creative path.
+            <p className="text-sm leading-relaxed text-white/50">
+              Learning art is hard, but it doesn&apos;t have to be. We&apos;re bringing together artists that have successfully built creative careers of their own to help you skip many of the pitfalls of a professional creative path.
             </p>
           </div>
 
@@ -47,14 +44,14 @@ export function PreviewFooter() {
                       href={link.href}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-[#a0a0b0] transition-colors hover:text-white"
+                      className="text-sm text-white/50 hover:text-white transition-colors"
                     >
                       {link.label}
                     </a>
                   ) : (
                     <Link
                       href={link.href}
-                      className="text-sm text-[#a0a0b0] transition-colors hover:text-white"
+                      className="text-sm text-white/50 hover:text-white transition-colors"
                     >
                       {link.label}
                     </Link>
@@ -75,7 +72,7 @@ export function PreviewFooter() {
                     href={link.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-sm text-[#a0a0b0] transition-colors hover:text-white"
+                    className="text-sm text-white/50 hover:text-white transition-colors"
                   >
                     {link.label}
                   </a>
@@ -93,7 +90,7 @@ export function PreviewFooter() {
                 <li key={link.label}>
                   <Link
                     href={link.href}
-                    className="text-sm text-[#a0a0b0] transition-colors hover:text-white"
+                    className="text-sm text-white/50 hover:text-white transition-colors"
                   >
                     {link.label}
                   </Link>
@@ -103,8 +100,8 @@ export function PreviewFooter() {
           </div>
         </div>
 
-        <div className="mt-12 border-t border-[#2a2d3e] pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-sm text-[#6b6b80]">
+        <div className="mt-12 border-t border-white/10 pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-white/30">
             &copy; {new Date().getFullYear()} Huckleberry Art Inc. All Rights Reserved.
           </p>
           <div className="flex items-center gap-6">
@@ -112,7 +109,7 @@ export function PreviewFooter() {
               href="https://discord.gg/4DqDyKZyA8"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#6b6b80] transition-colors hover:text-white"
+              className="text-white/30 hover:text-white transition-colors"
               aria-label="Discord"
             >
               <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -123,7 +120,7 @@ export function PreviewFooter() {
               href="https://instagram.com/huckartacademy"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#6b6b80] transition-colors hover:text-white"
+              className="text-white/30 hover:text-white transition-colors"
               aria-label="Instagram"
             >
               <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -134,7 +131,7 @@ export function PreviewFooter() {
               href="https://www.youtube.com/channel/UCGwWQjcqxp7Z0yHOxaE6hiA"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#6b6b80] transition-colors hover:text-white"
+              className="text-white/30 hover:text-white transition-colors"
               aria-label="YouTube"
             >
               <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -145,7 +142,7 @@ export function PreviewFooter() {
               href="https://twitter.com/HuckArtAcademy"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#6b6b80] transition-colors hover:text-white"
+              className="text-white/30 hover:text-white transition-colors"
               aria-label="Twitter"
             >
               <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">

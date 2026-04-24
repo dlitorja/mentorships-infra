@@ -44,7 +44,7 @@ const SALE_ITEMS: SaleItem[] = [
   {
     id: "mentor-kim",
     title: "New Mentor \u2014 Kim Myatt",
-    badge: "1-ON-1 MENTORSHIPS",
+    badge: "MENTORSHIPS",
     description: "1-on-1 mentorships available",
     endsAt: null,
     image: "/images/preview/mentor-kim-myatt.jpg",
@@ -60,9 +60,6 @@ const SALE_ITEMS: SaleItem[] = [
     link: "https://home.huckleberry.art/resource_redirect/landing_pages/2150836416",
   },
 ];
-
-const PLACEHOLDER_TITLES = new Set(["COURSE_NAME_HERE"]);
-const PLACEHOLDER_DESCRIPTIONS = new Set(["COURSE_DESCRIPTION_HERE", "BUNDLE_DESCRIPTION_HERE"]);
 
 function useCountdown(targetDate: string | null) {
   const calculate = useCallback(() => {
@@ -118,11 +115,11 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
         { value: timeLeft.minutes, label: "Min" },
         { value: timeLeft.seconds, label: "Sec" },
       ].map((unit) => (
-        <div key={unit.label} className="rounded bg-[#0f1117] px-2 py-2">
+        <div key={unit.label} className="rounded bg-[#1a1a2e] px-2 py-2">
           <div className="text-lg sm:text-xl font-bold text-white tabular-nums">
             {String(unit.value).padStart(2, "0")}
           </div>
-          <div className="text-[10px] uppercase tracking-wider text-[#6b6b80]">
+          <div className="text-[10px] uppercase tracking-wider text-white/60">
             {unit.label}
           </div>
         </div>
@@ -132,61 +129,66 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
 }
 
 export function SaleBanner() {
-  const liveItems = SALE_ITEMS.filter(
-    (item) =>
-      !PLACEHOLDER_TITLES.has(item.title) &&
-      !PLACEHOLDER_DESCRIPTIONS.has(item.description)
-  );
-
   return (
-    <section className="bg-[#161822] py-20 px-6">
+    <section className="bg-white py-20 px-6">
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white">
-            Special Offers
+          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+            Spring Sign-ups Open Now!
           </h2>
-          <p className="mt-4 text-[#a0a0b0]">
-            Limited time deals on courses and mentorships
-          </p>
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {liveItems.map((item) => (
+          {SALE_ITEMS.map((item) => (
             <a
               key={item.id}
               href={item.link}
               target="_blank"
               rel="noopener noreferrer"
-              className="group overflow-hidden rounded-lg border border-[#2a2d3e] bg-[#0f1117] transition-colors hover:border-[#7c3aed]/50"
+              className="group block overflow-hidden bg-white border border-gray-200 hover:border-[#7c3aed]/50 transition-colors"
             >
-              <div className="relative aspect-square w-full overflow-hidden">
+              <div className="relative aspect-square w-full overflow-hidden bg-gray-100">
                 <Image
                   src={item.image}
-                  alt={item.title}
+                  alt={item.title !== "COURSE_NAME_HERE" ? item.title : "Course offering"}
                   fill
                   className="object-cover transition-transform group-hover:scale-105"
                   sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                 />
                 <div className="absolute top-3 left-3">
-                  <span className="inline-block rounded-full bg-[#7c3aed] px-3 py-1 text-xs font-semibold text-white">
+                  <span className="inline-block bg-[#7c3aed] px-3 py-1 text-xs font-semibold text-white">
                     {item.badge}
                   </span>
                 </div>
               </div>
 
               <div className="p-4 space-y-3">
-                <h3 className="text-base font-semibold text-white group-hover:text-[#7c3aed] transition-colors line-clamp-2">
-                  {item.title}
-                </h3>
-                {item.description && (
-                  <p className="text-sm text-[#a0a0b0] line-clamp-2">
-                    {item.description}
-                  </p>
+                {item.title !== "COURSE_NAME_HERE" && (
+                  <h3 className="text-base font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors line-clamp-2">
+                    {item.title}
+                  </h3>
                 )}
+                {item.description !== "COURSE_DESCRIPTION_HERE" &&
+                  item.description !== "BUNDLE_DESCRIPTION_HERE" && (
+                    <p className="text-sm text-gray-500 line-clamp-2">
+                      {item.description}
+                    </p>
+                  )}
                 <CountdownTimer endsAt={item.endsAt} />
               </div>
             </a>
           ))}
+        </div>
+
+        <div className="mt-10 text-center">
+          <a
+            href="https://home.huckleberry.art/store"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
+          >
+            See All Courses &rarr;
+          </a>
         </div>
       </div>
     </section>

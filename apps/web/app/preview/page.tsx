@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function PreviewPage() {
   return (
-    <div className="bg-[#0f1117] text-[#f5f5f5]">
+    <div className="bg-white text-[#1a1a2e]">
       <PreviewHero />
       <SaleBanner />
       <InstructorCards />
