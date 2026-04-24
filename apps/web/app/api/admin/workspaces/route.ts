@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
+
+const listWorkspacesQuerySchema = z.object({
+  type: z.enum(["mentorship", "admin_mentee", "admin_instructor"]).optional(),
+  numItems: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().optional(),
+});
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -21,21 +28,28 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const convex = getConvexClient();
+    const parsedQuery = listWorkspacesQuerySchema.safeParse(
+      Object.fromEntries(new URL(req.url).searchParams)
+    );
 
-    const url = new URL(req.url);
-    const type = url.searchParams.get("type") as "mentorship" | "admin_mentee" | "admin_instructor" | null;
-    const numItems = parseInt(url.searchParams.get("numItems") || "50");
-    const cursor = url.searchParams.get("cursor");
+    if (!parsedQuery.success) {
+      return NextResponse.json(
+        { error: "Invalid query", details: parsedQuery.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { type, numItems, cursor } = parsedQuery.data;
+    const convex = getConvexClient();
 
     const paginationOpts = {
       numItems,
-      cursor: cursor || null,
+      cursor: cursor ?? null,
     };
 
     const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
       paginationOpts,
-      type: type || undefined,
+      type,
     });
 
     return NextResponse.json({

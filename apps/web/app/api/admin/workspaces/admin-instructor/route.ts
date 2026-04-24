@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
+import { convexIdSchema } from "@/lib/validators";
+
+const createAdminInstructorSchema = z.object({
+  instructorId: convexIdSchema,
+});
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -23,14 +29,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const convex = getConvexClient();
 
     const body = await req.json();
-    const { instructorId } = body;
-
-    if (!instructorId) {
+    const parsedBody = createAdminInstructorSchema.safeParse(body);
+    if (!parsedBody.success) {
       return NextResponse.json(
-        { error: "instructorId is required" },
+        { error: "Invalid request", details: parsedBody.error.issues },
         { status: 400 }
       );
     }
+
+    const { instructorId } = parsedBody.data;
 
     const workspace = await convex.mutation(api.adminWorkspaces.createAdminInstructorWorkspace, {
       instructorId: instructorId as Id<"instructors">,

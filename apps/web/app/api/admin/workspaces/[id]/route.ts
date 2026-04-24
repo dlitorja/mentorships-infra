@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
+import { convexIdSchema } from "@/lib/validators";
+
+const workspaceIdParamSchema = z.object({
+  id: convexIdSchema,
+});
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -26,12 +32,20 @@ export async function GET(
     const { userId: clerkUserId } = await auth();
     await requireRoleForApi("admin");
 
+    const { id } = await params;
+    const parsedParams = workspaceIdParamSchema.safeParse({ id });
+    if (!parsedParams.success) {
+      return NextResponse.json(
+        { error: "Invalid workspace ID", details: parsedParams.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const validatedId = parsedParams.data.id as Id<"workspaces">;
     const convex = getConvexClient();
 
-    const { id } = await params;
-
     const workspace = await convex.query(api.adminWorkspaces.getWorkspaceByIdAdmin, {
-      id: id as Id<"workspaces">,
+      id: validatedId,
     });
 
     if (!workspace) {
@@ -41,40 +55,56 @@ export async function GET(
       );
     }
 
-    const [messages, auditLogs] = await Promise.all([
+    const [messagesResult, auditLogsResult] = await Promise.allSettled([
       convex.query(api.workspaces.getWorkspaceMessages, {
-        workspaceId: workspace.id as Id<"workspaces">,
+        workspaceId: validatedId,
       }),
       convex.query(api.adminWorkspaces.getWorkspaceAuditLogs, {
-        workspaceId: workspace.id as Id<"workspaces">,
+        workspaceId: validatedId,
         paginationOpts: { numItems: 50, cursor: null },
       }),
     ]);
 
+    if (messagesResult.status === "rejected") {
+      console.error("Failed to fetch workspace messages:", messagesResult.reason);
+    }
+    if (auditLogsResult.status === "rejected") {
+      console.error("Failed to fetch workspace audit logs:", auditLogsResult.reason);
+    }
+
+    const messages = messagesResult.status === "fulfilled" ? messagesResult.value : [];
+    const auditLogs = auditLogsResult.status === "fulfilled"
+      ? auditLogsResult.value
+      : { page: [] };
+
     if (clerkUserId) {
       await convex.mutation(api.workspaces.logViewWorkspaceAudit, {
-        workspaceId: workspace.id as Id<"workspaces">,
+        workspaceId: validatedId,
         adminId: clerkUserId,
       }).catch(() => {});
     }
 
+    const messageItems = (Array.isArray(messages) ? messages : []).map((m: any) => ({
+      id: m._id,
+      userId: m.userId,
+      content: m.content,
+      type: m.type,
+      senderRole: m.senderRole,
+      createdAt: m._creationTime,
+    }));
+
+    const auditLogItems = ("page" in auditLogs ? (auditLogs as any).page : []).map((log: any) => ({
+      id: log._id,
+      adminId: log.adminId,
+      action: log.action,
+      details: log.details,
+      timestamp: log.timestamp,
+    }));
+
     return NextResponse.json({
       ...workspace,
-      messages: messages.map((m) => ({
-        id: m._id,
-        userId: m.userId,
-        content: m.content,
-        type: m.type,
-        senderRole: m.senderRole,
-        createdAt: m._creationTime,
-      })),
-      auditLogs: auditLogs.page.map((log) => ({
-        id: log._id,
-        adminId: log.adminId,
-        action: log.action,
-        details: log.details,
-        timestamp: log.timestamp,
-      })),
+      messages: messageItems,
+      auditLogs: auditLogItems,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to get workspace";

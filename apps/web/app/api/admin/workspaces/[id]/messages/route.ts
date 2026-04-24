@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
+import { convexIdSchema } from "@/lib/validators";
+
+const workspaceIdParamSchema = z.object({
+  id: convexIdSchema,
+});
+
+const sendMessageSchema = z.object({
+  content: z.string().min(1, "Content is required"),
+});
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -18,7 +28,7 @@ function getConvexClient() {
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
@@ -30,21 +40,29 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const convex = getConvexClient();
-
     const { id } = await params;
-    const body = await req.json();
-    const { content } = body;
-
-    if (!content || typeof content !== "string") {
+    const parsedParams = workspaceIdParamSchema.safeParse({ id });
+    if (!parsedParams.success) {
       return NextResponse.json(
-        { error: "Content is required" },
+        { error: "Invalid workspace ID", details: parsedParams.error.issues },
         { status: 400 }
       );
     }
 
+    const validatedId = parsedParams.data.id as Id<"workspaces">;
+    const body = await req.json();
+    const parsedBody = sendMessageSchema.safeParse(body);
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        { error: "Invalid request", details: parsedBody.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const convex = getConvexClient();
+
     const workspace = await convex.query(api.adminWorkspaces.getWorkspaceByIdAdmin, {
-      id: id as Id<"workspaces">,
+      id: validatedId,
     });
 
     if (!workspace) {
@@ -55,9 +73,9 @@ export async function POST(
     }
 
     const messageId = await convex.mutation(api.workspaces.createWorkspaceMessage, {
-      workspaceId: id as Id<"workspaces">,
+      workspaceId: validatedId,
       userId: clerkUserId,
-      content,
+      content: parsedBody.data.content,
       type: "text",
     });
 
