@@ -23,13 +23,13 @@ const steps = [
 
 export function HowItWorks() {
   return (
-    <section className="bg-[#0f1117] py-20 px-6">
+    <section className="bg-gray-50 py-20 px-6">
       <div className="mx-auto max-w-5xl">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white">
+          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
             How It Works
           </h2>
-          <p className="mt-4 text-[#a0a0b0]">
+          <p className="mt-4 text-gray-500">
             Get started with mentorship in three simple steps
           </p>
         </div>
@@ -40,25 +40,25 @@ export function HowItWorks() {
             return (
               <div
                 key={step.title}
-                className="rounded-lg border-t-2 border-[#7c3aed] bg-[#161822] p-8"
+                className="bg-white border border-gray-200 p-8 hover:border-[#7c3aed]/30 transition-colors"
               >
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#7c3aed]/10">
                   <Icon className="h-6 w-6 text-[#7c3aed]" />
                 </div>
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-center gap-2 mb-3">
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#7c3aed] text-white text-sm font-bold">
                     {index + 1}
                   </span>
-                  <h3 className="text-lg font-semibold text-white">{step.title}</h3>
+                  <h3 className="text-lg font-semibold text-[#1a1a2e]">{step.title}</h3>
                 </div>
-                <p className="text-[#a0a0b0] leading-relaxed text-sm">
+                <p className="text-sm text-gray-500 leading-relaxed">
                   {step.description}
                 </p>
               </div>
             );
           })}
         </div>
-        <p className="mt-6 text-center text-xs text-[#6b6b80]">
+        <p className="mt-6 text-center text-xs text-gray-400">
           * Sessions can be rescheduled, but we encourage keeping them at the same day of the week and time for consistency.
         </p>
       </div>

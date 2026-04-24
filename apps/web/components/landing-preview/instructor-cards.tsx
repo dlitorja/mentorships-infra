@@ -12,21 +12,6 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 import { usePublicInstructors } from "@/lib/queries/convex/use-instructors";
-import { Button } from "@/components/ui/button";
-
-type PublicInstructor = {
-  _id: string;
-  _creationTime: number;
-  name?: string;
-  slug?: string;
-  tagline?: string;
-  profileImageUrl?: string;
-  specialties?: string[];
-  isNew?: boolean;
-  isHidden?: boolean;
-  oneOnOneInventory?: number;
-  groupInventory?: number;
-};
 
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
@@ -39,7 +24,7 @@ function shuffleArray<T>(array: T[]): T[] {
 
 export function InstructorCards() {
   const { data: instructorsData, isLoading } = usePublicInstructors();
-  const [instructors, setInstructors] = useState<PublicInstructor[]>([]);
+  const [instructors, setInstructors] = useState<any[]>([]);
   const [isClient, setIsClient] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
@@ -51,7 +36,7 @@ export function InstructorCards() {
 
   useEffect(() => {
     if (!instructorsData) return;
-    const visible = instructorsData.filter((inst: PublicInstructor) => !inst.isHidden);
+    const visible = instructorsData.filter((inst: any) => !inst.isHidden);
     const shuffled = isClient ? shuffleArray(visible) : visible;
     setInstructors(shuffled);
   }, [instructorsData, isClient]);
@@ -79,13 +64,13 @@ export function InstructorCards() {
 
   if (isLoading || instructors.length === 0) {
     return (
-      <section id="instructors" className="bg-[#0f1117] py-20 px-6">
+      <section id="instructors" className="bg-gray-50 py-20 px-6">
         <div className="mx-auto max-w-6xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">
+            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
               Mentorships Open Now
             </h2>
-            <p className="mt-4 text-[#a0a0b0]">Loading instructors...</p>
+            <p className="mt-4 text-gray-500">Loading instructors...</p>
           </div>
         </div>
       </section>
@@ -93,13 +78,13 @@ export function InstructorCards() {
   }
 
   return (
-    <section id="instructors" className="bg-[#0f1117] py-20 px-6">
+    <section id="instructors" className="bg-gray-50 py-20 px-6">
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white">
+          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
             Mentorships Open Now
           </h2>
-          <p className="mt-4 text-[#a0a0b0]">
+          <p className="mt-4 text-gray-500">
             1-on-1 personalized guidance from industry professionals
           </p>
         </div>
@@ -110,7 +95,7 @@ export function InstructorCards() {
           className="w-full"
         >
           <CarouselContent className="-ml-2 md:-ml-4">
-            {instructors.map((instructor) => (
+            {instructors.map((instructor: any) => (
               <CarouselItem
                 key={instructor._id}
                 className="pl-2 basis-[85%] sm:basis-1/2 md:basis-1/3 lg:basis-1/4 md:pl-4"
@@ -119,8 +104,8 @@ export function InstructorCards() {
                   href={`/instructors/${instructor.slug}`}
                   className="group block"
                 >
-                  <div className="overflow-hidden rounded-lg border border-[#2a2d3e] bg-[#161822] transition-colors hover:border-[#7c3aed]/50">
-                    <div className="relative aspect-square w-full overflow-hidden">
+                  <div className="overflow-hidden bg-white border border-gray-200 hover:border-[#7c3aed]/50 transition-colors">
+                    <div className="relative aspect-square w-full overflow-hidden bg-gray-100">
                       <Image
                         src={instructor.profileImageUrl || "/placeholder.jpg"}
                         alt={instructor.name ?? "Instructor"}
@@ -129,26 +114,14 @@ export function InstructorCards() {
                         sizes="(max-width: 640px) 85vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
                       />
                     </div>
-                    <div className="p-4">
-                      <h3 className="text-base font-semibold text-white group-hover:text-[#7c3aed] transition-colors">
+                    <div className="p-3">
+                      <h3 className="text-sm font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors">
                         {instructor.name}
                       </h3>
                       {instructor.tagline && (
-                        <p className="mt-1 text-sm text-[#a0a0b0] line-clamp-2">
+                        <p className="mt-1 text-xs text-gray-500 line-clamp-1">
                           {instructor.tagline}
                         </p>
-                      )}
-                      {instructor.specialties && instructor.specialties.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {instructor.specialties.slice(0, 2).map((specialty: string) => (
-                            <span
-                              key={specialty}
-                              className="inline-block rounded-full bg-[#7c3aed]/10 px-2 py-0.5 text-xs text-[#7c3aed]"
-                            >
-                              {specialty}
-                            </span>
-                          ))}
-                        </div>
                       )}
                     </div>
                   </div>
@@ -156,18 +129,21 @@ export function InstructorCards() {
               </CarouselItem>
             ))}
           </CarouselContent>
-          <CarouselPrevious className="hidden md:flex border-[#2a2d3e] bg-[#161822] text-white hover:bg-[#1a1d2e]" />
-          <CarouselNext className="hidden md:flex border-[#2a2d3e] bg-[#161822] text-white hover:bg-[#1a1d2e]" />
+          <CarouselPrevious className="hidden md:flex" />
+          <CarouselNext className="hidden md:flex" />
         </Carousel>
 
-        <div className="mt-4 text-center text-sm text-[#6b6b80]">
+        <div className="mt-4 text-center text-sm text-gray-400">
           {current} of {count}
         </div>
 
         <div className="mt-8 text-center">
-          <Button asChild className="vibrant-gradient-button transition-all">
-            <Link href="/instructors">See All Instructors</Link>
-          </Button>
+          <Link
+            href="/instructors"
+            className="text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
+          >
+            See All Instructors &rarr;
+          </Link>
         </div>
       </div>
     </section>
