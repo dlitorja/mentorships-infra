@@ -33,6 +33,16 @@ export const getUserByUserId = query({
     if (!user) {
       return null;
     }
+    
+    const dbUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", user.subject))
+      .first();
+    
+    if (dbUser?.role !== "admin") {
+      return null;
+    }
+    
     return await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
