@@ -176,7 +176,7 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                 {items.map((item) => {
                   const itemId = workspaceType === "admin_mentee" ? item.userId : item.id;
                   const displayName = workspaceType === "admin_mentee" 
-                    ? (item.firstName || item.email || item.userId)
+                    ? ((item as UserListItem).firstName || (item as UserListItem).email || item.userId)
                     : item.userId.slice(0, 8);
                   
                   return (
@@ -190,8 +190,8 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
                       onClick={() => setSelectedUserId(itemId)}
                     >
                       <div className="font-medium">{displayName}</div>
-                      {workspaceType === "admin_mentee" && item.email && (
-                        <div className="text-sm text-muted-foreground">{item.email}</div>
+                      {workspaceType === "admin_mentee" && (item as UserListItem).email && (
+                        <div className="text-sm text-muted-foreground">{(item as UserListItem).email}</div>
                       )}
                     </div>
                   );
