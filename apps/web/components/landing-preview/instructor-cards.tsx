@@ -39,7 +39,7 @@ function shuffleArray<T>(array: T[]): T[] {
 
 export function InstructorCards() {
   const { data: instructorsData, isLoading } = usePublicInstructors();
-  const [instructors, setInstructors] = useState<any[]>([]);
+  const [instructors, setInstructors] = useState<PublicInstructor[]>([]);
   const [isClient, setIsClient] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
@@ -51,7 +51,7 @@ export function InstructorCards() {
 
   useEffect(() => {
     if (!instructorsData) return;
-    const visible = instructorsData.filter((inst: any) => !inst.isHidden);
+    const visible = instructorsData.filter((inst: PublicInstructor) => !inst.isHidden);
     const shuffled = isClient ? shuffleArray(visible) : visible;
     setInstructors(shuffled);
   }, [instructorsData, isClient]);

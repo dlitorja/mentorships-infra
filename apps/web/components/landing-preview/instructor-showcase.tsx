@@ -6,15 +6,29 @@ import Link from "next/link";
 import { usePublicInstructors } from "@/lib/queries/convex/use-instructors";
 import { Button } from "@/components/ui/button";
 
+type PublicInstructor = {
+  _id: string;
+  _creationTime: number;
+  name?: string;
+  slug?: string;
+  tagline?: string;
+  profileImageUrl?: string;
+  specialties?: string[];
+  isNew?: boolean;
+  isHidden?: boolean;
+  oneOnOneInventory?: number;
+  groupInventory?: number;
+};
+
 const MAX_SHOWCASE_INSTRUCTORS = 4;
 
 export function InstructorShowcase() {
   const { data: instructorsData, isLoading } = usePublicInstructors();
-  const [featured, setFeatured] = useState<any[]>([]);
+  const [featured, setFeatured] = useState<PublicInstructor[]>([]);
 
   useEffect(() => {
     if (!instructorsData) return;
-    const visible = instructorsData.filter((inst: any) => !inst.isHidden);
+    const visible = instructorsData.filter((inst: PublicInstructor) => !inst.isHidden);
     setFeatured(visible.slice(0, MAX_SHOWCASE_INSTRUCTORS));
   }, [instructorsData]);
 
