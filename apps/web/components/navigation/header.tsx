@@ -17,7 +17,7 @@ import {
 
 interface HeaderProps {
   hasClerk?: boolean;
-  variant?: "default" | "dark";
+  variant?: "default" | "dark" | "preview";
 }
 
 const defaultNavLinks = [
@@ -273,8 +273,8 @@ function MobileNavContent({ hasClerk = true, isDark = false, isPreview = false }
 
 export function Header({ hasClerk = true, variant }: HeaderProps): ReactElement {
   const pathname = usePathname();
-  const isPreview = pathname?.startsWith("/preview");
   const isDark = variant === "dark";
+  const isPreview = variant === "preview" || pathname?.startsWith("/preview");
 
   const headerClass = isDark
     ? "sticky top-0 z-50 w-full border-b border-[#2a2d3e] bg-[#0f1117]/95 backdrop-blur-md"

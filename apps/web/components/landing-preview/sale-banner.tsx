@@ -129,6 +129,10 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
 }
 
 export function SaleBanner() {
+  const liveItems = SALE_ITEMS.filter(
+    (item) => item.title !== "COURSE_NAME_HERE" && item.endsAt !== "END_DATE_HERE"
+  );
+
   return (
     <section className="bg-white py-20 px-6">
       <div className="mx-auto max-w-6xl">
@@ -139,7 +143,7 @@ export function SaleBanner() {
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {SALE_ITEMS.map((item) => (
+          {liveItems.map((item) => (
             <a
               key={item.id}
               href={item.link}
