@@ -23,10 +23,11 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const numItems = parseInt(url.searchParams.get("numItems") || "50");
+    const cursor = url.searchParams.get("cursor");
 
     const paginationOpts = {
       numItems,
-      cursor: null as string | null,
+      cursor: cursor || null,
     };
 
     const result = await convex.query(api.adminWorkspaces.getAllAuditLogs, {

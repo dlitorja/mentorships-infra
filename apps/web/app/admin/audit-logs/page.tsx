@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,18 +30,29 @@ type AuditLogsResponse = {
   isDone: boolean;
 };
 
-async function fetchAuditLogs(): Promise<AuditLogsResponse> {
+async function fetchAuditLogs(cursor?: string | null): Promise<AuditLogsResponse> {
   const params = new URLSearchParams();
   params.set("numItems", "100");
+  if (cursor) params.set("cursor", cursor);
   
   return apiFetch<AuditLogsResponse>(`/api/admin/audit-logs?${params.toString()}`);
 }
 
 export default function AuditLogsPage() {
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ["admin-audit-logs"],
-    queryFn: fetchAuditLogs,
+    queryFn: ({ pageParam }) => fetchAuditLogs(pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.isDone ? null : lastPage.continueCursor,
   });
+
+  const allLogs = data?.pages.flatMap((page) => page.items) || [];
 
   const getActionBadge = (action: string) => {
     switch (action) {
@@ -73,7 +84,7 @@ export default function AuditLogsPage() {
         <CardHeader>
           <CardTitle>All Activity</CardTitle>
           <CardDescription>
-            {data?.items.length || 0} log entries
+            {allLogs.length} log entries
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -94,7 +105,7 @@ export default function AuditLogsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.items.map((log) => (
+                  {allLogs.map((log) => (
                     <tr key={log.id} className="border-b hover:bg-muted/50">
                       <td className="py-3 px-4">
                         <div className="text-sm">
@@ -122,7 +133,7 @@ export default function AuditLogsPage() {
                       </td>
                     </tr>
                   ))}
-                  {data?.items.length === 0 && (
+                  {allLogs.length === 0 && (
                     <tr>
                       <td colSpan={5} className="text-center py-8 text-muted-foreground">
                         No audit logs found
@@ -131,6 +142,24 @@ export default function AuditLogsPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          )}
+          {hasNextPage && (
+            <div className="flex justify-center py-4">
+              <Button
+                variant="outline"
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+              >
+                {isFetchingNextPage ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading more...
+                  </>
+                ) : (
+                  "Load More"
+                )}
+              </Button>
             </div>
           )}
         </CardContent>

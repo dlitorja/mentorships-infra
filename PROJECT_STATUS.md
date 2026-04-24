@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: April 22, 2026  
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, Video Integration TBD
+**Last Updated**: April 24, 2026  
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, Video Integration TBD
 
 ---
 
@@ -518,6 +518,59 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 ---
 
+### 14. Admin Workspace Access (Dual Workspaces + Audit Logging)
+**Status**: ✅ **COMPLETED** - Admin access to all workspaces with private admin communication channels
+
+**Completed Tasks**:
+- [x] **Dual Workspace System**:
+  - [x] Separate admin-mentee workspaces for private admin↔mentee communication
+  - [x] Separate admin-instructor workspaces for private admin↔instructor communication
+  - [x] Admin access to all mentorship workspaces (Option B - visible to all parties)
+- [x] **Audit Logging**:
+  - [x] New `workspaceAuditLogs` table in Convex schema
+  - [x] Track: view_workspace, send_message, create_workspace actions
+  - [x] Admin audit log viewer at `/admin/audit-logs`
+- [x] **Schema Changes**:
+  - [x] Added `type` field to workspaces: `mentorship`, `admin_mentee`, `admin_instructor`
+  - [x] Added `senderRole` to messages: `mentor`, `mentee`, `admin`
+  - [x] Added `userId` field to users table for efficient admin lookups
+- [x] **Backend**:
+  - [x] Admin role detection in `getWorkspaceRole` function
+  - [x] New `convex/adminWorkspaces.ts` with admin-specific queries/mutations
+  - [x] Audit logging helper function
+- [x] **Frontend**:
+  - [x] Admin workspace dashboard at `/admin/workspaces`
+  - [x] Workspace detail view with messages and audit log at `/admin/workspaces/[id]`
+  - [x] Create admin workspaces at `/admin/workspaces/create`
+  - [x] Audit log viewer at `/admin/audit-logs`
+- [x] **API Routes**:
+  - [x] `GET /api/admin/workspaces` - List all workspaces with filtering
+  - [x] `GET /api/admin/workspaces/[id]` - Workspace details + messages + audit logs
+  - [x] `POST /api/admin/workspaces/[id]/messages` - Send message as admin
+  - [x] `POST /api/admin/workspaces/admin-mentee` - Create admin-mentee workspace
+  - [x] `POST /api/admin/workspaces/admin-instructor` - Create admin-instructor workspace
+  - [x] `GET /api/admin/audit-logs` - List all audit logs
+
+**Files Created/Modified**:
+- `convex/schema.ts` - Added workspace type, senderRole, audit logs, userId
+- `convex/workspaces.ts` - Admin role support, audit logging
+- `convex/adminWorkspaces.ts` - New admin-specific queries/mutations (NEW)
+- `convex/users.ts` - Added getUserByUserId with admin role check
+- `apps/web/app/api/admin/workspaces/route.ts` - List workspaces (NEW)
+- `apps/web/app/api/admin/workspaces/[id]/route.ts` - Workspace details (NEW)
+- `apps/web/app/api/admin/workspaces/[id]/messages/route.ts` - Send message (NEW)
+- `apps/web/app/api/admin/workspaces/admin-mentee/route.ts` - Create workspace (NEW)
+- `apps/web/app/api/admin/workspaces/admin-instructor/route.ts` - Create workspace (NEW)
+- `apps/web/app/api/admin/audit-logs/route.ts` - List audit logs (NEW)
+- `apps/web/app/admin/workspaces/page.tsx` - Workspace dashboard (NEW)
+- `apps/web/app/admin/workspaces/[id]/page.tsx` - Workspace detail (NEW)
+- `apps/web/app/admin/workspaces/create/page.tsx` - Create workspace (NEW)
+- `apps/web/app/admin/audit-logs/page.tsx` - Audit log viewer (NEW)
+
+**Reference**: PR #173 - `feat: add admin workspace access with dual workspaces and audit logging`
+
+---
+
 ## 🚧 In Progress / Next Steps
 
 ### Priority 1: Notifications & Automation (Discord + Email)
@@ -884,4 +937,38 @@ ls apps/web/app/api
   - Session management API with role-based authorization
   - Role-adaptive navigation system
   - Full type safety with Drizzle ORM and Zod validation
+
+---
+
+## 📝 Remaining Enhancements (Admin Workspace)
+
+The following enhancements were suggested during code review but are not blocking for merge:
+
+### High Priority (Nice to Have)
+1. **Pagination in Admin Lists**
+   - Currently hardcoded to fetch 50/100 items
+   - Could add cursor-based pagination to workspace list and audit logs
+   - Files: `apps/web/app/admin/workspaces/page.tsx`, `apps/web/app/admin/audit-logs/page.tsx`
+
+2. **Search Debouncing**
+   - Add debounce to search input in workspace creation page
+   - Prevents excessive API calls on keystroke
+   - File: `apps/web/app/admin/workspaces/create/page.tsx`
+
+### Medium Priority (Future Improvements)
+3. **N+1 Query Optimization**
+   - Currently makes serial Convex queries for owner/mentor lookups
+   - Could batch lookups or denormalize display fields
+   - File: `apps/web/app/api/admin/workspaces/route.ts`
+
+4. **Docstring Coverage**
+   - CodeRabbit reports 28.57% docstring coverage (threshold: 80%)
+   - Add JSDoc comments to new functions
+
+5. **Type Safety in Create Page**
+   - Replace `any` types with discriminated unions
+   - File: `apps/web/app/admin/workspaces/create/page.tsx`
+
+### Security (Already Addressed)
+- ✅ Added admin role check to `getUserByUserId` query (prevents PII exposure)
 

@@ -23,11 +23,12 @@ export async function GET(req: NextRequest) {
 
     const url = new URL(req.url);
     const type = url.searchParams.get("type") as "mentorship" | "admin_mentee" | "admin_instructor" | null;
-    const numItems = parseInt(url.searchParams.get("numItems") || "20");
+    const numItems = parseInt(url.searchParams.get("numItems") || "50");
+    const cursor = url.searchParams.get("cursor");
 
     const paginationOpts = {
       numItems,
-      cursor: null as string | null,
+      cursor: cursor || null,
     };
 
     const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
