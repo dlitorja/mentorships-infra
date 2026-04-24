@@ -31,23 +31,30 @@ export const getWorkspacesForNotification = query({
       .filter((q) => q.lt(q.field("endedAt"), cutoff))
       .collect();
 
+    // Bulk-fetch all seat reservations to avoid N+1 queries inside the loop
+    const allSeats = await ctx.db
+      .query("seatReservations")
+      .collect();
+    const seatSet = new Set(
+      allSeats.map((s) => `${String(s.mentorId)}:${s.userId}`)
+    );
+
     for (const workspace of workspaces) {
       if (!workspace.endedAt) continue;
+      if (!workspace.mentorId) continue;
 
       const daysUntilDeletion = Math.floor(
-        (workspace.endedAt + EIGHTEEN_MONTHS_MS - now) / dayMs
+        (workspace.endedAt! + EIGHTEEN_MONTHS_MS - now) / dayMs
       );
 
-      const inWindow = (days: number) => days >= 89 && days <= 91 || days >= 29 && days <= 31 || days >= 6 && days <= 8;
-      
-      if (inWindow(daysUntilDeletion)) {
-        const seats = await ctx.db
-          .query("seatReservations")
-          .withIndex("by_mentorId", (q) => q.eq("mentorId", workspace.mentorId!))
-          .filter((q) => q.eq(q.field("userId"), workspace.ownerId))
-          .collect();
+      const inWindow = (days: number) =>
+        (days >= 89 && days <= 91) ||
+        (days >= 29 && days <= 31) ||
+        (days >= 6 && days <= 8);
 
-        if (seats.length > 0) {
+      if (inWindow(daysUntilDeletion)) {
+        const key = `${String(workspace.mentorId)}:${workspace.ownerId}`;
+        if (seatSet.has(key)) {
           notifications.push({
             workspaceId: String(workspace._id),
             userId: workspace.ownerId,

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const convex = getConvexClient();
 
     const url = new URL(req.url);
-    const numItems = parseInt(url.searchParams.get("numItems") || "50");
+    const numItems = Math.min(parseInt(url.searchParams.get("numItems") || "50") || 50, 100);
     const cursor = url.searchParams.get("cursor");
 
     const paginationOpts = {

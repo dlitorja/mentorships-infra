@@ -12,6 +12,7 @@ import { MessageSquare, FileText, Image as ImageIcon, Loader2 } from 'lucide-rea
 import WorkspaceChat from '@/components/workspace/chat';
 import WorkspaceNotes from '@/components/workspace/notes';
 import WorkspaceImages from '@/components/workspace/images';
+import { RetentionWarningBanner } from '@/components/workspace/retention-warning-banner';
 
 interface WorkspaceWithMentor {
   _id: Id<'workspaces'>;
@@ -22,6 +23,7 @@ interface WorkspaceWithMentor {
   mentorEmail?: string;
   menteeImageCount: number;
   mentorImageCount: number;
+  endedAt?: number;
 }
 
 export default function WorkspacePage() {
@@ -118,6 +120,12 @@ export default function WorkspacePage() {
                 )}
               </CardHeader>
               <CardContent className="flex-1 min-h-0 pt-0">
+                {selectedWorkspace.endedAt && (
+                  <RetentionWarningBanner
+                    workspaceId={String(selectedWorkspace._id)}
+                    endedAt={selectedWorkspace.endedAt}
+                  />
+                )}
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
                   <TabsList className="shrink-0">
                     <TabsTrigger value="chat" className="gap-2">

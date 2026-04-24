@@ -55,13 +55,17 @@ export async function GET(
       );
     }
 
+    const url = new URL(req.url);
+    const auditNumItems = Math.min(parseInt(url.searchParams.get("numItems") || "50") || 50, 100);
+    const auditCursor = url.searchParams.get("cursor") || null;
+
     const [messagesResult, auditLogsResult] = await Promise.allSettled([
       convex.query(api.workspaces.getWorkspaceMessages, {
         workspaceId: validatedId,
       }),
       convex.query(api.adminWorkspaces.getWorkspaceAuditLogs, {
         workspaceId: validatedId,
-        paginationOpts: { numItems: 50, cursor: null },
+        paginationOpts: { numItems: auditNumItems, cursor: auditCursor },
       }),
     ]);
 
@@ -110,7 +114,11 @@ export async function GET(
     return NextResponse.json({
       ...workspace,
       messages: messageItems,
-      auditLogs: auditLogItems,
+      auditLogs: {
+        items: auditLogItems,
+        continueCursor: auditLogs.continueCursor,
+        isDone: auditLogs.isDone,
+      },
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to get workspace";

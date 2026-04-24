@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Plus, Search, UserPlus, Settings2 } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
 type Mentee = {
   id: string;
@@ -107,12 +108,13 @@ async function adjustSessionCount(userId: string, data: { id: string; adjustment
 export default function MenteesPage() {
   const [search, setSearch] = useState("");
   const [instructorFilter, setInstructorFilter] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   const queryClient = useQueryClient();
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["mentees", search, instructorFilter],
-    queryFn: () => fetchMentees(search, instructorFilter || undefined),
+    queryKey: ["mentees", debouncedSearch, instructorFilter],
+    queryFn: () => fetchMentees(debouncedSearch, instructorFilter || undefined),
   });
 
   const { data: instructorsData } = useQuery({

@@ -15,6 +15,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Plus, Pencil, Trash2, Search, ExternalLink } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
 type Instructor = {
   id: string;
@@ -56,10 +57,11 @@ async function deleteInstructor(id: string) {
 export default function InstructorsPage() {
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["instructors", search, showInactive],
-    queryFn: () => fetchInstructors(search, showInactive),
+    queryKey: ["instructors", debouncedSearch, showInactive],
+    queryFn: () => fetchInstructors(debouncedSearch, showInactive),
   });
 
   const deleteMutation = useMutation({
