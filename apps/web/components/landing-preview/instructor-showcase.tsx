@@ -57,7 +57,7 @@ export function InstructorShowcase() {
                   <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg">
                     <Image
                       src={instructor.profileImageUrl || "/placeholder.jpg"}
-                      alt={instructor.name}
+                      alt={instructor.name ?? "Instructor"}
                       fill
                       className="object-cover"
                       sizes="(max-width: 768px) 100vw, 50vw"

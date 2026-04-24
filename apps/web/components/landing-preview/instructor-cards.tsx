@@ -123,7 +123,7 @@ export function InstructorCards() {
                     <div className="relative aspect-square w-full overflow-hidden">
                       <Image
                         src={instructor.profileImageUrl || "/placeholder.jpg"}
-                        alt={instructor.name}
+                        alt={instructor.name ?? "Instructor"}
                         fill
                         className="object-cover transition-transform group-hover:scale-105"
                         sizes="(max-width: 640px) 85vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"

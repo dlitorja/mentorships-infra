@@ -166,9 +166,11 @@ export function SaleBanner() {
               </div>
 
               <div className="p-4 space-y-3">
-                <h3 className="text-base font-semibold text-white group-hover:text-[#7c3aed] transition-colors line-clamp-2">
-                  {item.title}
-                </h3>
+                {item.title !== "COURSE_NAME_HERE" && (
+                  <h3 className="text-base font-semibold text-white group-hover:text-[#7c3aed] transition-colors line-clamp-2">
+                    {item.title}
+                  </h3>
+                )}
                 {item.description !== "COURSE_DESCRIPTION_HERE" &&
                   item.description !== "BUNDLE_DESCRIPTION_HERE" && (
                     <p className="text-sm text-[#a0a0b0] line-clamp-2">
