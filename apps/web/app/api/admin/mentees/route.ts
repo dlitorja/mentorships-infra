@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { clerkClient } from "@clerk/nextjs/server";
 import {
   db,
   sessionPacks,
@@ -8,8 +9,8 @@ import {
   mentors,
   eq,
   and,
-  ilike,
   or,
+  ilike,
   desc,
   sql,
   isNull,
@@ -106,23 +107,40 @@ export async function GET(req: NextRequest) {
         .where(whereClause),
     ]);
 
+    // Batch-fetch Clerk user data for firstName/lastName
+    const userIds = [...new Set(mentees.map((m) => m.userId))];
+    let clerkUserMap = new Map<string, { firstName?: string | null; lastName?: string | null }>();
+
+    if (userIds.length > 0) {
+      try {
+        const client = await clerkClient();
+        const clerkResponse = await client.users.getUserList({ userId: userIds, limit: Math.min(userIds.length, 500) });
+        clerkUserMap = new Map(clerkResponse.data.map((u) => [u.id, { firstName: u.firstName, lastName: u.lastName }]));
+      } catch (error) {
+        console.error("Failed to fetch Clerk user names for mentees:", error);
+      }
+    }
+
     return NextResponse.json({
-      items: mentees.map((m) => ({
-        kind: "mentee" as const,
-        id: m.id,
-        userId: m.userId,
-        email: m.email || "Unknown",
-        firstName: null,
-        lastName: null,
-        mentorId: m.mentorId,
-        instructorName: m.instructorName || "Unknown",
-        instructorSlug: m.instructorSlug,
-        totalSessions: Number(m.totalSessions),
-        remainingSessions: Number(m.remainingSessions),
-        status: m.status,
-        expiresAt: m.expiresAt?.toISOString() || null,
-        purchasedAt: m.purchasedAt.toISOString(),
-      })),
+      items: mentees.map((m) => {
+        const clerkUser = clerkUserMap.get(m.userId);
+        return {
+          kind: "mentee" as const,
+          id: m.id,
+          userId: m.userId,
+          email: m.email || "Unknown",
+          firstName: clerkUser?.firstName ?? null,
+          lastName: clerkUser?.lastName ?? null,
+          mentorId: m.mentorId,
+          instructorName: m.instructorName || "Unknown",
+          instructorSlug: m.instructorSlug,
+          totalSessions: Number(m.totalSessions),
+          remainingSessions: Number(m.remainingSessions),
+          status: m.status,
+          expiresAt: m.expiresAt?.toISOString() || null,
+          purchasedAt: m.purchasedAt.toISOString(),
+        };
+      }),
       total: countResult[0]?.count || 0,
       page,
       pageSize,
