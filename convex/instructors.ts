@@ -1,8 +1,9 @@
 import { query, mutation } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
-async function isAdminUser(ctx: any, userId: string): Promise<boolean> {
+async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   const user = await ctx.db
     .query("users")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
