@@ -1,7 +1,7 @@
 # Mentorship Platform - Project Status & Next Steps
 
-**Last Updated**: April 24, 2026  
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management (Phases 1-2 COMPLETE, Admin UI IN PROGRESS)**, **Waitlist System (Phases 1-2 COMPLETE, Frontend IN PROGRESS)**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, Video Integration TBD
+**Last Updated**: April 25, 2026  
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -484,9 +484,9 @@ This monorepo contains multiple applications with distinct responsibilities:
 - ✅ Lightbox for image viewing
 - ✅ Navigation link in sidebar
 
-**Not Yet Implemented**:
-- Video call integration with chat sidebar
-- In-app retention warning banner
+**Implemented (April 2026)**:
+- ✅ In-app retention warning banner (shows at 90/30/7 days before deletion)
+- Video call integration with chat sidebar - NOT STARTED
 
 **Reference**: This implementation builds on the Convex workspace backend (`convex/workspaces.ts`) which includes:
 - Auto-create workspace on seat reservation
@@ -599,9 +599,10 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 6: Discord Bot Automation
-**Status**: Core automation runs via Inngest + `discord_action_queue`; `apps/bot` slash commands still not implemented
+**Status**: ❌ **NOT STARTED** - apps/bot directory does not exist
 
 **Tasks**:
+- [ ] Create `apps/bot` application
 - [ ] Set up Discord bot commands:
   - [ ] `/pack-purchased` - Notify mentor + student
   - [ ] `/session-completed` - Update remaining sessions
@@ -663,11 +664,12 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 9: Video Access Control (Agora)
-**Status**: App structure exists, not implemented
+**Status**: ❌ **NOT STARTED** - apps/video directory does not exist
 
 **Tasks**:
+- [ ] Create `apps/video` application
 - [ ] Set up Agora account
-- [ ] Create token generation service (`apps/video`)
+- [ ] Create token generation service
 - [ ] Implement access control:
   - [ ] Check `session.status === "scheduled"`
   - [ ] Check `remaining_sessions > 0`
@@ -678,7 +680,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ### Priority 10: Inventory Management (Convex + Admin UI)
-**Status**: 🚧 **IN PROGRESS** - Phases 1-2 COMPLETE, Admin UI in progress
+**Status**: ✅ **COMPLETED** - All phases complete
 
 **Goal**: Implement inventory counts for instructors in Convex with easy admin management and integration with purchase flow.
 
@@ -705,15 +707,15 @@ This monorepo contains multiple applications with distinct responsibilities:
 - [x] Added `mentorshipType` to `sessionPacks` table for refund lookup
 - [x] Added environment variables: `CONVEX_URL`, `CONVEX_HTTP_KEY`
 
-**Phase 3: Admin UI**
-- [ ] Add inventory fields to instructor create form (new "Inventory" tab)
-- [ ] Add inventory fields to instructor edit form (new "Inventory" tab)
-- [ ] Create `/admin/inventory` page:
+**Phase 3: Admin UI** ✅ COMPLETE (April 2026)
+- [x] Add inventory fields to instructor create form (new "Inventory" tab)
+- [x] Add inventory fields to instructor edit form (new "Inventory" tab)
+- [x] Create `/admin/inventory` page:
   - Grid of mentor cards showing current inventory
   - Inline edit with +/- buttons and direct input
   - "Notify Waitlist" button per mentorship type
   - "View Waitlist" modal showing email list
-- [ ] Add Convex query hooks: `useInstructorInventory`, `useUpdateInventory`
+- [x] Uses `useUpdateInstructor` hook for inventory updates (note: `useInstructorInventory` not needed as separate hook)
 
 **UX Design**:
 - Create form: Optional checkbox "Create mentor record for bookings" - when checked, creates both instructor AND mentor with default inventory 0
@@ -722,12 +724,12 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 **Reference**: Similar to apps/marketing `/admin/inventory` implementation
 
-**Estimated Time**: 3-4 days
+**Estimated Time**: 3-4 days (completed)
 
 ---
 
 ### Priority 11: Waitlist System (Convex + Resend + Sold-Out UI)
-**Status**: 🚧 **IN PROGRESS** - Phases 1-2 COMPLETE, Frontend in progress
+**Status**: ✅ **COMPLETED** - All phases complete
 
 **Goal**: Allow users to join waitlist when instructor inventory is sold out, and notify them when spots become available.
 
@@ -748,21 +750,16 @@ This monorepo contains multiple applications with distinct responsibilities:
 - [x] Send emails to all un-notified waitlisted users for that mentorship type
 - [x] Mark users as notified after sending
 
-**Phase 3: Frontend - Sold Out Handling**
-- [ ] Create Inngest function to trigger waitlist notifications when inventory changes 0→N
-- [ ] Send emails to all un-notified waitlisted users for that mentorship type
-- [ ] Mark users as notified after sending
-
-**Phase 3: Frontend - Sold Out Handling**
-- [ ] Update apps/web `/instructors/[slug]` to check inventory from Convex
-- [ ] Show waitlist form when inventory = 0 instead of "Buy" button
-- [ ] Wire up waitlist submission to Convex mutation
+**Phase 3: Frontend - Sold Out Handling** ✅ COMPLETE (April 2026)
+- [x] Update apps/web `/instructors/[slug]` to check inventory from Convex
+- [x] Show waitlist form when inventory = 0 instead of "Buy" button
+- [x] Waitlist page uses API route (Convex mutation available in `useAddToWaitlist` hook)
 
 **Keep Products Active**: Products remain active even when inventory = 0, just show waitlist form instead of purchase.
 
 **Reference**: apps/marketing has similar waitlist implementation using `marketing_waitlist` table
 
-**Estimated Time**: 2-3 days
+**Estimated Time**: 2-3 days (completed)
 
 ---
 
@@ -787,9 +784,10 @@ Based on the plan in `mentorship-platform-plan.md`:
 15. ✅ **Mentorship workspace UI (notes + links + images + messages)** - COMPLETED (frontend built on Convex)
 16. ✅ **Workspace P1 bug fixes** - Auth, image filter, retention, counter decrements
 17. ✅ **ZIP export for workspace images + notes** - COMPLETED (Trigger.dev task)
-18. 🚧 **Inventory management** - IN PROGRESS (Convex backend + admin UI)
-19. 🚧 **Waitlist system** - IN PROGRESS (Convex + Resend + sold-out UI)
-20. ⏳ **Video access control** - After inventory/waitlist (Daily.co recommended)
+18. ✅ **Inventory management** - COMPLETED (Convex backend + admin UI + waitlist)
+19. ✅ **Waitlist system** - COMPLETED (Convex + Resend + sold-out UI)
+20. ⏳ **Discord Bot Slash Commands** - NOT STARTED (apps/bot not created)
+21. ⏳ **Video access control** - NOT STARTED (apps/video not created)
 
 ---
 
@@ -808,13 +806,14 @@ Based on the plan in `mentorship-platform-plan.md`:
 11. ✅ **Mentorship workspace UI (Chat + Notes + Images)** - COMPLETED
 12. ✅ **Workspace P1 bug fixes** - Auth, image filter, retention, counters
 13. ✅ **ZIP export for workspace images + notes** - COMPLETED (Trigger.dev task)
-14. ⏳ **Inventory + Waitlist System** - IN PROGRESS
+14. ✅ **Inventory + Waitlist System** - COMPLETED
     - Convex schema + queries/mutations
     - Admin UI (create/edit form + dedicated inventory page)
     - Inventory decrement on purchase
     - Waitlist backend (Convex + Resend emails)
     - Sold-out handling on instructor pages
-15. ⏳ **Video access control** - NEXT
+15. ⏳ **Discord Bot Slash Commands** - NOT STARTED (apps/bot not created)
+16. ⏳ **Video access control** - NOT STARTED (apps/video not created)
 
 
 ---
@@ -851,7 +850,32 @@ ls apps/web/app/api
 
 ---
 
-## 🔧 Testing Required
+## 🚧 Remaining Items to Tackle
+
+### Not Started (requires app creation)
+
+| Feature | Status | Notes |
+|--------|--------|-------|
+| **Discord Bot Slash Commands** | ❌ NOT STARTED | `apps/bot` directory doesn't exist. Implement `/pack-purchased`, `/session-completed`, `/renewal-reminder`, `/grace-warning` |
+| **Video Access Control (Agora/Daily.co)** | ❌ NOT STARTED | `apps/video` directory doesn't exist. Set up token generation + access control |
+
+### Testing Required (untested in sandbox)
+
+| Feature | Status | Notes |
+|--------|--------|-------|
+| **Payment Flow Testing** | ⏳ Untested | Stripe Checkout, PayPal Checkout, refunds, webhooks need testing |
+| **Instructor Active Toggle Testing** | ⏳ Untested | Deactivation edge cases need testing |
+
+### Lower Priority Enhancements
+
+| Feature | Status | Notes |
+|--------|--------|-------|
+| **Docstring Coverage** | Low priority | 28.57% → 80% threshold |
+| **Type Safety in Create Page** | Low priority | Replace `any` with discriminated unions |
+
+---
+
+## 🔧 Testing Required (Sandbox Mode)
 
 ### Payment Flow Testing (Sandbox Mode)
 - [ ] **Stripe Checkout**: Test complete checkout flow in Stripe sandbox
@@ -874,14 +898,14 @@ ls apps/web/app/api
 
 ---
 
-**Next**: Inventory Management + Waitlist System (Priority 10-11), then Video access control, then in-app retention warning banner
+**Next**: Discord Bot Slash Commands or Video Access Control (pending priority decision)
 
 ---
 
 ## 📊 Recent Progress Summary
 
 ### April 2026
-- ✅ **Inventory + Waitlist System** (Phases 1-2 COMPLETE)
+- ✅ **Inventory + Waitlist System** (COMPLETED - April 2026)
   - **Phase 1 COMPLETE**: Convex backend
     - Added `marketingWaitlist` table to Convex schema
     - Created waitlist queries/mutations in `convex/waitlist.ts`
@@ -893,11 +917,32 @@ ls apps/web/app/api
     - Inventory decrement after seat reservation in payment flow (Stripe + PayPal)
     - Inventory increment + waitlist notification on refund (Stripe + PayPal)
     - Added `CONVEX_URL` and `CONVEX_HTTP_KEY` environment variables
-  - **Remaining Phases**:
-    - Phase 3: Add inventory tabs to create/edit forms
-    - Phase 4: Create `/admin/inventory` page
-    - Phase 5: Show waitlist form on instructor pages when inventory = 0
-    - Phase 6: Resend template for waitlist notifications
+  - **Phase 3 COMPLETE** (April 2026): Admin UI
+    - Inventory tab on instructor create/edit forms with One-on-One and Group inventory fields
+    - Dedicated `/admin/inventory` page with inline editing (+/- buttons, direct input)
+    - Waitlist actions: "Notify Waitlist" and "View Waitlist" modal
+    - Resend email template at `apps/web/lib/email/waitlist-notification.ts`
+  - **Phase 4 COMPLETE** (April 2026): Sold-out UI
+    - `/instructors/[slug]` shows waitlist button when inventory = 0
+    - Waitlist form at `/waitlist` page
+
+- ✅ **Workspace Retention Warning Banner** (COMPLETED - April 2026)
+  - In-app banner shows at 90/30/7 days before workspace content deletion
+  - Component at `apps/web/components/workspace/retention-warning-banner.tsx`
+  - Trigger.dev task at `src/trigger/workspace-retention.ts` sends email reminders
+
+- ✅ **Minor Enhancements** (COMPLETED - April 2026)
+  - Pagination in admin workspace list (`useInfiniteQuery`)
+  - Pagination in admin audit log list (`useInfiniteQuery`)
+  - Search debouncing on workspace creation page (`useDebouncedValue`)
+
+- ⏳ **Discord Bot Slash Commands** - NOT STARTED
+  - `apps/bot` directory does not exist
+  - Would implement `/pack-purchased`, `/session-completed`, `/renewal-reminder`, `/grace-warning`
+
+- ⏳ **Video Access Control** - NOT STARTED
+  - `apps/video` directory does not exist
+  - Would integrate Agora or Daily.co for video access control
 
 - 🚧 **Convex Migration Decision** (Major Architecture Change)
   - Decided to migrate from Supabase/PostgreSQL to Convex
@@ -942,29 +987,24 @@ ls apps/web/app/api
 
 ## 📝 Remaining Enhancements (Admin Workspace)
 
-The following enhancements were suggested during code review but are not blocking for merge:
+The following enhancements were suggested during code review. Status updated April 2026:
 
-### High Priority (Nice to Have)
+### ✅ Completed
 1. **Pagination in Admin Lists**
-   - Currently hardcoded to fetch 50/100 items
-   - Could add cursor-based pagination to workspace list and audit logs
-   - Files: `apps/web/app/admin/workspaces/page.tsx`, `apps/web/app/admin/audit-logs/page.tsx`
+   - Implemented via `useInfiniteQuery` in workspace list and audit logs
+   - Both pages use cursor-based pagination
 
 2. **Search Debouncing**
-   - Add debounce to search input in workspace creation page
-   - Prevents excessive API calls on keystroke
-   - File: `apps/web/app/admin/workspaces/create/page.tsx`
+   - Implemented in workspace creation page via `useDebouncedValue(search, 300)`
 
-### Medium Priority (Future Improvements)
+### Low Priority (Already Optimized)
 3. **N+1 Query Optimization**
-   - Currently makes serial Convex queries for owner/mentor lookups
-   - Could batch lookups or denormalize display fields
-   - File: `apps/web/app/api/admin/workspaces/route.ts`
+   - The `enrichWorkspaces` function in `convex/adminWorkspaces.ts` already batches owner/mentor lookups using `Promise.all()` - only 2 queries regardless of workspace count (one for all owners, one for all mentors)
+   - No action needed - this was already optimized
 
+### Not Yet Implemented (Lower Priority)
 4. **Docstring Coverage**
    - CodeRabbit reports 28.57% docstring coverage (threshold: 80%)
-   - Add JSDoc comments to new functions
-
 5. **Type Safety in Create Page**
    - Replace `any` types with discriminated unions
    - File: `apps/web/app/admin/workspaces/create/page.tsx`
@@ -972,3 +1012,4 @@ The following enhancements were suggested during code review but are not blockin
 ### Security (Already Addressed)
 - ✅ Added admin role check to `getUserByUserId` query (prevents PII exposure)
 
+(End of file - total 992 lines)
