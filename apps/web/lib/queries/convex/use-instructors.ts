@@ -42,25 +42,9 @@ export function usePublicInstructorBySlug(slug: string) {
   });
 }
 
-export function useDecrementInventory() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.decrementInventory),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
-  });
-}
-
-export function useIncrementInventory() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.incrementInventory),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
+export function useAdminInstructors() {
+  return useQuery({
+    ...convexQuery(api.instructors.getInstructorsForAdmin, {}),
   });
 }
 

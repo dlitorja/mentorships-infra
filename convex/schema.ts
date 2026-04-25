@@ -15,18 +15,32 @@ export default defineSchema({
     .index("by_userId", ["userId"]),
 
   instructors: defineTable({
-    userId: v.string(),
+    userId: v.optional(v.string()),
+    name: v.optional(v.string()),
+    slug: v.optional(v.string()),
+    email: v.optional(v.string()),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
-    maxActiveStudents: v.number(),
+    maxActiveStudents: v.optional(v.number()),
     bio: v.optional(v.string()),
     pricing: v.optional(v.string()),
-    oneOnOneInventory: v.number(),
-    groupInventory: v.number(),
+    oneOnOneInventory: v.optional(v.number()),
+    groupInventory: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
+    // Legacy fields from existing records
+    isActive: v.optional(v.boolean()),
+    isNew: v.optional(v.boolean()),
+    background: v.optional(v.array(v.string())),
+    specialties: v.optional(v.array(v.string())),
+    portfolioImages: v.optional(v.array(v.string())),
+    profileImageUrl: v.optional(v.string()),
+    socials: v.optional(v.any()),
+    mentorId: v.optional(v.string()),
+    tagline: v.optional(v.string()),
   }).index("by_userId", ["userId"])
+    .index("by_slug", ["slug"])
     .index("by_deletedAt", ["deletedAt"]),
 
   sessions: defineTable({
@@ -109,7 +123,7 @@ export default defineSchema({
     .index("by_provider_providerPaymentId", ["provider", "providerPaymentId"]),
 
   products: defineTable({
-    mentorId: v.id("instructors"),
+    mentorId: v.optional(v.string()), // Using string to allow legacy IDs from mentors table
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
@@ -150,13 +164,13 @@ export default defineSchema({
     .index("by_isActive", ["isActive"]),
 
   instructorTestimonials: defineTable({
-    instructorId: v.id("instructorProfiles"),
+    instructorId: v.optional(v.string()), // Using string to allow legacy IDs
     name: v.string(),
     text: v.string(),
   }).index("by_instructorId", ["instructorId"]),
 
   menteeResults: defineTable({
-    instructorId: v.id("instructorProfiles"),
+    instructorId: v.optional(v.string()), // Using string to allow legacy IDs
     imageUrl: v.optional(v.string()),
     imageUploadPath: v.optional(v.string()),
     studentName: v.optional(v.string()),

@@ -74,3 +74,16 @@ export function useMarkNotifiedByInstructor() {
     },
   });
 }
+
+export function useWaitlistForInstructor(
+  instructorSlug: string,
+  mentorshipType?: "oneOnOne" | "group"
+) {
+  return useQuery({
+    ...convexQuery(api.waitlist.getWaitlistForInstructor, {
+      instructorSlug,
+      mentorshipType,
+    }),
+    enabled: !!instructorSlug,
+  });
+}

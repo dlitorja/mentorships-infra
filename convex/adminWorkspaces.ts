@@ -33,9 +33,9 @@ type WorkspaceListItem = {
   description: string | undefined;
   type: string;
   ownerId: string;
-  owner: { userId: string; email: string; firstName: string | undefined; lastName: string | undefined } | null;
+  owner: { userId: string | undefined; email: string | undefined; firstName: string | undefined; lastName: string | undefined } | null;
   mentorId: Doc<"instructors">["_id"] | undefined;
-  mentor: { userId: string; bio: string | undefined; pricing: string | undefined } | null;
+  mentor: { userId: string | undefined; bio: string | undefined; pricing: string | undefined } | null;
   isPublic: boolean;
   endedAt: number | undefined;
   createdAt: number;

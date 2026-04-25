@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,260 +19,126 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Plus, Minus } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
-import { z } from "zod";
+import { Id } from "../../../../../convex/_generated/dataModel";
+import { useAdminInstructors, useUpdateInstructor } from "@/lib/queries/convex/use-instructors";
+import { useWaitlistForInstructor, useMarkNotifiedByInstructor, useRemoveMultipleFromWaitlist } from "@/lib/queries/convex/use-waitlist";
 
-type MentorWithInstructor = {
-  id: string;
-  userId: string | null;
-  email: string | null;
-  maxActiveStudents: number;
-  oneOnOneInventory: number;
-  groupInventory: number;
-  createdAt: string;
-  instructorId: string | null;
-  instructorName: string | null;
-  instructorSlug: string | null;
+type InstructorWithInventory = {
+  _id: Id<"instructors">;
+  userId?: string;
+  name?: string | null;
+  slug?: string | null;
+  email?: string | null;
+  maxActiveStudents?: number;
+  oneOnOneInventory?: number;
+  groupInventory?: number;
+  deletedAt?: number | null;
 };
 
 type WaitlistEntry = {
-  id: string;
+  _id: Id<"marketingWaitlist">;
   email: string;
-  type: string;
-  notified: boolean;
-  createdAt: string;
+  mentorshipType: "oneOnOne" | "group";
+  notifiedAt: number | null;
+  createdAt: number;
 };
-
-const mentorsResponseSchema = z.object({
-  items: z.array(
-    z.object({
-      id: z.string(),
-      userId: z.string().nullable(),
-      email: z.string().nullable(),
-      maxActiveStudents: z.number(),
-      oneOnOneInventory: z.number(),
-      groupInventory: z.number(),
-      createdAt: z.string(),
-      instructorId: z.string().nullable(),
-      instructorName: z.string().nullable(),
-      instructorSlug: z.string().nullable(),
-    })
-  ),
-});
-
-type MentorsResponse = z.infer<typeof mentorsResponseSchema>;
-
-const waitlistResponseSchema = z.object({
-  items: z.array(
-    z.object({
-      id: z.string(),
-      email: z.string(),
-      type: z.string(),
-      notified: z.boolean(),
-      createdAt: z.string(),
-    })
-  ),
-});
-
-type WaitlistResponse = z.infer<typeof waitlistResponseSchema>;
-
-async function fetchMentors(): Promise<MentorsResponse> {
-  return apiFetch<MentorsResponse>("/api/admin/mentors");
-}
-
-async function fetchWaitlist(instructorSlug: string): Promise<WaitlistResponse> {
-  return apiFetch<WaitlistResponse>(`/api/admin/waitlist?slug=${instructorSlug}`);
-}
-
-async function updateInventory(
-  mentorId: string,
-  data: { oneOnOneInventory?: number; groupInventory?: number }
-) {
-  const response = await fetch(`/api/admin/inventory`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mentorId, ...data }),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to update inventory");
-  }
-  return response.json();
-}
-
-async function notifyWaitlist(data: { instructorSlug: string; mentorshipType: string }) {
-  const response = await fetch(`/api/admin/waitlist`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to notify waitlist");
-  }
-  return response.json();
-}
-
-async function markNotified(entryIds: string[]) {
-  const response = await fetch(`/api/admin/waitlist`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ entryIds: entryIds.map(Number) }),
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to mark as notified");
-  }
-  return response.json();
-}
-
-async function deleteWaitlistEntries(ids: string[]) {
-  const response = await fetch(`/api/admin/waitlist?ids=${ids.join(",")}`, {
-    method: "DELETE",
-  });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to delete entries");
-  }
-  return response.json();
-}
 
 export default function InventoryPage() {
   const [filter, setFilter] = useState<"all" | "available">("all");
   const [showWaitlistModal, setShowWaitlistModal] = useState(false);
-  const [selectedMentor, setSelectedMentor] = useState<MentorWithInstructor | null>(null);
+  const [selectedInstructor, setSelectedInstructor] = useState<InstructorWithInventory | null>(null);
   const [waitlistTab, setWaitlistTab] = useState<"oneOnOne" | "group">("oneOnOne");
-  const [selectedWaitlistEntries, setSelectedWaitlistEntries] = useState<string[]>([]);
+  const [selectedWaitlistEntries, setSelectedWaitlistEntries] = useState<Id<"marketingWaitlist">[]>([]);
+
+  const { data: instructorsData, isLoading, refetch } = useAdminInstructors();
 
   const {
-    data: mentorsData,
-    isLoading: mentorsLoading,
-    refetch: refetchMentors,
-  } = useQuery({
-    queryKey: ["mentors"],
-    queryFn: fetchMentors,
-  });
-
-  const {
-    data: waitlistData,
+    data: waitlistEntries,
     isLoading: waitlistLoading,
     refetch: refetchWaitlist,
-  } = useQuery({
-    queryKey: ["waitlist", selectedMentor?.instructorSlug],
-    queryFn: () => fetchWaitlist(selectedMentor!.instructorSlug!),
-    enabled: !!selectedMentor?.instructorSlug,
-  });
+  } = useWaitlistForInstructor(selectedInstructor?.slug ?? "", waitlistTab);
 
-  const updateInventoryMutation = useMutation({
-    mutationFn: ({
-      mentorId,
-      data,
-    }: {
-      mentorId: string;
-      data: { oneOnOneInventory?: number; groupInventory?: number };
-    }) => updateInventory(mentorId, data),
-    onSuccess: () => {
-      refetchMentors();
-    },
-  });
+  const updateInventoryMutation = useUpdateInstructor();
+  const markNotifiedByInstructorMutation = useMarkNotifiedByInstructor();
+  const removeMultipleFromWaitlistMutation = useRemoveMultipleFromWaitlist();
 
-  const notifyWaitlistMutation = useMutation({
-    mutationFn: (data: { instructorSlug: string; mentorshipType: string }) =>
-      notifyWaitlist(data),
-    onSuccess: () => {
-      refetchWaitlist();
-      alert("Waitlist notified successfully");
-    },
-    onError: (error: Error) => {
-      alert(error.message);
-    },
-  });
-
-  const markNotifiedMutation = useMutation({
-    mutationFn: (entryIds: string[]) => markNotified(entryIds),
-    onSuccess: () => {
-      refetchWaitlist();
-      setSelectedWaitlistEntries([]);
-    },
-    onError: (error: Error) => {
-      alert(error.message);
-    },
-  });
-
-  const deleteWaitlistEntriesMutation = useMutation({
-    mutationFn: (ids: string[]) => deleteWaitlistEntries(ids),
-    onSuccess: () => {
-      refetchWaitlist();
-      setSelectedWaitlistEntries([]);
-    },
-    onError: (error: Error) => {
-      alert(error.message);
-    },
-  });
+  const onMutationError = (operation: string, error: unknown) => {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    alert(`${operation} failed: ${message}`);
+  };
 
   const handleAdjustInventory = (
-    mentor: MentorWithInstructor,
+    instructor: InstructorWithInventory,
     type: "oneOnOne" | "group",
     delta: number
   ) => {
-    const currentValue = type === "oneOnOne" ? mentor.oneOnOneInventory : mentor.groupInventory;
+    const currentValue = type === "oneOnOne" ? (instructor.oneOnOneInventory ?? 0) : (instructor.groupInventory ?? 0);
     const newValue = currentValue + delta;
     if (newValue < 0) return;
 
-    updateInventoryMutation.mutate({
-      mentorId: mentor.id,
-      data: type === "oneOnOne" ? { oneOnOneInventory: newValue } : { groupInventory: newValue },
-    });
+    updateInventoryMutation.mutate(
+      {
+        id: instructor._id,
+        [type === "oneOnOne" ? "oneOnOneInventory" : "groupInventory"]: newValue,
+      },
+      {
+        onError: (err) => onMutationError("Inventory update", err),
+      }
+    );
   };
 
   const handleSetInventory = (
-    mentor: MentorWithInstructor,
+    instructor: InstructorWithInventory,
     type: "oneOnOne" | "group",
     value: number
   ) => {
     if (value < 0) return;
 
-    updateInventoryMutation.mutate({
-      mentorId: mentor.id,
-      data: type === "oneOnOne" ? { oneOnOneInventory: value } : { groupInventory: value },
-    });
+    updateInventoryMutation.mutate(
+      {
+        id: instructor._id,
+        [type === "oneOnOne" ? "oneOnOneInventory" : "groupInventory"]: value,
+      },
+      {
+        onError: (err) => onMutationError("Inventory update", err),
+      }
+    );
   };
 
-  const handleNotifyWaitlist = (mentor: MentorWithInstructor, type: "oneOnOne" | "group") => {
-    if (!mentor.instructorSlug) return;
-    notifyWaitlistMutation.mutate({
-      instructorSlug: mentor.instructorSlug,
-      mentorshipType: type,
-    });
+  const handleNotifyWaitlist = (instructor: InstructorWithInventory, type: "oneOnOne" | "group") => {
+    if (!instructor.slug) return;
+    markNotifiedByInstructorMutation.mutate(
+      {
+        instructorSlug: instructor.slug,
+        mentorshipType: type,
+      },
+      {
+        onError: (err) => onMutationError("Notify waitlist", err),
+      }
+    );
   };
 
-  const handleOpenWaitlist = (mentor: MentorWithInstructor) => {
-    setSelectedMentor(mentor);
+  const handleOpenWaitlist = (instructor: InstructorWithInventory) => {
+    setSelectedInstructor(instructor);
     setSelectedWaitlistEntries([]);
     setShowWaitlistModal(true);
   };
 
-  const handleToggleWaitlistEntry = (entryId: string) => {
+  const handleToggleWaitlistEntry = (entryId: Id<"marketingWaitlist">) => {
     setSelectedWaitlistEntries((prev) =>
       prev.includes(entryId) ? prev.filter((id) => id !== entryId) : [...prev, entryId]
     );
   };
 
-  const filteredMentors = mentorsData?.items.filter((mentor) => {
+  const filteredInstructors = instructorsData?.filter((inst) => {
     if (filter === "available") {
-      return mentor.oneOnOneInventory > 0 || mentor.groupInventory > 0;
+      return (inst.oneOnOneInventory ?? 0) > 0 || (inst.groupInventory ?? 0) > 0;
     }
     return true;
-  });
-
-  const currentWaitlist =
-    waitlistData?.items.filter((e) =>
-      waitlistTab === "oneOnOne" ? e.type === "oneOnOne" : e.type === "group"
-    ) || [];
+  }) ?? [];
 
   return (
     <div className="container mx-auto py-8">
@@ -300,11 +165,11 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {mentorsLoading ? (
+      {isLoading ? (
         <div className="flex justify-center py-8">
           <Loader2 className="h-8 w-8 animate-spin" />
         </div>
-      ) : filteredMentors?.length === 0 ? (
+      ) : filteredInstructors.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
             No instructors found.
@@ -312,23 +177,23 @@ export default function InventoryPage() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredMentors?.map((mentor) => (
-            <Card key={mentor.id}>
+          {filteredInstructors.map((instructor) => (
+            <Card key={instructor._id}>
               <CardHeader>
                 <CardTitle className="text-lg">
-                  {mentor.email || "No user linked"}
+                  {instructor.name || instructor.email || instructor.userId || "Unnamed"}
                 </CardTitle>
                 <CardDescription>
-                  {mentor.instructorName ? (
+                  {instructor.slug ? (
                     <Link
-                      href={`/instructors/${mentor.instructorSlug}`}
+                      href={`/instructors/${instructor.slug}`}
                       target="_blank"
                       className="hover:underline"
                     >
-                      {mentor.instructorName}
+                      {instructor.name || instructor.slug}
                     </Link>
                   ) : (
-                    <span className="text-muted-foreground">No instructor linked</span>
+                    <span className="text-muted-foreground">No profile slug</span>
                   )}
                 </CardDescription>
               </CardHeader>
@@ -340,7 +205,7 @@ export default function InventoryPage() {
                       variant="outline"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => handleAdjustInventory(mentor, "oneOnOne", -1)}
+                      onClick={() => handleAdjustInventory(instructor, "oneOnOne", -1)}
                       disabled={updateInventoryMutation.isPending}
                     >
                       <Minus className="h-4 w-4" />
@@ -348,9 +213,9 @@ export default function InventoryPage() {
                     <Input
                       type="number"
                       className="w-16 text-center"
-                      value={mentor.oneOnOneInventory}
+                      value={instructor.oneOnOneInventory ?? 0}
                       onChange={(e) =>
-                        handleSetInventory(mentor, "oneOnOne", parseInt(e.target.value) || 0)
+                        handleSetInventory(instructor, "oneOnOne", parseInt(e.target.value) || 0)
                       }
                       disabled={updateInventoryMutation.isPending}
                     />
@@ -358,7 +223,7 @@ export default function InventoryPage() {
                       variant="outline"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => handleAdjustInventory(mentor, "oneOnOne", 1)}
+                      onClick={() => handleAdjustInventory(instructor, "oneOnOne", 1)}
                       disabled={updateInventoryMutation.isPending}
                     >
                       <Plus className="h-4 w-4" />
@@ -372,7 +237,7 @@ export default function InventoryPage() {
                       variant="outline"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => handleAdjustInventory(mentor, "group", -1)}
+                      onClick={() => handleAdjustInventory(instructor, "group", -1)}
                       disabled={updateInventoryMutation.isPending}
                     >
                       <Minus className="h-4 w-4" />
@@ -380,9 +245,9 @@ export default function InventoryPage() {
                     <Input
                       type="number"
                       className="w-16 text-center"
-                      value={mentor.groupInventory}
+                      value={instructor.groupInventory ?? 0}
                       onChange={(e) =>
-                        handleSetInventory(mentor, "group", parseInt(e.target.value) || 0)
+                        handleSetInventory(instructor, "group", parseInt(e.target.value) || 0)
                       }
                       disabled={updateInventoryMutation.isPending}
                     />
@@ -390,22 +255,22 @@ export default function InventoryPage() {
                       variant="outline"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => handleAdjustInventory(mentor, "group", 1)}
+                      onClick={() => handleAdjustInventory(instructor, "group", 1)}
                       disabled={updateInventoryMutation.isPending}
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
-                {mentor.instructorSlug && (
+                {instructor.slug && (
                   <div className="flex gap-2 pt-2">
                     <div className="relative group">
                       <Button
                         variant="outline"
                         size="sm"
-                        disabled={notifyWaitlistMutation.isPending}
+                        disabled={markNotifiedByInstructorMutation.isPending}
                       >
-                        {notifyWaitlistMutation.isPending ? (
+                        {markNotifiedByInstructorMutation.isPending ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           "Notify Waitlist"
@@ -416,7 +281,7 @@ export default function InventoryPage() {
                           variant="ghost"
                           size="sm"
                           className="w-full justify-start"
-                          onClick={() => handleNotifyWaitlist(mentor, "oneOnOne")}
+                          onClick={() => handleNotifyWaitlist(instructor, "oneOnOne")}
                         >
                           One-on-One
                         </Button>
@@ -424,13 +289,13 @@ export default function InventoryPage() {
                           variant="ghost"
                           size="sm"
                           className="w-full justify-start"
-                          onClick={() => handleNotifyWaitlist(mentor, "group")}
+                          onClick={() => handleNotifyWaitlist(instructor, "group")}
                         >
                           Group
                         </Button>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => handleOpenWaitlist(mentor)}>
+                    <Button variant="outline" size="sm" onClick={() => handleOpenWaitlist(instructor)}>
                       View Waitlist
                     </Button>
                   </div>
@@ -445,7 +310,7 @@ export default function InventoryPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>
-              Waitlist - {selectedMentor?.instructorName || "Unknown Instructor"}
+              Waitlist - {selectedInstructor?.name || selectedInstructor?.slug || "Unknown Instructor"}
             </DialogTitle>
           </DialogHeader>
           <Tabs value={waitlistTab} onValueChange={(v) => setWaitlistTab(v as "oneOnOne" | "group")}>
@@ -458,7 +323,7 @@ export default function InventoryPage() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
-              ) : currentWaitlist.length === 0 ? (
+              ) : (waitlistEntries?.length ?? 0) === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No waitlist entries
                 </div>
@@ -468,11 +333,17 @@ export default function InventoryPage() {
                     <Button
                       size="sm"
                       onClick={() =>
-                        markNotifiedMutation.mutate(
-                          currentWaitlist.map((e) => e.id)
+                        markNotifiedByInstructorMutation.mutate(
+                          {
+                            instructorSlug: selectedInstructor?.slug ?? "",
+                            mentorshipType: "oneOnOne",
+                          },
+                          {
+                            onError: (err) => onMutationError("Notify waitlist", err),
+                          }
                         )
                       }
-                      disabled={markNotifiedMutation.isPending}
+                      disabled={markNotifiedByInstructorMutation.isPending}
                     >
                       Mark All Notified
                     </Button>
@@ -480,11 +351,16 @@ export default function InventoryPage() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        deleteWaitlistEntriesMutation.mutate(
-                          selectedWaitlistEntries
+                        removeMultipleFromWaitlistMutation.mutate(
+                          {
+                            ids: selectedWaitlistEntries,
+                          },
+                          {
+                            onError: (err) => onMutationError("Remove waitlist entries", err),
+                          }
                         )
                       }
-                      disabled={selectedWaitlistEntries.length === 0 || deleteWaitlistEntriesMutation.isPending}
+                      disabled={selectedWaitlistEntries.length === 0 || removeMultipleFromWaitlistMutation.isPending}
                     >
                       Delete Selected
                     </Button>
@@ -500,12 +376,12 @@ export default function InventoryPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {currentWaitlist.map((entry) => (
-                          <tr key={entry.id} className="border-b hover:bg-muted/50">
+                        {(waitlistEntries ?? []).map((entry) => (
+                          <tr key={String(entry._id)} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-3">
                               <Checkbox
-                                checked={selectedWaitlistEntries.includes(entry.id)}
-                                onCheckedChange={() => handleToggleWaitlistEntry(entry.id)}
+                                checked={selectedWaitlistEntries.includes(entry._id)}
+                                onCheckedChange={() => handleToggleWaitlistEntry(entry._id)}
                               />
                             </td>
                             <td className="py-2 px-3">{entry.email}</td>
@@ -513,8 +389,8 @@ export default function InventoryPage() {
                               {new Date(entry.createdAt).toLocaleDateString()}
                             </td>
                             <td className="py-2 px-3">
-                              <Badge variant={entry.notified ? "default" : "secondary"}>
-                                {entry.notified ? "Notified" : "Pending"}
+                              <Badge variant={entry.notifiedAt ? "default" : "secondary"}>
+                                {entry.notifiedAt ? "Notified" : "Pending"}
                               </Badge>
                             </td>
                           </tr>
@@ -530,7 +406,7 @@ export default function InventoryPage() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
-              ) : currentWaitlist.length === 0 ? (
+              ) : (waitlistEntries?.length ?? 0) === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No waitlist entries
                 </div>
@@ -540,11 +416,17 @@ export default function InventoryPage() {
                     <Button
                       size="sm"
                       onClick={() =>
-                        markNotifiedMutation.mutate(
-                          currentWaitlist.map((e) => e.id)
+                        markNotifiedByInstructorMutation.mutate(
+                          {
+                            instructorSlug: selectedInstructor?.slug ?? "",
+                            mentorshipType: "group",
+                          },
+                          {
+                            onError: (err) => onMutationError("Notify waitlist", err),
+                          }
                         )
                       }
-                      disabled={markNotifiedMutation.isPending}
+                      disabled={markNotifiedByInstructorMutation.isPending}
                     >
                       Mark All Notified
                     </Button>
@@ -552,11 +434,16 @@ export default function InventoryPage() {
                       variant="outline"
                       size="sm"
                       onClick={() =>
-                        deleteWaitlistEntriesMutation.mutate(
-                          selectedWaitlistEntries
+                        removeMultipleFromWaitlistMutation.mutate(
+                          {
+                            ids: selectedWaitlistEntries,
+                          },
+                          {
+                            onError: (err) => onMutationError("Remove waitlist entries", err),
+                          }
                         )
                       }
-                      disabled={selectedWaitlistEntries.length === 0 || deleteWaitlistEntriesMutation.isPending}
+                      disabled={selectedWaitlistEntries.length === 0 || removeMultipleFromWaitlistMutation.isPending}
                     >
                       Delete Selected
                     </Button>
@@ -572,12 +459,12 @@ export default function InventoryPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {currentWaitlist.map((entry) => (
-                          <tr key={entry.id} className="border-b hover:bg-muted/50">
+                        {(waitlistEntries ?? []).map((entry) => (
+                          <tr key={String(entry._id)} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-3">
                               <Checkbox
-                                checked={selectedWaitlistEntries.includes(entry.id)}
-                                onCheckedChange={() => handleToggleWaitlistEntry(entry.id)}
+                                checked={selectedWaitlistEntries.includes(entry._id)}
+                                onCheckedChange={() => handleToggleWaitlistEntry(entry._id)}
                               />
                             </td>
                             <td className="py-2 px-3">{entry.email}</td>
@@ -585,8 +472,8 @@ export default function InventoryPage() {
                               {new Date(entry.createdAt).toLocaleDateString()}
                             </td>
                             <td className="py-2 px-3">
-                              <Badge variant={entry.notified ? "default" : "secondary"}>
-                                {entry.notified ? "Notified" : "Pending"}
+                              <Badge variant={entry.notifiedAt ? "default" : "secondary"}>
+                                {entry.notifiedAt ? "Notified" : "Pending"}
                               </Badge>
                             </td>
                           </tr>

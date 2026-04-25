@@ -384,7 +384,10 @@ export default function EditInstructorPage() {
   });
 
   const handleSave = () => {
-    updateMutation.mutate({ data: formData, deactivateProducts: false });
+    updateMutation.mutate({
+      data: formData,
+      deactivateProducts: false,
+    });
   };
 
   const handleDeactivateWithProducts = () => {
