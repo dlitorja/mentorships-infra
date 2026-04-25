@@ -110,6 +110,7 @@ export default function InventoryPage() {
 
   const handleNotifyWaitlist = (instructor: InstructorWithInventory, type: "oneOnOne" | "group") => {
     if (!instructor.slug) return;
+    
     markNotifiedByInstructorMutation.mutate(
       {
         instructorSlug: instructor.slug,
@@ -117,6 +118,13 @@ export default function InventoryPage() {
       },
       {
         onError: (err) => onMutationError("Notify waitlist", err),
+        onSuccess: () => {
+          fetch(`/api/admin/waitlist/notify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ instructorSlug: instructor.slug, mentorshipType: type }),
+          }).catch((err) => console.error("Failed to send waitlist emails:", err));
+        },
       }
     );
   };

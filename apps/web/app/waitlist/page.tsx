@@ -14,7 +14,14 @@ import { useAddToWaitlist } from "@/lib/queries/convex/use-waitlist";
 export const dynamic = "force-dynamic";
 
 function normalizeMentorshipType(type: string): "oneOnOne" | "group" {
-  return type === "one-on-one" ? "oneOnOne" : "group";
+  if (type === "one-on-one") return "oneOnOne";
+  if (type === "group") return "group";
+  return "oneOnOne";
+}
+
+function getMentorshipTypeLabel(type: string): string {
+  if (type === "one-on-one" || type === "oneOnOne") return "1-on-1";
+  return "group";
 }
 
 function WaitlistContent(): React.JSX.Element {
@@ -90,7 +97,7 @@ function WaitlistContent(): React.JSX.Element {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Join Waitlist</CardTitle>
           <CardDescription>
-            Get notified when this instructor has availability for {typeParam === "one-on-one" ? "1-on-1" : "group"} mentorship.
+            Get notified when this instructor has availability for {getMentorshipTypeLabel(typeParam)} mentorship.
           </CardDescription>
         </CardHeader>
         <CardContent>

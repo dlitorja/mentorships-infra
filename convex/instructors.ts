@@ -2,6 +2,14 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
+async function isAdminUser(ctx: any, userId: string): Promise<boolean> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first();
+  return user?.role === "admin";
+}
+
 /** Returns the instructor matching the given userId, or null if not authenticated. */
 export const getInstructorByUserId = query({
   args: { userId: v.string() },
@@ -110,6 +118,10 @@ export const getInstructorsForAdmin = query({
     if (!user) {
       return [];
     }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
+      return [];
+    }
     const instructors = await ctx.db
       .query("instructors")
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
@@ -124,6 +136,10 @@ export const getInstructorBySlugForAdmin = query({
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
+      return null;
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
       return null;
     }
     const instructor = await ctx.db
