@@ -1,5 +1,14 @@
 import { query, mutation } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
+
+async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first();
+  return user?.role === "admin";
+}
 
 /** Returns waitlist entries for an instructor, optionally filtered by mentorship type. */
 export const getWaitlistForInstructor = query({
@@ -10,6 +19,10 @@ export const getWaitlistForInstructor = query({
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
+      return [];
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
       return [];
     }
 
@@ -32,6 +45,10 @@ export const getWaitlistCounts = query({
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
+      return { oneOnOne: 0, group: 0 };
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
       return { oneOnOne: 0, group: 0 };
     }
 
@@ -205,6 +222,10 @@ export const getUnnotifiedWaitlist = query({
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
+      return [];
+    }
+    const isAdmin = await isAdminUser(ctx, user.subject);
+    if (!isAdmin) {
       return [];
     }
 

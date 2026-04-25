@@ -3,30 +3,34 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useForm } from "@tanstack/react-form";
-import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { waitlistFormSchema } from "@/lib/validation-schemas";
-import { joinWaitlist } from "@/lib/queries/api-client";
+import { useAddToWaitlist } from "@/lib/queries/convex/use-waitlist";
 
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
+function normalizeMentorshipType(type: string): "oneOnOne" | "group" {
+  if (type === "one-on-one") return "oneOnOne";
+  if (type === "group") return "group";
+  return "oneOnOne";
+}
+
+function getMentorshipTypeLabel(type: string): string {
+  if (type === "one-on-one" || type === "oneOnOne") return "1-on-1";
+  return "group";
+}
+
 function WaitlistContent(): React.JSX.Element {
   const searchParams = useSearchParams();
-  const instructorSlug = searchParams.get("instructor");
-  const type = searchParams.get("type") || "one-on-one";
+  const instructorSlug = searchParams.get("instructor") || "";
+  const typeParam = searchParams.get("type") || "one-on-one";
+  const mentorshipType = normalizeMentorshipType(typeParam);
 
-  // Join waitlist mutation
-  const joinWaitlistMutation = useMutation({
-    mutationFn: (data: { email: string; instructorSlug?: string; type?: string }) =>
-      joinWaitlist(data),
-    onSuccess: () => {
-      form.reset();
-    },
-  });
+  const addToWaitlistMutation = useAddToWaitlist();
 
   const form = useForm({
     defaultValues: {
@@ -36,18 +40,25 @@ function WaitlistContent(): React.JSX.Element {
       onChange: waitlistFormSchema,
     },
     onSubmit: async ({ value }) => {
-      joinWaitlistMutation.mutate({
-        email: value.email,
-        instructorSlug: instructorSlug || undefined,
-        type,
-      });
+      addToWaitlistMutation.mutate(
+        {
+          email: value.email,
+          instructorSlug,
+          mentorshipType,
+        },
+        {
+          onSuccess: () => {
+            form.reset();
+          },
+        }
+      );
     },
   });
 
-  const isSuccess = joinWaitlistMutation.isSuccess;
+  const isSuccess = addToWaitlistMutation.isSuccess;
   const error =
-    joinWaitlistMutation.error instanceof Error
-      ? joinWaitlistMutation.error.message
+    addToWaitlistMutation.error instanceof Error
+      ? addToWaitlistMutation.error.message
       : null;
 
   if (isSuccess) {
@@ -86,7 +97,7 @@ function WaitlistContent(): React.JSX.Element {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Join Waitlist</CardTitle>
           <CardDescription>
-            Get notified when this instructor has availability for {type === "one-on-one" ? "1-on-1" : "group"} mentorship.
+            Get notified when this instructor has availability for {getMentorshipTypeLabel(typeParam)} mentorship.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -147,9 +158,9 @@ function WaitlistContent(): React.JSX.Element {
                 type="submit"
                 size="lg"
                 className="w-full vibrant-gradient-button transition-all"
-                disabled={form.state.isSubmitting || joinWaitlistMutation.isPending}
+                disabled={form.state.isSubmitting || addToWaitlistMutation.isPending}
               >
-                {form.state.isSubmitting || joinWaitlistMutation.isPending
+                {form.state.isSubmitting || addToWaitlistMutation.isPending
                   ? "Joining Waitlist..."
                   : "Join Waitlist"}
               </Button>
