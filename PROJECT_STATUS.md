@@ -935,11 +935,17 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 - Check "Enable PayPal" to automatically create PayPal product
 - Just need to select mentor and fill in product details
 
+**Dashboard Links**: After creating a product, the UI displays clickable links to:
+- **Stripe**: "View Product" → `https://dashboard.stripe.com/products/{productId}`
+- **Stripe**: "View Price" → `https://dashboard.stripe.com/prices/{priceId}`
+- **PayPal**: "View in PayPal Dashboard" → `https://www.sandbox.paypal.com/myaccount/integrationproducts/{productId}`
+
 ### Testing Requirements
 
+- [x] Product creation admin UI fixed and working
 - [ ] Configure PayPal webhook in PayPal Developer Dashboard
 - [ ] Add `PAYPAL_WEBHOOK_ID` to environment
-- [ ] Deploy to Vercel dev environment
+- [x] Deploy to Vercel dev environment (PRs #185, #186 merged)
 - [ ] Test Stripe checkout flow
 - [ ] Test PayPal checkout flow
 - [ ] Verify session pack creation
