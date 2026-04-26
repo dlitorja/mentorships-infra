@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
 import { PreviewHero } from "@/components/landing-preview/preview-hero";
 import { SaleBanner } from "@/components/landing-preview/sale-banner";
-import { InstructorCards } from "@/components/landing-preview/instructor-cards";
 import { InstructorShowcase } from "@/components/landing-preview/instructor-showcase";
-import { HowItWorks } from "@/components/landing-preview/how-it-works";
-import { Testimonials } from "@/components/landing-preview/testimonials";
 import { NewsletterSection } from "@/components/landing-preview/newsletter-section";
 import { PreviewFooter } from "@/components/landing-preview/preview-footer";
+import { StoreGrid } from "@/components/landing-preview/store-grid";
 
 export const metadata: Metadata = {
   title: "Huckleberry Art Academy | Learn from Industry Pros",
@@ -19,10 +17,8 @@ export default function PreviewPage() {
     <div className="bg-white text-[#1a1a2e]">
       <PreviewHero />
       <SaleBanner />
-      <InstructorCards />
-      <HowItWorks />
+      <StoreGrid />
       <InstructorShowcase />
-      <Testimonials />
       <NewsletterSection />
       <PreviewFooter />
     </div>
