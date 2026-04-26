@@ -16,34 +16,35 @@ interface SaleItem {
 const SALE_ITEMS: SaleItem[] = [
   {
     id: "bundle",
-    title: "COURSE_NAME_HERE",
+    title: "Special Course Bundle",
     badge: "67% OFF",
-    description: "BUNDLE_DESCRIPTION_HERE",
-    endsAt: "END_DATE_HERE",
+    description: "Get both courses for $120 · Limited time",
+    endsAt: null, // No explicit countdown on the source page
     image: "/images/preview/sale-bundle.jpg",
     link: "https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g",
   },
   {
     id: "new-course-1",
-    title: "COURSE_NAME_HERE",
-    badge: "54% OFF",
-    description: "COURSE_DESCRIPTION_HERE",
-    endsAt: "END_DATE_HERE",
+    title: "New Course · 54% OFF",
+    badge: "SALE",
+    description: "Sale ends May 5th",
+    endsAt: "2026-05-05T23:59:59.000Z",
     image: "/images/preview/sale-new-course-1.jpg",
     link: "https://home.huckleberry.art/resource_redirect/landing_pages/2151951362",
   },
   {
     id: "new-course-2",
-    title: "COURSE_NAME_HERE",
-    badge: "58% OFF",
-    description: "COURSE_DESCRIPTION_HERE",
-    endsAt: "END_DATE_HERE",
+    title: "Featured Course · 58% OFF",
+    badge: "SALE",
+    description: "Sale ends May 5th",
+    endsAt: "2026-05-05T23:59:59.000Z",
     image: "/images/preview/sale-new-course-2.jpg",
     link: "https://home.huckleberry.art/resource_redirect/landing_pages/2151610810",
   },
+  // Keep mentorship item ready if we want to rotate; excluded from the 3-card cap
   {
     id: "mentor-kim",
-    title: "New Mentor \u2014 Kim Myatt",
+    title: "New Mentor — Kim Myatt",
     badge: "MENTORSHIPS",
     description: "1-on-1 mentorships available",
     endsAt: null,
@@ -52,10 +53,10 @@ const SALE_ITEMS: SaleItem[] = [
   },
   {
     id: "drawing-course",
-    title: "COURSE_NAME_HERE",
+    title: "Drawing from Imagination",
     badge: "NEW",
-    description: "COURSE_DESCRIPTION_HERE",
-    endsAt: "END_DATE_HERE",
+    description: "Start learning today",
+    endsAt: null,
     image: "/images/preview/sale-drawing-course.jpg",
     link: "https://home.huckleberry.art/resource_redirect/landing_pages/2150836416",
   },
@@ -129,9 +130,8 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
 }
 
 export function SaleBanner() {
-  const liveItems = SALE_ITEMS.filter(
-    (item) => item.title !== "COURSE_NAME_HERE" && item.endsAt !== "END_DATE_HERE"
-  );
+  // Use the first three curated items to mirror Underpaint's 3-card layout
+  const liveItems = SALE_ITEMS.slice(0, 3);
 
   return (
     <section className="bg-white py-20 px-6">
@@ -143,7 +143,7 @@ export function SaleBanner() {
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {liveItems.map((item) => (
+           {liveItems.map((item) => (
             <a
               key={item.id}
               href={item.link}
@@ -167,17 +167,14 @@ export function SaleBanner() {
               </div>
 
               <div className="p-4 space-y-3">
-                {item.title !== "COURSE_NAME_HERE" && (
-                  <h3 className="text-base font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors line-clamp-2">
-                    {item.title}
-                  </h3>
-                )}
-                {item.description !== "COURSE_DESCRIPTION_HERE" &&
-                  item.description !== "BUNDLE_DESCRIPTION_HERE" && (
-                    <p className="text-sm text-gray-500 line-clamp-2">
-                      {item.description}
-                    </p>
-                  )}
+                 <h3 className="text-base font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors line-clamp-2">
+                   {item.title}
+                 </h3>
+                 {item.description && (
+                   <p className="text-sm text-gray-500 line-clamp-2">
+                     {item.description}
+                   </p>
+                 )}
                 <CountdownTimer endsAt={item.endsAt} />
               </div>
             </a>

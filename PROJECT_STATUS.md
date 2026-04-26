@@ -958,6 +958,15 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 ## 📊 Recent Progress Summary
 
 ### April 2026
+- ✅ **Preview Page Redesign (Underpaint-style)** (COMPLETED - April 26, 2026)
+  - **Goal**: Mirror https://underpaintacademy.com layout at `/preview` using Huckleberry content from https://home.huckleberry.art
+  - New `StoreGrid` component (`apps/web/components/landing-preview/store-grid.tsx`): 6-card product grid with images, titles, links to Kajabi/store/discord (no prices — source unavailable)
+  - `SaleBanner` overhaul: replaced placeholders with real promo data from home.huckleberry.art (Special Course Bundle 67% OFF, New Course 54% OFF, 58% OFF); added real countdown end date (May 5th) for the two sale items; capped display at 3 cards to match Underpaint's layout
+  - Reordered `/preview` to match Underpaint flow: Hero → Promo (3-card) → Store Grid → Instructor Showcase → Newsletter → Footer; removed HowItWorks and Testimonials to stay focused
+  - Tailwind 3.4.x-compatible throughout (no plugin changes); typecheck passes
+  - Files: new `store-grid.tsx`, modified `sale-banner.tsx`, modified `preview/page.tsx`
+  - Assets reused from `apps/web/public/images/preview/` (sale-bundle, sale-new-course-1/2, sale-drawing-course, mentor-kim-myatt, discord-banner)
+
 - ✅ **Inventory + Waitlist System** (COMPLETED - April 2026)
   - **Phase 1 COMPLETE**: Convex backend
     - Added `marketingWaitlist` table to Convex schema
