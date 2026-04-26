@@ -863,7 +863,7 @@ ls apps/web/app/api
 
 | Feature | Status | Notes |
 |--------|--------|-------|
-| **Payment Flow Testing** | ⏳ Untested | Stripe Checkout, PayPal Checkout, refunds, webhooks need testing |
+| **Payment Flow Testing** | 🟡 IN PROGRESS | Fixed PayPal Inngest registration, capture fallback, signature verification |
 | **Instructor Active Toggle Testing** | ⏳ Untested | Deactivation edge cases need testing |
 
 ### Lower Priority Enhancements
@@ -899,6 +899,41 @@ ls apps/web/app/api
 ---
 
 **Next**: Discord Bot Slash Commands or Video Access Control (pending priority decision)
+
+---
+
+## 🔧 Payment Flow Improvements (April 26, 2026)
+
+### Completed Fixes
+
+1. **PayPal Inngest Registration** ✅
+   - Added `processPayPalCheckout` and `processPayPalRefund` to Inngest serve
+   - File: `apps/web/app/api/inngest/route.ts`
+
+2. **PayPal Capture Inngest Fallback** ✅
+   - Added direct Inngest event send after successful capture
+   - Dual-path fulfillment: capture endpoint + webhook (both idempotent)
+   - File: `apps/web/app/api/checkout/paypal/capture/route.ts`
+
+3. **PayPal Signature Verification** ✅
+   - Implemented full cryptographic verification using CRC32 + certificate
+   - Certificate caching for 5 hours
+   - File: `packages/payments/src/paypal/webhooks.ts`
+
+4. **Environment** ✅
+   - Added `PAYPAL_WEBHOOK_ID` comment to `.env.local`
+
+### Testing Requirements
+
+- [ ] Configure PayPal webhook in PayPal Developer Dashboard
+- [ ] Add `PAYPAL_WEBHOOK_ID` to environment
+- [ ] Deploy to Vercel dev environment
+- [ ] Test Stripe checkout flow
+- [ ] Test PayPal checkout flow
+- [ ] Verify session pack creation
+- [ ] Verify seat reservation creation
+- [ ] Verify inventory decrement
+- [ ] Test refund flow
 
 ---
 

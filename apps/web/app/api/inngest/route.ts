@@ -1,6 +1,6 @@
 import { serve } from "inngest/next";
 import { inngest } from "@/inngest/client";
-import { processStripeCheckout, processStripeRefund } from "@/inngest/functions/payments";
+import { processStripeCheckout, processStripeRefund, processPayPalCheckout, processPayPalRefund } from "@/inngest/functions/payments";
 import { handleNotificationSend } from "@/inngest/functions/notifications";
 import { processDiscordActionQueue } from "@/inngest/functions/discord";
 import {
@@ -20,6 +20,8 @@ export const { GET, POST, PUT } = serve({
   functions: [
     processStripeCheckout,
     processStripeRefund,
+    processPayPalCheckout,
+    processPayPalRefund,
     onboardingFlow,
     handleSessionCompleted,
     checkSeatExpiration,
