@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@mentorships/db";
-import { capturePayPalOrder } from "@mentorships/payments";
+import { requireAuth, getOrderById, getProductById } from "@mentorships/db";
+import { capturePayPalOrder, getPayPalOrder } from "@mentorships/payments";
+import { inngest } from "@/inngest/client";
 
 const captureSchema = z.object({
   orderId: z.string().min(1, "orderId is required"),
@@ -32,9 +33,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     console.log(`PayPal order captured: ${capturedOrder.id}, status: ${capturedOrder.status}`);
 
-    // The webhook will handle the rest (creating payment, pack, seat)
-    // But we return success so the frontend knows the capture succeeded
-    
+    // Safety net: Send Inngest event immediately for fulfillment
+    // This ensures fulfillment even if webhook delivery is delayed
+    // The webhook also sends this event, but both paths are idempotent
+    try {
+      // Fetch order details to get custom_id (contains orderId and packId)
+      const paypalOrderDetails = await getPayPalOrder(orderId);
+      const purchaseUnits = paypalOrderDetails.purchaseUnits;
+      
+      if (purchaseUnits && purchaseUnits.length > 0) {
+        const customId = purchaseUnits[0].customId;
+        if (typeof customId === "string") {
+          try {
+            const decoded = JSON.parse(customId);
+            const dbOrderId = decoded.orderId;
+            const packId = decoded.packId;
+            
+            if (dbOrderId && packId) {
+              // Send Inngest event for fulfillment
+              await inngest.send({
+                name: "paypal/payment.capture.completed",
+                data: {
+                  captureId: capturedOrder.id,
+                  orderId: dbOrderId,
+                  packId: packId,
+                },
+              });
+              console.log(`Inngest event sent for order ${dbOrderId}, pack ${packId}`);
+            }
+          } catch {
+            // customId is not JSON, skip Inngest event
+            console.log(`Could not parse customId for Inngest event: ${customId}`);
+          }
+        }
+      }
+    } catch (inngestError) {
+      // Don't fail the capture if Inngest send fails
+      // The webhook will still handle fulfillment
+      console.error(`Inngest event send failed (webhook will handle):`, inngestError);
+    }
+
     return NextResponse.json({ 
       success: true,
       orderId: capturedOrder.id,

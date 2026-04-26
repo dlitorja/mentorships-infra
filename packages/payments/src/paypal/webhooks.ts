@@ -1,9 +1,83 @@
 import type { ParsedPayPalEvent, PayPalWebhookEventType } from "./types";
-// import { getPayPalClient } from "./client";
-// TODO: PayPal SDK v2.1.0 doesn't provide webhook signature verification
-// For now, we'll accept webhook and rely on HTTPS
-// In production, implement manual signature verification using PayPal's API
 import { z, ZodError } from "zod";
+import crypto from "node:crypto";
+
+/**
+ * CRC32 checksum calculation for webhook signature verification
+ * @param body - Raw request body
+ * @returns CRC32 checksum as decimal number
+ */
+function crc32Checksum(body: string): number {
+  const crcTable: number[] = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    crcTable[n] = c;
+  }
+  
+  let crc = 0 ^ -1;
+  for (let i = 0; i < body.length; i++) {
+    crc = crcTable[(crc ^ body.charCodeAt(i)) & 0xff] ^ (crc >>> 8);
+  }
+  
+  return (crc ^ -1) >>> 0;
+}
+
+// Certificate cache for signature verification
+const certCache: Map<string, { cert: string; expiresAt: number }> = new Map();
+const CERT_CACHE_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours
+
+/**
+ * Get PayPal mode from environment
+ * @returns "sandbox" or "live"
+ */
+function getPayPalMode(): string {
+  return (process.env.PAYPAL_MODE || "sandbox").toLowerCase();
+}
+
+/**
+ * Get PayPal API base URL based on mode
+ * @returns API base URL
+ */
+function getPayPalApiBaseUrl(): string {
+  const mode = getPayPalMode();
+  return mode === "live" 
+    ? "https://api.paypal.com" 
+    : "https://api.sandbox.paypal.com";
+}
+
+/**
+ * Fetch and cache PayPal certificate
+ * Caches certificate for 5 hours to avoid repeated fetches
+ * @param certUrl - Certificate URL from PayPal webhook headers
+ * @returns Cached or fetched certificate as PEM string
+ */
+async function getCertificate(certUrl: string): Promise<string> {
+  const cached = certCache.get(certUrl);
+  const now = Date.now();
+  
+  if (cached && cached.expiresAt > now) {
+    return cached.cert;
+  }
+  
+  // Fetch new certificate
+  const response = await fetch(certUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch PayPal certificate: ${response.status}`);
+  }
+  
+  const cert = await response.text();
+  
+  // Cache with TTL
+  certCache.set(certUrl, {
+    cert,
+    expiresAt: now + CERT_CACHE_TTL_MS,
+  });
+  
+  return cert;
+}
 
 /**
  * Zod schema for validating PayPal webhook event structure
@@ -20,22 +94,20 @@ const PayPalWebhookEventSchema = z.object({
 type PayPalWebhookEvent = z.infer<typeof PayPalWebhookEventSchema>;
 
 /**
- * Verify PayPal webhook signature
- *
- * PayPal webhook verification uses PayPal's verification API endpoint
- * which validates:
- * 1. The webhook signature header
- * 2. The certificate chain
- * 3. The payload integrity
- *
- * TODO: Implement full signature verification using PayPal's verify webhook endpoint
- * For now, this validates the event structure and headers
- *
+ * Verify PayPal webhook signature using cryptographic verification
+ * 
+ * This implements full signature verification:
+ * 1. Constructs the original message string from headers
+ * 2. Downloads the PayPal certificate
+ * 3. Verifies the signature using SHA256
+ * 
+ * Reference: https://developer.paypal.com/docs/api/webhooks/verify-webhook-signature/
+ * 
  * @param body - Raw request body as string
  * @param headers - Request headers (must include PayPal webhook headers)
  * @param webhookId - PayPal webhook ID (from PayPal dashboard)
  * @returns true if signature is valid
- * @throws Error if headers are missing or empty
+ * @throws Error if headers are missing or verification fails
  */
 export async function verifyWebhookSignature(
   body: string,
@@ -90,8 +162,32 @@ export async function verifyWebhookSignature(
   }
 
   try {
-    // Parse and validate webhook event structure using Zod
-    // Note: body is a raw string from req.text(), parsed here for validation
+    // Step 1: Calculate CRC32 of the raw body
+    const crc = crc32Checksum(body);
+
+    // Step 2: Construct the original message string
+    // Format: transmissionId|transmissionTime|webhookId|crc32
+    const message = `${transmissionIdStr}|${transmissionTimeStr}|${webhookId}|${crc}`;
+    console.log(`PayPal verification message: ${message}`);
+
+    // Step 3: Get the certificate (cached or fetch)
+    const certPem = await getCertificate(certUrlStr);
+
+    // Step 4: Verify the signature
+    const signatureBuffer = Buffer.from(transmissionSigStr, "base64");
+    const verifier = crypto.createVerify("SHA256");
+    verifier.update(message);
+    
+    const isValid = verifier.verify(certPem, signatureBuffer);
+    
+    if (!isValid) {
+      console.error("PayPal webhook signature verification FAILED");
+      return false;
+    }
+
+    console.log("PayPal webhook signature verified successfully");
+    
+    // Step 5: Validate webhook event structure using Zod
     const parsed = JSON.parse(body);
     const validation = PayPalWebhookEventSchema.safeParse(parsed);
     if (!validation.success) {
@@ -101,12 +197,7 @@ export async function verifyWebhookSignature(
       );
       return false;
     }
-    const event = validation.data;
 
-    // TODO: Implement full signature verification using PayPal's verify webhook endpoint
-    // The SDK v2.1.0 doesn't provide a NotificationsController
-    // Reference: https://developer.paypal.com/docs/api/webhooks/verify-webhook-signature/
-    // For now, accept webhooks with valid structure
     return true;
   } catch (error) {
     // Log error but don't expose internal details
