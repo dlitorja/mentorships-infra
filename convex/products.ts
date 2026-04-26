@@ -15,7 +15,7 @@ export const getProductById = query({
 
 /** Returns all products belonging to a specific instructor. */
 export const getInstructorProducts = query({
-  args: { mentorId: v.id("instructors") },
+  args: { mentorId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -69,7 +69,7 @@ export const getPublicActiveProducts = query({
 
 /** Returns products for a given instructor without requiring authentication. */
 export const getProductsByInstructorId = query({
-  args: { mentorId: v.id("instructors") },
+  args: { mentorId: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("products")
@@ -81,7 +81,7 @@ export const getProductsByInstructorId = query({
 /** Returns products for an instructor, optionally filtered by mentorship type (no auth). */
 export const getProductsByInstructorAndType = query({
   args: {
-    mentorId: v.id("instructors"),
+    mentorId: v.string(),
     mentorshipType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -100,7 +100,7 @@ export const getProductsByInstructorAndType = query({
 /** Creates a new product with the given details. */
 export const createProduct = mutation({
   args: {
-    mentorId: v.id("instructors"),
+    mentorId: v.string(),
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),

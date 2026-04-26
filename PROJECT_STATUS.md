@@ -923,6 +923,18 @@ ls apps/web/app/api
 4. **Environment** ✅
    - Added `PAYPAL_WEBHOOK_ID` comment to `.env.local`
 
+5. **Critical Bugs Fixed** (April 26, 2026) ✅
+   - Fixed `products.mentorId` type: was `v.id("instructors")` but schema uses string
+   - Fixed all product queries to accept `v.string()` for mentorId
+   - Fixed duplicate function definitions in convex/products.ts
+
+### Product Creation (Admin UI)
+
+The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal integration:
+- Check "Enable Stripe" to automatically create Stripe product/price
+- Check "Enable PayPal" to automatically create PayPal product
+- Just need to select mentor and fill in product details
+
 ### Testing Requirements
 
 - [ ] Configure PayPal webhook in PayPal Developer Dashboard
