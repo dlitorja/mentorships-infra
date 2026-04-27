@@ -14,7 +14,19 @@ export const metadata: Metadata = {
 
 export default function PreviewPage() {
   return (
-    <div className="bg-white text-[#1a1a2e]">
+    // Add a subtle paper-like textured background behind the whole page
+    <div
+      className="relative text-[#1a1a2e]"
+      style={{
+        // Two layered radial dot patterns for a paper texture feel
+        backgroundColor: "#ffffff",
+        backgroundImage:
+          "radial-gradient(rgba(0,0,0,0.03) 1px, transparent 1px), radial-gradient(rgba(0,0,0,0.02) 1px, transparent 1px)",
+        backgroundSize: "24px 24px, 48px 48px",
+        backgroundPosition: "0 0, 12px 12px",
+        backgroundAttachment: "fixed",
+      }}
+    >
       <PreviewHero />
       <SaleBanner />
       <StoreGrid />
