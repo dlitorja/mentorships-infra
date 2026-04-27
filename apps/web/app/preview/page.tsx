@@ -18,10 +18,10 @@ export default function PreviewPage() {
     <div
       className="relative text-[#1a1a2e]"
       style={{
-        // Two layered radial dot patterns for a paper texture feel
+        // Paper-like texture, now much lighter so the page reads as white
         backgroundColor: "#ffffff",
         backgroundImage:
-          "radial-gradient(rgba(0,0,0,0.03) 1px, transparent 1px), radial-gradient(rgba(0,0,0,0.02) 1px, transparent 1px)",
+          "radial-gradient(rgba(0,0,0,0.015) 1px, transparent 1px), radial-gradient(rgba(0,0,0,0.008) 1px, transparent 1px)",
         backgroundSize: "24px 24px, 48px 48px",
         backgroundPosition: "0 0, 12px 12px",
         backgroundAttachment: "fixed",

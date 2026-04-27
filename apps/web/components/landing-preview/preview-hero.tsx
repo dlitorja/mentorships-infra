@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,18 +80,18 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
   const timeLeft = useCountdown(endsAt);
   if (!timeLeft) return null;
   return (
-    <div className="grid grid-cols-4 gap-2 text-center">
+    <div className="grid grid-cols-4 gap-3 text-center">
       {[
         { value: timeLeft.days, label: "Days" },
         { value: timeLeft.hours, label: "Hrs" },
         { value: timeLeft.minutes, label: "Min" },
         { value: timeLeft.seconds, label: "Sec" },
       ].map((unit) => (
-        <div key={unit.label} className="rounded bg-[#1a1a2e] px-2 py-2">
-          <div className="text-lg sm:text-xl font-bold text-white tabular-nums">
+        <div key={unit.label} className="rounded bg-[#1a1a2e] px-3 py-3 shadow">
+          <div className="text-xl sm:text-2xl font-bold text-white tabular-nums">
             {String(unit.value).padStart(2, "0")}
           </div>
-          <div className="text-[10px] uppercase tracking-wider text-white/60">
+          <div className="text-[11px] uppercase tracking-wider text-white/70">
             {unit.label}
           </div>
         </div>
@@ -118,29 +117,30 @@ export function PreviewHero() {
     <section className="relative min-h-[90svh] flex items-center justify-center">
       {/* Shared Sale CTA + countdown above carousel */}
       <div className="absolute top-6 z-20 w-full px-6">
-        <div className="mx-auto max-w-3xl text-center">
+        <div className="mx-auto max-w-4xl text-center">
           <a
             href="https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block text-sm font-semibold uppercase tracking-wider text-white bg-[#7c3aed] hover:bg-[#6d28d9] px-4 py-2"
+            className="inline-block text-base sm:text-lg font-semibold uppercase tracking-wider text-white bg-[#7c3aed] hover:bg-[#6d28d9] px-6 py-3 shadow-md"
           >
             Neil Gray Courses Sale · Up to 67% Off
           </a>
-          <div className="mt-3 flex justify-center">
+          <div className="mt-4 flex flex-col items-center gap-2">
+            <div className="text-white/80 text-xs uppercase tracking-widest">Sale Ends In</div>
             <CountdownTimer endsAt={SALE_ENDS_AT} />
           </div>
         </div>
       </div>
 
-      <div className="absolute inset-0 z-0 bg-black/60" />
+      <div className="absolute inset-0 z-0 bg-black/50" />
 
       <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
         <Carousel setApi={setApi} opts={{ align: "start", loop: true }}>
           <CarouselContent>
             {SLIDES.map((slide) => (
               <CarouselItem key={slide.id}>
-                <div className="relative min-h-[70svh] sm:min-h-[75svh] md:min-h-[80svh] flex items-center justify-center overflow-hidden">
+                <div className="relative min-h-[68svh] sm:min-h-[74svh] md:min-h-[78svh] flex items-center justify-center overflow-hidden">
                   <Image
                     src={slide.bgImage}
                     alt={slide.title}
@@ -149,24 +149,21 @@ export function PreviewHero() {
                     className="object-cover"
                     sizes="100vw"
                   />
-                  <div className="absolute inset-0 bg-black/50" />
-                  <div className="relative z-10 mx-auto max-w-3xl text-center">
+                  <div className="absolute inset-0 bg-black/45" />
+                  <div className="relative z-10 mx-auto max-w-3xl text-center px-4">
                     <div className="mb-4">
-                      <span className="inline-block bg-[#7c3aed] px-3 py-1 text-xs font-semibold text-white">
+                      <span className="inline-block bg-[#7c3aed] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">
                         {slide.badge}
                       </span>
                     </div>
-                    <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight text-white leading-tight">
+                    <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight text-white leading-tight drop-shadow-[0_1px_4px_rgba(0,0,0,0.4)]">
                       {slide.title}
                     </h1>
-                    <p className="mx-auto mt-4 max-w-xl text-white/90 sm:text-lg">
-                      Learn from industry pros and develop meaningful work.
-                    </p>
-                    <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                    <div className="mt-8 flex justify-center">
                       <Button
                         asChild
                         size="lg"
-                        className="bg-white text-[#1a1a2e] hover:bg-white/90 min-h-[48px] px-8"
+                        className="bg-white text-[#1a1a2e] hover:bg-white/95 min-h-[52px] px-10 text-base sm:text-lg font-semibold uppercase tracking-wide shadow-lg ring-1 ring-black/10"
                       >
                         <a
                           href={slide.ctaHref}
@@ -176,24 +173,18 @@ export function PreviewHero() {
                           Learn More
                         </a>
                       </Button>
-                      <Button
-                        asChild
-                        size="lg"
-                        variant="outline"
-                        className="border-white text-white hover:bg-white/10 min-h-[48px] px-8"
-                      >
-                        <Link href="#instructors">Browse Mentors</Link>
-                      </Button>
                     </div>
                   </div>
                 </div>
               </CarouselItem>
             ))}
           </CarouselContent>
-          <div className="absolute inset-x-0 bottom-6 z-20 flex items-center justify-between px-6">
-            <CarouselPrevious className="border-white text-white hover:bg-white/10" />
-            <CarouselNext className="border-white text-white hover:bg-white/10" />
-          </div>
+          <CarouselPrevious
+            className="absolute left-4 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white text-[#1a1a2e] shadow-lg hover:bg-white"
+          />
+          <CarouselNext
+            className="absolute right-4 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white text-[#1a1a2e] shadow-lg hover:bg-white"
+          />
         </Carousel>
       </div>
     </section>
