@@ -166,7 +166,7 @@ export function InstructorCards() {
                         src={instructor.profileImageUrl || "/placeholder.jpg"}
                         alt={instructor.name ?? "Instructor"}
                         fill
-                        className="object-cover transition-transform group-hover:scale-105"
+                        className="object-contain transition-transform group-hover:scale-105 bg-white"
                         sizes="(max-width: 640px) 85vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw"
                       />
                     </div>

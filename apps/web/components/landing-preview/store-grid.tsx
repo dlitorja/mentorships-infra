@@ -1,93 +1,104 @@
-import Image from "next/image";
+"use client";
 
-type StoreItem = {
-  id: string;
-  title: string;
-  image: string;
-  link: string;
+import Image from "next/image";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { usePublicInstructors } from "@/lib/queries/convex/use-instructors";
+
+type Instructor = {
+  _id: string;
+  name?: string;
+  slug?: string;
+  tagline?: string;
+  profileImageUrl?: string;
+  isHidden?: boolean;
 };
 
-// Static showcase grid for recordings/courses. Prices intentionally omitted
-// because we don't have a reliable source from Kajabi here.
-const STORE_ITEMS: StoreItem[] = [
-  {
-    id: "bundle",
-    title: "Special Course Bundle",
-    image: "/images/preview/sale-bundle.jpg",
-    link: "https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g",
-  },
-  {
-    id: "new-course-1",
-    title: "New Course Launch",
-    image: "/images/preview/sale-new-course-1.jpg",
-    link: "https://home.huckleberry.art/resource_redirect/landing_pages/2151951362",
-  },
-  {
-    id: "discount-58",
-    title: "58% Off Featured Course",
-    image: "/images/preview/sale-new-course-2.jpg",
-    link: "https://home.huckleberry.art/resource_redirect/landing_pages/2151610810",
-  },
-  {
-    id: "drawing-course",
-    title: "Drawing from Imagination",
-    image: "/images/preview/sale-drawing-course.jpg",
-    link: "https://home.huckleberry.art/resource_redirect/landing_pages/2150836416",
-  },
-  {
-    id: "mentor-kim",
-    title: "1-on-1 Mentorships: Kim Myatt",
-    image: "/images/preview/mentor-kim-myatt.jpg",
-    link: "https://mentorships.huckleberry.art",
-  },
-  {
-    id: "discord-community",
-    title: "Discord Community & Free Events",
-    image: "/images/preview/discord-banner.jpg",
-    link: "https://discord.gg/4DqDyKZyA8",
-  },
-];
+const MUST_INCLUDE = ["kim myatt", "neil gray", "ash kirk", "rakasa", "nino vecia"];
 
 export function StoreGrid() {
+  const { data, isLoading, isError } = usePublicInstructors();
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
+
+  useEffect(() => {
+    if (!data) return;
+    const visible: Instructor[] = (data as any[]).filter((i) => !i.isHidden);
+
+    const byName = new Map<string, Instructor>();
+    for (const i of visible) {
+      if (!i.name) continue;
+      byName.set(i.name.toLowerCase(), i);
+    }
+
+    const includeSet: Instructor[] = [];
+    for (const key of MUST_INCLUDE) {
+      const match = Array.from(byName.values()).find((i) => i.name?.toLowerCase().includes(key));
+      if (match && !includeSet.find((m) => m._id === match._id)) includeSet.push(match);
+    }
+
+    // Fill the rest with random others, avoiding duplicates
+    const others = visible.filter((i) => !includeSet.find((m) => m._id === i._id));
+    for (let i = others.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [others[i], others[j]] = [others[j], others[i]];
+    }
+
+    const combined = [...includeSet, ...others].slice(0, 9); // show up to 9 cards
+    setInstructors(combined);
+  }, [data]);
+
+  const content = useMemo(() => {
+    if (isError) return { title: "1-on-1 mentorships available", items: [] as Instructor[] };
+    if (isLoading) return { title: "1-on-1 mentorships available", items: [] as Instructor[] };
+    return { title: "1-on-1 mentorships available", items: instructors };
+  }, [isError, isLoading, instructors]);
+
   return (
     <section className="bg-white py-20 px-6">
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
-            Visit the Store for Recordings and Videos
-          </h2>
+          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">{content.title}</h2>
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {STORE_ITEMS.map((item) => (
-            <a
-              key={item.id}
-              href={item.link}
-              target="_blank"
-              rel="noopener noreferrer"
+          {content.items.length === 0 && (
+            <div className="col-span-full text-center text-gray-500">Loading mentors...</div>
+          )}
+          {content.items.map((inst) => (
+            <Link
+              key={inst._id}
+              href={`/instructors/${inst.slug}`}
               className="group block overflow-hidden bg-white border border-gray-200 hover:border-[#7c3aed]/50 transition-colors"
             >
-              <div className="relative aspect-square w-full overflow-hidden bg-gray-100">
+              <div className="relative aspect-square w-full overflow-hidden bg-white">
                 <Image
-                  src={item.image}
-                  alt={item.title}
+                  src={inst.profileImageUrl || "/placeholder.jpg"}
+                  alt={inst.name ?? "Instructor"}
                   fill
-                  className="object-cover transition-transform group-hover:scale-105"
+                  className="object-contain transition-transform group-hover:scale-105"
                   sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                 />
+                <div className="absolute top-3 left-3">
+                  <span className="inline-block bg-[#dc2626] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">
+                    MENTORSHIPS
+                  </span>
+                </div>
               </div>
               <div className="p-4">
                 <h3 className="text-base font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors line-clamp-2">
-                  {item.title}
+                  {inst.name}
                 </h3>
+                {inst.tagline && (
+                  <p className="mt-1 text-sm text-gray-500 line-clamp-2">{inst.tagline}</p>
+                )}
               </div>
-            </a>
+            </Link>
           ))}
         </div>
 
         <div className="mt-10 text-center">
           <a
-            href="https://home.huckleberry.art/store"
+            href="https://mentorships.huckleberry.art"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"

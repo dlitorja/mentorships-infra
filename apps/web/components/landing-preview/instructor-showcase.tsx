@@ -74,7 +74,7 @@ export function InstructorShowcase() {
                       src={instructor.profileImageUrl || "/placeholder.jpg"}
                       alt={instructor.name ?? "Instructor"}
                       fill
-                      className="object-cover"
+                      className="object-contain bg-white"
                       sizes="(max-width: 768px) 100vw, 50vw"
                     />
                   </div>
