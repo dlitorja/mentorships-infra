@@ -961,11 +961,22 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 - ✅ **Preview Page Redesign (Underpaint-style)** (COMPLETED - April 26, 2026)
   - **Goal**: Mirror https://underpaintacademy.com layout at `/preview` using Huckleberry content from https://home.huckleberry.art
   - New `StoreGrid` component (`apps/web/components/landing-preview/store-grid.tsx`): 6-card product grid with images, titles, links to Kajabi/store/discord (no prices — source unavailable)
-  - `SaleBanner` overhaul: replaced placeholders with real promo data from home.huckleberry.art (Special Course Bundle 67% OFF, New Course 54% OFF, 58% OFF); added real countdown end date (May 5th) for the two sale items; capped display at 3 cards to match Underpaint's layout
+  - `SaleBanner` overhaul: replaced all placeholder items with real promo data from home.huckleberry.art (Special Course Bundle 67% OFF, New Course 54% OFF, 58% OFF); added real countdown end date (May 5th) for the two sale items; capped display at 3 cards to match Underpaint's layout
   - Reordered `/preview` to match Underpaint flow: Hero → Promo (3-card) → Store Grid → Instructor Showcase → Newsletter → Footer; removed HowItWorks and Testimonials to stay focused
   - Tailwind 3.4.x-compatible throughout (no plugin changes); typecheck passes
   - Files: new `store-grid.tsx`, modified `sale-banner.tsx`, modified `preview/page.tsx`
   - Assets reused from `apps/web/public/images/preview/` (sale-bundle, sale-new-course-1/2, sale-drawing-course, mentor-kim-myatt, discord-banner)
+
+- ✅ **Preview Page: Carousel + Paper Texture** (COMPLETED - April 27, 2026)
+  - Added subtle paper-textured background using CSS radial gradients (double-layer dot pattern at different sizes/positions, anchored to viewport) to give a tactile paper-like feel beneath entire page
+  - Converted static Hero to 3-slide carousel using existing Embla-based ui/carousel:
+    - Slide 1: Neil Gray's Course Bundle (67% OFF) → bundle link
+    - Slide 2: Drawing Drapery and Clothing with Neil Gray (54% OFF) → link to course page
+    - Slide 3: Character Design with Neil Gray (58% OFF) → same course link
+  - Shared countdown timer at top of carousel matching SaleBanner style (ends May 5, 2026)
+  - Sale CTA button above timer linking to bundle offer: "Neil Gray Courses Sale · Up to 67% Off"
+  - Auto-advances every 6s with manual prev/next controls
+  - Files: modified `preview-hero.tsx`, modified `preview/page.tsx` (texture wrapper)
 
 - ✅ **Inventory + Waitlist System** (COMPLETED - April 2026)
   - **Phase 1 COMPLETE**: Convex backend
