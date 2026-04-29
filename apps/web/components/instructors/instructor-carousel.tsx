@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
@@ -18,29 +18,45 @@ import { Badge } from '@/components/ui/badge';
 import type { Instructor } from '@/lib/instructors';
 import { getRandomizedInstructors } from '@/lib/instructors';
 
-export function InstructorCarousel(): React.JSX.Element {
-  const instructors = getRandomizedInstructors();
+export function InstructorCarousel(): React.JSX.Element | null {
+  const [randomizedInstructors, setRandomizedInstructors] = useState<Instructor[] | undefined>(undefined);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
 
-  const prefersReducedMotion = typeof window !== 'undefined'    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const prefersReducedMotion = typeof window !== 'undefined'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
     : false;
 
+  useEffect(() => {
+    const visibleInstructors = getRandomizedInstructors();
+    setRandomizedInstructors(visibleInstructors);
+  }, []);
+
   const startInterval = useCallback(() => {
-    if (!api || instructors.length === 0 || prefersReducedMotion || paused) return;
+    if (!api || !randomizedInstructors || randomizedInstructors.length === 0 || prefersReducedMotion || paused) return;
+
     const interval = setInterval(() => {
       api.scrollNext();
     }, 5000);
+
     return () => clearInterval(interval);
-  }, [api, instructors.length, prefersReducedMotion, paused]);
+  }, [api, randomizedInstructors, prefersReducedMotion, paused]);
 
   useEffect(() => {
     return startInterval();
   }, [startInterval]);
 
-  if (instructors.length === 0) {
+  if (randomizedInstructors === undefined) {
     return (
       <div className='w-full h-64 animate-pulse bg-black/20 rounded-xl' aria-label='Loading instructors...' />
+    );
+  }
+
+  if (randomizedInstructors.length === 0) {
+    return (
+      <div className='w-full h-64 flex items-center justify-center bg-black/20 rounded-xl text-white/70'>
+        No instructors available.
+      </div>
     );
   }
 
@@ -53,11 +69,14 @@ export function InstructorCarousel(): React.JSX.Element {
     >
       <Carousel
         setApi={setApi}
-        opts={{ align: 'start', loop: true }}
+        opts={{
+          align: 'start',
+          loop: true,
+        }}
         className='w-full'
       >
         <CarouselContent className='-ml-2 md:-ml-4'>
-          {instructors.map((instructor) => (
+          {randomizedInstructors.map((instructor, index) => (
             <CarouselItem
               key={instructor.id}
               className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
@@ -73,6 +92,7 @@ export function InstructorCarousel(): React.JSX.Element {
                     fill
                     className='object-cover transition-transform hover:scale-105'
                     sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
+                    priority={index < 3}
                   />
                 </Link>
                 <CardContent className='flex flex-col flex-1 p-6'>

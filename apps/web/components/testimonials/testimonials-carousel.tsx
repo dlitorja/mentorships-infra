@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -12,6 +12,7 @@ import {
   type CarouselApi,
 } from '@/components/ui/carousel';
 import { mockInstructors } from '@/lib/instructors';
+import { shuffle } from '@/lib/utils/shuffle';
 
 interface TestimonialWithInstructor {
   text: string;
@@ -21,44 +22,58 @@ interface TestimonialWithInstructor {
   instructorSlug: string;
 }
 
-function buildMockTestimonials(): TestimonialWithInstructor[] {
-  const allTestimonials: TestimonialWithInstructor[] = [];
-  mockInstructors.forEach((instructor) => {
-    if (instructor.isHidden) return;
-    allTestimonials.push({
-      text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
-      author: 'Sample student',
-      role: 'Student',
-      instructorName: instructor.name,
-      instructorSlug: instructor.slug,
-    });
-  });
-  for (let i = allTestimonials.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [allTestimonials[i], allTestimonials[j]] = [allTestimonials[j], allTestimonials[i]];
-  }
-  return allTestimonials;
-}
-
-export function TestimonialsCarousel(): React.JSX.Element {
-  const testimonials = buildMockTestimonials();
+export function TestimonialsCarousel(): React.JSX.Element | null {
+  const [randomizedTestimonials, setRandomizedTestimonials] = useState<TestimonialWithInstructor[] | undefined>(undefined);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
 
-  const prefersReducedMotion = typeof window !== 'undefined'    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const prefersReducedMotion = typeof window !== 'undefined'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
     : false;
 
+  useEffect(() => {
+    const allTestimonials: TestimonialWithInstructor[] = [];
+    mockInstructors.forEach((instructor) => {
+      if (instructor.isHidden) return;
+      allTestimonials.push({
+        text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
+        author: 'Sample student',
+        role: 'Student',
+        instructorName: instructor.name,
+        instructorSlug: instructor.slug,
+      });
+    });
+    const shuffled = shuffle(allTestimonials);
+    setRandomizedTestimonials(shuffled);
+  }, []);
+
   const startInterval = useCallback(() => {
-    if (!api || testimonials.length === 0 || prefersReducedMotion || paused) return;
+    if (!api || !randomizedTestimonials || randomizedTestimonials.length === 0 || prefersReducedMotion || paused) return;
+
     const interval = setInterval(() => {
       api.scrollNext();
     }, 6000);
+
     return () => clearInterval(interval);
-  }, [api, testimonials.length, prefersReducedMotion, paused]);
+  }, [api, randomizedTestimonials, prefersReducedMotion, paused]);
 
   useEffect(() => {
     return startInterval();
   }, [startInterval]);
+
+  if (randomizedTestimonials === undefined) {
+    return (
+      <div className='w-full h-64 animate-pulse bg-black/20 rounded-xl' aria-label='Loading testimonials...' />
+    );
+  }
+
+  if (randomizedTestimonials.length === 0) {
+    return (
+      <div className='w-full h-64 flex items-center justify-center bg-black/20 rounded-xl text-white/70'>
+        No testimonials available.
+      </div>
+    );
+  }
 
   return (
     <div
@@ -69,11 +84,14 @@ export function TestimonialsCarousel(): React.JSX.Element {
     >
       <Carousel
         setApi={setApi}
-        opts={{ align: 'start', loop: true }}
+        opts={{
+          align: 'start',
+          loop: true,
+        }}
         className='w-full'
       >
         <CarouselContent className='-ml-2 md:-ml-4'>
-          {testimonials.map((t, index) => (
+          {randomizedTestimonials.map((t, index) => (
             <CarouselItem
               key={`${t.instructorSlug}-${index}`}
               className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
