@@ -133,7 +133,7 @@ export function PreviewHero() {
         </div>
       </div>
 
-      <div className="absolute inset-0 z-0 bg-black/50" />
+      <div className="absolute inset-0 z-0 bg-black/40" />
 
       <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
         <Carousel setApi={setApi} opts={{ align: "start", loop: true }}>
@@ -149,7 +149,7 @@ export function PreviewHero() {
                     className="object-cover"
                     sizes="100vw"
                   />
-                  <div className="absolute inset-0 bg-black/45" />
+                  <div className="absolute inset-0 bg-black/25" />
                   <div className="relative z-10 mx-auto max-w-3xl text-center px-4">
                     <div className="mb-4">
                       <span className="inline-block bg-[#7c3aed] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">

@@ -87,12 +87,12 @@ export function StoreGrid() {
 
         <div className="mt-10 text-center">
           <a
-            href="https://home.huckleberry.art/store"
+            href="https://mentorships.huckleberry.art"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
           >
-            Visit the Store →
+            Check Out Our Mentorships →
           </a>
         </div>
       </div>
