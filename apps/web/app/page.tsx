@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { InstructorCarousel } from '@/components/instructors/instructor-carousel';
 import { TestimonialsCarousel } from '@/components/testimonials/testimonials-carousel';
 import { Footer } from '@/components/navigation/footer';
@@ -43,7 +44,9 @@ export default function HomePage(): React.JSX.Element {
         {/* Instructors Carousel */}
         <section id="instructors" className="py-20 px-4">
           <div className="mx-auto max-w-7xl">
-            <InstructorCarousel />
+            <ErrorBoundary fallback={<div className="w-full h-32 bg-card rounded-xl flex items-center justify-center"><p className="text-muted-foreground text-sm">Unable to load instructors.</p></div>}>
+              <InstructorCarousel />
+            </ErrorBoundary>
           </div>
         </section>
 
@@ -90,7 +93,9 @@ export default function HomePage(): React.JSX.Element {
             <p className="text-center text-muted-foreground mb-16">
               Hear from students about their mentorship experience
             </p>
-            <TestimonialsCarousel />
+            <ErrorBoundary fallback={<div className="w-full h-32 bg-card rounded-xl flex items-center justify-center"><p className="text-muted-foreground text-sm">Unable to load testimonials.</p></div>}>
+              <TestimonialsCarousel />
+            </ErrorBoundary>
           </div>
         </section>
 

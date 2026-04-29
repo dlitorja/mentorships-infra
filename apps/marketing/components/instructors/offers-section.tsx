@@ -18,6 +18,10 @@ interface OffersSectionProps {
   instructorSlug: string;
 }
 
+const PURCHASE_HEADING = (
+  {PURCHASE_HEADING}
+);
+
 export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
   const [inventory, setInventory] = useState<InventoryStatus | null>(null);
   const [loading, setLoading] = useState(true);

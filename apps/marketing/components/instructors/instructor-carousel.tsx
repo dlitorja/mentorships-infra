@@ -87,7 +87,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
                 <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">{instructor.tagline}</p>
                 <div className="mt-4">
                   <Button asChild variant="outline" size="sm" className="border-white/30 text-white hover:bg-white/10 uppercase tracking-wide text-xs font-semibold">
-                    <Link href={`/instructors/${instructor.slug}`}>View Bio</Link>
+                    <Link href={`/instructors/${instructor.slug}`} aria-label={`View bio for ${instructor.name}`}>View Bio</Link>
                   </Button>
                 </div>
               </div>
