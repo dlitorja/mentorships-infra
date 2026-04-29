@@ -17,6 +17,7 @@ import type * as payments from "../payments.js";
 import type * as products from "../products.js";
 import type * as queries_http from "../queries/http.js";
 import type * as seatReservations from "../seatReservations.js";
+import type * as seed from "../seed.js";
 import type * as sessionPacks from "../sessionPacks.js";
 import type * as sessions from "../sessions.js";
 import type * as users from "../users.js";
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   products: typeof products;
   "queries/http": typeof queries_http;
   seatReservations: typeof seatReservations;
+  seed: typeof seed;
   sessionPacks: typeof sessionPacks;
   sessions: typeof sessions;
   users: typeof users;
