@@ -194,7 +194,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8 md:py-12">
           <div className="mx-auto max-w-6xl">
-            <InstructorNavigationWrapper currentSlug={instructor.slug} instructor={instructor as any} />
+            <InstructorNavigationWrapper currentSlug={instructor.slug} />
 
             <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
               <div className="relative aspect-square w-full overflow-hidden rounded-lg">

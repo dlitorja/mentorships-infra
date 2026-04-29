@@ -1,9 +1,9 @@
 "use client";
 
 interface InstructorNavigationProps {
-  previousSlug: string | null;
-  nextSlug: string | null;
-  children: React.ReactNode;
+  previousSlug?: string | null;
+  nextSlug?: string | null;
+  children?: React.ReactNode;
 }
 
 /**
