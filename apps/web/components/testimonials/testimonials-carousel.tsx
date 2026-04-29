@@ -11,33 +11,47 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from '@/components/ui/carousel';
-import { mockInstructors } from '@/lib/instructors';
+import { mockInstructors, type Testimonial } from '@/lib/instructors';
 
-interface TestimonialWithInstructor {
-  text: string;
-  author: string;
-  role?: string;
+interface TestimonialWithInstructor extends Testimonial {
   instructorName: string;
   instructorSlug: string;
 }
 
-function buildMockTestimonials(): TestimonialWithInstructor[] {
+function buildTestimonials(): TestimonialWithInstructor[] {
   const allTestimonials: TestimonialWithInstructor[] = [];
   mockInstructors.forEach((instructor) => {
     if (instructor.isHidden) return;
-    allTestimonials.push({
-      text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
-      author: 'Sample student',
-      role: 'Student',
-      instructorName: instructor.name,
-      instructorSlug: instructor.slug,
-    });
+    if (instructor.testimonials && instructor.testimonials.length > 0) {
+      instructor.testimonials.forEach((testimonial) => {
+        allTestimonials.push({
+          ...testimonial,
+          instructorName: instructor.name,
+          instructorSlug: instructor.slug,
+        });
+      });
+    }
   });
-  return allTestimonials.sort((a, b) => a.instructorSlug.localeCompare(b.instructorSlug));
+  if (allTestimonials.length === 0) {
+    mockInstructors.forEach((instructor) => {
+      if (instructor.isHidden) return;
+      allTestimonials.push({
+        text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
+        author: 'Sample student',
+        instructorName: instructor.name,
+        instructorSlug: instructor.slug,
+      });
+    });
+  }
+  for (let i = allTestimonials.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allTestimonials[i], allTestimonials[j]] = [allTestimonials[j], allTestimonials[i]];
+  }
+  return allTestimonials;
 }
 
 export function TestimonialsCarousel(): React.JSX.Element {
-  const testimonials = useMemo(() => buildMockTestimonials(), []);
+  const testimonials = useMemo(() => buildTestimonials(), []);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);

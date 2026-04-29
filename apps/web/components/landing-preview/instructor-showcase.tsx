@@ -34,12 +34,12 @@ export function InstructorShowcase() {
 
   if (isLoading) {
     return (
-      <section className="bg-white py-20 px-6">
+      <section className="bg-background py-20 px-6">
         <div className="mx-auto max-w-5xl text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+          <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
             Our Instructors
           </h2>
-          <p className="mt-4 text-gray-500">Loading instructors...</p>
+          <p className="mt-4 text-muted-foreground">Loading instructors...</p>
         </div>
       </section>
     );
@@ -50,10 +50,10 @@ export function InstructorShowcase() {
   }
 
   return (
-    <section className="bg-white py-20 px-6">
+    <section className="bg-background py-20 px-6">
       <div className="mx-auto max-w-5xl">
         <div className="mb-16 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+          <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
             Our Instructors
           </h2>
         </div>
@@ -69,7 +69,7 @@ export function InstructorShowcase() {
                 }`}
               >
                 <div className="w-full md:w-1/2 flex-shrink-0">
-                  <div className="relative aspect-[3/4] w-full overflow-hidden bg-gray-100">
+                  <div className="relative aspect-[3/4] w-full overflow-hidden bg-muted">
                     <Image
                       src={instructor.profileImageUrl || "/placeholder.jpg"}
                       alt={instructor.name ?? "Instructor"}
@@ -81,23 +81,23 @@ export function InstructorShowcase() {
                 </div>
 
                 <div className="w-full md:w-1/2 space-y-4">
-                  <h3 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+                  <h3 className="text-3xl sm:text-4xl font-bold text-foreground">
                     {instructor.name}
                   </h3>
                   {instructor.specialties && instructor.specialties.length > 0 && (
-                    <p className="text-sm font-semibold uppercase tracking-widest text-[#7c3aed]">
+                    <p className="text-sm font-semibold uppercase tracking-widest text-primary">
                       {instructor.specialties.join(" \u00b7 ")}
                     </p>
                   )}
                   {instructor.tagline && (
-                    <p className="text-gray-600 leading-relaxed">
+                    <p className="text-muted-foreground leading-relaxed">
                       {instructor.tagline}
                     </p>
                   )}
                   <div>
                     <Link
                       href={`/instructors/${instructor.slug}`}
-                      className="inline-block text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider transition-colors"
+                      className="inline-block text-primary hover:text-primary/80 font-semibold text-sm uppercase tracking-wider transition-colors"
                     >
                       View Bio &rarr;
                     </Link>
@@ -111,7 +111,7 @@ export function InstructorShowcase() {
         <div className="mt-16 text-center">
           <Link
             href="/instructors"
-            className="inline-block bg-[#1a1a2e] text-white px-8 py-3 text-sm font-semibold uppercase tracking-wider hover:bg-[#2a2a3e] transition-colors"
+            className="inline-block bg-card text-white px-8 py-3 text-sm font-semibold uppercase tracking-wider hover:bg-secondary transition-colors"
           >
             View All Instructors
           </Link>

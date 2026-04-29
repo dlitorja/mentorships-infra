@@ -45,8 +45,8 @@ export const getUserSeatReservations = query({
   },
 });
 
-/** Returns all seat reservations for a given mentor ID. */
-export const getMentorSeatReservations = query({
+/** Returns all seat reservations for a given instructor ID. */
+export const getInstructorSeatReservations = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -60,8 +60,8 @@ export const getMentorSeatReservations = query({
   },
 });
 
-/** Returns all active seat reservations for a given mentor ID. */
-export const getMentorActiveSeats = query({
+/** Returns all active seat reservations for a given instructor ID. */
+export const getInstructorActiveSeats = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -77,8 +77,8 @@ export const getMentorActiveSeats = query({
   },
 });
 
-/** Returns the seat reservation for a specific user-mentor pair, or null if unauthenticated. */
-export const getUserMentorSeat = query({
+/** Returns the seat reservation for a specific user-instructor pair, or null if unauthenticated. */
+export const getUserInstructorSeat = query({
   args: { userId: v.string(), mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();

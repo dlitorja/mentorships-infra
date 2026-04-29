@@ -28,8 +28,8 @@ export const getStudentSessions = query({
   },
 });
 
-/** Returns all sessions for a given mentor. */
-export const getMentorSessions = query({
+/** Returns all sessions for a given instructor. */
+export const getInstructorSessions = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();

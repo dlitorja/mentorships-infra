@@ -20,7 +20,7 @@ const footerLinks = {
 
 export function PreviewFooter() {
   return (
-    <footer className="bg-[#1a1a2e] text-white/70">
+    <footer className="bg-card text-white/70">
       <div className="container mx-auto px-6 py-16">
         <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-4">
