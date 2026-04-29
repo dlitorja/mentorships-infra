@@ -54,7 +54,7 @@ export function StoreGrid() {
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
-            Visit the Store for Recordings and Videos
+            1-on-1 mentorships available
           </h2>
         </div>
 
@@ -87,12 +87,12 @@ export function StoreGrid() {
 
         <div className="mt-10 text-center">
           <a
-            href="https://home.huckleberry.art/store"
+            href="https://mentorships.huckleberry.art"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
           >
-            Visit the Store →
+            Check Out Our Mentorships →
           </a>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { InstructorShowcase } from "@/components/landing-preview/instructor-show
 import { NewsletterSection } from "@/components/landing-preview/newsletter-section";
 import { PreviewFooter } from "@/components/landing-preview/preview-footer";
 import { StoreGrid } from "@/components/landing-preview/store-grid";
+import { SaleCountdownHeader } from "@/components/landing-preview/sale-countdown-header";
 
 export const metadata: Metadata = {
   title: "Huckleberry Art Academy | Learn from Industry Pros",
@@ -27,6 +28,7 @@ export default function PreviewPage() {
         backgroundAttachment: "fixed",
       }}
     >
+      <SaleCountdownHeader />
       <PreviewHero />
       <SaleBanner />
       <StoreGrid />

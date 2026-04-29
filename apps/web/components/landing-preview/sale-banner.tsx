@@ -136,14 +136,18 @@ export function SaleBanner() {
   return (
     <section className="bg-white py-20 px-6">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-12 text-center">
+        <div className="mb-6 text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
-            Spring Sign-ups Open Now!
+            Courses on Sale
           </h2>
+        </div>
+        {/* Single shared countdown under the section heading */}
+        <div className="mb-10 flex justify-center">
+          <CountdownTimer endsAt="2026-05-05T23:59:59.000Z" />
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-           {liveItems.map((item) => (
+          {liveItems.map((item) => (
             <a
               key={item.id}
               href={item.link}
@@ -151,31 +155,30 @@ export function SaleBanner() {
               rel="noopener noreferrer"
               className="group block overflow-hidden bg-white border border-gray-200 hover:border-[#7c3aed]/50 transition-colors"
             >
-              <div className="relative aspect-square w-full overflow-hidden bg-gray-100">
+              <div className="relative aspect-square w-full overflow-hidden bg-white">
                 <Image
                   src={item.image}
                   alt={item.title !== "COURSE_NAME_HERE" ? item.title : "Course offering"}
                   fill
-                  className="object-cover transition-transform group-hover:scale-105"
+                  className="object-contain transition-transform group-hover:scale-105"
                   sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
                 />
                 <div className="absolute top-3 left-3">
-                  <span className="inline-block bg-[#7c3aed] px-3 py-1 text-xs font-semibold text-white">
+                  <span className="inline-block bg-[#dc2626] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">
                     {item.badge}
                   </span>
                 </div>
               </div>
 
               <div className="p-4 space-y-3">
-                 <h3 className="text-base font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors line-clamp-2">
-                   {item.title}
-                 </h3>
-                 {item.description && (
-                   <p className="text-sm text-gray-500 line-clamp-2">
-                     {item.description}
-                   </p>
-                 )}
-                <CountdownTimer endsAt={item.endsAt} />
+                <h3 className="text-base font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors line-clamp-2">
+                  {item.title}
+                </h3>
+                {item.description && (
+                  <p className="text-sm text-gray-500 line-clamp-2">
+                    {item.description}
+                  </p>
+                )}
               </div>
             </a>
           ))}
