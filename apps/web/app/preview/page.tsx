@@ -4,7 +4,7 @@ import { SaleBanner } from "@/components/landing-preview/sale-banner";
 import { InstructorShowcase } from "@/components/landing-preview/instructor-showcase";
 import { NewsletterSection } from "@/components/landing-preview/newsletter-section";
 import { PreviewFooter } from "@/components/landing-preview/preview-footer";
-import { StoreGrid } from "@/components/landing-preview/store-grid";
+import { InstructorCards } from "@/components/landing-preview/instructor-cards";
 import { SaleCountdownHeader } from "@/components/landing-preview/sale-countdown-header";
 
 export const metadata: Metadata = {
@@ -31,7 +31,8 @@ export default function PreviewPage() {
       <SaleCountdownHeader />
       <PreviewHero />
       <SaleBanner />
-      <StoreGrid />
+      {/* 1-on-1 mentorships section: use live instructors as cards */}
+      <InstructorCards />
       <InstructorShowcase />
       <NewsletterSection />
       <PreviewFooter />

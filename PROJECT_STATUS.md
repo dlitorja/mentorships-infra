@@ -1,5 +1,13 @@
 # Mentorship Platform - Project Status & Next Steps
 
+## 🔴 Top Priority
+
+- Migrate instructor image storage to Convex Storage and update all image upload/display paths
+  - Replace Supabase Storage usage for instructor profile and portfolio images with Convex `ctx.storage`
+  - Store Convex `storageId` in instructor records and resolve URLs with `ctx.storage.getUrl`
+  - Update admin upload flows and instructor dashboards to use Convex mutations
+  - Batch migration: import existing images into Convex storage and backfill references
+
 **Last Updated**: April 25, 2026  
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
