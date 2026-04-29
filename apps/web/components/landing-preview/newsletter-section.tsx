@@ -58,7 +58,7 @@ export function NewsletterSection() {
 
   return (
     <>
-      <section className="bg-[#1a1a2e] py-16 px-6">
+      <section className="bg-card py-16 px-6">
         <div className="mx-auto max-w-xl text-center">
           <div className="mb-2 flex justify-center">
             <Mail className="h-8 w-8 text-white/60" />
@@ -82,7 +82,7 @@ export function NewsletterSection() {
             <Button
               type="submit"
               disabled={mutation.isPending || !email.trim()}
-              className="bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-8 min-h-[44px]"
+              className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 min-h-[44px]"
             >
               {mutation.isPending ? "Signing up..." : "Sign Me Up!"}
             </Button>
@@ -94,13 +94,13 @@ export function NewsletterSection() {
         </div>
       </section>
 
-      <section className="bg-white py-20 px-6">
+      <section className="bg-background py-20 px-6">
         <div className="mx-auto max-w-5xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
               Many Ways to Learn
             </h2>
-            <p className="mt-4 text-gray-500">
+            <p className="mt-4 text-muted-foreground">
               We offer multiple avenues, both free and premium, to help you along your artistic journey.
             </p>
           </div>
@@ -112,15 +112,15 @@ export function NewsletterSection() {
                 href={item.href}
                 target={item.external ? "_blank" : undefined}
                 rel={item.external ? "noopener noreferrer" : undefined}
-                className="group border border-gray-200 bg-white p-6 hover:border-[#7c3aed]/50 transition-colors"
+                className="group border border-border bg-card p-6 hover:border-primary/50 transition-colors"
               >
-                <h3 className="text-lg font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors">
+                <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
                   {item.title}
                 </h3>
-                <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
                   {item.description}
                 </p>
-                <span className="mt-4 inline-block text-sm text-[#7c3aed] group-hover:text-[#6d28d9]">
+                <span className="mt-4 inline-block text-sm text-primary group-hover:text-primary/80">
                   Learn more &rarr;
                 </span>
               </a>
