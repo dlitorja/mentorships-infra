@@ -12,7 +12,6 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel";
 
-// Shared sale end date with other sale banners
 const SALE_ENDS_AT = "2026-05-05T23:59:59.000Z";
 
 type Slide = {
@@ -27,10 +26,10 @@ const SLIDES: Slide[] = [
   {
     id: "bundle",
     title:
-      "Neil Gray’s Course Bundle — Character Design & Drawing Drapery & Clothing",
+      "Neil Gray's Course Bundle — Character Design & Drawing Drapery & Clothing",
     badge: "67% OFF",
     ctaHref: "https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g",
-    bgImage: "/images/preview/sale-bundle.jpg",
+    bgImage: "/images/preview/carousel-1.jpg",
   },
   {
     id: "drapery",
@@ -38,7 +37,7 @@ const SLIDES: Slide[] = [
     badge: "54% OFF",
     ctaHref:
       "https://home.huckleberry.art/drawing-drapery-and-clothing-with-neil-gray",
-    bgImage: "/images/preview/sale-new-course-1.jpg",
+    bgImage: "/images/preview/carousel-2.jpg",
   },
   {
     id: "character-design",
@@ -46,7 +45,7 @@ const SLIDES: Slide[] = [
     badge: "58% OFF",
     ctaHref:
       "https://home.huckleberry.art/drawing-drapery-and-clothing-with-neil-gray",
-    bgImage: "/images/preview/sale-new-course-2.jpg",
+    bgImage: "/images/preview/carousel-3.jpg",
   },
 ];
 
@@ -80,22 +79,24 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
   const timeLeft = useCountdown(endsAt);
   if (!timeLeft) return null;
   return (
-    <div className="grid grid-cols-4 gap-3 text-center">
-      {[
-        { value: timeLeft.days, label: "Days" },
-        { value: timeLeft.hours, label: "Hrs" },
-        { value: timeLeft.minutes, label: "Min" },
-        { value: timeLeft.seconds, label: "Sec" },
-      ].map((unit) => (
-        <div key={unit.label} className="rounded bg-card px-3 py-3 shadow">
-          <div className="text-xl sm:text-2xl font-bold text-white tabular-nums">
-            {String(unit.value).padStart(2, "0")}
+    <div className="mx-auto w-full sm:w-[70%]">
+      <div className="grid grid-cols-4 gap-2 sm:gap-4 text-center">
+        {[
+          { value: timeLeft.days, label: "Days" },
+          { value: timeLeft.hours, label: "Hrs" },
+          { value: timeLeft.minutes, label: "Min" },
+          { value: timeLeft.seconds, label: "Sec" },
+        ].map((unit) => (
+          <div key={unit.label} className="rounded bg-red-600 px-2 py-3 sm:px-4 sm:py-4 shadow">
+            <div className="text-2xl sm:text-4xl font-bold text-white tabular-nums">
+              {String(unit.value).padStart(2, "0")}
+            </div>
+            <div className="text-[10px] sm:text-xs uppercase tracking-wider text-white/80">
+              {unit.label}
+            </div>
           </div>
-          <div className="text-[11px] uppercase tracking-wider text-white/70">
-            {unit.label}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -103,7 +104,6 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
 export function PreviewHero() {
   const [api, setApi] = useState<CarouselApi>();
 
-  // Auto-advance slides every 6 seconds
   useEffect(() => {
     if (!api) return;
     const id = setInterval(() => {
@@ -114,33 +114,32 @@ export function PreviewHero() {
   }, [api]);
 
   return (
-    <section className="relative min-h-[90svh] flex items-center justify-center">
-      {/* Shared Sale CTA + countdown above carousel with extra spacing */}
-      <div className="absolute top-8 md:top-10 z-20 w-full px-6">
-        <div className="mx-auto max-w-4xl text-center">
+    <section className="relative min-h-[90svh] flex flex-col items-center justify-center bg-background">
+      <div className="w-full max-w-6xl px-6 pt-8">
+        <div className="text-center mb-6">
           <a
             href="https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block text-base sm:text-lg font-semibold uppercase tracking-wider text-white bg-[#7c3aed] hover:bg-[#6d28d9] px-6 py-3 shadow-md"
+            className="inline-block text-base sm:text-lg font-semibold uppercase tracking-wider text-white bg-red-600 hover:bg-red-700 px-6 py-3 shadow-md"
           >
             Neil Gray Courses Sale · Up to 67% Off
           </a>
-          <div className="mt-4 flex flex-col items-center gap-2">
-            <div className="text-white/80 text-xs uppercase tracking-widest">Sale Ends In</div>
+          <div className="mt-3 text-white/80 text-xs uppercase tracking-widest">
+            Sale Ends In
+          </div>
+          <div className="mt-2">
             <CountdownTimer endsAt={SALE_ENDS_AT} />
           </div>
         </div>
       </div>
 
-      {/* Remove section-wide gray overlay; rely on per-slide gradient for legibility */}
-
-      <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-20">
         <Carousel setApi={setApi} opts={{ align: "start", loop: true }}>
           <CarouselContent>
             {SLIDES.map((slide) => (
               <CarouselItem key={slide.id}>
-                <div className="relative min-h-[68svh] sm:min-h-[74svh] md:min-h-[78svh] flex items-center justify-center overflow-hidden">
+                <div className="relative min-h-[60svh] sm:min-h-[68svh] md:min-h-[72svh] flex items-center justify-center overflow-hidden">
                   <Image
                     src={slide.bgImage}
                     alt={slide.title}
@@ -149,11 +148,10 @@ export function PreviewHero() {
                     className="object-cover"
                     sizes="100vw"
                   />
-                  {/* Gradient overlay: keeps images natural while ensuring text legibility */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/20 to-transparent" />
                   <div className="relative z-10 mx-auto max-w-3xl text-center px-4">
                     <div className="mb-4">
-                      <span className="inline-block bg-[#7c3aed] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">
+                      <span className="inline-block bg-red-600 px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">
                         {slide.badge}
                       </span>
                     </div>
@@ -180,12 +178,8 @@ export function PreviewHero() {
               </CarouselItem>
             ))}
           </CarouselContent>
-          <CarouselPrevious
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white text-[#1a1a2e] shadow-lg hover:bg-white"
-          />
-          <CarouselNext
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white text-[#1a1a2e] shadow-lg hover:bg-white"
-          />
+          <CarouselPrevious className="absolute left-4 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white text-[#1a1a2e] shadow-lg hover:bg-white" />
+          <CarouselNext className="absolute right-4 top-1/2 -translate-y-1/2 z-20 h-12 w-12 rounded-full bg-white text-[#1a1a2e] shadow-lg hover:bg-white" />
         </Carousel>
       </div>
     </section>
