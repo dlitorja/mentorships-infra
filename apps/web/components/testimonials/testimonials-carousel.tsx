@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Quote } from 'lucide-react';
 import {
@@ -41,13 +41,18 @@ function buildMockTestimonials(): TestimonialWithInstructor[] {
 }
 
 export function TestimonialsCarousel(): React.JSX.Element {
-  const testimonials = buildMockTestimonials();
+  const testimonials = useMemo(() => buildMockTestimonials(), []);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  const prefersReducedMotion = typeof window !== 'undefined'
-    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    : false;
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const startInterval = useCallback(() => {
     if (!api || testimonials.length === 0 || prefersReducedMotion || paused) return;
@@ -98,8 +103,8 @@ export function TestimonialsCarousel(): React.JSX.Element {
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
-        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
+        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' aria-label='Previous testimonial' />
+        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' aria-label='Next testimonial' />
       </Carousel>
     </div>
   );
