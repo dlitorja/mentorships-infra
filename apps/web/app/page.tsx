@@ -2,7 +2,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
-import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { InstructorCarousel } from '@/components/instructors/instructor-carousel';
 import { TestimonialsCarousel } from '@/components/testimonials/testimonials-carousel';
 import { Footer } from '@/components/navigation/footer';
@@ -44,70 +43,66 @@ export default function HomePage(): React.JSX.Element {
         {/* Instructors Carousel */}
         <section id="instructors" className="py-20 px-4">
           <div className="mx-auto max-w-7xl">
-            <ErrorBoundary fallback={<div className="w-full h-32 bg-card rounded-xl flex items-center justify-center"><p className="text-muted-foreground text-sm">Unable to load instructors.</p></div>}>
-              <InstructorCarousel />
-            </ErrorBoundary>
+            <InstructorCarousel />
           </div>
         </section>
 
-{/* How it works */}
-        <section id='how-it-works' className='py-20 px-4 border-t border-border bg-card'>
-          <div className='mx-auto max-w-5xl'>
-            <h2 className='section-title mb-12 text-white'>How It Works</h2>
-            <div className='grid gap-8 md:grid-cols-3'>
-              <div className='text-center p-6'>
-                <div className='w-16 h-16 mx-auto mb-6 rounded-full bg-primary/20 flex items-center justify-center'>
-                  <span className='text-2xl font-bold text-primary'>1</span>
+        {/* How it works */}
+        <section id="how-it-works" className="py-20 px-4 border-t border-border">
+          <div className="mx-auto max-w-5xl">
+            <h2 className="section-title mb-16">How It Works</h2>
+            <div className="grid gap-8 md:grid-cols-3">
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-6 text-xl font-bold">
+                  1
                 </div>
-                <h3 className='text-xl font-semibold uppercase tracking-wide mb-3 text-white'>Choose an Instructor</h3>
-                <p className='text-muted-foreground leading-relaxed'>
+                <h3 className="text-lg font-semibold uppercase tracking-wide mb-3">Choose an Instructor</h3>
+                <p className="text-muted-foreground">
                   Browse profiles, portfolios, and specialties to find your best fit.
                 </p>
               </div>
-              <div className='text-center p-6'>
-                <div className='w-16 h-16 mx-auto mb-6 rounded-full bg-primary/20 flex items-center justify-center'>
-                  <span className='text-2xl font-bold text-primary'>2</span>
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-6 text-xl font-bold">
+                  2
                 </div>
-                <h3 className='text-xl font-semibold uppercase tracking-wide mb-3 text-white'>Purchase a Package</h3>
-                <p className='text-muted-foreground leading-relaxed'>
+                <h3 className="text-lg font-semibold uppercase tracking-wide mb-3">Purchase Your Session</h3>
+                <p className="text-muted-foreground">
                   When you&apos;re ready, complete your purchase on the instructor&apos;s offer page.
                 </p>
               </div>
-              <div className='text-center p-6'>
-                <div className='w-16 h-16 mx-auto mb-6 rounded-full bg-primary/20 flex items-center justify-center'>
-                  <span className='text-2xl font-bold text-primary'>3</span>
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-6 text-xl font-bold">
+                  3
                 </div>
-                <h3 className='text-xl font-semibold uppercase tracking-wide mb-3 text-white'>Start Your Mentorship</h3>
-                <p className='text-muted-foreground leading-relaxed'>
-                  After your purchase is completed, you&apos;ll receive onboarding details in your email inbox to get started.
+                <h3 className="text-lg font-semibold uppercase tracking-wide mb-3">Start Your Mentorship</h3>
+                <p className="text-muted-foreground">
+                  After your purchase, you&apos;ll receive onboarding details in your email inbox.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-{/* Testimonials */}
-        <section id='testimonials' className='py-20 px-4 border-t border-border'>
-          <div className='mx-auto max-w-7xl'>
-            <h2 className='section-title mb-4 text-white'>What Students Say</h2>
-            <p className='text-center text-muted-foreground mb-12 max-w-2xl mx-auto'>
-              Real feedback from students who have worked with our instructors
+        {/* Testimonials */}
+        <section id="testimonials" className="py-20 px-4 border-t border-border">
+          <div className="mx-auto max-w-7xl">
+            <h2 className="section-title mb-6">What Students Say</h2>
+            <p className="text-center text-muted-foreground mb-16">
+              Hear from students about their mentorship experience
             </p>
-            <ErrorBoundary fallback={<div className='w-full h-32 bg-card rounded-xl flex items-center justify-center'><p className='text-muted-foreground text-sm'>Unable to load testimonials.</p></div>}>
-              <TestimonialsCarousel />
-            </ErrorBoundary>
+            <TestimonialsCarousel />
           </div>
         </section>
 
-{/* CTA */}
-        <section className='py-20 px-4 border-t border-border bg-card'>
-          <div className='mx-auto max-w-3xl text-center'>
-            <h2 className='section-title mb-6 text-white'>Ready to Get Started?</h2>
-            <p className='text-muted-foreground mb-8 text-lg'>
+        {/* CTA */}
+        <section className="py-20 px-4 border-t border-border">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="section-title mb-6">Ready to Get Started?</h2>
+            <p className="text-muted-foreground mb-10">
               Explore instructors and choose the mentorship that fits your goals.
             </p>
-            <Button asChild size='lg' className='bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide font-semibold'>
-              <Link href='/instructors'>Browse Instructors</Link>
+            <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide font-semibold">
+              <Link href="/instructors">Browse Instructors</Link>
             </Button>
           </div>
         </section>

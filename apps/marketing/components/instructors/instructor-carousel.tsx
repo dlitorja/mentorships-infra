@@ -20,37 +20,28 @@ import { shuffleArray } from "@/lib/utils";
 export function InstructorCarousel(): React.JSX.Element | null {
   const [randomizedInstructors, setRandomizedInstructors] = useState<Instructor[]>([]);
   const [api, setApi] = useState<CarouselApi>();
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  useEffect(() => {
+    // Randomize visible instructors on mount to ensure equal exposure
     const visibleInstructors = getVisibleInstructors();
     const shuffled = shuffleArray(visibleInstructors);
     setRandomizedInstructors(shuffled);
   }, []);
 
+  // Auto-rotate carousel every 5 seconds
   useEffect(() => {
-    if (!api || randomizedInstructors.length === 0 || prefersReducedMotion) return;
+    if (!api || randomizedInstructors.length === 0) return;
 
     const interval = setInterval(() => {
-      api.scrollNext();
+      api.scrollNext(); // loop: true handles wrap-around
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [api, randomizedInstructors.length, prefersReducedMotion]);
+  }, [api, randomizedInstructors.length]);
 
   if (randomizedInstructors.length === 0) {
     return (
-      <div className="w-full h-64 animate-pulse bg-card rounded-lg" role="status" aria-busy="true" aria-label="Loading instructors...">
-        <span className="sr-only">Loading instructors…</span>
-      </div>
+      <div className="w-full h-64 animate-pulse bg-card rounded-lg" aria-label="Loading instructors..." />
     );
   }
 
@@ -80,7 +71,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
                   fill
                   className="object-cover transition-transform duration-300 group-hover:scale-105"
                   sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                  priority={index === 0}
+                  priority={index < 3}
                 />
                 {instructor.isNew && (
                   <Badge
@@ -96,7 +87,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
                 <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">{instructor.tagline}</p>
                 <div className="mt-4">
                   <Button asChild variant="outline" size="sm" className="border-white/30 text-white hover:bg-white/10 uppercase tracking-wide text-xs font-semibold">
-                    <Link href={`/instructors/${instructor.slug}`} aria-label={`View bio for ${instructor.name}`}>View Bio</Link>
+                    <Link href={`/instructors/${instructor.slug}`}>View Bio</Link>
                   </Button>
                 </div>
               </div>

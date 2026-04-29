@@ -42,20 +42,4 @@
     @apply text-3xl md:text-4xl lg:text-5xl font-bold tracking-wider uppercase text-center;
     letter-spacing: 0.15em;
   }
-
-  .btn-primary {
-    @apply bg-primary text-primary-foreground font-semibold px-6 py-3 rounded transition-all;
-  }
-
-  .btn-primary:hover {
-    @apply opacity-90;
-  }
-
-  .btn-outline {
-    @apply border border-white/30 text-white font-semibold px-6 py-3 rounded transition-all;
-  }
-
-  .btn-outline:hover {
-    @apply bg-white/10;
-  }
 }
