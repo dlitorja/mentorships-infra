@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark theme */
+    --background: #0a0a0a;
+    --foreground: #ffffff;
+    --card: #141414;
+    --card-foreground: #ffffff;
+    --popover: #141414;
+    --popover-foreground: #ffffff;
+    --primary: #c9a227;
+    --primary-foreground: #0a0a0a;
+    --secondary: #1f1f1f;
+    --secondary-foreground: #ffffff;
+    --muted: #1a1a1a;
+    --muted-foreground: #a1a1a1;
+    --accent: #c9a227;
+    --accent-foreground: #0a0a0a;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --border: #2a2a2a;
+    --input: #1f1f1f;
+    --ring: #c9a227;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  .section-title {
+    @apply text-3xl md:text-4xl lg:text-5xl font-bold tracking-wider uppercase text-center;
+    letter-spacing: 0.15em;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-primary-foreground font-semibold px-6 py-3 rounded transition-all;
+  }
+
+  .btn-primary:hover {
+    @apply opacity-90;
+  }
+
+  .btn-outline {
+    @apply border border-white/30 text-white font-semibold px-6 py-3 rounded transition-all;
+  }
+
+  .btn-outline:hover {
+    @apply bg-white/10;
+  }
+}
