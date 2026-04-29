@@ -52,8 +52,8 @@ export const getUserActiveSessionPacks = query({
   },
 });
 
-/** Returns all session packs associated with a given mentor. */
-export const getMentorSessionPacks = query({
+/** Returns all session packs associated with a given instructor. */
+export const getInstructorSessionPacks = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();

@@ -19,7 +19,7 @@ export function useUserActiveSessionPacks(userId: string) {
 
 export function useInstructorSessionPacks(mentorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.sessionPacks.getMentorSessionPacks, { mentorId }),
+    ...convexQuery(api.sessionPacks.getInstructorSessionPacks, { mentorId }),
     enabled: !!mentorId,
   });
 }

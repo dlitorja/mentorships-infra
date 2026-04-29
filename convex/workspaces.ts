@@ -3,7 +3,7 @@ import { v } from "convex/values";
 
 const WORKSPACE_IMAGE_CAPS = {
   mentee: 75,
-  mentor: 150,
+  instructor: 150,
   admin: 150,
 } as const;
 
@@ -130,8 +130,8 @@ export const getUserWorkspaces = query({
   },
 });
 
-/** Returns all workspaces assigned to a mentor. Requires auth. */
-export const getMentorWorkspaces = query({
+/** Returns all workspaces assigned to an instructor. Requires auth. */
+export const getInstructorWorkspaces = query({
   args: { mentorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -424,7 +424,7 @@ export const createWorkspaceImage = mutation({
       ? WORKSPACE_IMAGE_CAPS.mentee
       : isAdmin
         ? WORKSPACE_IMAGE_CAPS.admin
-        : WORKSPACE_IMAGE_CAPS.mentor;
+        : WORKSPACE_IMAGE_CAPS.instructor;
 
     if (currentCount >= cap) {
       throw new Error(

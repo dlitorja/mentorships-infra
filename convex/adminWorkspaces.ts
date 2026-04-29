@@ -48,7 +48,7 @@ async function enrichWorkspaces(
   workspaces: Doc<"workspaces">[]
 ): Promise<WorkspaceListItem[]> {
   const ownerIds = [...new Set(workspaces.map((w) => w.ownerId))];
-  const mentorIds = [...new Set(workspaces.map((w) => w.mentorId).filter((id): id is Id<"instructors"> => id !== undefined))];
+  const instructorIds = [...new Set(workspaces.map((w) => w.mentorId).filter((id): id is Id<"instructors"> => id !== undefined))];
 
   const ownerDocs = await Promise.all(
     ownerIds.map((id) =>
@@ -60,10 +60,10 @@ async function enrichWorkspaces(
     if (ownerDocs[i]) ownersMap.set(id, ownerDocs[i]!);
   });
 
-  const mentorDocs = await Promise.all(mentorIds.map((id) => ctx.db.get(id)));
-  const mentorsMap = new Map<Id<"instructors">, Doc<"instructors">>();
-  mentorIds.forEach((id, i) => {
-    if (mentorDocs[i] && !mentorDocs[i]!.deletedAt) mentorsMap.set(id, mentorDocs[i]!);
+  const instructorDocs = await Promise.all(instructorIds.map((id) => ctx.db.get(id)));
+  const instructorsMap = new Map<Id<"instructors">, Doc<"instructors">>();
+  instructorIds.forEach((id, i) => {
+    if (instructorDocs[i] && !instructorDocs[i]!.deletedAt) instructorsMap.set(id, instructorDocs[i]!);
   });
 
   return workspaces.map((w) => ({
@@ -79,9 +79,9 @@ async function enrichWorkspaces(
         })()
       : null,
     mentorId: w.mentorId,
-    mentor: w.mentorId && mentorsMap.has(w.mentorId)
+    mentor: w.mentorId && instructorsMap.has(w.mentorId)
       ? (() => {
-          const m = mentorsMap.get(w.mentorId)!;
+          const m = instructorsMap.get(w.mentorId)!;
           return { userId: m.userId, bio: m.bio ?? undefined, pricing: m.pricing ?? undefined };
         })()
       : null,

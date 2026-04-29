@@ -19,7 +19,7 @@ export function useUpcomingSessions(studentId: string) {
 
 export function useInstructorSessions(mentorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.sessions.getMentorSessions, { mentorId }),
+    ...convexQuery(api.sessions.getInstructorSessions, { mentorId }),
     enabled: !!mentorId,
   });
 }
