@@ -58,7 +58,7 @@ export function TestimonialsCarousel(): React.JSX.Element | null {
 
   if (randomizedTestimonials.length === 0) {
     return (
-      <div className="w-full h-64 animate-pulse bg-black/20 rounded-xl" aria-label="Loading testimonials..." />
+      <div className="w-full h-64 animate-pulse bg-card rounded-lg" aria-label="Loading testimonials..." />
     );
   }
 
@@ -71,42 +71,41 @@ export function TestimonialsCarousel(): React.JSX.Element | null {
       }}
       className="w-full"
     >
-      <CarouselContent className="-ml-2 md:-ml-4">
+      <CarouselContent className="-ml-4">
         {randomizedTestimonials.map((testimonial, index) => (
           <CarouselItem
             key={`${testimonial.instructorSlug}-${testimonial.author}-${index}`}
-            className="pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4"
+            className="pl-4 md:basis-1/2 lg:basis-1/3"
           >
-            <div className="rounded-xl bg-black/70 backdrop-blur-sm p-6 h-full flex flex-col border border-white/10 shadow-lg">
-              <Quote className="h-6 w-6 text-white/80 mb-4 flex-shrink-0" />
-              <div className="text-white leading-relaxed mb-4 flex-grow">
+            <div className="rounded-lg bg-card p-6 h-full flex flex-col border border-border">
+              <Quote className="h-5 w-5 text-primary mb-4 flex-shrink-0" />
+              <div className="text-white/90 leading-relaxed mb-4 flex-grow text-sm">
                 {testimonial.text.split("\n\n").map((paragraph, pIndex, paragraphs) => (
-                  <p key={pIndex} className={pIndex > 0 ? "mt-4" : ""}>
+                  <p key={pIndex} className={pIndex > 0 ? "mt-3" : ""}>
                     {pIndex === 0 && '"'}
                     {paragraph}
                     {pIndex === paragraphs.length - 1 && '"'}
                   </p>
                 ))}
               </div>
-              <footer className="mt-4 text-sm text-white/90 flex-shrink-0">
-                <p className="font-semibold">— {testimonial.author}</p>
+              <footer className="mt-4 text-sm flex-shrink-0 border-t border-border pt-4">
+                <p className="font-semibold uppercase tracking-wide text-white text-xs">{testimonial.author}</p>
                 {testimonial.role && (
-                  <p className="text-xs mt-1 text-white/80">{testimonial.role}</p>
+                  <p className="text-xs mt-1 text-muted-foreground">{testimonial.role}</p>
                 )}
                 <Link
                   href={`/instructors/${testimonial.instructorSlug}`}
-                  className="text-xs text-white/80 hover:text-white mt-2 inline-block transition-colors"
+                  className="text-xs text-primary hover:text-primary/80 mt-2 inline-block transition-colors uppercase tracking-wide"
                 >
-                  Learn from {testimonial.instructorName} →
+                  Learn from {testimonial.instructorName}
                 </Link>
               </footer>
             </div>
           </CarouselItem>
         ))}
       </CarouselContent>
-      <CarouselPrevious className="hidden md:flex" />
-      <CarouselNext className="hidden md:flex" />
+      <CarouselPrevious className="hidden md:flex -left-4 bg-card border-border text-white hover:bg-card/80" />
+      <CarouselNext className="hidden md:flex -right-4 bg-card border-border text-white hover:bg-card/80" />
     </Carousel>
   );
 }
-

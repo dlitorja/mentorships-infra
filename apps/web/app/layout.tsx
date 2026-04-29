@@ -37,8 +37,8 @@ export default function RootLayout({
   const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
 
   const layoutContent = (
-    <html lang="en">
-      <body className={`${inter.className} antialiased`}>
+    <html lang="en" className="bg-background dark">
+      <body className={`${inter.className} antialiased bg-background text-foreground`}>
         <HeaderErrorBoundary>
           <Header hasClerk={hasValidClerkKey} />
         </HeaderErrorBoundary>

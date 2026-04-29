@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
@@ -12,14 +12,12 @@ import {
   CarouselPrevious,
   type CarouselApi,
 } from '@/components/ui/carousel';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import type { Instructor } from '@/lib/instructors';
 import { getRandomizedInstructors } from '@/lib/instructors';
 
-export function InstructorCarousel(): React.JSX.Element | null {
-  const [randomizedInstructors, setRandomizedInstructors] = useState<Instructor[] | undefined>(undefined);
+export function InstructorCarousel(): React.JSX.Element {
+  const instructors = getRandomizedInstructors();
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
 
@@ -27,36 +25,21 @@ export function InstructorCarousel(): React.JSX.Element | null {
     ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
     : false;
 
-  useEffect(() => {
-    const visibleInstructors = getRandomizedInstructors();
-    setRandomizedInstructors(visibleInstructors);
-  }, []);
-
   const startInterval = useCallback(() => {
-    if (!api || !randomizedInstructors || randomizedInstructors.length === 0 || prefersReducedMotion || paused) return;
-
+    if (!api || instructors.length === 0 || prefersReducedMotion || paused) return;
     const interval = setInterval(() => {
       api.scrollNext();
     }, 5000);
-
     return () => clearInterval(interval);
-  }, [api, randomizedInstructors, prefersReducedMotion, paused]);
+  }, [api, instructors.length, prefersReducedMotion, paused]);
 
   useEffect(() => {
     return startInterval();
   }, [startInterval]);
 
-  if (randomizedInstructors === undefined) {
+  if (instructors.length === 0) {
     return (
-      <div className='w-full h-64 animate-pulse bg-black/20 rounded-xl' aria-label='Loading instructors...' />
-    );
-  }
-
-  if (randomizedInstructors.length === 0) {
-    return (
-      <div className='w-full h-64 flex items-center justify-center bg-black/20 rounded-xl text-white/70'>
-        No instructors available.
-      </div>
+      <div className='w-full h-64 animate-pulse bg-card rounded-xl' aria-label='Loading instructors...' />
     );
   }
 
@@ -69,22 +52,19 @@ export function InstructorCarousel(): React.JSX.Element | null {
     >
       <Carousel
         setApi={setApi}
-        opts={{
-          align: 'start',
-          loop: true,
-        }}
+        opts={{ align: 'start', loop: true }}
         className='w-full'
       >
         <CarouselContent className='-ml-2 md:-ml-4'>
-          {randomizedInstructors.map((instructor, index) => (
+          {instructors.map((instructor) => (
             <CarouselItem
               key={instructor.id}
               className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
             >
-              <Card className='flex flex-col h-full overflow-hidden transition-shadow hover:shadow-lg'>
+              <div className='flex flex-col h-full'>
                 <Link
                   href={`/instructors/${instructor.slug}`}
-                  className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0'
+                  className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0 rounded-lg'
                 >
                   <Image
                     src={instructor.profileImage}
@@ -92,33 +72,23 @@ export function InstructorCarousel(): React.JSX.Element | null {
                     fill
                     className='object-cover transition-transform hover:scale-105'
                     sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
-                    priority={index < 3}
                   />
                 </Link>
-                <CardContent className='flex flex-col flex-1 p-6'>
-                  <h3 className='text-xl font-semibold'>{instructor.name}</h3>
-                  <p className='mt-1 text-sm text-muted-foreground'>{instructor.tagline}</p>
-
-                  <div className='mt-4 flex flex-wrap gap-2'>
-                    {instructor.specialties.slice(0, 3).map((specialty) => (
-                      <Badge key={specialty} variant='secondary' className='text-xs'>
-                        {specialty}
-                      </Badge>
-                    ))}
-                  </div>
-
-                  <div className='mt-auto pt-6'>
-                    <Button asChild variant='outline' className='w-full'>
-                      <Link href={`/instructors/${instructor.slug}`}>View Profile</Link>
+                <div className='pt-4 text-center'>
+                  <h3 className='text-lg font-bold uppercase tracking-wide'>{instructor.name}</h3>
+                  <p className='mt-1 text-sm text-muted-foreground uppercase tracking-wide'>{instructor.tagline}</p>
+                  <div className='mt-4'>
+                    <Button asChild variant='outline' size='sm' className='border-white/30 text-white hover:bg-white/10 uppercase tracking-wide text-xs'>
+                      <Link href={`/instructors/${instructor.slug}`}>View Bio</Link>
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className='hidden md:flex' />
-        <CarouselNext className='hidden md:flex' />
+        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
+        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
       </Carousel>
     </div>
   );

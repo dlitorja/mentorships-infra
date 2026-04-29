@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -12,7 +12,6 @@ import {
   type CarouselApi,
 } from '@/components/ui/carousel';
 import { mockInstructors } from '@/lib/instructors';
-import { shuffle } from '@/lib/utils/shuffle';
 
 interface TestimonialWithInstructor {
   text: string;
@@ -22,8 +21,27 @@ interface TestimonialWithInstructor {
   instructorSlug: string;
 }
 
-export function TestimonialsCarousel(): React.JSX.Element | null {
-  const [randomizedTestimonials, setRandomizedTestimonials] = useState<TestimonialWithInstructor[] | undefined>(undefined);
+function buildMockTestimonials(): TestimonialWithInstructor[] {
+  const allTestimonials: TestimonialWithInstructor[] = [];
+  mockInstructors.forEach((instructor) => {
+    if (instructor.isHidden) return;
+    allTestimonials.push({
+      text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
+      author: 'Sample student',
+      role: 'Student',
+      instructorName: instructor.name,
+      instructorSlug: instructor.slug,
+    });
+  });
+  for (let i = allTestimonials.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allTestimonials[i], allTestimonials[j]] = [allTestimonials[j], allTestimonials[i]];
+  }
+  return allTestimonials;
+}
+
+export function TestimonialsCarousel(): React.JSX.Element {
+  const testimonials = buildMockTestimonials();
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
 
@@ -31,49 +49,17 @@ export function TestimonialsCarousel(): React.JSX.Element | null {
     ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
     : false;
 
-  useEffect(() => {
-    const allTestimonials: TestimonialWithInstructor[] = [];
-    mockInstructors.forEach((instructor) => {
-      if (instructor.isHidden) return;
-      allTestimonials.push({
-        text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
-        author: 'Sample student',
-        role: 'Student',
-        instructorName: instructor.name,
-        instructorSlug: instructor.slug,
-      });
-    });
-    const shuffled = shuffle(allTestimonials);
-    setRandomizedTestimonials(shuffled);
-  }, []);
-
   const startInterval = useCallback(() => {
-    if (!api || !randomizedTestimonials || randomizedTestimonials.length === 0 || prefersReducedMotion || paused) return;
-
+    if (!api || testimonials.length === 0 || prefersReducedMotion || paused) return;
     const interval = setInterval(() => {
       api.scrollNext();
     }, 6000);
-
     return () => clearInterval(interval);
-  }, [api, randomizedTestimonials, prefersReducedMotion, paused]);
+  }, [api, testimonials.length, prefersReducedMotion, paused]);
 
   useEffect(() => {
     return startInterval();
   }, [startInterval]);
-
-  if (randomizedTestimonials === undefined) {
-    return (
-      <div className='w-full h-64 animate-pulse bg-black/20 rounded-xl' aria-label='Loading testimonials...' />
-    );
-  }
-
-  if (randomizedTestimonials.length === 0) {
-    return (
-      <div className='w-full h-64 flex items-center justify-center bg-black/20 rounded-xl text-white/70'>
-        No testimonials available.
-      </div>
-    );
-  }
 
   return (
     <div
@@ -84,39 +70,36 @@ export function TestimonialsCarousel(): React.JSX.Element | null {
     >
       <Carousel
         setApi={setApi}
-        opts={{
-          align: 'start',
-          loop: true,
-        }}
+        opts={{ align: 'start', loop: true }}
         className='w-full'
       >
         <CarouselContent className='-ml-2 md:-ml-4'>
-          {randomizedTestimonials.map((t, index) => (
+          {testimonials.map((t, index) => (
             <CarouselItem
               key={`${t.instructorSlug}-${index}`}
               className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
             >
-              <div className='rounded-xl bg-black/70 backdrop-blur-sm p-6 h-full flex flex-col border border-white/10 shadow-lg'>
-                <Quote className='h-6 w-6 text-white/80 mb-4 flex-shrink-0' />
-                <div className='text-white/60 italic text-sm leading-relaxed mb-4 flex-grow'>
+              <div className='rounded-lg bg-card p-6 h-full flex flex-col border border-border'>
+                <Quote className='h-6 w-6 text-primary mb-4 flex-shrink-0' />
+                <div className='text-white/80 italic text-sm leading-relaxed mb-4 flex-grow'>
                   <span className='text-white/50'>&ldquo;</span>{t.text}<span className='text-white/50'>&rdquo;</span>
                 </div>
-                <footer className='mt-4 text-sm text-white/70 flex-shrink-0' aria-label='Sample testimonial'>
-                  <p className='font-semibold'>— {t.author}</p>
-                  <p className='text-xs text-white/50 mt-1'>Sample — not real feedback</p>
+                <footer className='mt-4 text-sm flex-shrink-0' aria-label='Sample testimonial'>
+                  <p className='font-semibold uppercase tracking-wide text-white'>{t.author}</p>
+                  <p className='text-xs text-muted-foreground mt-1'>Sample — not real feedback</p>
                   <Link
                     href={`/instructors/${t.instructorSlug}`}
-                    className='text-xs text-white/60 hover:text-white mt-2 inline-block transition-colors'
+                    className='text-xs text-primary hover:text-primary/80 mt-2 inline-block transition-colors'
                   >
-                    Learn from {t.instructorName} →
+                    Learn from {t.instructorName} &rarr;
                   </Link>
                 </footer>
               </div>
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className='hidden md:flex' />
-        <CarouselNext className='hidden md:flex' />
+        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
+        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
       </Carousel>
     </div>
   );
