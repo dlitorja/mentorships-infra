@@ -2,25 +2,20 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink, Quote } from "lucide-react";
+import { Quote, Gift, Instagram, Youtube, Twitter, Globe } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
 import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
 import { InstructorNavigationWrapper } from "@/components/instructors/instructor-navigation-wrapper";
-import { Instagram, Youtube, Twitter, Globe } from "lucide-react";
 import {
   getInstructorBySlug,
   getNextInstructor,
   getPreviousInstructor,
   instructors,
-  type Instructor,
-  type InstructorOffer,
   type Testimonial,
 } from "@/lib/instructors";
 import { OffersSection } from "@/components/instructors/offers-section";
-import { Gift } from "lucide-react";
 
 function getSocialIcon(platform: string): React.ReactElement {
   switch (platform.toLowerCase()) {
@@ -87,7 +82,7 @@ export default async function InstructorProfilePage({
   return (
     <InstructorNavigation>
       <div className="min-h-screen bg-background">
-        <div className="container mx-auto px-4 py-8 md:py-12">
+        <div className="container mx-auto px-4 py-8 md:py-16">
           <InstructorNavigationWrapper
             currentSlug={slug}
             defaultNext={nextInstructor}
@@ -107,45 +102,45 @@ export default async function InstructorProfilePage({
                 />
               </div>
 
-              <div className="flex flex-col space-y-6">
+              <div className="flex flex-col space-y-8">
                 <div>
-                  <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
+                  <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold uppercase tracking-wider text-white">
                     {instructor.name}
                   </h1>
-                  <p className="mt-2 text-xl text-muted-foreground">{instructor.tagline}</p>
+                  <p className="mt-2 text-sm uppercase tracking-wide text-primary">{instructor.tagline}</p>
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-semibold mb-3">About</h2>
-                  <p className="text-muted-foreground leading-relaxed">{instructor.bio}</p>
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">About</h2>
+                  <p className="text-white/80 leading-relaxed">{instructor.bio}</p>
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-semibold mb-3">Specialties</h2>
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Specialties</h2>
                   <div className="flex flex-wrap gap-2">
                     {instructor.specialties.map((specialty: string) => (
-                      <Badge key={specialty} variant="secondary" className="text-sm">
+                      <span key={specialty} className="text-sm text-white/70 bg-white/5 px-3 py-1 rounded">
                         {specialty}
-                      </Badge>
+                      </span>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-semibold mb-3">Background</h2>
+                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Background</h2>
                   <div className="flex flex-wrap gap-2">
                     {instructor.background.map((bg: string) => (
-                      <Badge key={bg} variant="outline" className="text-sm">
+                      <span key={bg} className="text-sm text-white/70 border border-white/20 px-3 py-1 rounded">
                         {bg}
-                      </Badge>
+                      </span>
                     ))}
                   </div>
                 </div>
 
                 {instructor.socials && instructor.socials.length > 0 && (
                   <div>
-                    <h2 className="text-2xl font-semibold mb-4">Socials</h2>
-                    <div className="flex flex-wrap gap-4">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">Socials</h2>
+                    <div className="flex flex-wrap gap-3">
                       {instructor.socials
                         .filter(
                           (social) =>
@@ -157,7 +152,8 @@ export default async function InstructorProfilePage({
                           <Button
                             key={social.url}
                             asChild
-                            className="flex items-center gap-3 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                            size="sm"
+                            className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide text-xs font-semibold"
                           >
                             <a
                               href={social.url}
@@ -180,17 +176,18 @@ export default async function InstructorProfilePage({
                 />
 
                 {instructor.offersFreeMentorship && (
-                  <div className="mt-8 pt-8 border-t">
-                    <h2 className="text-2xl font-semibold mb-3">Free Mentorship</h2>
-                    <p className="text-muted-foreground mb-4">
+                  <div className="pt-8 border-t border-border">
+                    <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Free Mentorship</h2>
+                    <p className="text-white/70 mb-4 text-sm">
                       Sign up for a free mentorship session. Sessions may be recorded and uploaded to YouTube.
                     </p>
                     <Button
                       asChild
-                      className="flex items-center gap-2 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                      size="sm"
+                      className="flex items-center gap-2 bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide text-xs font-semibold"
                     >
                       <Link href={`/free-mentorship?instructor=${instructor.slug}`}>
-                        <Gift className="h-5 w-5" />
+                        <Gift className="h-4 w-4" />
                         Sign Up for Free Session
                       </Link>
                     </Button>
@@ -200,8 +197,8 @@ export default async function InstructorProfilePage({
             </div>
 
             {instructor.workImages && instructor.workImages.length > 0 && (
-              <div className="mt-12">
-                <h2 className="text-2xl font-semibold mb-3">Portfolio</h2>
+              <div className="mt-16">
+                <h2 className="text-2xl font-bold uppercase tracking-wider text-white mb-6">Portfolio</h2>
                 <PortfolioGallery
                   images={instructor.workImages}
                   instructorName={instructor.name}
@@ -210,8 +207,8 @@ export default async function InstructorProfilePage({
             )}
 
             {instructor.menteeBeforeAfterImages && instructor.menteeBeforeAfterImages.length > 0 && (
-              <div className="mt-12">
-                <h2 className="text-2xl font-semibold mb-3">Mentee Success Stories</h2>
+              <div className="mt-16">
+                <h2 className="text-2xl font-bold uppercase tracking-wider text-white mb-6">Mentee Success Stories</h2>
                 <PortfolioGallery
                   images={instructor.menteeBeforeAfterImages}
                   instructorName={instructor.name}
@@ -220,28 +217,28 @@ export default async function InstructorProfilePage({
             )}
 
             {instructor.testimonials && instructor.testimonials.length > 0 && (
-              <div className="mt-12">
-                <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
+              <div className="mt-16">
+                <h2 className="text-2xl font-bold uppercase tracking-wider text-white mb-8">Testimonials</h2>
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                   {instructor.testimonials.map((testimonial: Testimonial, index: number) => (
                     <div
                       key={index}
-                      className="rounded-lg border bg-card p-6 shadow-sm"
+                      className="rounded-lg bg-card p-6 border border-border"
                     >
-                      <Quote className="h-6 w-6 text-muted-foreground mb-4" />
-                      <div className="text-base leading-relaxed mb-4 italic">
+                      <Quote className="h-5 w-5 text-primary mb-4" />
+                      <div className="text-sm text-white/80 leading-relaxed mb-4">
                         {testimonial.text.split("\n\n").map((paragraph: string, pIndex: number, paragraphs: string[]) => (
-                          <p key={pIndex} className={pIndex > 0 ? "mt-4" : ""}>
+                          <p key={pIndex} className={pIndex > 0 ? "mt-3" : ""}>
                             {pIndex === 0 && '"'}
                             {paragraph}
                             {pIndex === paragraphs.length - 1 && '"'}
                           </p>
                         ))}
                       </div>
-                      <div>
-                        <p className="font-semibold">{testimonial.author}</p>
+                      <div className="border-t border-border pt-4">
+                        <p className="font-semibold uppercase tracking-wide text-white text-xs">{testimonial.author}</p>
                         {testimonial.role && (
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-xs text-muted-foreground mt-1">
                             {testimonial.role}
                           </p>
                         )}

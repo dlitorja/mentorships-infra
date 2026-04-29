@@ -45,7 +45,8 @@ export function TestimonialsCarousel(): React.JSX.Element {
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
 
-  const prefersReducedMotion = typeof window !== 'undefined'    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const prefersReducedMotion = typeof window !== 'undefined'
+    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
     : false;
 
   const startInterval = useCallback(() => {
@@ -78,27 +79,27 @@ export function TestimonialsCarousel(): React.JSX.Element {
               key={`${t.instructorSlug}-${index}`}
               className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
             >
-              <div className='rounded-xl bg-black/70 backdrop-blur-sm p-6 h-full flex flex-col border border-white/10 shadow-lg'>
-                <Quote className='h-6 w-6 text-white/80 mb-4 flex-shrink-0' />
-                <div className='text-white/60 italic text-sm leading-relaxed mb-4 flex-grow'>
+              <div className='rounded-lg bg-card p-6 h-full flex flex-col border border-border'>
+                <Quote className='h-6 w-6 text-primary mb-4 flex-shrink-0' />
+                <div className='text-white/80 italic text-sm leading-relaxed mb-4 flex-grow'>
                   <span className='text-white/50'>&ldquo;</span>{t.text}<span className='text-white/50'>&rdquo;</span>
                 </div>
-                <footer className='mt-4 text-sm text-white/70 flex-shrink-0' aria-label='Sample testimonial'>
-                  <p className='font-semibold'>— {t.author}</p>
-                  <p className='text-xs text-white/50 mt-1'>Sample — not real feedback</p>
+                <footer className='mt-4 text-sm flex-shrink-0' aria-label='Sample testimonial'>
+                  <p className='font-semibold uppercase tracking-wide text-white'>{t.author}</p>
+                  <p className='text-xs text-muted-foreground mt-1'>Sample — not real feedback</p>
                   <Link
                     href={`/instructors/${t.instructorSlug}`}
-                    className='text-xs text-white/60 hover:text-white mt-2 inline-block transition-colors'
+                    className='text-xs text-primary hover:text-primary/80 mt-2 inline-block transition-colors'
                   >
-                    Learn from {t.instructorName} →
+                    Learn from {t.instructorName} &rarr;
                   </Link>
                 </footer>
               </div>
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className='hidden md:flex' />
-        <CarouselNext className='hidden md:flex' />
+        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
+        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
       </Carousel>
     </div>
   );

@@ -2,24 +2,24 @@ import Link from "next/link";
 
 export function Footer(): React.JSX.Element {
   return (
-    <footer className="border-t bg-muted/30">
-      <div className="container mx-auto px-4 py-12">
-        <div className="grid gap-8 md:grid-cols-3">
+    <footer className="border-t border-border bg-background">
+      <div className="container mx-auto px-4 py-16">
+        <div className="grid gap-12 md:grid-cols-3">
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Huckleberry Art</h3>
-            <p className="text-sm text-muted-foreground">
+            <h3 className="text-lg font-semibold uppercase tracking-wider text-white">Huckleberry Art</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
               Connecting artists with world-class instructors for personalized mentorship
               experiences.
             </p>
           </div>
 
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold">Explore</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="text-sm font-semibold uppercase tracking-wider text-white">Explore</h4>
+            <ul className="space-y-3 text-sm">
               <li>
                 <Link
                   href="/instructors"
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-white transition-colors"
                 >
                   Browse Instructors
                 </Link>
@@ -27,7 +27,7 @@ export function Footer(): React.JSX.Element {
               <li>
                 <Link
                   href="/#how-it-works"
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-white transition-colors"
                 >
                   How it works
                 </Link>
@@ -35,7 +35,7 @@ export function Footer(): React.JSX.Element {
               <li>
                 <Link
                   href="/#testimonials"
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-white transition-colors"
                 >
                   Testimonials
                 </Link>
@@ -44,12 +44,12 @@ export function Footer(): React.JSX.Element {
           </div>
 
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold">Contact</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="text-sm font-semibold uppercase tracking-wider text-white">Contact</h4>
+            <ul className="space-y-3 text-sm">
               <li>
                 <a
                   href="mailto:support@huckleberry.art"
-                  className="text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-white transition-colors"
                 >
                   support@huckleberry.art
                 </a>
@@ -58,7 +58,7 @@ export function Footer(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="mt-8 border-t pt-8 text-center text-sm text-muted-foreground">
+        <div className="mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
           <p>&copy; {new Date().getFullYear()} Huckleberry Art. All rights reserved.</p>
         </div>
       </div>

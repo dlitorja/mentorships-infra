@@ -9,114 +9,105 @@ import { Footer } from '@/components/navigation/footer';
 export default function HomePage(): React.JSX.Element {
   return (
     <>
-    <main className='min-h-screen textured-gradient text-foreground relative'>
-      <div className='relative z-10'>
-        {/* Featured instructors */}
-        <section id='instructors' className='py-20 px-4'>
-          <div className='mx-auto max-w-7xl'>
-            <div className='mb-12 text-center'>
-              <div className='inline-block px-8 py-6 rounded-2xl bg-black/60 backdrop-blur-sm'>
-                <div className='mb-6 flex justify-center'>
-                  <div className='relative h-32 w-auto' style={{ width: '228px' }}>
-                    <Image
-                      src='/logo_bad2.png'
-                      alt='Huckleberry Art'
-                      fill
-                      style={{ objectFit: 'contain' }}
-                      priority
-                    />
-                  </div>
-                </div>
-                <h2 className='text-4xl font-bold tracking-tight text-white sm:text-5xl'>
-                  Our Instructors
-                </h2>
-                <div className='mt-6 flex flex-col gap-4 sm:flex-row sm:justify-center'>
-                  <Button asChild size='lg' className='vibrant-gradient-button transition-all'>
-                    <Link href='/instructors'>View All Instructors</Link>
-                  </Button>
-                  <Button asChild size='lg' variant='outline' className='bg-white/10 text-white border-white/30 hover:bg-white/20'>
-                    <Link href='#how-it-works'>How It Works</Link>
-                  </Button>
-                </div>
+      <main className="min-h-screen bg-background text-foreground">
+        {/* Hero Section */}
+        <section className="py-24 px-4">
+          <div className="mx-auto max-w-4xl text-center">
+            <div className="mb-8 flex justify-center">
+              <div className="relative h-24 w-auto" style={{ width: '172px' }}>
+                <Image
+                  src="/logo_bad2.png"
+                  alt="Huckleberry Art"
+                  fill
+                  style={{ objectFit: 'contain' }}
+                  className="brightness-0 invert"
+                  priority
+                />
               </div>
             </div>
+            <h1 className="section-title mb-6">Our Instructors</h1>
+            <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
+              Connect with world-class art instructors from gaming, TV, film, and independent studios
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide font-semibold">
+                <Link href="/instructors">View All Instructors</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 uppercase tracking-wide font-semibold">
+                <Link href="#how-it-works">How It Works</Link>
+              </Button>
+            </div>
+          </div>
+        </section>
 
+        {/* Instructors Carousel */}
+        <section id="instructors" className="py-20 px-4">
+          <div className="mx-auto max-w-7xl">
             <InstructorCarousel />
           </div>
         </section>
 
         {/* How it works */}
-        <section id='how-it-works' className='py-20 px-4'>
-          <div className='mx-auto max-w-5xl'>
-            <div className='text-center mb-12'>
-              <div className='inline-block px-8 py-6 rounded-2xl bg-black/60 backdrop-blur-sm'>
-                <h2 className='text-4xl font-bold tracking-tight text-white sm:text-5xl'>How it works</h2>
+        <section id="how-it-works" className="py-20 px-4 border-t border-border">
+          <div className="mx-auto max-w-5xl">
+            <h2 className="section-title mb-16">How It Works</h2>
+            <div className="grid gap-8 md:grid-cols-3">
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-6 text-xl font-bold">
+                  1
+                </div>
+                <h3 className="text-lg font-semibold uppercase tracking-wide mb-3">Choose an Instructor</h3>
+                <p className="text-muted-foreground">
+                  Browse profiles, portfolios, and specialties to find your best fit.
+                </p>
               </div>
-            </div>
-            <div className='rounded-2xl bg-black/60 backdrop-blur-sm px-8 py-10 text-white'>
-              <div className='mt-6 grid gap-6 md:grid-cols-3'>
-                <div className='rounded-xl bg-white/5 p-6'>
-                  <p className='text-sm font-semibold text-white/90'>Step 1</p>
-                  <h3 className='mt-2 text-xl font-semibold'>Choose an instructor</h3>
-                  <p className='mt-2 text-white/80'>
-                    Browse profiles, portfolios, and specialties to find your best fit.
-                  </p>
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-6 text-xl font-bold">
+                  2
                 </div>
-                <div className='rounded-xl bg-white/5 p-6'>
-                  <p className='text-sm font-semibold text-white/90'>Step 2</p>
-                  <h3 className='mt-2 text-xl font-semibold'>Purchase on their offer page</h3>
-                  <p className='mt-2 text-white/80'>
-                    When you're ready, complete your purchase on the instructor's offer page.
-                  </p>
+                <h3 className="text-lg font-semibold uppercase tracking-wide mb-3">Purchase Your Session</h3>
+                <p className="text-muted-foreground">
+                  When you&apos;re ready, complete your purchase on the instructor&apos;s offer page.
+                </p>
+              </div>
+              <div className="text-center">
+                <div className="w-12 h-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-6 text-xl font-bold">
+                  3
                 </div>
-                <div className='rounded-xl bg-white/5 p-6'>
-                  <p className='text-sm font-semibold text-white/90'>Step 3</p>
-                  <h3 className='mt-2 text-xl font-semibold'>Start your mentorship</h3>
-                  <p className='mt-2 text-white/80'>
-                    After your purchase is completed, you'll receive onboarding details in your email inbox to get started.
-                  </p>
-                </div>
+                <h3 className="text-lg font-semibold uppercase tracking-wide mb-3">Start Your Mentorship</h3>
+                <p className="text-muted-foreground">
+                  After your purchase, you&apos;ll receive onboarding details in your email inbox.
+                </p>
               </div>
             </div>
           </div>
         </section>
 
         {/* Testimonials */}
-        <section id='testimonials' className='py-20 px-4'>
-          <div className='mx-auto max-w-7xl'>
-            <div className='mb-12 text-center'>
-              <div className='inline-block px-8 py-6 rounded-2xl bg-black/60 backdrop-blur-sm'>
-                <h2 className='text-4xl font-bold tracking-tight text-white sm:text-5xl'>
-                  What students say
-                </h2>
-                <p className='mt-4 text-lg text-white/90'>
-                  Hear from students about their mentorship experience
-                </p>
-              </div>
-            </div>
+        <section id="testimonials" className="py-20 px-4 border-t border-border">
+          <div className="mx-auto max-w-7xl">
+            <h2 className="section-title mb-6">What Students Say</h2>
+            <p className="text-center text-muted-foreground mb-16">
+              Hear from students about their mentorship experience
+            </p>
             <TestimonialsCarousel />
           </div>
         </section>
 
         {/* CTA */}
-        <section className='py-20 px-4'>
-          <div className='mx-auto max-w-5xl text-center'>
-            <div className='rounded-2xl bg-black/60 backdrop-blur-sm px-8 py-12 text-white'>
-              <h2 className='text-3xl font-bold sm:text-4xl'>Ready to get started?</h2>
-              <p className='mt-4 text-white/80'>
-                Explore instructors and choose the mentorship that fits your goals.
-              </p>
-              <div className='mt-8'>
-                <Button asChild size='lg' className='vibrant-gradient-button transition-all'>
-                  <Link href='/instructors'>Browse Instructors</Link>
-                </Button>
-              </div>
-            </div>
+        <section className="py-20 px-4 border-t border-border">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="section-title mb-6">Ready to Get Started?</h2>
+            <p className="text-muted-foreground mb-10">
+              Explore instructors and choose the mentorship that fits your goals.
+            </p>
+            <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide font-semibold">
+              <Link href="/instructors">Browse Instructors</Link>
+            </Button>
           </div>
         </section>
-      </div>
-    </main>
-    <Footer />
+      </main>
+      <Footer />
     </>
   );
 }

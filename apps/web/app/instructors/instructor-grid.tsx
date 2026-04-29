@@ -3,9 +3,7 @@
 import { useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import type { Instructor } from '@/lib/instructors';
 
 interface InstructorGridProps {
@@ -19,15 +17,15 @@ export function InstructorGrid({ instructors, priorityIds }: InstructorGridProps
   }, [instructors]);
 
   return (
-    <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
+    <div className='grid gap-8 md:grid-cols-2 lg:grid-cols-3'>
       {instructors.map((instructor) => (
-        <Card
+        <div
           key={instructor.id}
-          className='flex flex-col h-full overflow-hidden transition-shadow hover:shadow-lg'
+          className='flex flex-col'
         >
           <Link
             href={`/instructors/${instructor.slug}`}
-            className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0'
+            className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0 rounded-lg'
           >
             <Image
               src={instructor.profileImage}
@@ -39,30 +37,17 @@ export function InstructorGrid({ instructors, priorityIds }: InstructorGridProps
             />
           </Link>
 
-          <CardContent className='flex flex-col flex-1 p-6'>
-            <h3 className='text-xl font-semibold'>{instructor.name}</h3>
-            <p className='mt-1 text-sm text-muted-foreground'>{instructor.tagline}</p>
+          <div className='pt-4 text-center'>
+            <h3 className='text-lg font-bold uppercase tracking-wide'>{instructor.name}</h3>
+            <p className='mt-1 text-sm text-muted-foreground uppercase tracking-wide'>{instructor.tagline}</p>
 
-            <div className='mt-4 flex flex-wrap gap-2'>
-              {instructor.specialties.slice(0, 3).map((specialty) => (
-                <Badge key={specialty} variant='secondary' className='text-xs'>
-                  {specialty}
-                </Badge>
-              ))}
-              {instructor.specialties.length > 3 && (
-                <Badge variant='secondary' className='text-xs'>
-                  +{instructor.specialties.length - 3} more
-                </Badge>
-              )}
-            </div>
-
-            <div className='mt-auto pt-6'>
-              <Button asChild variant='outline' className='w-full'>
-                <Link href={`/instructors/${instructor.slug}`}>View Profile</Link>
+            <div className='mt-4'>
+              <Button asChild variant='outline' size='sm' className='border-white/30 text-white hover:bg-white/10 uppercase tracking-wide text-xs'>
+                <Link href={`/instructors/${instructor.slug}`}>View Bio</Link>
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ))}
     </div>
   );

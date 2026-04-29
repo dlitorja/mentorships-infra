@@ -22,10 +22,11 @@ export default function InstructorsPage(): React.JSX.Element {
 
   return (
     <div className='min-h-screen bg-background'>
-      <div className='container mx-auto px-4 py-12'>
+      <div className='container mx-auto px-4 py-16'>
         <div className='mx-auto max-w-7xl'>
-          <div className='mb-12 text-center'>
-            <h1 className='text-4xl font-bold tracking-tight sm:text-5xl'>Our Instructors</h1>
+          <div className='mb-16 text-center'>
+            <h1 className='section-title'>Our Instructors</h1>
+            <p className='mt-4 text-muted-foreground'>Browse our roster of world-class art instructors</p>
           </div>
 
           <InstructorGrid instructors={instructors} priorityIds={priorityIds} />
