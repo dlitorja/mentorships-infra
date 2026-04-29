@@ -115,8 +115,8 @@ export function PreviewHero() {
 
   return (
     <section className="relative min-h-[90svh] flex items-center justify-center">
-      {/* Shared Sale CTA + countdown above carousel */}
-      <div className="absolute top-6 z-20 w-full px-6">
+      {/* Shared Sale CTA + countdown above carousel with extra spacing */}
+      <div className="absolute top-8 md:top-10 z-20 w-full px-6">
         <div className="mx-auto max-w-4xl text-center">
           <a
             href="https://home.huckleberry.art/resource_redirect/offers/gkAXKN2g"
@@ -133,7 +133,7 @@ export function PreviewHero() {
         </div>
       </div>
 
-      <div className="absolute inset-0 z-0 bg-black/40" />
+      {/* Remove section-wide gray overlay; rely on per-slide gradient for legibility */}
 
       <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
         <Carousel setApi={setApi} opts={{ align: "start", loop: true }}>
@@ -149,7 +149,8 @@ export function PreviewHero() {
                     className="object-cover"
                     sizes="100vw"
                   />
-                  <div className="absolute inset-0 bg-black/25" />
+                  {/* Gradient overlay: keeps images natural while ensuring text legibility */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/20 to-transparent" />
                   <div className="relative z-10 mx-auto max-w-3xl text-center px-4">
                     <div className="mb-4">
                       <span className="inline-block bg-[#7c3aed] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">

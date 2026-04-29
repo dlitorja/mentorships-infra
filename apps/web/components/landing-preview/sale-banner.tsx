@@ -131,7 +131,11 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
 
 export function SaleBanner() {
   // Use the first three curated items to mirror Underpaint's 3-card layout
-  const liveItems = SALE_ITEMS.slice(0, 3);
+  // Remove "Sale ends" copy from cards as requested
+  const liveItems = SALE_ITEMS.slice(0, 3).map((i) => ({
+    ...i,
+    description: i.description?.toLowerCase().includes("sale ends") ? "" : i.description,
+  }));
 
   return (
     <section className="bg-white py-20 px-6">
@@ -141,9 +145,9 @@ export function SaleBanner() {
             Courses on Sale
           </h2>
         </div>
-        {/* Single shared countdown under the section heading */}
-        <div className="mb-10 flex justify-center">
-          <CountdownTimer endsAt="2026-05-05T23:59:59.000Z" />
+        {/* Replace countdown with static end date text */}
+        <div className="mb-10 text-center text-sm uppercase tracking-widest text-[#1a1a2e]/80">
+          Sale ends May 5th
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

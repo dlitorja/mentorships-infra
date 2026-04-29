@@ -5,14 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getInstructorNavigation } from "@/lib/instructors";
-import type { Instructor } from "@/lib/instructors";
 
 interface InstructorNavigationWrapperProps {
   currentSlug: string;
-  instructor: Instructor;
-  defaultNext?: Instructor | null;
-  defaultPrevious?: Instructor | null;
+  // The instruction here is to mirror marketing's prev/next behavior.
+  // We compute nav purely from sessionStorage order if available.
+  // Defaults are omitted for simplicity.
 }
 
 export function InstructorNavigationWrapper({
@@ -21,19 +19,13 @@ export function InstructorNavigationWrapper({
   defaultNext,
   defaultPrevious,
 }: InstructorNavigationWrapperProps) {
-  const [navInfo, setNavInfo] = useState<{
-    next: Instructor | undefined;
-    previous: Instructor | undefined;
-    currentIndex: number;
-    totalCount: number;
-    mode: 'custom' | 'alphabetical';
-  } | null>(null);
+  const [order, setOrder] = useState<string[] | null>(null);
 
   const router = useRouter();
   const navInfoRef = useRef(navInfo);
 
   useEffect(() => {
-    // Read custom order from session storage
+    // Read custom order from session storage (slugs)
     let customOrder: string[] | undefined;
     try {
       const stored = sessionStorage.getItem('instructorOrder');
@@ -43,10 +35,8 @@ export function InstructorNavigationWrapper({
     } catch (error) {
       // Ignore errors reading from session storage
     }
-
-    const navigation = getInstructorNavigation(currentSlug, customOrder);
-    setNavInfo(navigation);
-    navInfoRef.current = navigation; // Keep ref in sync with state
+    setOrder(Array.isArray(customOrder) ? customOrder : null);
+    navInfoRef.current = null;
 
     // Handle keyboard navigation
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -61,13 +51,17 @@ export function InstructorNavigationWrapper({
         return;
       }
 
-      const currentNavigation = navInfoRef.current; // Use ref for latest state
-      if (e.key === "ArrowLeft" && currentNavigation?.previous) {
+      if (!order || order.length === 0) return;
+      const idx = order.indexOf(currentSlug);
+      if (idx === -1) return;
+      if (e.key === "ArrowLeft") {
         e.preventDefault();
-        router.push(`/instructors/${currentNavigation.previous.slug}`);
-      } else if (e.key === "ArrowRight" && currentNavigation?.next) {
+        const prevSlug = idx === 0 ? order[order.length - 1] : order[idx - 1];
+        router.push(`/instructors/${prevSlug}`);
+      } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        router.push(`/instructors/${currentNavigation.next.slug}`);
+        const nextSlug = idx === order.length - 1 ? order[0] : order[idx + 1];
+        router.push(`/instructors/${nextSlug}`);
       }
     };
 
@@ -75,9 +69,9 @@ export function InstructorNavigationWrapper({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [currentSlug, router]);
 
-  // Use client-side navigation if available, otherwise fall back to server-side defaults
-  const nextInstructor = navInfo?.next ?? defaultNext ?? null;
-  const previousInstructor = navInfo?.previous ?? defaultPrevious ?? null;
+  const currentIdx = order ? order.indexOf(currentSlug) : -1;
+  const previousSlug = order && currentIdx >= 0 ? (currentIdx === 0 ? order[order.length - 1] : order[currentIdx - 1]) : null;
+  const nextSlug = order && currentIdx >= 0 ? (currentIdx === order.length - 1 ? order[0] : order[currentIdx + 1]) : null;
 
   return (
     <>
@@ -90,17 +84,17 @@ export function InstructorNavigationWrapper({
         </Button>
         
         <div className="flex items-center gap-3">
-          {previousInstructor && (
+          {previousSlug && (
             <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow min-w-[3rem]">
-              <Link href={`/instructors/${previousInstructor.slug}`} className="flex items-center justify-center">
+              <Link href={`/instructors/${previousSlug}`} className="flex items-center justify-center">
                 <ArrowLeft className="h-5 w-5" />
                 <span className="sr-only">Previous instructor</span>
               </Link>
             </Button>
           )}
-          {nextInstructor && (
+          {nextSlug && (
             <Button asChild variant="default" size="lg" className="shadow-md hover:shadow-lg transition-shadow min-w-[3rem]">
-              <Link href={`/instructors/${nextInstructor.slug}`} className="flex items-center justify-center">
+              <Link href={`/instructors/${nextSlug}`} className="flex items-center justify-center">
                 <ArrowRight className="h-5 w-5" />
                 <span className="sr-only">Next instructor</span>
               </Link>
@@ -111,4 +105,3 @@ export function InstructorNavigationWrapper({
     </>
   );
 }
-
