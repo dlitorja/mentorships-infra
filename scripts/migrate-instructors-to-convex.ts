@@ -20,7 +20,8 @@ function runConvexMutation(functionName: string, args: Record<string, any>): Pro
       'run',
       functionName,
       argsJson,
-      '--typecheck', 'disable'
+      '--typecheck', 'disable',
+      '--deployment', 'prod'
     ], {
       cwd: process.cwd(),
       shell: false
