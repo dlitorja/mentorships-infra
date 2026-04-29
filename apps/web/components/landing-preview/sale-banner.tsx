@@ -136,8 +136,12 @@ export function SaleBanner() {
   return (
     <section className="bg-white py-20 px-6">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-12 text-center">
+        <div className="mb-6 text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">Courses on Sale</h2>
+        </div>
+        {/* Single shared countdown under the section heading */}
+        <div className="mb-10 flex justify-center">
+          <CountdownTimer endsAt="2026-05-05T23:59:59.000Z" />
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -173,7 +177,6 @@ export function SaleBanner() {
                     {item.description}
                   </p>
                 )}
-                <CountdownTimer endsAt={item.endsAt} />
               </div>
             </a>
           ))}

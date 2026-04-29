@@ -133,8 +133,8 @@ export function PreviewHero() {
         </div>
       </div>
 
-      {/* Light overlay for a brighter, cleaner aesthetic */}
-      <div className="absolute inset-0 z-0 bg-white/20" />
+      {/* Subtle dark overlay for contrast without washing out images */}
+      <div className="absolute inset-0 z-0 bg-black/30" />
 
       <div className="relative z-10 mx-auto w-full max-w-6xl px-6 py-20">
         <Carousel setApi={setApi} opts={{ align: "start", loop: true }}>
@@ -150,8 +150,8 @@ export function PreviewHero() {
                     className="object-cover"
                     sizes="100vw"
                   />
-                  {/* Brighter overlay on each slide */}
-                  <div className="absolute inset-0 bg-white/15" />
+                  {/* Subtle per-slide dark overlay for readability */}
+                  <div className="absolute inset-0 bg-black/25" />
                   <div className="relative z-10 mx-auto max-w-3xl text-center px-4">
                     <div className="mb-4">
                       <span className="inline-block bg-[#dc2626] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow">
