@@ -18,6 +18,10 @@ interface OffersSectionProps {
   instructorSlug: string;
 }
 
+const PURCHASE_HEADING = (
+  <h2 className='text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3'>Purchase</h2>
+);
+
 export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
   const [inventory, setInventory] = useState<InventoryStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,20 +51,20 @@ export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
   if (loading) {
     return (
       <div>
-        <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-        <p className="text-muted-foreground">Loading...</p>
+        {PURCHASE_HEADING}
+        <p className="text-white/70 text-sm">Loading...</p>
       </div>
     );
   }
 
   return (
     <div>
-      <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-      <p className="text-muted-foreground mb-4">
+      {PURCHASE_HEADING}
+      <p className="text-white/70 mb-4 text-sm">
         Purchases are handled on Kajabi. You&apos;ll be redirected to an external checkout.
       </p>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {activeOffers.map((offer) => (
           <OfferButton
             key={offer.kind}
@@ -76,8 +80,8 @@ export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
         ))}
 
         {showAprilMessage && (
-          <div className="p-4 bg-muted rounded-lg">
-            <p className="text-muted-foreground">
+          <div className="p-4 bg-card rounded-lg border border-border">
+            <p className="text-white/70 text-sm">
               This instructor will be available for mentorship soon.
             </p>
           </div>

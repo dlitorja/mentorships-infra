@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { Quote } from 'lucide-react';
 import {
@@ -12,7 +12,6 @@ import {
   type CarouselApi,
 } from '@/components/ui/carousel';
 import { mockInstructors } from '@/lib/instructors';
-import { shuffle } from '@/lib/utils/shuffle';
 
 interface TestimonialWithInstructor {
   text: string;
@@ -22,58 +21,46 @@ interface TestimonialWithInstructor {
   instructorSlug: string;
 }
 
-export function TestimonialsCarousel(): React.JSX.Element | null {
-  const [randomizedTestimonials, setRandomizedTestimonials] = useState<TestimonialWithInstructor[] | undefined>(undefined);
+function buildMockTestimonials(): TestimonialWithInstructor[] {
+  const allTestimonials: TestimonialWithInstructor[] = [];
+  mockInstructors.forEach((instructor) => {
+    if (instructor.isHidden) return;
+    allTestimonials.push({
+      text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
+      author: 'Sample student',
+      role: 'Student',
+      instructorName: instructor.name,
+      instructorSlug: instructor.slug,
+    });
+  });
+  return allTestimonials.sort((a, b) => a.instructorSlug.localeCompare(b.instructorSlug));
+}
+
+export function TestimonialsCarousel(): React.JSX.Element {
+  const testimonials = useMemo(() => buildMockTestimonials(), []);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
-
-  const prefersReducedMotion = typeof window !== 'undefined'
-    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    : false;
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
-    const allTestimonials: TestimonialWithInstructor[] = [];
-    mockInstructors.forEach((instructor) => {
-      if (instructor.isHidden) return;
-      allTestimonials.push({
-        text: 'Sample feedback — personalized mentorship experience with ' + instructor.name + '.',
-        author: 'Sample student',
-        role: 'Student',
-        instructorName: instructor.name,
-        instructorSlug: instructor.slug,
-      });
-    });
-    const shuffled = shuffle(allTestimonials);
-    setRandomizedTestimonials(shuffled);
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
   }, []);
 
   const startInterval = useCallback(() => {
-    if (!api || !randomizedTestimonials || randomizedTestimonials.length === 0 || prefersReducedMotion || paused) return;
-
+    if (!api || testimonials.length === 0 || prefersReducedMotion || paused) return;
     const interval = setInterval(() => {
       api.scrollNext();
     }, 6000);
-
     return () => clearInterval(interval);
-  }, [api, randomizedTestimonials, prefersReducedMotion, paused]);
+  }, [api, testimonials.length, prefersReducedMotion, paused]);
 
   useEffect(() => {
     return startInterval();
   }, [startInterval]);
-
-  if (randomizedTestimonials === undefined) {
-    return (
-      <div className='w-full h-64 animate-pulse bg-black/20 rounded-xl' aria-label='Loading testimonials...' />
-    );
-  }
-
-  if (randomizedTestimonials.length === 0) {
-    return (
-      <div className='w-full h-64 flex items-center justify-center bg-black/20 rounded-xl text-white/70'>
-        No testimonials available.
-      </div>
-    );
-  }
 
   return (
     <div
@@ -84,39 +71,42 @@ export function TestimonialsCarousel(): React.JSX.Element | null {
     >
       <Carousel
         setApi={setApi}
-        opts={{
-          align: 'start',
-          loop: true,
-        }}
+        opts={{ align: 'start', loop: true }}
         className='w-full'
       >
-        <CarouselContent className='-ml-2 md:-ml-4'>
-          {randomizedTestimonials.map((t, index) => (
+        <CarouselContent className='-ml-4'>
+          {testimonials.map((t, index) => (
             <CarouselItem
               key={`${t.instructorSlug}-${index}`}
-              className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
+              className='pl-4 md:basis-1/2 lg:basis-1/3'
             >
-              <div className='rounded-xl bg-black/70 backdrop-blur-sm p-6 h-full flex flex-col border border-white/10 shadow-lg'>
-                <Quote className='h-6 w-6 text-white/80 mb-4 flex-shrink-0' />
-                <div className='text-white/60 italic text-sm leading-relaxed mb-4 flex-grow'>
-                  <span className='text-white/50'>&ldquo;</span>{t.text}<span className='text-white/50'>&rdquo;</span>
+              <div className='rounded-lg bg-card p-6 h-full flex flex-col border border-border'>
+                <Quote className='h-5 w-5 text-primary mb-4 flex-shrink-0' />
+                <div className='text-white/90 leading-relaxed mb-4 flex-grow text-sm'>
+                  {t.text.split('\n\n').map((paragraph, pIndex, paragraphs) => (
+                    <p key={pIndex} className={pIndex > 0 ? 'mt-3' : ''}>
+                      {pIndex === 0 && <span className='text-white/50'>&ldquo;</span>}
+                      {paragraph}
+                      {pIndex === paragraphs.length - 1 && <span className='text-white/50'>&rdquo;</span>}
+                    </p>
+                  ))}
                 </div>
-                <footer className='mt-4 text-sm text-white/70 flex-shrink-0' aria-label='Sample testimonial'>
-                  <p className='font-semibold'>— {t.author}</p>
-                  <p className='text-xs text-white/50 mt-1'>Sample — not real feedback</p>
+                <footer className='mt-4 text-sm flex-shrink-0 border-t border-border pt-4'>
+                  <p className='font-semibold uppercase tracking-wide text-white text-xs'>{t.author}</p>
+                  <p className='text-xs text-muted-foreground mt-1'>{t.role || 'Student'}</p>
                   <Link
                     href={`/instructors/${t.instructorSlug}`}
-                    className='text-xs text-white/60 hover:text-white mt-2 inline-block transition-colors'
+                    className='text-xs text-primary hover:text-primary/80 mt-2 inline-block transition-colors uppercase tracking-wide'
                   >
-                    Learn from {t.instructorName} →
+                    Learn from {t.instructorName}
                   </Link>
                 </footer>
               </div>
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className='hidden md:flex' />
-        <CarouselNext className='hidden md:flex' />
+        <CarouselPrevious className='hidden md:flex -left-4 bg-card border-border text-white hover:bg-card/80' aria-label='Previous testimonial' />
+        <CarouselNext className='hidden md:flex -right-4 bg-card border-border text-white hover:bg-card/80' aria-label='Next testimonial' />
       </Carousel>
     </div>
   );

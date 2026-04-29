@@ -1,32 +1,41 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export function Footer() {
   return (
-    <footer className="border-t bg-muted/30">
-      <div className="container mx-auto px-4 py-12">
-        <div className="grid gap-8 md:grid-cols-4">
+    <footer className="border-t border-border bg-background">
+      <div className="container mx-auto px-4 py-16">
+        <div className="grid gap-12 md:grid-cols-4">
           <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Huckleberry Art</h3>
+            <div className="relative h-10 w-auto" style={{ width: '72px' }}>
+              <Image
+                src="/logo_bad2.png"
+                alt="Huckleberry Art"
+                fill
+                style={{ objectFit: 'contain' }}
+                className="brightness-0 invert"
+              />
+            </div>
             <p className="text-sm text-muted-foreground">
               Connecting artists with world-class instructors for personalized mentorship experiences.
             </p>
           </div>
           
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold">Platform</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Platform</h4>
+            <ul className="space-y-3 text-sm">
               <li>
-                <Link href="#instructors" className="text-muted-foreground hover:text-foreground">
+                <Link href="/instructors" className="text-white/80 hover:text-white transition-colors">
                   Browse Instructors
                 </Link>
               </li>
               <li>
-                <Link href="#find-match" className="text-muted-foreground hover:text-foreground">
-                  Find Your Match
-                </Link>
+                <a href="https://home.huckleberry.art/store" target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors">
+                  Courses
+                </a>
               </li>
               <li>
-                <Link href="/sign-up" className="text-muted-foreground hover:text-foreground">
+                <Link href="/sign-up" className="text-white/80 hover:text-white transition-colors">
                   Get Started
                 </Link>
               </li>
@@ -34,36 +43,36 @@ export function Footer() {
           </div>
           
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold">Resources</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Community</h4>
+            <ul className="space-y-3 text-sm">
               <li>
-                <Link href="/about" className="text-muted-foreground hover:text-foreground">
-                  About
-                </Link>
+                <a href="https://discord.gg/4DqDyKZyA8" target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors">
+                  Discord
+                </a>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground">
-                  FAQ
-                </Link>
+                <a href="https://www.instagram.com/huckleberry.art/" target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors">
+                  Instagram
+                </a>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground">
-                  Contact
-                </Link>
+                <a href="https://www.youtube.com/@huckleberryart" target="_blank" rel="noopener noreferrer" className="text-white/80 hover:text-white transition-colors">
+                  YouTube
+                </a>
               </li>
             </ul>
           </div>
           
           <div className="space-y-4">
-            <h4 className="text-sm font-semibold">Legal</h4>
-            <ul className="space-y-2 text-sm">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Legal</h4>
+            <ul className="space-y-3 text-sm">
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground">
+                <Link href="/privacy-policy" className="text-white/80 hover:text-white transition-colors">
                   Privacy Policy
                 </Link>
               </li>
               <li>
-                <Link href="#" className="text-muted-foreground hover:text-foreground">
+                <Link href="/terms-of-service" className="text-white/80 hover:text-white transition-colors">
                   Terms of Service
                 </Link>
               </li>
@@ -71,11 +80,10 @@ export function Footer() {
           </div>
         </div>
         
-        <div className="mt-8 border-t pt-8 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} Huckleberry Art. All rights reserved.</p>
+        <div className="mt-12 pt-8 border-t border-border text-center">
+          <p className="text-sm text-muted-foreground">&copy; {new Date().getFullYear()} Huckleberry Art. All rights reserved.</p>
         </div>
       </div>
     </footer>
   );
 }
-

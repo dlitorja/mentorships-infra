@@ -29,6 +29,7 @@ export interface Instructor {
     behance?: string;
   };
   isHidden?: boolean;
+  isNew?: boolean; // Show a NEW badge on the instructor card
 }
 
 // Mock instructor data based on the reference site

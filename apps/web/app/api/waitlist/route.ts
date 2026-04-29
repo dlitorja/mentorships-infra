@@ -10,16 +10,18 @@ import {
   waitlistGetSchema,
 } from "@/lib/validators";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function getSupabase() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    "Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set"
-  );
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error(
+      "Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be set"
+    );
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey);
 }
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 type WaitlistPostResponse =
   | { success: true; message: string }
@@ -75,6 +77,8 @@ export async function POST(
       }
       userEmail = normalizedEmail;
     }
+
+    const supabase = getSupabase();
 
     const { data, error } = await supabase
       .from("marketing_waitlist")
@@ -173,6 +177,7 @@ export async function GET(
     });
     const { instructorSlug } = validated;
 
+    const supabase = getSupabase();
     let query = supabase
       .from("marketing_waitlist")
       .select("*")

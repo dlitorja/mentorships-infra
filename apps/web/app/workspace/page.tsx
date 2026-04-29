@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { Id } from '../../../../convex/_generated/dataModel';
@@ -20,22 +20,22 @@ interface WorkspaceWithMentor {
   description?: string;
   ownerId: string;
   mentorId?: Id<'instructors'>;
-  mentorEmail?: string;
   menteeImageCount: number;
   mentorImageCount: number;
   endedAt?: number;
 }
 
-export default function WorkspacePage() {
-  const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
-  const { data: dbUser, isLoading: dbLoading } = useCurrentUser();
+function WorkspaceContent({
+  clerkUserId,
+  dbUserId,
+}: {
+  clerkUserId: string;
+  dbUserId: string;
+}) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<'workspaces'> | null>(null);
   const [activeTab, setActiveTab] = useState('chat');
-  const router = useRouter();
 
-  const { data: workspaces, isLoading: workspacesLoading } = useUserWorkspaces(
-    dbUser?._id || ''
-  );
+  const { data: workspaces, isLoading: workspacesLoading } = useUserWorkspaces(dbUserId);
 
   useEffect(() => {
     if (workspaces && workspaces.length > 0 && !selectedWorkspaceId) {
@@ -43,22 +43,12 @@ export default function WorkspacePage() {
     }
   }, [workspaces, selectedWorkspaceId]);
 
-  useEffect(() => {
-    if (clerkLoaded && !dbLoading && (!clerkUser || !dbUser)) {
-      router.push('/sign-in');
-    }
-  }, [clerkLoaded, dbLoading, clerkUser, dbUser, router]);
-
-  if (!clerkLoaded || dbLoading || workspacesLoading) {
+  if (workspacesLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
-  }
-
-  if (!clerkUser || !dbUser) {
-    return null;
   }
 
   const selectedWorkspace = workspaces?.find(w => w._id === selectedWorkspaceId);
@@ -143,21 +133,21 @@ export default function WorkspacePage() {
                   </TabsList>
 
                   <TabsContent value="chat" className="flex-1 min-h-0 mt-4">
-                    <WorkspaceChat 
-                      workspaceId={selectedWorkspace._id} 
-                      currentUserId={clerkUser.id}
+                    <WorkspaceChat
+                      workspaceId={selectedWorkspace._id}
+                      currentUserId={clerkUserId}
                     />
                   </TabsContent>
                   <TabsContent value="notes" className="flex-1 min-h-0 mt-4">
-                    <WorkspaceNotes 
-                      workspaceId={selectedWorkspace._id} 
-                      currentUserId={clerkUser.id}
+                    <WorkspaceNotes
+                      workspaceId={selectedWorkspace._id}
+                      currentUserId={clerkUserId}
                     />
                   </TabsContent>
                   <TabsContent value="images" className="flex-1 min-h-0 mt-4">
-                    <WorkspaceImages 
+                    <WorkspaceImages
                       workspaceId={selectedWorkspace._id}
-                      currentUserId={clerkUser.id}
+                      currentUserId={clerkUserId}
                       role="mentee"
                     />
                   </TabsContent>
@@ -176,4 +166,53 @@ export default function WorkspacePage() {
       </div>
     </div>
   );
+}
+
+function AuthenticatedWorkspace() {
+  const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
+  const { data: dbUser, isLoading: dbLoading } = useCurrentUser();
+  const router = useRouter();
+  const hasCheckedAuth = useRef(false);
+
+  useEffect(() => {
+    if (clerkLoaded && !dbLoading && hasCheckedAuth.current === false) {
+      hasCheckedAuth.current = true;
+      if (!clerkUser || !dbUser) {
+        router.push('/sign-in');
+      }
+    }
+  }, [clerkLoaded, dbLoading, clerkUser, dbUser, router]);
+
+  if (!clerkLoaded || dbLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!clerkUser || !dbUser) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <WorkspaceContent clerkUserId={clerkUser.id} dbUserId={dbUser._id} />;
+}
+
+export default function WorkspacePage() {
+  const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const isBuildTime = !clerkKey || clerkKey.includes('placeholder');
+
+  if (isBuildTime) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <AuthenticatedWorkspace />;
 }
