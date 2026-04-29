@@ -44,7 +44,9 @@ export function InstructorCarousel(): React.JSX.Element {
 
   if (instructors.length === 0) {
     return (
-      <div className='w-full h-64 animate-pulse bg-card rounded-xl' aria-label='Loading instructors...' />
+      <div className='w-full h-32 flex items-center justify-center bg-card rounded-xl'>
+        <p className='text-muted-foreground text-sm'>No instructors available</p>
+      </div>
     );
   }
 
@@ -61,7 +63,7 @@ export function InstructorCarousel(): React.JSX.Element {
         className='w-full'
       >
         <CarouselContent className='-ml-2 md:-ml-4'>
-          {instructors.map((instructor) => (
+          {instructors.map((instructor, index) => (
             <CarouselItem
               key={instructor.id}
               className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
@@ -77,6 +79,7 @@ export function InstructorCarousel(): React.JSX.Element {
                     fill
                     className='object-cover transition-transform hover:scale-105'
                     sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
+                    priority={index < 3}
                   />
                 </Link>
                 <div className='pt-4 text-center'>
