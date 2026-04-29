@@ -26,9 +26,9 @@ export default function HomePage(): React.JSX.Element {
                 />
               </div>
             </div>
-            <h1 className="section-title mb-6">Our Instructors</h1>
+            <h1 className="section-title mb-6">Huckleberry Art Mentorships</h1>
             <p className="text-lg text-muted-foreground mb-10 max-w-2xl mx-auto">
-              Connect with world-class art instructors from gaming, TV, film, and independent studios
+              Learn from established industry and indie artists
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide font-semibold">

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
 import { usePublicInstructorBySlug } from "@/lib/queries/convex/use-instructors";
 import { useProductsByInstructorId } from "@/lib/queries/convex/use-products";
+import { getInstructorBySlug, type Instructor as MockInstructor, type Testimonial as MockTestimonial } from "@/lib/instructors";
 import { Id } from "@/convex/_generated/dataModel";
 import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
 import { InstructorNavigationWrapper } from "@/components/instructors/instructor-navigation-wrapper";
@@ -127,10 +128,32 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const data = instructorData as InstructorData | null;
   const instructor = data?.instructor;
   const instructorProfile = data?.mentor;
-  const testimonials = data?.testimonials || [];
+  const convexTestimonials = data?.testimonials || [];
   const menteeResults = data?.menteeResults || [];
 
-  const instructorId = instructor?.mentorId as Id<"instructors"> | undefined;
+  const mockInstructor = getInstructorBySlug(slug);
+  const useMockData = !instructor && mockInstructor;
+  const displayInstructor = instructor || (mockInstructor ? {
+    _id: 'mock',
+    name: mockInstructor.name,
+    slug: mockInstructor.slug,
+    tagline: mockInstructor.tagline,
+    bio: mockInstructor.bio,
+    specialties: mockInstructor.specialties,
+    background: mockInstructor.background,
+    profileImageUrl: mockInstructor.profileImage,
+    portfolioImages: mockInstructor.workImages,
+    socials: mockInstructor.socialLinks ? Object.entries(mockInstructor.socialLinks).map(([platform, url]) => ({ platform, url })) : [],
+    isActive: true,
+  } : null);
+
+  const displayTestimonials = convexTestimonials.length > 0 ? convexTestimonials : (mockInstructor?.testimonials?.map((t, i) => ({
+    _id: `mock-${i}`,
+    name: t.author,
+    text: t.text,
+  })) || []);
+
+  const instructorId = displayInstructor?.mentorId as Id<"instructors"> | undefined;
   const { data: productsData } = useProductsByInstructorId(instructorId!);
   const products = (productsData as Product[] || []).filter(p => p.active);
 
@@ -168,7 +191,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
     }
   };
 
-  const socialLinks = instructor?.socials || [];
+  const socialLinks = displayInstructor?.socials || [];
 
   if (isLoading) {
     return (
@@ -184,7 +207,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
     );
   }
 
-  if (!instructor) {
+  if (!displayInstructor) {
     notFound();
   }
 
@@ -193,13 +216,13 @@ function InstructorProfileContent({ slug }: { slug: string }) {
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8 md:py-12">
           <div className="mx-auto max-w-6xl">
-            <InstructorNavigationWrapper currentSlug={instructor.slug} />
+            <InstructorNavigationWrapper currentSlug={displayInstructor.slug} />
 
             <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
               <div className="relative aspect-square w-full overflow-hidden rounded-lg">
                 <Image
-                  src={instructor.profileImageUrl || "/placeholder.jpg"}
-                  alt={instructor.name}
+                  src={displayInstructor.profileImageUrl || "/placeholder.jpg"}
+                  alt={displayInstructor.name}
                   fill
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 50vw"
@@ -209,19 +232,19 @@ function InstructorProfileContent({ slug }: { slug: string }) {
 
               <div className="flex flex-col space-y-6">
                 <div>
-                  <h1 className="text-4xl font-bold tracking-tight md:text-5xl">{instructor.name}</h1>
-                  <p className="mt-2 text-xl text-muted-foreground">{instructor.tagline}</p>
+                  <h1 className="text-4xl font-bold tracking-tight md:text-5xl">{displayInstructor.name}</h1>
+                  <p className="mt-2 text-xl text-muted-foreground">{displayInstructor.tagline}</p>
                 </div>
 
                 <div>
                   <h2 className="text-2xl font-semibold mb-3">About</h2>
-                  <p className="text-muted-foreground leading-relaxed">{instructor.bio}</p>
+                  <p className="text-muted-foreground leading-relaxed">{displayInstructor.bio}</p>
                 </div>
 
                 <div>
                   <h2 className="text-2xl font-semibold mb-3">Specialties</h2>
                   <div className="flex flex-wrap gap-2">
-                    {(instructor.specialties || []).map((specialty) => (
+                    {(displayInstructor.specialties || []).map((specialty) => (
                       <Badge key={specialty} variant="secondary" className="text-sm">
                         {specialty}
                       </Badge>
@@ -232,7 +255,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                 <div>
                   <h2 className="text-2xl font-semibold mb-3">Background</h2>
                   <div className="flex flex-wrap gap-2">
-                    {(instructor.background || []).map((bg) => (
+                    {(displayInstructor.background || []).map((bg) => (
                       <Badge key={bg} variant="outline" className="text-sm">
                         {bg}
                       </Badge>
@@ -253,11 +276,11 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                         <div className="mt-4">
                           {oneOnOneInventory === 0 ? (
                             <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/waitlist?instructor=${instructor.slug}&type=one-on-one`}>Sign up for waitlist</Link>
+                              <Link href={`/waitlist?instructor=${displayInstructor.slug}&type=one-on-one`}>Sign up for waitlist</Link>
                             </Button>
                           ) : (
                             <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/checkout?instructor=${instructor.slug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
+                              <Link href={`/checkout?instructor=${displayInstructor.slug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
                             </Button>
                           )}
                         </div>
@@ -274,11 +297,11 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                         <div className="mt-4">
                           {groupInventory === 0 ? (
                             <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/waitlist?instructor=${instructor.slug}&type=group`}>Sign up for waitlist</Link>
+                              <Link href={`/waitlist?instructor=${displayInstructor.slug}&type=group`}>Sign up for waitlist</Link>
                             </Button>
                           ) : (
                             <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/checkout?instructor=${instructor.slug}&type=group`}>Buy my group mentorship</Link>
+                              <Link href={`/checkout?instructor=${displayInstructor.slug}&type=group`}>Buy my group mentorship</Link>
                             </Button>
                           )}
                         </div>
@@ -302,21 +325,21 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             </div>
 
-            {(instructor.portfolioImages || []).length > 0 && (
+            {(displayInstructor.portfolioImages || []).length > 0 && (
               <div className="mt-12">
                 <div className="mb-6 flex items-center gap-3">
                   <h2 className="text-3xl font-bold">Portfolio</h2>
                   <p className="text-sm text-muted-foreground">Click any image to view in full size</p>
                 </div>
-                <PortfolioGallery images={instructor.portfolioImages || []} instructorName={instructor.name} />
+                <PortfolioGallery images={displayInstructor.portfolioImages || []} instructorName={displayInstructor.name} />
               </div>
             )}
 
-            {testimonials.length > 0 && (
+            {displayTestimonials.length > 0 && (
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {testimonials.map((testimonial) => (
+                  {displayTestimonials.map((testimonial) => (
                     <div key={testimonial._id} className="rounded-lg border bg-card p-6 shadow-sm">
                       <Quote className="h-6 w-6 text-muted-foreground mb-4" />
                       <div className="text-base leading-relaxed mb-4 italic">{testimonial.text}</div>
@@ -332,7 +355,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
             {menteeResults.length > 0 && (
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Mentee Success Stories</h2>
-                <PortfolioGallery images={menteeResults.map((r) => r.imageUrl).filter(Boolean) as string[]} instructorName={instructor.name} />
+                <PortfolioGallery images={menteeResults.map((r) => r.imageUrl).filter(Boolean) as string[]} instructorName={displayInstructor.name} />
               </div>
             )}
           </div>
