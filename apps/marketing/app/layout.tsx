@@ -24,7 +24,7 @@ export default function RootLayout({
 }>): React.JSX.Element {
   return (
     <ClerkProvider>
-      <html lang="en" className="bg-background">
+      <html lang="en" className="bg-background dark">
         <body className={`${inter.className} antialiased bg-background text-foreground`}>
           <QueryProvider>
             <Header />

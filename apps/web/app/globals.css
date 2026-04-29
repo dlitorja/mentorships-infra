@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Dark theme inspired by Underpaint Academy */
+    /* Dark theme */
     --background: #0a0a0a;
     --foreground: #ffffff;
     --card: #141414;
