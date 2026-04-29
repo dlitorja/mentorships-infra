@@ -8,8 +8,8 @@
   - Update admin upload flows and instructor dashboards to use Convex mutations
   - Batch migration: import existing images into Convex storage and backfill references
 
-**Last Updated**: April 25, 2026  
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Last Updated**: April 29, 2026
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: IN PROGRESS**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -580,6 +580,29 @@ This monorepo contains multiple applications with distinct responsibilities:
 ---
 
 ## 🚧 In Progress / Next Steps
+
+### Phase 2: Data Parity (Convex Data Migration)
+**Status**: 🚧 **IN PROGRESS** - Migrating instructor data from static sources into Convex tables
+
+**Goal**: Populate empty Convex tables so instructor detail pages work on dev (currently showing "Instructor Not Found")
+
+**Completed Tasks**:
+- [x] Convex schema created with 16 tables (Phase 1-2 of migration)
+- [x] Convex query/mutation functions created (Phase 3 of migration)
+- [x] Homepage works with static mock data
+- [x] Instructor detail pages query Convex (but tables are empty → "Instructor Not Found")
+
+**Remaining Tasks**:
+- [ ] Add real testimonials to `apps/web/lib/instructors.ts` — currently all "Sample" placeholders
+- [ ] Bulk-populate Convex `instructorProfiles` from marketing's static data (10+ instructors)
+- [ ] Bulk-populate Convex `instructorTestimonials` from marketing testimonials
+- [ ] Bulk-populate Convex `menteeResults` (Rakasa, Neil Gray have before/after images)
+
+**Core Blocker**: Instructor detail pages show "Instructor Not Found" because Convex tables are empty
+
+**Reference**: Source data in `apps/web/lib/instructors.ts` (static mock), marketing data in `apps/marketing/data/`
+
+---
 
 ### Priority 1: Notifications & Automation (Discord + Email)
 **Status**: ✅ **COMPLETED** - Email + Discord delivery implemented; Discord automation queue worker implemented
