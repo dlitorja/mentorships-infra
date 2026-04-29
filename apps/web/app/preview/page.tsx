@@ -5,7 +5,6 @@ import { InstructorShowcase } from "@/components/landing-preview/instructor-show
 import { NewsletterSection } from "@/components/landing-preview/newsletter-section";
 import { PreviewFooter } from "@/components/landing-preview/preview-footer";
 import { InstructorCards } from "@/components/landing-preview/instructor-cards";
-import { SaleCountdownHeader } from "@/components/landing-preview/sale-countdown-header";
 
 export const metadata: Metadata = {
   title: "Huckleberry Art Academy | Learn from Industry Pros",
@@ -16,7 +15,6 @@ export const metadata: Metadata = {
 export default function PreviewPage() {
   return (
     <div className="relative bg-background text-foreground min-h-screen">
-      <SaleCountdownHeader />
       <PreviewHero />
       <SaleBanner />
       <InstructorCards />
