@@ -20,28 +20,37 @@ import { shuffleArray } from "@/lib/utils";
 export function InstructorCarousel(): React.JSX.Element | null {
   const [randomizedInstructors, setRandomizedInstructors] = useState<Instructor[]>([]);
   const [api, setApi] = useState<CarouselApi>();
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   useEffect(() => {
-    // Randomize visible instructors on mount to ensure equal exposure
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  useEffect(() => {
     const visibleInstructors = getVisibleInstructors();
     const shuffled = shuffleArray(visibleInstructors);
     setRandomizedInstructors(shuffled);
   }, []);
 
-  // Auto-rotate carousel every 5 seconds
   useEffect(() => {
-    if (!api || randomizedInstructors.length === 0) return;
+    if (!api || randomizedInstructors.length === 0 || prefersReducedMotion) return;
 
     const interval = setInterval(() => {
-      api.scrollNext(); // loop: true handles wrap-around
+      api.scrollNext();
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [api, randomizedInstructors.length]);
+  }, [api, randomizedInstructors.length, prefersReducedMotion]);
 
   if (randomizedInstructors.length === 0) {
     return (
-      <div className="w-full h-64 animate-pulse bg-card rounded-lg" aria-label="Loading instructors..." />
+      <div className="w-full h-64 animate-pulse bg-card rounded-lg" role="status" aria-busy="true" aria-label="Loading instructors...">
+        <span className="sr-only">Loading instructors…</span>
+      </div>
     );
   }
 
@@ -71,7 +80,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
                   fill
                   className="object-cover transition-transform duration-300 group-hover:scale-105"
                   sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                  priority={index < 3}
+                  priority={index === 0}
                 />
                 {instructor.isNew && (
                   <Badge

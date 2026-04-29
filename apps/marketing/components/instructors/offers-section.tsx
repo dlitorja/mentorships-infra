@@ -51,7 +51,7 @@ export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
   if (loading) {
     return (
       <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Purchase</h2>
+        {PURCHASE_HEADING}
         <p className="text-white/70 text-sm">Loading...</p>
       </div>
     );
@@ -59,7 +59,7 @@ export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
 
   return (
     <div>
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">Purchase</h2>
+      {PURCHASE_HEADING}
       <p className="text-white/70 mb-4 text-sm">
         Purchases are handled on Kajabi. You&apos;ll be redirected to an external checkout.
       </p>

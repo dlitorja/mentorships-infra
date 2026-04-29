@@ -33,11 +33,7 @@ function buildMockTestimonials(): TestimonialWithInstructor[] {
       instructorSlug: instructor.slug,
     });
   });
-  for (let i = allTestimonials.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [allTestimonials[i], allTestimonials[j]] = [allTestimonials[j], allTestimonials[i]];
-  }
-  return allTestimonials;
+  return allTestimonials.sort((a, b) => a.instructorSlug.localeCompare(b.instructorSlug));
 }
 
 export function TestimonialsCarousel(): React.JSX.Element {

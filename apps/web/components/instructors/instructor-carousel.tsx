@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -15,13 +15,17 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { Instructor } from '@/lib/instructors';
-import { getRandomizedInstructors } from '@/lib/instructors';
+import { getRandomizedInstructors, getAlphabeticalInstructors } from '@/lib/instructors';
 
 export function InstructorCarousel(): React.JSX.Element {
-  const instructors = useMemo(() => getRandomizedInstructors(), []);
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    setInstructors(getRandomizedInstructors());
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -56,7 +60,12 @@ export function InstructorCarousel(): React.JSX.Element {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       onFocus={() => setPaused(true)}
-      onBlur={() => setPaused(false)}
+      onBlur={(e) => {
+        const next = e.relatedTarget;
+        if (!(next instanceof Node) || !e.currentTarget.contains(next)) {
+          setPaused(false);
+        }
+      }}
     >
       <Carousel
         setApi={setApi}
@@ -80,7 +89,7 @@ export function InstructorCarousel(): React.JSX.Element {
                     fill
                     className='object-cover transition-transform duration-300 group-hover:scale-105'
                     sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
-                    priority={index < 3}
+                    priority={index === 0}
                   />
                   {instructor.isNew && (
                     <Badge

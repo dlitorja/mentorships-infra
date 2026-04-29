@@ -29,6 +29,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback
+      }
       return (
         <div className='w-full h-32 bg-card rounded-xl flex items-center justify-center'>
           <p className='text-muted-foreground text-sm'>Something went wrong.</p>
