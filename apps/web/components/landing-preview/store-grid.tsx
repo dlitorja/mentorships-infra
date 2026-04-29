@@ -54,7 +54,7 @@ export function StoreGrid() {
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
-            Visit the Store for Recordings and Videos
+            1-on-1 mentorships available
           </h2>
         </div>
 
