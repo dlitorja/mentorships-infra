@@ -288,13 +288,131 @@ export const createTestimonial = mutation({
 /** Creates a mentee result with an image URL for an instructor profile. */
 export const createMenteeResult = mutation({
   args: {
-    instructorId: v.id("instructors"),
+    instructorId: v.id('instructors'),
     imageUrl: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("menteeResults", {
+    return await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
+    });
+  },
+});
+
+/** Idempotent upsert for instructor profiles, keyed on slug. */
+export const upsertInstructorProfile = mutation({
+  args: {
+    slug: v.string(),
+    name: v.string(),
+    tagline: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    specialties: v.optional(v.array(v.string())),
+    background: v.optional(v.array(v.string())),
+    profileImageUrl: v.optional(v.string()),
+    portfolioImages: v.optional(v.array(v.string())),
+    socials: v.optional(v.any()),
+    isActive: v.boolean(),
+    isNew: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('instructorProfiles')
+      .withIndex('by_slug', (q) => q.eq('slug', args.slug))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        name: args.name,
+        tagline: args.tagline,
+        bio: args.bio,
+        specialties: args.specialties,
+        background: args.background,
+        profileImageUrl: args.profileImageUrl,
+        portfolioImages: args.portfolioImages,
+        socials: args.socials,
+        isActive: args.isActive,
+        isNew: args.isNew,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert('instructorProfiles', {
+      slug: args.slug,
+      name: args.name,
+      tagline: args.tagline,
+      bio: args.bio,
+      specialties: args.specialties,
+      background: args.background,
+      profileImageUrl: args.profileImageUrl,
+      portfolioImages: args.portfolioImages,
+      socials: args.socials,
+      isActive: args.isActive,
+      isNew: args.isNew,
+    });
+  },
+});
+
+/** Idempotent upsert for instructor testimonials, keyed on instructorId + name + text. */
+export const upsertInstructorTestimonial = mutation({
+  args: {
+    instructorId: v.string(),
+    name: v.string(),
+    text: v.string(),
+    role: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('instructorTestimonials')
+      .withIndex('by_instructorId', (q) => q.eq('instructorId', args.instructorId))
+      .filter((q) => q.and(
+        q.eq(q.field('name'), args.name),
+        q.eq(q.field('text'), args.text)
+      ))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        role: args.role,
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert('instructorTestimonials', {
+      instructorId: args.instructorId,
+      name: args.name,
+      text: args.text,
+      role: args.role,
+    });
+  },
+});
+
+/** Idempotent upsert for mentee results, keyed on instructorId + imageUrl. */
+export const upsertMenteeResult = mutation({
+  args: {
+    instructorId: v.string(),
+    imageUrl: v.string(),
+    studentName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('menteeResults')
+      .withIndex('by_instructorId', (q) => q.eq('instructorId', args.instructorId))
+      .filter((q) => q.eq(q.field('imageUrl'), args.imageUrl))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        studentName: args.studentName,
+        createdAt: Date.now(),
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert('menteeResults', {
+      instructorId: args.instructorId,
+      imageUrl: args.imageUrl,
+      studentName: args.studentName,
+      createdAt: Date.now(),
     });
   },
 });
