@@ -13,6 +13,7 @@ import {
   type CarouselApi,
 } from '@/components/ui/carousel';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import type { Instructor } from '@/lib/instructors';
 import { getRandomizedInstructors } from '@/lib/instructors';
 
@@ -62,32 +63,40 @@ export function InstructorCarousel(): React.JSX.Element {
         opts={{ align: 'start', loop: true }}
         className='w-full'
       >
-        <CarouselContent className='-ml-2 md:-ml-4'>
+        <CarouselContent className='-ml-4'>
           {instructors.map((instructor, index) => (
             <CarouselItem
               key={instructor.id}
-              className='pl-2 md:basis-1/2 lg:basis-1/3 md:pl-4'
+              className='pl-4 md:basis-1/2 lg:basis-1/3'
             >
-              <div className='flex flex-col h-full'>
+              <div className='group'>
                 <Link
                   href={`/instructors/${instructor.slug}`}
-                  className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0 rounded-lg'
+                  className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer block rounded-lg'
                 >
                   <Image
                     src={instructor.profileImage}
                     alt={`${instructor.name} profile picture`}
                     fill
-                    className='object-cover transition-transform hover:scale-105'
+                    className='object-cover transition-transform duration-300 group-hover:scale-105'
                     sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
                     priority={index < 3}
                   />
+                  {instructor.isNew && (
+                    <Badge
+                      className='absolute top-4 left-4 bg-primary text-primary-foreground px-3 py-1 rounded text-xs font-semibold uppercase tracking-wide'
+                      aria-label='New instructor'
+                    >
+                      NEW
+                    </Badge>
+                  )}
                 </Link>
-                <div className='pt-4 text-center'>
-                  <h3 className='text-lg font-bold uppercase tracking-wide'>{instructor.name}</h3>
-                  <p className='mt-1 text-sm text-muted-foreground uppercase tracking-wide'>{instructor.tagline}</p>
+                <div className='mt-4'>
+                  <h3 className='text-xl font-bold uppercase tracking-wider text-white'>{instructor.name}</h3>
+                  <p className='mt-1 text-xs uppercase tracking-wide text-muted-foreground'>{instructor.tagline}</p>
                   <div className='mt-4'>
-                    <Button asChild variant='outline' size='sm' className='border-white/30 text-white hover:bg-white/10 uppercase tracking-wide text-xs'>
-                      <Link href={`/instructors/${instructor.slug}`}>View Bio</Link>
+                    <Button asChild variant='outline' size='sm' className='border-white/30 text-white hover:bg-white/10 uppercase tracking-wide text-xs font-semibold'>
+                      <Link href={`/instructors/${instructor.slug}`} aria-label={`View bio for ${instructor.name}`}>View Bio</Link>
                     </Button>
                   </div>
                 </div>
@@ -95,8 +104,8 @@ export function InstructorCarousel(): React.JSX.Element {
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' aria-label='Previous instructor' />
-        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' aria-label='Next instructor' />
+        <CarouselPrevious className='hidden md:flex -left-4 bg-card border-border text-white hover:bg-card/80' aria-label='Previous instructor' />
+        <CarouselNext className='hidden md:flex -right-4 bg-card border-border text-white hover:bg-card/80' aria-label='Next instructor' />
       </Carousel>
     </div>
   );
