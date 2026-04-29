@@ -104,7 +104,7 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
 
   if (!timeLeft) {
     return (
-      <span className='text-sm font-semibold text-[#7c3aed]'>
+      <span className='text-sm font-semibold text-primary'>
         Enroll Now
       </span>
     );
@@ -118,7 +118,7 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
         { value: timeLeft.minutes, label: 'Min' },
         { value: timeLeft.seconds, label: 'Sec' },
       ].map((unit) => (
-        <div key={unit.label} className='rounded bg-[#1a1a2e] px-2 py-2'>
+        <div key={unit.label} className='rounded bg-card px-2 py-2'>
           <div className='text-lg sm:text-xl font-bold text-white tabular-nums'>
             {String(unit.value).padStart(2, '0')}
           </div>
@@ -138,14 +138,14 @@ export function SaleBanner() {
   }));
 
   return (
-    <section className='bg-white py-20 px-6'>
+    <section className='bg-background py-20 px-6'>
       <div className='mx-auto max-w-6xl'>
         <div className='mb-6 text-center'>
-          <h2 className='text-3xl sm:text-4xl font-bold text-[#1a1a2e]'>
+          <h2 className='text-3xl sm:text-4xl font-bold text-foreground'>
             Courses on Sale
           </h2>
         </div>
-        <div className='mb-10 text-center text-sm uppercase tracking-widest text-[#1a1a2e]/80'>
+        <div className='mb-10 text-center text-sm uppercase tracking-widest text-muted-foreground'>
           Sale ends {SALE_END_LABEL}
         </div>
 
@@ -156,9 +156,9 @@ export function SaleBanner() {
               href={item.link}
               target='_blank'
               rel='noopener noreferrer'
-              className='group block overflow-hidden bg-white border border-gray-200 hover:border-[#7c3aed]/50 transition-colors'
+              className='group block overflow-hidden bg-card border border-border hover:border-primary/50 transition-colors'
             >
-              <div className='relative aspect-square w-full overflow-hidden bg-white'>
+              <div className='relative aspect-square w-full overflow-hidden bg-muted'>
                 <Image
                   src={item.image}
                   alt={item.title !== 'COURSE_NAME_HERE' ? item.title : 'Course offering'}
@@ -167,18 +167,18 @@ export function SaleBanner() {
                   sizes='(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw'
                 />
                 <div className='absolute top-3 left-3'>
-                  <span className='inline-block bg-[#dc2626] px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow'>
+                  <span className='inline-block bg-red-600 px-3 py-1 text-xs sm:text-sm font-semibold text-white shadow'>
                     {item.badge}
                   </span>
                 </div>
               </div>
 
               <div className='p-4 space-y-3'>
-                <h3 className='text-base font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors line-clamp-2'>
+                <h3 className='text-base font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-2'>
                   {item.title}
                 </h3>
                 {item.description && (
-                  <p className='text-sm text-gray-500 line-clamp-2'>
+                  <p className='text-sm text-muted-foreground line-clamp-2'>
                     {item.description}
                   </p>
                 )}
@@ -192,7 +192,7 @@ export function SaleBanner() {
             href='https://home.huckleberry.art/store'
             target='_blank'
             rel='noopener noreferrer'
-            className='inline-block text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider'
+            className='inline-block text-primary hover:text-primary/80 font-semibold text-sm uppercase tracking-wider'
           >
             See All Courses →
           </a>

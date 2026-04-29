@@ -15,23 +15,10 @@ export const metadata: Metadata = {
 
 export default function PreviewPage() {
   return (
-    // Add a subtle paper-like textured background behind the whole page
-    <div
-      className="relative text-[#1a1a2e]"
-      style={{
-        // Paper-like texture, now much lighter so the page reads as white
-        backgroundColor: "#ffffff",
-        backgroundImage:
-          "radial-gradient(rgba(0,0,0,0.015) 1px, transparent 1px), radial-gradient(rgba(0,0,0,0.008) 1px, transparent 1px)",
-        backgroundSize: "24px 24px, 48px 48px",
-        backgroundPosition: "0 0, 12px 12px",
-        backgroundAttachment: "fixed",
-      }}
-    >
+    <div className="relative bg-background text-foreground min-h-screen">
       <SaleCountdownHeader />
       <PreviewHero />
       <SaleBanner />
-      {/* 1-on-1 mentorships section: use live instructors as cards */}
       <InstructorCards />
       <InstructorShowcase />
       <NewsletterSection />

@@ -70,19 +70,19 @@ export function InstructorCards() {
   if (isError) {
     console.error("Failed to load public instructors", error);
     return (
-      <section id="instructors" className="bg-gray-50 py-20 px-6">
+      <section id="instructors" className="bg-background py-20 px-6">
         <div className="mx-auto max-w-6xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
               Mentorships Open Now
             </h2>
-            <p className="mt-4 text-gray-500">
+            <p className="mt-4 text-muted-foreground">
               1-on-1 personalized guidance from industry professionals
             </p>
             <div className="mt-8">
               <Link
                 href="/instructors"
-                className="text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
+                className="text-primary hover:text-primary/80 font-semibold text-sm uppercase tracking-wider"
               >
                 See All Instructors &rarr;
               </Link>
@@ -95,13 +95,13 @@ export function InstructorCards() {
 
   if (isLoading) {
     return (
-      <section id="instructors" className="bg-gray-50 py-20 px-6">
+      <section id="instructors" className="bg-background py-20 px-6">
         <div className="mx-auto max-w-6xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
               Mentorships Open Now
             </h2>
-            <p className="mt-4 text-gray-500">Loading instructors...</p>
+            <p className="mt-4 text-muted-foreground">Loading instructors...</p>
           </div>
         </div>
       </section>
@@ -110,19 +110,19 @@ export function InstructorCards() {
 
   if (instructors.length === 0) {
     return (
-      <section id="instructors" className="bg-gray-50 py-20 px-6">
+      <section id="instructors" className="bg-background py-20 px-6">
         <div className="mx-auto max-w-6xl">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
               Mentorships Open Now
             </h2>
-            <p className="mt-4 text-gray-500">
+            <p className="mt-4 text-muted-foreground">
               1-on-1 personalized guidance from industry professionals
             </p>
             <div className="mt-8">
               <Link
                 href="/instructors"
-                className="text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
+                className="text-primary hover:text-primary/80 font-semibold text-sm uppercase tracking-wider"
               >
                 See All Instructors &rarr;
               </Link>
@@ -134,13 +134,13 @@ export function InstructorCards() {
   }
 
   return (
-    <section id="instructors" className="bg-gray-50 py-20 px-6">
+    <section id="instructors" className="bg-background py-20 px-6">
       <div className="mx-auto max-w-6xl">
         <div className="mb-12 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-[#1a1a2e]">
+          <h2 className="text-3xl sm:text-4xl font-bold text-foreground">
             Mentorships Open Now
           </h2>
-          <p className="mt-4 text-gray-500">
+          <p className="mt-4 text-muted-foreground">
             1-on-1 personalized guidance from industry professionals
           </p>
         </div>
@@ -160,8 +160,8 @@ export function InstructorCards() {
                   href={`/instructors/${instructor.slug}`}
                   className="group block"
                 >
-                  <div className="overflow-hidden bg-white border border-gray-200 hover:border-[#7c3aed]/50 transition-colors">
-                    <div className="relative aspect-square w-full overflow-hidden bg-gray-100">
+                  <div className="overflow-hidden bg-card border border-border hover:border-primary/50 transition-colors">
+                    <div className="relative aspect-square w-full overflow-hidden bg-muted">
                       <Image
                         src={instructor.profileImageUrl || "/placeholder.jpg"}
                         alt={instructor.name ?? "Instructor"}
@@ -171,11 +171,11 @@ export function InstructorCards() {
                       />
                     </div>
                     <div className="p-3">
-                      <h3 className="text-sm font-semibold text-[#1a1a2e] group-hover:text-[#7c3aed] transition-colors">
+                      <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
                         {instructor.name}
                       </h3>
                       {instructor.tagline && (
-                        <p className="mt-1 text-xs text-gray-500 line-clamp-1">
+                        <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
                           {instructor.tagline}
                         </p>
                       )}
@@ -189,14 +189,14 @@ export function InstructorCards() {
           <CarouselNext className="hidden md:flex" />
         </Carousel>
 
-        <div className="mt-4 text-center text-sm text-gray-400">
+        <div className="mt-4 text-center text-sm text-muted-foreground">
           {current} of {count}
         </div>
 
         <div className="mt-8 text-center">
           <Link
             href="/instructors"
-            className="text-[#7c3aed] hover:text-[#6d28d9] font-semibold text-sm uppercase tracking-wider"
+            className="text-primary hover:text-primary/80 font-semibold text-sm uppercase tracking-wider"
           >
             See All Instructors &rarr;
           </Link>

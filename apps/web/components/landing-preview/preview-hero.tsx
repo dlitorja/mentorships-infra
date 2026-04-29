@@ -87,7 +87,7 @@ function CountdownTimer({ endsAt }: { endsAt: string | null }) {
         { value: timeLeft.minutes, label: "Min" },
         { value: timeLeft.seconds, label: "Sec" },
       ].map((unit) => (
-        <div key={unit.label} className="rounded bg-[#1a1a2e] px-3 py-3 shadow">
+        <div key={unit.label} className="rounded bg-card px-3 py-3 shadow">
           <div className="text-xl sm:text-2xl font-bold text-white tabular-nums">
             {String(unit.value).padStart(2, "0")}
           </div>
