@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -17,13 +17,18 @@ import type { Instructor } from '@/lib/instructors';
 import { getRandomizedInstructors } from '@/lib/instructors';
 
 export function InstructorCarousel(): React.JSX.Element {
-  const instructors = getRandomizedInstructors();
+  const instructors = useMemo(() => getRandomizedInstructors(), []);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  const prefersReducedMotion = typeof window !== 'undefined'
-    ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    : false;
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setPrefersReducedMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   const startInterval = useCallback(() => {
     if (!api || instructors.length === 0 || prefersReducedMotion || paused) return;
@@ -87,8 +92,8 @@ export function InstructorCarousel(): React.JSX.Element {
             </CarouselItem>
           ))}
         </CarouselContent>
-        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
-        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' />
+        <CarouselPrevious className='hidden md:flex bg-card border-border text-white hover:bg-white/10' aria-label='Previous instructor' />
+        <CarouselNext className='hidden md:flex bg-card border-border text-white hover:bg-white/10' aria-label='Next instructor' />
       </Carousel>
     </div>
   );
