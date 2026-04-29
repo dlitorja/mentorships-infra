@@ -8,6 +8,7 @@ import { Footer } from '@/components/navigation/footer';
 
 export default function HomePage(): React.JSX.Element {
   return (
+    <>
     <main className='min-h-screen textured-gradient text-foreground relative'>
       <div className='relative z-10'>
         {/* Featured instructors */}
@@ -89,7 +90,7 @@ export default function HomePage(): React.JSX.Element {
                   What students say
                 </h2>
                 <p className='mt-4 text-lg text-white/90'>
-                  Real feedback from students who have worked with our instructors
+                  Hear from students about their mentorship experience
                 </p>
               </div>
             </div>
@@ -115,5 +116,7 @@ export default function HomePage(): React.JSX.Element {
         </section>
       </div>
     </main>
+    <Footer />
+    </>
   );
 }
