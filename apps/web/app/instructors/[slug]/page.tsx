@@ -63,7 +63,6 @@ type Instructor = {
   socials?: SocialPlatform[];
   isActive: boolean;
   mentorId?: string;
-  offersFreeMentorship?: boolean;
 };
 
 type InstructorData = {
@@ -290,20 +289,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                   </div>
                 </div>
 
-                {instructor.offersFreeMentorship && (
-                  <div className="mt-2 pt-4 border-t">
-                    <h2 className="text-2xl font-semibold mb-3">Free Mentorship</h2>
-                    <p className="text-muted-foreground mb-4">Sign up for a free mentorship session. Sessions may be recorded and uploaded to YouTube.</p>
-                    <Button asChild className="flex items-center gap-2 px-6 py-3 text-base font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-all">
-                      <Link href={`/free-mentorship?instructor=${instructor.slug}`}>
-                        <Gift className="h-5 w-5" />
-                        Sign Up for Free Session
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-
-                {socialLinks.length > 0 && (
+{socialLinks.length > 0 && (
                   <div>
                     <h2 className="text-2xl font-semibold mb-3">Socials</h2>
                     <div className="flex flex-wrap gap-2">
