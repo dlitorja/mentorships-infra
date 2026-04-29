@@ -19,7 +19,7 @@ interface OffersSectionProps {
 }
 
 const PURCHASE_HEADING = (
-  {PURCHASE_HEADING}
+  <h2 className='text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3'>Purchase</h2>
 );
 
 export function OffersSection({ offers, instructorSlug }: OffersSectionProps) {
