@@ -157,28 +157,17 @@ export function Header({ hasClerk = true }: HeaderProps): ReactElement {
           </div>
         </Link>
 
-{/* Desktop Navigation */}
-        <nav className=&quot;hidden md:flex items-center gap-8&quot;>
+        {/* Desktop Navigation */}
+        <nav className="hidden md:flex items-center gap-8">
           {navLinks.map((link) => (
-            link.external ? (
-              <a
-                key={link.href}
-                href={link.href}
-                target=&quot;_blank&quot;
-                rel=&quot;noopener noreferrer&quot;
-                className=&quot;text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-white&quot;
-              >
-                {link.label}
-              </a>
-            ) : (
-              <Link
-                key={link.href}
-                href={link.href}
-                className=&quot;text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-white&quot;
-              >
-                {link.label}
-              </Link>
-            )
+            <Link
+              key={link.href}
+              href={link.href}
+              className="text-sm font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-white"
+              {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+            >
+              {link.label}
+            </Link>
           ))}
 
           {hasClerk ? (
