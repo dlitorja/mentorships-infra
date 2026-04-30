@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
-import { UnauthorizedError, ForbiddenError } from "@mentorships/db";
+import { UnauthorizedError, ForbiddenError } from "./errors";
 
 /**
  * Redirect to sign-in if user is not authenticated

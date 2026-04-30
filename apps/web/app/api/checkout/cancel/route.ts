@@ -1,45 +1,58 @@
-import { NextRequest } from "next/server";
-import { redirect } from "next/navigation";
-import { updateOrderStatus } from "@mentorships/db";
+import { NextRequest, NextResponse } from "next/server";
+import { api } from "@/convex/_generated/api";
+import { requireAuth } from "@/lib/auth";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+
+function getBaseUrl(request: NextRequest) {
+  return (
+    process.env.NEXT_PUBLIC_URL ||
+    (request.headers.get("origin") || "http://localhost:3000")
+  );
+}
 
 /**
  * GET /api/checkout/cancel
  * Handle canceled checkout redirect from Stripe
- * 
+ *
  * Query params:
  * - order_id: Order ID to cancel
- * 
+ *
  * Redirects to cancel page
  */
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const orderId = searchParams.get("order_id");
+  const baseUrl = getBaseUrl(request);
+
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const orderId = searchParams.get("order_id");
+    // Require authentication to prevent unauthorized order cancellation
+    await requireAuth();
 
     if (orderId) {
-      // Update order status to canceled
+      // Update order status to canceled via Convex
       try {
-        await updateOrderStatus(orderId, "canceled");
+        const convex = getConvexClient();
+        await convex.mutation(api.orders.cancelOrder, {
+          id: orderId as Id<"orders">,
+        });
       } catch (error) {
         // Log error but don't fail - order might already be processed
-        console.error("Error updating order status:", error);
+        console.error("Error canceling order:", error);
       }
     }
 
-    // Redirect to cancel page
-    const baseUrl =
-      process.env.NEXT_PUBLIC_URL ||
-      (request.headers.get("origin") || "http://localhost:3000");
-
-    redirect(`${baseUrl}/checkout/cancel${orderId ? `?order_id=${orderId}` : ""}`);
+    // Use NextResponse.redirect to avoid redirect being caught by try/catch
+    return NextResponse.redirect(
+      new URL(
+        `/checkout/cancel${orderId ? `?order_id=${encodeURIComponent(orderId)}` : ""}`,
+        baseUrl
+      )
+    );
   } catch (error) {
     console.error("Checkout cancel handler error:", error);
 
-    const baseUrl =
-      process.env.NEXT_PUBLIC_URL ||
-      (request.headers.get("origin") || "http://localhost:3000");
-
-    redirect(`${baseUrl}/checkout/cancel`);
+    return NextResponse.redirect(new URL("/checkout/cancel", baseUrl));
   }
 }
 

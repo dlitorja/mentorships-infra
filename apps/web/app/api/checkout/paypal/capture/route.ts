@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth, getOrderById, getProductById } from "@mentorships/db";
+import { requireAuth } from "@/lib/auth";
 import { capturePayPalOrder, getPayPalOrder } from "@mentorships/payments";
 import { inngest } from "@/inngest/client";
 

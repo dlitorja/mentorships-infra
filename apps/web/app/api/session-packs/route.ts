@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { requireDbUser, requireAuth, isUnauthorizedError } from "@/lib/auth";
-import {
-  createSessionPack,
-  getUserActiveSessionPacks,
-} from "@mentorships/db";
+import { requireAuth, isUnauthorizedError } from "@/lib/auth";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 
 /**
  * POST /api/session-packs
@@ -52,18 +51,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create session pack
-    const pack = await createSessionPack(
+    // Create session pack via Convex
+    const convex = getConvexClient();
+    const packId = await convex.mutation(api.sessionPacks.createSessionPack, {
       userId,
-      mentorId,
-      paymentId,
-      expiresDate,
-      totalSessions ?? 4
-    );
+      mentorId: mentorId as Id<"instructors">,
+      paymentId: paymentId as Id<"payments">,
+      totalSessions: totalSessions ?? 4,
+      expiresAt: expiresDate.getTime(),
+    });
 
     return NextResponse.json({
       success: true,
-      pack,
+      pack: { id: packId },
     }, { status: 201 });
   } catch (error) {
     console.error("Error creating session pack:", error);
@@ -88,9 +88,12 @@ export async function POST(request: Request) {
  */
 export async function GET() {
   try {
-    const user = await requireDbUser();
+    const userId = await requireAuth();
+    const convex = getConvexClient();
 
-    const packs = await getUserActiveSessionPacks(user.id);
+    const packs = await convex.query(api.sessionPacks.getUserActiveSessionPacks, {
+      userId,
+    });
 
     return NextResponse.json({
       success: true,

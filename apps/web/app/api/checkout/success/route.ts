@@ -1,29 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { redirect } from "next/navigation";
 import { getCheckoutSession, parseCheckoutSessionMetadata } from "@mentorships/payments";
-import { getOrderById } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 
 /**
  * GET /api/checkout/success
  * Handle successful checkout redirect from Stripe
- * 
+ *
  * Query params:
  * - session_id: Stripe checkout session ID
- * 
+ *
  * Redirects to success page with order details
  */
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const sessionId = searchParams.get("session_id");
+
+  if (!sessionId) {
+    return NextResponse.json(
+      { error: "session_id is required" },
+      { status: 400 }
+    );
+  }
+
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const sessionId = searchParams.get("session_id");
-
-    if (!sessionId) {
-      return NextResponse.json(
-        { error: "session_id is required" },
-        { status: 400 }
-      );
-    }
-
     // Retrieve checkout session from Stripe
     const session = await getCheckoutSession(sessionId);
 
@@ -36,8 +37,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get order from database
-    const order = await getOrderById(metadata.orderId);
+    // Verify order exists in Convex before redirecting
+    const convex = getConvexClient();
+    const order = await convex.query(api.orders.getOrderByIdPublic, {
+      id: metadata.orderId as Id<"orders">,
+    });
+
     if (!order) {
       return NextResponse.json(
         { error: "Order not found" },
@@ -45,12 +50,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Redirect to success page with order ID
+    // Build redirect URL
     const baseUrl =
       process.env.NEXT_PUBLIC_URL ||
       (request.headers.get("origin") || "http://localhost:3000");
 
-    redirect(`${baseUrl}/checkout/success?order_id=${order.id}`);
+    // Use NextResponse.redirect to avoid redirect being caught by try/catch
+    return NextResponse.redirect(
+      new URL(`/checkout/success?order_id=${encodeURIComponent(metadata.orderId)}`, baseUrl)
+    );
   } catch (error) {
     console.error("Checkout success handler error:", error);
 
