@@ -1,5 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, mentorshipProducts, eq } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 /**
  * Get product by Stripe Price ID
@@ -16,11 +25,10 @@ export async function GET(req: NextRequest) {
       );
     }
     
-    const [product] = await db
-      .select()
-      .from(mentorshipProducts)
-      .where(eq(mentorshipProducts.stripePriceId, stripePriceId))
-      .limit(1);
+    const convex = getConvexClient();
+    const product = await convex.query(api.products.getProductByStripePriceId, {
+      stripePriceId,
+    });
     
     if (!product) {
       return NextResponse.json(
@@ -30,7 +38,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      id: product.id,
+      id: product._id,
       title: product.title,
       price: product.price,
       sessionsPerPack: product.sessionsPerPack,

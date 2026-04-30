@@ -1,5 +1,6 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { getOrCreateUser, UnauthorizedError } from "@mentorships/db";
+import { getOrCreateUser } from "@mentorships/db";
+import { UnauthorizedError } from "./errors";
 
 /**
  * Get the current authenticated user's Clerk ID
@@ -51,8 +52,7 @@ export async function requireDbUser() {
 }
 
 /**
- * Re-export the UnauthorizedError and isUnauthorizedError from the db package
- * for convenience in API routes
+ * Re-export error classes and type guards for convenience in API routes
  */
-export { UnauthorizedError, isUnauthorizedError } from "@mentorships/db";
+export { UnauthorizedError, isUnauthorizedError } from "./errors";
 

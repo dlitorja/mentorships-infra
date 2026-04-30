@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 import { getCheckoutSession, parseCheckoutSessionMetadata } from "@mentorships/payments";
-import { getOrderById } from "@mentorships/db";
 
 /**
  * GET /api/checkout/success
@@ -36,21 +35,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get order from database
-    const order = await getOrderById(metadata.orderId);
-    if (!order) {
-      return NextResponse.json(
-        { error: "Order not found" },
-        { status: 404 }
-      );
-    }
-
-    // Redirect to success page with order ID
+    // Redirect to success page with order ID from Stripe metadata
+    // The order was already created during checkout, so we trust the metadata
     const baseUrl =
       process.env.NEXT_PUBLIC_URL ||
       (request.headers.get("origin") || "http://localhost:3000");
 
-    redirect(`${baseUrl}/checkout/success?order_id=${order.id}`);
+    redirect(`${baseUrl}/checkout/success?order_id=${metadata.orderId}`);
   } catch (error) {
     console.error("Checkout success handler error:", error);
 

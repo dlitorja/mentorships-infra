@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
-import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
-import { getUserActiveSessionPacks } from "@mentorships/db";
+import { requireAuth, isUnauthorizedError } from "@/lib/auth";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 /**
  * GET /api/session-packs/me
@@ -14,9 +23,12 @@ import { getUserActiveSessionPacks } from "@mentorships/db";
  */
 export async function GET() {
   try {
-    const user = await requireDbUser();
+    const userId = await requireAuth();
+    const convex = getConvexClient();
 
-    const packs = await getUserActiveSessionPacks(user.id);
+    const packs = await convex.query(api.sessionPacks.getUserActiveSessionPacks, {
+      userId,
+    });
 
     return NextResponse.json({
       success: true,

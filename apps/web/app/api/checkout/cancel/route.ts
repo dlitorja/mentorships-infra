@@ -1,6 +1,16 @@
 import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
-import { updateOrderStatus } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { Id } from "@/convex/_generated/dataModel";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 /**
  * GET /api/checkout/cancel
@@ -17,12 +27,15 @@ export async function GET(request: NextRequest) {
     const orderId = searchParams.get("order_id");
 
     if (orderId) {
-      // Update order status to canceled
+      // Update order status to canceled via Convex
       try {
-        await updateOrderStatus(orderId, "canceled");
+        const convex = getConvexClient();
+        await convex.mutation(api.orders.cancelOrder, {
+          id: orderId as Id<"orders">,
+        });
       } catch (error) {
         // Log error but don't fail - order might already be processed
-        console.error("Error updating order status:", error);
+        console.error("Error canceling order:", error);
       }
     }
 
