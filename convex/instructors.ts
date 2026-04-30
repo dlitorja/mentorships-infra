@@ -3,7 +3,7 @@ import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 
-export const getStorageUrl = mutation({
+export const getStorageUrl = query({
   args: { storageId: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -13,7 +13,7 @@ export const getStorageUrl = mutation({
   },
 });
 
-export const getMigrationStatus = mutation({
+export const getMigrationStatus = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -70,7 +70,7 @@ export const getMigrationStatus = mutation({
   },
 });
 
-export const getInstructorByUserIdExternal = mutation({
+export const getInstructorByUserIdExternal = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -432,6 +432,13 @@ export const createMenteeResultWithStorage = mutation({
     createdBy: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     return await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
@@ -744,6 +751,13 @@ export const updateInstructorProfileStorageId = mutation({
     url: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     await ctx.db.patch(args.instructorId, {
       profileImageStorageId: args.storageId,
       profileImageUrl: args.url,
@@ -759,6 +773,13 @@ export const updateInstructorPortfolioStorageIds = mutation({
     urls: v.array(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     await ctx.db.patch(args.instructorId, {
       portfolioImageStorageIds: args.storageIds,
       portfolioImages: args.urls,
@@ -774,6 +795,13 @@ export const updateMenteeResultStorageId = mutation({
     url: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     await ctx.db.patch(args.menteeResultId, {
       imageStorageId: args.storageId,
       imageUrl: args.url,
@@ -789,6 +817,13 @@ export const updateInstructorProfileStorageIdForProfile = mutation({
     url: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     const profile = await ctx.db
       .query("instructorProfiles")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
@@ -813,6 +848,13 @@ export const updateInstructorPortfolioStorageIdsForProfile = mutation({
     urls: v.array(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     const profile = await ctx.db
       .query("instructorProfiles")
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))

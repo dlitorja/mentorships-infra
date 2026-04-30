@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     const convex = getConvexClient();
 
-    const instructor = await convex.mutation(api.instructors.getInstructorByUserIdExternal, {
+    const instructor = await convex.query(api.instructors.getInstructorByUserIdExternal, {
       userId: user.id,
     });
 
