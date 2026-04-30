@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     const convex = getConvexClient();
 
-    const instructor = await convex.mutation(api.instructors.getInstructorByUserIdExternal, {
+    const instructor = await convex.query(api.instructors.getInstructorByUserIdExternal, {
       userId: user.id,
     });
 
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
 
     const { storageId } = await response.json() as { storageId: string };
 
-    const url = await convex.mutation(api.instructors.getStorageUrl, { storageId });
+    const url = await convex.query(api.instructors.getStorageUrl, { storageId });
 
     const menteeResultId = await convex.mutation(api.instructors.createMenteeResultWithStorage, {
       instructorId: instructor._id,
