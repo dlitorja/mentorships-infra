@@ -111,6 +111,43 @@ export const failPayment = mutation({
   },
 });
 
+/** Processes a full refund for a payment and updates the order status. */
+export const adminProcessRefund = mutation({
+  args: {
+    paymentId: v.id("payments"),
+    refundAmount: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const payment = await ctx.db.get(args.paymentId);
+    if (!payment) throw new Error("Payment not found");
+
+    if (payment.status === "refunded") {
+      throw new Error("Payment has already been refunded");
+    }
+
+    const originalAmount = parseFloat(payment.amount);
+    const newRefundedAmount = (
+      parseFloat(payment.refundedAmount || "0") + parseFloat(args.refundAmount)
+    ).toFixed(2);
+
+    const isFullyRefunded = parseFloat(newRefundedAmount) >= originalAmount;
+
+    await ctx.db.patch(args.paymentId, {
+      status: isFullyRefunded ? "refunded" : "completed",
+      refundedAmount: newRefundedAmount,
+    });
+
+    await ctx.db.patch(payment.orderId, {
+      status: isFullyRefunded ? "refunded" : "paid",
+    });
+
+    return await ctx.db.get(args.paymentId);
+  },
+});
+
 /** Soft-deletes a payment by setting its deletedAt timestamp. */
 export const deletePayment = mutation({
   args: { id: v.id("payments") },

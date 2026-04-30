@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  db,
-  payments,
-  orders,
-  users,
-  eq,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 import { stripe } from "@/lib/stripe";
 import { createPayPalRefund } from "@mentorships/payments";
 import { buildRefundEmail } from "@/lib/emails/refund-email";
 import { sendEmail } from "@/lib/email";
-import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const refundReasons = [
   "Duplicate",
@@ -23,9 +18,9 @@ const refundReasons = [
 ] as const;
 
 const createRefundSchema = z.object({
-  paymentId: z.string().uuid("Invalid payment ID format"),
+  paymentId: z.string(),
   refundType: z.enum(["full", "partial"]),
-  amount: z.string().optional(), // Required if partial
+  amount: z.string().optional(),
   reason: z.enum(refundReasons),
   customReason: z.string().max(500).optional(),
 });
@@ -61,12 +56,11 @@ export async function POST(req: NextRequest) {
       customReason,
     } = validationResult.data as RefundInput;
 
-    // Get payment details
-    const [payment] = await db
-      .select()
-      .from(payments)
-      .where(eq(payments.id, paymentId))
-      .limit(1);
+    const convex = getConvexClient();
+
+    const payment = await convex.query(api.payments.getPaymentById, {
+      id: paymentId as Id<"payments">,
+    });
 
     if (!payment) {
       return NextResponse.json(
@@ -75,7 +69,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if already refunded
     if (payment.status === "refunded") {
       return NextResponse.json(
         { error: "Payment has already been refunded" },
@@ -83,7 +76,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if payment failed
     if (payment.status === "failed") {
       return NextResponse.json(
         { error: "Cannot refund a failed payment" },
@@ -91,7 +83,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Calculate refund amount
     const originalAmount = parseFloat(payment.amount);
     let refundAmount: number;
 
@@ -104,7 +95,6 @@ export async function POST(req: NextRequest) {
       }
       refundAmount = parseFloat(amount);
 
-      // Get previously refunded amount
       const previouslyRefunded = payment.refundedAmount
         ? parseFloat(payment.refundedAmount)
         : 0;
@@ -120,7 +110,6 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      // Full refund - use remaining amount
       const previouslyRefunded = payment.refundedAmount
         ? parseFloat(payment.refundedAmount)
         : 0;
@@ -137,15 +126,13 @@ export async function POST(req: NextRequest) {
     const refundAmountStr = refundAmount.toFixed(2);
     const currency = payment.currency || "usd";
 
-    // Process refund based on provider
     let providerRefundId: string | null = null;
 
     if (payment.provider === "stripe") {
       try {
-        // Stripe refund - payment.providerPaymentId is the charge/payment intent
         const refund = await stripe.refunds.create({
           payment_intent: payment.providerPaymentId,
-          amount: Math.round(refundAmount * 100), // Convert to cents
+          amount: Math.round(refundAmount * 100),
           reason: reason === "Fraudulent"
             ? "fraudulent"
             : reason === "Duplicate"
@@ -161,9 +148,7 @@ export async function POST(req: NextRequest) {
         );
       }
     } else {
-      // PayPal refund
       try {
-        // providerPaymentId should be the capture ID for PayPal
         const refund = await createPayPalRefund(
           payment.providerPaymentId,
           refundAmountStr,
@@ -179,57 +164,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Update payment status
-    const newRefundedAmount = (
-      (parseFloat(payment.refundedAmount || "0") + refundAmount)
-    ).toFixed(2);
+    await convex.mutation(api.payments.adminProcessRefund, {
+      paymentId: paymentId as Id<"payments">,
+      refundAmount: refundAmountStr,
+    });
 
-const refundsFull =
-      parseFloat(newRefundedAmount) >= originalAmount;
-
-    const paymentStatus: "refunded" | "completed" = refundsFull ? "refunded" : "completed";
-    const orderStatus: "refunded" | "paid" = refundsFull ? "refunded" : "paid";
-
-    await db
-      .update(payments)
-      .set({
-        status: paymentStatus,
-        refundedAmount: newRefundedAmount,
-        updatedAt: new Date(),
-      })
-      .where(eq(payments.id, paymentId));
-
-    // Update order status
-    await db
-      .update(orders)
-      .set({
-        status: orderStatus,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, payment.orderId));
-
-    // Send refund email to student
     try {
-      // Get user details
-      const [order] = await db
-        .select()
-        .from(orders)
-        .where(eq(orders.id, payment.orderId))
-        .limit(1);
+      const order = await convex.query(api.orders.getOrderById, {
+        id: payment.orderId as Id<"orders">,
+      });
 
       if (order) {
-        const [user] = await db
-          .select()
-          .from(users)
-          .where(eq(users.id, order.userId))
-          .limit(1);
+        const user = await convex.query(api.users.getUserByUserId, {
+          userId: order.userId,
+        });
 
         if (user?.email) {
-          // Default instructor name - in production this should be looked up via session pack
           const instructorName = "Your Instructor";
 
           const refundEmail = buildRefundEmail({
-studentName: user.email,
+            studentName: user.email,
             instructorName,
             refundAmount: refundAmountStr,
             currency,
@@ -252,7 +206,6 @@ studentName: user.email,
         }
       }
     } catch (emailError) {
-      // Don't fail the refund if email fails - just log it
       console.error("Failed to send refund email:", emailError);
     }
 

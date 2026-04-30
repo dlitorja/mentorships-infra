@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, orders, payments, users, eq, desc, sql } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
-import { isUnauthorizedError, isForbiddenError } from "@mentorships/db";
 
 /**
  * GET /api/admin/orders
@@ -10,7 +11,7 @@ import { isUnauthorizedError, isForbiddenError } from "@mentorships/db";
  * Query params:
  * - page: Page number (default: 1)
  * - pageSize: Items per page (default: 20, max: 100)
- * - status: Filter by order status
+ * - status: Filter by order status (not yet supported in Convex)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -19,69 +20,38 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get("page") || "1", 10);
     const pageSize = Math.min(parseInt(searchParams.get("pageSize") || "20", 10), 100);
-    const status = searchParams.get("status") || undefined;
 
     const validatedPageSize = Math.min(Math.max(1, pageSize), 100);
     const validatedPage = Math.max(1, page);
     const offset = (validatedPage - 1) * validatedPageSize;
 
-    // Get total count
-    const countWhere = status ? eq(orders.status, status as any) : undefined;
-    const totalResult = await db
-      .select({
-        count: sql<number>`count(*)`,
-      })
-      .from(orders)
-      .where(countWhere);
-
-    const total = Number(totalResult[0]?.count || 0);
-
-    // Get orders with payment and user info
-    const allOrders: { order: typeof orders.$inferSelect; user: typeof users.$inferSelect | null }[] = await db
-      .select({
-        order: orders,
-        user: users,
-      })
-      .from(orders)
-      .leftJoin(users, eq(orders.userId, users.id))
-      .where(countWhere)
-      .orderBy(desc(orders.createdAt))
-      .limit(validatedPageSize)
-      .offset(offset);
-
-    // Get payment info for each order
-    const ordersWithPayments = await Promise.all(
-      allOrders.map(async ({ order, user }) => {
-        const orderPayments = await db
-          .select()
-          .from(payments)
-          .where(eq(payments.orderId, order.id));
-
-        return {
-          id: order.id,
-          userId: order.userId,
-          userEmail: user?.email || null,
-          status: order.status,
-          provider: order.provider,
-          totalAmount: order.totalAmount,
-          currency: order.currency,
-          createdAt: order.createdAt.toISOString(),
-          payments: orderPayments.map((p: typeof payments.$inferSelect) => ({
-            id: p.id,
-            provider: p.provider,
-            providerPaymentId: p.providerPaymentId,
-            amount: p.amount,
-            currency: p.currency,
-            status: p.status,
-            refundedAmount: p.refundedAmount,
-          })),
-        };
-      })
-    );
+    const convex = getConvexClient();
+    const result = await convex.query(api.orders.getOrdersForAdmin, {
+      limit: validatedPageSize,
+      offset,
+    });
 
     return NextResponse.json({
-      items: ordersWithPayments,
-      total,
+      items: result.items.map((order) => ({
+        id: order.id,
+        userId: order.userId,
+        userEmail: order.userEmail,
+        status: order.status,
+        provider: order.provider,
+        totalAmount: order.totalAmount,
+        currency: order.currency,
+        createdAt: new Date(order.createdAt).toISOString(),
+        payments: order.payments.map((p) => ({
+          id: p.id,
+          provider: p.provider,
+          providerPaymentId: p.providerPaymentId,
+          amount: p.amount,
+          currency: p.currency,
+          status: p.status,
+          refundedAmount: p.refundedAmount,
+        })),
+      })),
+      total: result.total,
       page: validatedPage,
       pageSize: validatedPageSize,
     });
