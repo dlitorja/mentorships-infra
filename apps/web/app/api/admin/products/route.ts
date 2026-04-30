@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
+import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import {
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
 
     try {
       convexProductId = await convex.mutation(api.products.createProduct, {
-        mentorId,
+        mentorId: mentorId as Id<"instructors">,
         title,
         description: description || undefined,
         imageUrl: imageUrl || undefined,
