@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
 
     const { storageId } = await response.json() as { storageId: string };
 
-    const url = await convex.query(api.instructors.getStorageUrl, { storageId });
+    const url = await convex.mutation(api.instructors.getStorageUrl, { storageId });
 
     if (type === "result") {
       return NextResponse.json({
