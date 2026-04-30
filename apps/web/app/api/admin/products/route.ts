@@ -329,6 +329,7 @@ export async function GET(req: NextRequest) {
               mentorName = instructor.name;
             }
           } catch {
+            // Instructor lookup failed, keep default mentorName
           }
         }
 
