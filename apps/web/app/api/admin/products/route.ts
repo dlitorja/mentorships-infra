@@ -288,7 +288,7 @@ export async function GET(req: NextRequest) {
     let products;
     if (mentorId) {
       products = await convex.query(api.products.getProductsByInstructorAndType, {
-        mentorId,
+        mentorId: mentorId as Id<"instructors">,
         mentorshipType: mentorshipType || undefined,
       });
     } else {
