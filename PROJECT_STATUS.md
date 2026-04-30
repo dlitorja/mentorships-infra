@@ -598,14 +598,18 @@ This monorepo contains multiple applications with distinct responsibilities:
 - [x] `instructorProfiles` table populated with 11 instructors
 - [x] Testimonials and mentee results also seeded
 
-**Remaining Tasks** (for full booking functionality):
+**Completed Tasks** (April 30, 2026):
 - [x] Create instructor records in `instructors` table (with `mentorId` linked to `instructorProfiles`)
-- [x] Seed products for each instructor (pricing, Stripe/PayPal IDs)
+- [x] Seed products for each instructor (inventory set, oneOnOne=3, group=2 where applicable)
 - [x] Set inventory counts on instructor records
+- [x] Link `instructorProfiles.mentorId` to actual `instructors._id` strings
 
 **Executed** (April 30, 2026):
 - `seedInstructorsWithProducts` - Created 10 instructor records with products (oneOnOne inventory=3, group inventory=2 where applicable)
 - `backfillInstructorProfileMentorIds` - Linked `instructorProfiles.mentorId` to actual `instructors._id` strings for all 10 profiles
+
+**Remaining Task**:
+- [ ] Add Stripe/PayPal product IDs to products via `/admin/products/create`
 
 **Reference**: Source data in `apps/web/lib/instructors.ts` (static mock), marketing data in `apps/marketing/data/`
 
