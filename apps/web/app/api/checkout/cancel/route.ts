@@ -1,9 +1,15 @@
-import { NextRequest } from "next/server";
-import { redirect } from "next/navigation";
+import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { requireAuth } from "@/lib/auth";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
+
+function getBaseUrl(request: NextRequest) {
+  return (
+    process.env.NEXT_PUBLIC_URL ||
+    (request.headers.get("origin") || "http://localhost:3000")
+  );
+}
 
 /**
  * GET /api/checkout/cancel
@@ -15,12 +21,13 @@ import { Id } from "@/convex/_generated/dataModel";
  * Redirects to cancel page
  */
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const orderId = searchParams.get("order_id");
+  const baseUrl = getBaseUrl(request);
+
   try {
     // Require authentication to prevent unauthorized order cancellation
     await requireAuth();
-
-    const searchParams = request.nextUrl.searchParams;
-    const orderId = searchParams.get("order_id");
 
     if (orderId) {
       // Update order status to canceled via Convex
@@ -35,20 +42,17 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Redirect to cancel page
-    const baseUrl =
-      process.env.NEXT_PUBLIC_URL ||
-      (request.headers.get("origin") || "http://localhost:3000");
-
-    redirect(`${baseUrl}/checkout/cancel${orderId ? `?order_id=${orderId}` : ""}`);
+    // Use NextResponse.redirect to avoid redirect being caught by try/catch
+    return NextResponse.redirect(
+      new URL(
+        `/checkout/cancel${orderId ? `?order_id=${encodeURIComponent(orderId)}` : ""}`,
+        baseUrl
+      )
+    );
   } catch (error) {
     console.error("Checkout cancel handler error:", error);
 
-    const baseUrl =
-      process.env.NEXT_PUBLIC_URL ||
-      (request.headers.get("origin") || "http://localhost:3000");
-
-    redirect(`${baseUrl}/checkout/cancel`);
+    return NextResponse.redirect(new URL("/checkout/cancel", baseUrl));
   }
 }
 
