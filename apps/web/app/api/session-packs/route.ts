@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAuth, isUnauthorizedError } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * POST /api/session-packs

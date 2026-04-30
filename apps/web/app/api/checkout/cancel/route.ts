@@ -1,28 +1,24 @@
 import { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { requireAuth } from "@/lib/auth";
+import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 /**
  * GET /api/checkout/cancel
  * Handle canceled checkout redirect from Stripe
- * 
+ *
  * Query params:
  * - order_id: Order ID to cancel
- * 
+ *
  * Redirects to cancel page
  */
 export async function GET(request: NextRequest) {
   try {
+    // Require authentication to prevent unauthorized order cancellation
+    await requireAuth();
+
     const searchParams = request.nextUrl.searchParams;
     const orderId = searchParams.get("order_id");
 

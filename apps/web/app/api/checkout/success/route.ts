@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 import { getCheckoutSession, parseCheckoutSessionMetadata } from "@mentorships/payments";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 
 /**
  * GET /api/checkout/success
  * Handle successful checkout redirect from Stripe
- * 
+ *
  * Query params:
  * - session_id: Stripe checkout session ID
- * 
+ *
  * Redirects to success page with order details
  */
 export async function GET(request: NextRequest) {
@@ -35,8 +38,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Redirect to success page with order ID from Stripe metadata
-    // The order was already created during checkout, so we trust the metadata
+    // Verify order exists in Convex before redirecting
+    const convex = getConvexClient();
+    const order = await convex.query(api.orders.getOrderByIdPublic, {
+      id: metadata.orderId as Id<"orders">,
+    });
+
+    if (!order) {
+      return NextResponse.json(
+        { error: "Order not found" },
+        { status: 404 }
+      );
+    }
+
+    // Redirect to success page with order ID
     const baseUrl =
       process.env.NEXT_PUBLIC_URL ||
       (request.headers.get("origin") || "http://localhost:3000");
