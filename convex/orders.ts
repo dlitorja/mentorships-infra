@@ -13,6 +13,14 @@ export const getOrderById = query({
   },
 });
 
+/** Fetches a single order by ID without requiring authentication. */
+export const getOrderByIdPublic = query({
+  args: { id: v.id("orders") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
 /** Fetches all orders for a given user ID. */
 export const getUserOrders = query({
   args: { userId: v.string() },

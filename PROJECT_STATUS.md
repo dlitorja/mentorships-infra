@@ -9,7 +9,7 @@
   - Batch migration: import existing images into Convex storage and backfill references
 
 **Last Updated**: April 29, 2026
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: IN PROGRESS**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Booking Functionality Completion: PENDING** (needs instructor records, products, inventory), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -582,23 +582,23 @@ This monorepo contains multiple applications with distinct responsibilities:
 ## 🚧 In Progress / Next Steps
 
 ### Phase 2: Data Parity (Convex Data Migration)
-**Status**: 🚧 **IN PROGRESS** - Migrating instructor data from static sources into Convex tables
+**Status**: ✅ **COMPLETED** - Instructor data populated into Convex tables
 
-**Goal**: Populate empty Convex tables so instructor detail pages work on dev (currently showing "Instructor Not Found")
+**Goal**: Populate empty Convex tables so instructor detail pages work on dev
 
 **Completed Tasks**:
 - [x] Convex schema created with 16 tables (Phase 1-2 of migration)
 - [x] Convex query/mutation functions created (Phase 3 of migration)
 - [x] Homepage works with static mock data
-- [x] Instructor detail pages query Convex (but tables are empty → "Instructor Not Found")
+- [x] Instructor detail pages query Convex (tables now populated)
+- [x] Seed mutation `seedInstructorProfiles` created and run
+- [x] `instructorProfiles` table populated with 11 instructors
+- [x] Testimonials and mentee results also seeded
 
-**Remaining Tasks**:
-- [ ] Add real testimonials to `apps/web/lib/instructors.ts` — currently all "Sample" placeholders
-- [ ] Bulk-populate Convex `instructorProfiles` from marketing's static data (10+ instructors)
-- [ ] Bulk-populate Convex `instructorTestimonials` from marketing testimonials
-- [ ] Bulk-populate Convex `menteeResults` (Rakasa, Neil Gray have before/after images)
-
-**Core Blocker**: Instructor detail pages show "Instructor Not Found" because Convex tables are empty
+**Remaining Tasks** (for full booking functionality):
+- [ ] Create instructor records in `instructors` table (with `mentorId` linked to `instructorProfiles`)
+- [ ] Seed products for each instructor (pricing, Stripe/PayPal IDs)
+- [ ] Set inventory counts on instructor records
 
 **Reference**: Source data in `apps/web/lib/instructors.ts` (static mock), marketing data in `apps/marketing/data/`
 
@@ -1034,6 +1034,40 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
   - In-app banner shows at 90/30/7 days before workspace content deletion
   - Component at `apps/web/components/workspace/retention-warning-banner.tsx`
   - Trigger.dev task at `src/trigger/workspace-retention.ts` sends email reminders
+
+- ✅ **Mentor → Instructor Convex Function Naming Cleanup (Option B)** (COMPLETED - April 29, 2026)
+  - **Approach**: Pragmatic cleanup - rename internal function names and variables only, no schema migrations
+  - **Why**: The `instructors` table was already named correctly; confusion came from `getMentor*` function names vs public "instructor" branding
+  - **Renamed Functions** (6 total):
+    - `convex/sessions.ts`: `getMentorSessions` → `getInstructorSessions`
+    - `convex/seatReservations.ts`: `getMentorSeatReservations` → `getInstructorSeatReservations`
+    - `convex/seatReservations.ts`: `getMentorActiveSeats` → `getInstructorActiveSeats`
+    - `convex/seatReservations.ts`: `getUserMentorSeat` → `getUserInstructorSeat`
+    - `convex/sessionPacks.ts`: `getMentorSessionPacks` → `getInstructorSessionPacks`
+    - `convex/workspaces.ts`: `getMentorWorkspaces` → `getInstructorWorkspaces`
+  - **Updated Constants**:
+    - `convex/workspaces.ts`: `WORKSPACE_IMAGE_CAPS.mentor` → `WORKSPACE_IMAGE_CAPS.instructor`
+  - **Updated Variables**:
+    - `convex/adminWorkspaces.ts`: `mentorIds` → `instructorIds`, `mentorsMap` → `instructorsMap`
+  - **Updated Client Hooks**:
+    - `apps/web/lib/queries/convex/use-sessions.ts`: `api.sessions.getInstructorSessions`
+    - `apps/web/lib/queries/convex/use-session-packs.ts`: `api.sessionPacks.getInstructorSessionPacks`
+    - `apps/web/lib/queries/convex/use-workspaces.ts`: `api.workspaces.getInstructorWorkspaces`
+  - **NOT Changed** (per Option B - pragmatic approach):
+    - `mentorId` field names on tables (would require Convex migration)
+    - `users.role: "mentor"` literal (backwards compatible)
+    - `workspaceMessages.senderRole: "mentor"` literal
+    - `products.mentorshipType` field (refers to session type, not role)
+  - **Reference**: PR #197
+
+- 🚧 **Booking Functionality Completion** (PENDING)
+  - Instructor detail pages now read from Convex (instructorProfiles has data, getInstructorBySlug works)
+  - But full booking requires:
+    1. **Instructor records** in `instructors` table (with `mentorId` linked to `instructorProfiles`)
+    2. **Products** for each instructor (pricing, Stripe/PayPal IDs)
+    3. **Inventory counts** set on instructor records
+  - Currently: `instructorProfiles.mentorId` is NOT set, `instructors` table is empty, `products` table is empty
+  - **Option B (Full Convex migration)** decided: checkout mutations will also move to Convex (separate session)
 
 - ✅ **Minor Enhancements** (COMPLETED - April 2026)
   - Pagination in admin workspace list (`useInfiniteQuery`)

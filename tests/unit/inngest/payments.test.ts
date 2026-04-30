@@ -1,5 +1,40 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Set up environment variables before imports
+process.env.NEXT_PUBLIC_CONVEX_URL = "https://test-convex-url.convex.cloud";
+
+// Mock the ConvexHttpClient with dynamic response based on API called
+vi.mock("convex/browser", () => {
+  const mockOrders = new Map();
+  const mockPayments = new Map();
+
+  return {
+    ConvexHttpClient: vi.fn().mockImplementation(() => ({
+      query: vi.fn((api: any, args: any) => {
+        // If args has provider and providerPaymentId, it's a payments query
+        if (args?.provider && args?.providerPaymentId) {
+          const key = `${args.provider}:${args.providerPaymentId}`;
+          return Promise.resolve(mockPayments.get(key) || null);
+        }
+        // If args has id, it might be an orders query
+        if (args?.id) {
+          return Promise.resolve(mockOrders.get(args.id) || null);
+        }
+        return Promise.resolve(null);
+      }),
+      mutation: vi.fn().mockResolvedValue("test-mutation-id"),
+    })),
+    // Expose helpers to set mock data from tests
+    __setMockOrder: (id: string, data: any) => mockOrders.set(id, data),
+    __setMockPayment: (provider: string, providerPaymentId: string, data: any) =>
+      mockPayments.set(`${provider}:${providerPaymentId}`, data),
+    __clearMocks: () => {
+      mockOrders.clear();
+      mockPayments.clear();
+    },
+  };
+});
+
 // Mock the client module which creates the inngest instance
 vi.mock("../../../apps/web/inngest/client", () => ({
   inngest: {
@@ -115,17 +150,21 @@ describe("Inngest Payment Functions", () => {
 
   describe("Business Logic Tests", () => {
     it("should check idempotency - skip already paid order", async () => {
-      const { getOrderById } = await import("@mentorships/db");
+      // Import the mock module to set up data
+      const convexMock = await import("convex/browser");
       const paymentModule = await import("../../../apps/web/inngest/functions/payments");
 
       const mockOrder = {
-        id: "order_123",
+        _id: "order_123",
         status: "paid",
         userId: "user_123",
         totalAmount: "100.00",
+        provider: "stripe" as const,
+        currency: "usd",
       };
 
-      vi.mocked(getOrderById).mockResolvedValue(mockOrder as any);
+      // Set up the mock data
+      convexMock.__setMockOrder!("order_123", mockOrder);
 
       const mockEvent = {
         data: {
@@ -138,21 +177,6 @@ describe("Inngest Payment Functions", () => {
 
       const mockStep = {
         run: vi.fn(async (name: string, fn: () => Promise<any>) => {
-          if (name === "get-order") {
-            let attempts = 0;
-            let foundOrder = null;
-            while (attempts < 3 && !foundOrder) {
-              foundOrder = await getOrderById("order_123");
-              if (!foundOrder) {
-                await new Promise((resolve) => setTimeout(resolve, 200 * (attempts + 1)));
-                attempts++;
-              }
-            }
-            if (!foundOrder) {
-              throw new Error("Order order_123 not found after retries");
-            }
-            return foundOrder;
-          }
           return fn();
         }),
       };
@@ -162,13 +186,16 @@ describe("Inngest Payment Functions", () => {
 
       expect(result.alreadyProcessed).toBe(true);
       expect(result.message).toBe("Order already processed");
+
+      // Clean up
+      convexMock.__clearMocks!();
     });
 
     it("should throw error when order not found after retries", async () => {
-      const { getOrderById } = await import("@mentorships/db");
+      const convexMock = await import("convex/browser");
       const paymentModule = await import("../../../apps/web/inngest/functions/payments");
 
-      vi.mocked(getOrderById).mockResolvedValue(null);
+      // Don't set any mock order - it will return null and throw after retries
 
       const mockEvent = {
         data: {
@@ -181,21 +208,6 @@ describe("Inngest Payment Functions", () => {
 
       const mockStep = {
         run: vi.fn(async (name: string, fn: () => Promise<any>) => {
-          if (name === "get-order") {
-            let attempts = 0;
-            let foundOrder = null;
-            while (attempts < 3 && !foundOrder) {
-              foundOrder = await getOrderById("order_123");
-              if (!foundOrder) {
-                await new Promise((resolve) => setTimeout(resolve, 200 * (attempts + 1)));
-                attempts++;
-              }
-            }
-            if (!foundOrder) {
-              throw new Error("Order order_123 not found after retries");
-            }
-            return foundOrder;
-          }
           return fn();
         }),
       };
@@ -204,21 +216,27 @@ describe("Inngest Payment Functions", () => {
       await expect(
         handler({ event: mockEvent, step: mockStep as any } as any)
       ).rejects.toThrow("Order order_123 not found after retries");
+
+      // Clean up
+      convexMock.__clearMocks!();
     });
 
     it("should process PayPal refund with idempotency check", async () => {
-      const { getPaymentByProviderId } = await import("@mentorships/db");
+      const convexMock = await import("convex/browser");
       const paymentModule = await import("../../../apps/web/inngest/functions/payments");
 
       const mockPayment = {
-        id: "payment_123",
+        _id: "payment_123",
         orderId: "order_123",
         providerPaymentId: "capture_123",
         status: "refunded",
         amount: "100.00",
+        provider: "paypal" as const,
+        currency: "usd",
       };
 
-      vi.mocked(getPaymentByProviderId).mockResolvedValue(mockPayment as any);
+      // Set up the mock data
+      convexMock.__setMockPayment!("paypal", "capture_123", mockPayment);
 
       const mockEvent = {
         data: {
@@ -229,7 +247,6 @@ describe("Inngest Payment Functions", () => {
 
       const mockStep = {
         run: vi.fn(async (name: string, fn: () => Promise<any>) => {
-          if (name === "get-payment") return mockPayment;
           return fn();
         }),
       };
@@ -239,6 +256,9 @@ describe("Inngest Payment Functions", () => {
 
       expect(result.alreadyProcessed).toBe(true);
       expect(result.message).toBe("Payment already refunded");
+
+      // Clean up
+      convexMock.__clearMocks!();
     });
   });
 });

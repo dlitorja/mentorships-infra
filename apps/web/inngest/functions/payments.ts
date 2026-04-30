@@ -1,42 +1,31 @@
 import { inngest } from "../client";
-import {
-  db,
-  orders,
-  payments,
-  sessionPacks,
-  seatReservations,
-  mentorshipProducts,
-  instructors,
-  getOrderById,
-  getPaymentByProviderId,
-  getSessionPackByPaymentId,
-  releaseSeatByPackId,
-  updatePaymentStatus,
-  updateOrderStatus,
-  updateSessionPackStatus,
-  getProductById,
-  eq,
-} from "@mentorships/db";
+import { api } from "../../../../convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
 
-// Process Stripe checkout completion
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
+
 export const processStripeCheckout = inngest.createFunction(
-  {
-    id: "process-stripe-checkout",
-    name: "Process Stripe Checkout",
-    retries: 3,
-  },
+  { id: "process-stripe-checkout", name: "Process Stripe Checkout", retries: 3 },
   { event: "stripe/checkout.session.completed" },
   async ({ event, step }) => {
     const { sessionId, orderId, userId, packId } = event.data;
+    const convex = getConvexClient();
 
-    // Step 1: Get order with retry (handle race conditions)
     const order = await step.run("get-order", async () => {
-      // Retry logic for race condition if webhook fires before order creation
       let attempts = 0;
       let foundOrder = null;
       while (attempts < 3 && !foundOrder) {
-        foundOrder = await getOrderById(orderId);
+        foundOrder = await convex.query(api.orders.getOrderByIdPublic, {
+          id: orderId as Id<"orders">,
+        });
         if (!foundOrder) {
           await new Promise((resolve) => setTimeout(resolve, 200 * (attempts + 1)));
           attempts++;
@@ -48,19 +37,16 @@ export const processStripeCheckout = inngest.createFunction(
       return foundOrder;
     });
 
-    // Step 2: Check idempotency (prevent duplicate processing)
     if (order.status === "paid") {
       return { message: "Order already processed", orderId, alreadyProcessed: true };
     }
 
-    // Step 3: Retrieve full Stripe session with discount details
     const fullSession = await step.run("get-stripe-session", async () => {
       return await stripe.checkout.sessions.retrieve(sessionId, {
         expand: ["total_details.breakdown.discounts"],
       });
     });
 
-    // Step 4: Extract discount information
     const discountAmount = fullSession.total_details?.amount_discount
       ? (fullSession.total_details.amount_discount / 100).toString()
       : null;
@@ -68,7 +54,6 @@ export const processStripeCheckout = inngest.createFunction(
       ? (fullSession.amount_subtotal / 100).toString()
       : null;
 
-    // Get discount code/coupon
     let discountCode: string | null = null;
     if (
       fullSession.total_details?.breakdown?.discounts &&
@@ -78,174 +63,76 @@ export const processStripeCheckout = inngest.createFunction(
       if (discount.discount?.promotion_code) {
         const promotionCode = discount.discount.promotion_code;
         if (typeof promotionCode === "object" && promotionCode !== null) {
-          discountCode =
-            promotionCode.code ||
-            promotionCode.id ||
-            null;
+          discountCode = promotionCode.code || promotionCode.id || null;
         } else if (typeof promotionCode === "string") {
           discountCode = promotionCode;
         }
       } else if (discount.discount?.coupon) {
-        discountCode =
-          discount.discount.coupon.id || discount.discount.coupon.name || null;
+        discountCode = discount.discount.coupon.id || discount.discount.coupon.name || null;
       }
     }
 
-    // Step 5: Update order (idempotency handled by checking order status earlier)
     await step.run("update-order", async () => {
-      // Build update object - only include discount fields if they have values
-      const updateData: {
-        status: "paid";
-        totalAmount: string;
-        updatedAt: Date;
-        originalAmount?: string;
-        discountAmount?: string | null;
-        discountCode?: string | null;
-      } = {
-        status: "paid",
-        totalAmount:
-          fullSession.amount_total && typeof fullSession.amount_total === "number"
-            ? (fullSession.amount_total / 100).toString()
-            : "0",
-        updatedAt: new Date(),
-      };
-
-      // Only include discount fields if they have values
-      if (originalAmount) {
-        updateData.originalAmount = originalAmount;
-      } else {
-        updateData.originalAmount = order.totalAmount;
-      }
-      if (discountAmount) {
-        updateData.discountAmount = discountAmount;
-      }
-      if (discountCode) {
-        updateData.discountCode = discountCode;
-      }
-
-      await db
-        .update(orders)
-        .set(updateData)
-        .where(eq(orders.id, orderId));
+      await convex.mutation(api.orders.completeOrder, {
+        id: orderId as Id<"orders">,
+      });
     });
 
-    // Step 6: Create payment record (check for existing payment first for idempotency)
-    const payment = await step.run("create-payment", async () => {
-      // Check if payment already exists (idempotency)
-      const existingPayment = await getPaymentByProviderId(
-        "stripe",
-        fullSession.payment_intent as string
-      );
-      if (existingPayment) {
-        return existingPayment;
-      }
-
-      const [payment] = await db
-        .insert(payments)
-        .values({
-          orderId: order.id,
-          provider: "stripe",
-          providerPaymentId: fullSession.payment_intent as string,
-          amount: (fullSession.amount_total! / 100).toString(),
-          currency: fullSession.currency!,
-          status: "completed",
-        })
-        .returning();
-      return payment;
+    const paymentId = await step.run("create-payment", async () => {
+      return await convex.mutation(api.payments.createPayment, {
+        orderId: orderId as Id<"orders">,
+        provider: "stripe",
+        providerPaymentId: fullSession.payment_intent as string || sessionId,
+        amount: fullSession.amount_total ? (fullSession.amount_total / 100).toString() : "0",
+        currency: fullSession.currency?.toUpperCase() || "USD",
+        status: "completed",
+      });
     });
 
-    // Step 7: Get product info
     const product = await step.run("get-product", async () => {
-      const productData = await getProductById(packId);
-
+      const productData = await convex.query(api.products.getProductById, {
+        id: packId as Id<"products">,
+      });
       if (!productData) {
         throw new Error(`Product not found: ${packId}`);
       }
       return productData;
     });
 
-    // Step 8: Create session pack
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + product.validityDays);
+    const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
 
     const sessionPack = await step.run("create-session-pack", async () => {
-      // Check if pack already exists for this payment (idempotency)
-      const existingPack = await getSessionPackByPaymentId(payment.id);
-      if (existingPack) {
-        return existingPack;
+      if (!product.mentorId) {
+        throw new Error(`Product has no mentorId: ${packId}`);
       }
-
-      const [pack] = await db
-        .insert(sessionPacks)
-        .values({
-          userId,
-          mentorId: product.mentorId,
-          totalSessions: product.sessionsPerPack,
-          remainingSessions: product.sessionsPerPack,
-          expiresAt,
-          status: "active",
-          paymentId: payment.id,
-          mentorshipType: product.mentorshipType,
-        })
-        .returning();
-      return pack;
-    });
-
-    // Step 9: Create seat reservation (check for existing reservation first)
-    await step.run("create-seat-reservation", async () => {
-      // Check if reservation already exists (idempotency)
-      const existingReservation = await db
-        .select()
-        .from(seatReservations)
-        .where(eq(seatReservations.sessionPackId, sessionPack.id))
-        .limit(1);
-
-      if (existingReservation.length > 0) {
-        return; // Already exists
-      }
-
-      await db.insert(seatReservations).values({
-        mentorId: product.mentorId,
+      return await convex.mutation(api.sessionPacks.createSessionPack, {
         userId,
-        sessionPackId: sessionPack.id,
-        seatExpiresAt: expiresAt,
-        status: "active",
+        mentorId: product.mentorId as Id<"instructors">,
+        totalSessions: product.sessionsPerPack,
+        remainingSessions: product.sessionsPerPack,
+        expiresAt,
+        paymentId: paymentId as Id<"payments">,
       });
     });
 
-    // Step 10: Decrement inventory (after seat reservation confirmed)
-    const inventoryType = product.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
+    const inventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
     await step.run("decrement-inventory", async () => {
-      const convexUrl = process.env.CONVEX_URL;
-      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
-      if (!convexUrl || !convexHttpKey) {
-        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
+      if (!product.mentorId) {
+        throw new Error(`Product has no mentorId: ${packId}`);
       }
-      const response = await fetch(`${convexUrl}/inventory/decrement`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${convexHttpKey}`,
-        },
-        body: JSON.stringify({
-          mentorId: product.mentorId,
-          type: inventoryType,
-        }),
+      await convex.mutation(api.instructors.decrementInventory, {
+        id: product.mentorId as Id<"instructors">,
+        type: inventoryType,
       });
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Failed to decrement inventory: ${error}`);
-      }
     });
 
-    // Step 11: Send purchase/mentorship event for onboarding
     await step.run("trigger-onboarding", async () => {
       await inngest.send({
         name: "purchase/mentorship",
         data: {
-          orderId: order.id,
-          clerkId: userId, // Clerk user ID
-          packId: product.id,
+          orderId,
+          clerkId: userId,
+          packId,
           provider: "stripe",
         },
       });
@@ -254,147 +141,98 @@ export const processStripeCheckout = inngest.createFunction(
     return {
       success: true,
       orderId,
-      sessionPackId: sessionPack.id,
-      paymentId: payment.id,
+      sessionPackId: sessionPack,
+      paymentId: null,
     };
   }
 );
 
-// Process Stripe refund
 export const processStripeRefund = inngest.createFunction(
-  {
-    id: "process-stripe-refund",
-    name: "Process Stripe Refund",
-    retries: 3,
-  },
+  { id: "process-stripe-refund", name: "Process Stripe Refund", retries: 3 },
   { event: "stripe/charge.refunded" },
   async ({ event, step }) => {
     const { paymentIntentId } = event.data;
+    const convex = getConvexClient();
 
-    // Find payment by payment_intent
     const payment = await step.run("get-payment", async () => {
-      return await getPaymentByProviderId("stripe", paymentIntentId);
+      return await convex.query(api.payments.getPaymentByProviderId, {
+        provider: "stripe",
+        providerPaymentId: paymentIntentId,
+      });
     });
 
     if (!payment) {
       throw new Error(`Payment not found for payment intent: ${paymentIntentId}`);
     }
 
-    // Find session pack
     const sessionPack = await step.run("get-session-pack", async () => {
-      return await getSessionPackByPaymentId(payment.id);
+      return await convex.query(api.sessionPacks.getSessionPackByPaymentId, {
+        paymentId: payment._id,
+      });
     });
 
     if (!sessionPack) {
-      throw new Error(`Session pack not found for payment: ${payment.id}`);
+      throw new Error(`Session pack not found for payment: ${payment._id}`);
     }
 
-    // Release the seat
-    await step.run("release-seat", async () => {
-      const releasedSeat = await releaseSeatByPackId(sessionPack.id);
-      if (!releasedSeat) {
-        throw new Error(`Seat reservation not found for pack ${sessionPack.id}`);
-      }
-    });
-
-    // Increment inventory and notify waitlist
-    const refundInventoryType = sessionPack.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
-    await step.run("increment-inventory-and-notify-waitlist", async () => {
-      const convexUrl = process.env.CONVEX_URL;
-      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
-      if (!convexUrl || !convexHttpKey) {
-        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
-      }
-      const response = await fetch(`${convexUrl}/inventory/increment`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${convexHttpKey}`,
-        },
-        body: JSON.stringify({
-          mentorId: sessionPack.mentorId,
-          type: refundInventoryType,
-        }),
+    const instructorProducts = await step.run("get-instructor-products", async () => {
+      return await convex.query(api.products.getProductsByInstructorId, {
+        mentorId: sessionPack.mentorId as Id<"instructors">,
       });
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Failed to increment inventory: ${error}`);
-      }
-      const result = await response.json();
-      const newInventory = result.inventory?.[refundInventoryType === "oneOnOne" ? "oneOnOneInventory" : "groupInventory"];
-      if (newInventory !== undefined && newInventory > 0) {
-        const instructor = await db
-          .select({ slug: instructors.slug })
-          .from(instructors)
-          .where(eq(instructors.mentorId, sessionPack.mentorId))
-          .limit(1)
-          .then((rows) => rows[0]);
-        if (instructor) {
-          const notifyResponse = await fetch(`${convexUrl}/waitlist/notify`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${convexHttpKey}`,
-            },
-            body: JSON.stringify({
-              instructorSlug: instructor.slug,
-              mentorshipType: sessionPack.mentorshipType,
-            }),
-          });
-          if (!notifyResponse.ok) {
-            const error = await notifyResponse.text();
-            console.error("Failed to notify waitlist:", error);
-          }
-        }
-      }
     });
 
-    // Mark pack as refunded
-    await step.run("update-pack-status", async () => {
-      await updateSessionPackStatus(sessionPack.id, "refunded", 0);
+    const product = instructorProducts.find(p => p.sessionsPerPack === sessionPack.totalSessions);
+    const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
+
+    await step.run("refund-session-pack", async () => {
+      await convex.mutation(api.sessionPacks.refundSessionPack, {
+        id: sessionPack._id,
+      });
     });
 
-    // Update payment status
+    await step.run("increment-inventory", async () => {
+      await convex.mutation(api.instructors.incrementInventory, {
+        id: sessionPack.mentorId as Id<"instructors">,
+        type: refundInventoryType,
+      });
+    });
+
     await step.run("update-payment-status", async () => {
-      // Get refund amount from Stripe
       const charge = await stripe.charges.retrieve(event.data.chargeId);
-      await updatePaymentStatus(
-        payment.id,
-        "refunded",
-        (charge.amount_refunded / 100).toFixed(2)
-      );
+      await convex.mutation(api.payments.refundPayment, {
+        id: payment._id,
+        refundedAmount: (charge.amount_refunded / 100).toFixed(2),
+      });
     });
 
-    // Update order status
     await step.run("update-order-status", async () => {
-      await updateOrderStatus(payment.orderId, "refunded");
+      await convex.mutation(api.orders.refundOrder, {
+        id: payment.orderId as Id<"orders">,
+      });
     });
 
     return {
       success: true,
-      sessionPackId: sessionPack.id,
-      paymentId: payment.id,
+      sessionPackId: sessionPack._id,
+      paymentId: payment._id,
     };
   }
 );
 
-// Process PayPal payment capture completion
 export const processPayPalCheckout = inngest.createFunction(
-  {
-    id: "process-paypal-checkout",
-    name: "Process PayPal Checkout",
-    retries: 3,
-  },
+  { id: "process-paypal-checkout", name: "Process PayPal Checkout", retries: 3 },
   { event: "paypal/payment.capture.completed" },
   async ({ event, step }) => {
     const { captureId, orderId, packId } = event.data;
+    const convex = getConvexClient();
 
-    // Step 1: Get order with retry (handle race conditions)
     const order = await step.run("get-order", async () => {
       let attempts = 0;
       let foundOrder = null;
       while (attempts < 3 && !foundOrder) {
-        foundOrder = await getOrderById(orderId);
+        foundOrder = await convex.query(api.orders.getOrderByIdPublic, {
+          id: orderId as Id<"orders">,
+        });
         if (!foundOrder) {
           await new Promise((resolve) => setTimeout(resolve, 200 * (attempts + 1)));
           attempts++;
@@ -406,140 +244,71 @@ export const processPayPalCheckout = inngest.createFunction(
       return foundOrder;
     });
 
-    // Step 2: Check idempotency (prevent duplicate processing)
     if (order.status === "paid") {
       return { message: "Order already processed", orderId, alreadyProcessed: true };
     }
 
-    // Step 3: Extract currency from order
-    const currency = (order.currency ?? "USD").toUpperCase();
-
-    // Step 4: Update order (idempotency handled by checking order status earlier)
     await step.run("update-order", async () => {
-      await db
-        .update(orders)
-        .set({
-          status: "paid",
-          totalAmount: order.totalAmount,
-          updatedAt: new Date(),
-        })
-        .where(eq(orders.id, orderId));
+      await convex.mutation(api.orders.completeOrder, {
+        id: orderId as Id<"orders">,
+      });
     });
 
-    // Step 5: Create payment record (check for existing payment first for idempotency)
     const payment = await step.run("create-payment", async () => {
-      // Check if payment already exists (idempotency)
-      const existingPayment = await getPaymentByProviderId("paypal", captureId);
-      if (existingPayment) {
-        return existingPayment;
-      }
-
-      const [payment] = await db
-        .insert(payments)
-        .values({
-          orderId: order.id,
-          provider: "paypal",
-          providerPaymentId: captureId,
-          amount: order.totalAmount,
-          currency,
-          status: "completed",
-        })
-        .returning();
-      return payment;
+      return await convex.mutation(api.payments.createPayment, {
+        orderId: orderId as Id<"orders">,
+        provider: "paypal",
+        providerPaymentId: captureId,
+        amount: order.totalAmount,
+        currency: (order.currency ?? "USD").toUpperCase(),
+        status: "completed",
+      });
     });
 
-    // Step 6: Get product info
     const product = await step.run("get-product", async () => {
-      const productData = await getProductById(packId);
-
+      const productData = await convex.query(api.products.getProductById, {
+        id: packId as Id<"products">,
+      });
       if (!productData) {
         throw new Error(`Product not found: ${packId}`);
       }
       return productData;
     });
 
-    // Step 7: Create session pack
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + product.validityDays);
+    const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
 
     const sessionPack = await step.run("create-session-pack", async () => {
-      // Check if pack already exists for this payment (idempotency)
-      const existingPack = await getSessionPackByPaymentId(payment.id);
-      if (existingPack) {
-        return existingPack;
+      if (!product.mentorId) {
+        throw new Error(`Product has no mentorId: ${packId}`);
       }
-
-      const [pack] = await db
-        .insert(sessionPacks)
-        .values({
-          userId: order.userId,
-          mentorId: product.mentorId,
-          totalSessions: product.sessionsPerPack,
-          remainingSessions: product.sessionsPerPack,
-          expiresAt,
-          status: "active",
-          paymentId: payment.id,
-          mentorshipType: product.mentorshipType,
-        })
-        .returning();
-      return pack;
-    });
-
-    // Step 9: Create seat reservation (check for existing reservation first)
-    await step.run("create-seat-reservation", async () => {
-      // Check if reservation already exists (idempotency)
-      const existingReservation = await db
-        .select()
-        .from(seatReservations)
-        .where(eq(seatReservations.sessionPackId, sessionPack.id))
-        .limit(1);
-
-      if (existingReservation.length > 0) {
-        return; // Already exists
-      }
-
-      await db.insert(seatReservations).values({
-        mentorId: product.mentorId,
+      return await convex.mutation(api.sessionPacks.createSessionPack, {
         userId: order.userId,
-        sessionPackId: sessionPack.id,
-        seatExpiresAt: expiresAt,
-        status: "active",
+        mentorId: product.mentorId as Id<"instructors">,
+        totalSessions: product.sessionsPerPack,
+        remainingSessions: product.sessionsPerPack,
+        expiresAt,
+        paymentId: payment as Id<"payments">,
       });
     });
 
-    // Step 10: Decrement inventory (after seat reservation confirmed)
-    const paypalInventoryType = product.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
+    const paypalInventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
     await step.run("decrement-inventory", async () => {
-      const convexUrl = process.env.CONVEX_URL;
-      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
-      if (!convexUrl || !convexHttpKey) {
-        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
+      if (!product.mentorId) {
+        throw new Error(`Product has no mentorId: ${packId}`);
       }
-      const response = await fetch(`${convexUrl}/inventory/decrement`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${convexHttpKey}`,
-        },
-        body: JSON.stringify({
-          mentorId: product.mentorId,
-          type: paypalInventoryType,
-        }),
+      await convex.mutation(api.instructors.decrementInventory, {
+        id: product.mentorId as Id<"instructors">,
+        type: paypalInventoryType,
       });
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Failed to decrement inventory: ${error}`);
-      }
     });
 
-    // Step 11: Send purchase/mentorship event for onboarding
     await step.run("trigger-onboarding", async () => {
       await inngest.send({
         name: "purchase/mentorship",
         data: {
-          orderId: order.id,
-          clerkId: order.userId, // Clerk user ID
-          packId: product.id,
+          orderId,
+          clerkId: order.userId,
+          packId,
           provider: "paypal",
         },
       });
@@ -548,136 +317,87 @@ export const processPayPalCheckout = inngest.createFunction(
     return {
       success: true,
       orderId,
-      sessionPackId: sessionPack.id,
-      paymentId: payment.id,
+      sessionPackId: sessionPack,
+      paymentId: payment,
     };
   }
 );
 
-// Process PayPal refund
 export const processPayPalRefund = inngest.createFunction(
-  {
-    id: "process-paypal-refund",
-    name: "Process PayPal Refund",
-    retries: 3,
-  },
+  { id: "process-paypal-refund", name: "Process PayPal Refund", retries: 3 },
   { event: "paypal/payment.capture.refunded" },
   async ({ event, step }) => {
-    const { captureId, refundId } = event.data;
+    const { captureId } = event.data;
+    const convex = getConvexClient();
 
-    // Find payment by capture_id
     const payment = await step.run("get-payment", async () => {
-      return await getPaymentByProviderId("paypal", captureId);
+      return await convex.query(api.payments.getPaymentByProviderId, {
+        provider: "paypal",
+        providerPaymentId: captureId,
+      });
     });
 
     if (!payment) {
       throw new Error(`Payment not found for capture: ${captureId}`);
     }
 
-    // Idempotency check: skip if already refunded
     if (payment.status === "refunded") {
       return {
         message: "Payment already refunded",
-        paymentId: payment.id,
+        paymentId: payment._id,
         alreadyProcessed: true,
       };
     }
 
-    // Find session pack
     const sessionPack = await step.run("get-session-pack", async () => {
-      return await getSessionPackByPaymentId(payment.id);
+      return await convex.query(api.sessionPacks.getSessionPackByPaymentId, {
+        paymentId: payment._id,
+      });
     });
 
     if (!sessionPack) {
-      throw new Error(`Session pack not found for payment: ${payment.id}`);
+      throw new Error(`Session pack not found for payment: ${payment._id}`);
     }
 
-    // Release the seat
-    await step.run("release-seat", async () => {
-      const releasedSeat = await releaseSeatByPackId(sessionPack.id);
-      if (!releasedSeat) {
-        throw new Error(`Seat reservation not found for pack ${sessionPack.id}`);
-      }
-    });
-
-    // Increment inventory and notify waitlist
-    const paypalRefundInventoryType = sessionPack.mentorshipType === "one-on-one" ? "oneOnOne" : "group";
-    await step.run("increment-inventory-and-notify-waitlist", async () => {
-      const convexUrl = process.env.CONVEX_URL;
-      const convexHttpKey = process.env.CONVEX_HTTP_KEY;
-      if (!convexUrl || !convexHttpKey) {
-        throw new Error("Missing CONVEX_URL or CONVEX_HTTP_KEY");
-      }
-      const response = await fetch(`${convexUrl}/inventory/increment`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${convexHttpKey}`,
-        },
-        body: JSON.stringify({
-          mentorId: sessionPack.mentorId,
-          type: paypalRefundInventoryType,
-        }),
+    const instructorProducts = await step.run("get-instructor-products", async () => {
+      return await convex.query(api.products.getProductsByInstructorId, {
+        mentorId: sessionPack.mentorId as Id<"instructors">,
       });
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`Failed to increment inventory: ${error}`);
-      }
-      const result = await response.json();
-      const newInventory = result.inventory?.[paypalRefundInventoryType === "oneOnOne" ? "oneOnOneInventory" : "groupInventory"];
-      if (newInventory !== undefined && newInventory > 0) {
-        const instructor = await db
-          .select({ slug: instructors.slug })
-          .from(instructors)
-          .where(eq(instructors.mentorId, sessionPack.mentorId))
-          .limit(1)
-          .then((rows) => rows[0]);
-        if (instructor) {
-          const notifyResponse = await fetch(`${convexUrl}/waitlist/notify`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${convexHttpKey}`,
-            },
-            body: JSON.stringify({
-              instructorSlug: instructor.slug,
-              mentorshipType: sessionPack.mentorshipType,
-            }),
-          });
-          if (!notifyResponse.ok) {
-            const error = await notifyResponse.text();
-            console.error("Failed to notify waitlist:", error);
-          }
-        }
-      }
     });
 
-    // Mark pack as refunded
-    await step.run("update-pack-status", async () => {
-      await updateSessionPackStatus(sessionPack.id, "refunded", 0);
+    const product = instructorProducts.find(p => p.sessionsPerPack === sessionPack.totalSessions);
+    const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
+
+    await step.run("refund-session-pack", async () => {
+      await convex.mutation(api.sessionPacks.refundSessionPack, {
+        id: sessionPack._id,
+      });
     });
 
-    // Update payment status
+    await step.run("increment-inventory", async () => {
+      await convex.mutation(api.instructors.incrementInventory, {
+        id: sessionPack.mentorId as Id<"instructors">,
+        type: refundInventoryType,
+      });
+    });
+
     await step.run("update-payment-status", async () => {
-      // Get refund amount from PayPal
-      // For now, we'll mark as refunded - amount can be fetched from PayPal API if needed
-      await updatePaymentStatus(
-        payment.id,
-        "refunded",
-        payment.amount // Full refund for now
-      );
+      await convex.mutation(api.payments.refundPayment, {
+        id: payment._id,
+        refundedAmount: payment.amount,
+      });
     });
 
-    // Update order status
     await step.run("update-order-status", async () => {
-      await updateOrderStatus(payment.orderId, "refunded");
+      await convex.mutation(api.orders.refundOrder, {
+        id: payment.orderId as Id<"orders">,
+      });
     });
 
     return {
       success: true,
-      sessionPackId: sessionPack.id,
-      paymentId: payment.id,
+      sessionPackId: sessionPack._id,
+      paymentId: payment._id,
     };
   }
 );
-
