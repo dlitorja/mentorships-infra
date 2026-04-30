@@ -97,6 +97,34 @@ export const getProductsByInstructorAndType = query({
   },
 });
 
+/** Returns a product with instructor info for admin (requires auth). */
+export const getProductForAdmin = query({
+  args: { id: v.id("products") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const product = await ctx.db.get(args.id);
+    if (!product) return null;
+
+    let instructorName = "Unknown Instructor";
+    if (product.mentorId) {
+      const instructor = await ctx.db
+        .query("instructors")
+        .filter((q) => q.eq(q.field("mentorId"), product.mentorId))
+        .first();
+      if (instructor?.name) {
+        instructorName = instructor.name;
+      }
+    }
+
+    return {
+      ...product,
+      instructorName,
+    };
+  },
+});
+
 /** Creates a new product with the given details. */
 export const createProduct = mutation({
   args: {

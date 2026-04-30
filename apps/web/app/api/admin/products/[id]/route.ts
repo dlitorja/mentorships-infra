@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  db,
-  mentorshipProducts,
-  mentors,
-  eq,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
-import { stripe } from "@/lib/stripe";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { stripe } from "@/lib/stripe";
 
 const updateProductSchema = z.object({
-  mentorId: z.string().uuid("Invalid mentor ID format").optional(),
+  mentorId: z.string().optional(),
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().optional().default(""),
   imageUrl: z.string().url().optional().or(z.literal("")),
@@ -46,38 +42,33 @@ export async function GET(
     await requireRoleForApi("admin");
     const { id } = await params;
 
-    const [product] = await db
-      .select({
-        product: mentorshipProducts,
-        mentor: mentors,
-      })
-      .from(mentorshipProducts)
-      .leftJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
-      .where(eq(mentorshipProducts.id, id))
-      .limit(1);
+    const convex = getConvexClient();
+    const product = await convex.query(api.products.getProductForAdmin, {
+      id: id as Id<"products">,
+    });
 
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
     return NextResponse.json({
-      id: product.product.id,
-      mentorId: product.product.mentorId,
-      mentorName: "Mentor",
-      title: product.product.title,
-      description: product.product.description,
-      imageUrl: product.product.imageUrl,
-      price: product.product.price,
-      currency: product.product.currency,
-      sessionsPerPack: product.product.sessionsPerPack,
-      validityDays: product.product.validityDays,
-      mentorshipType: product.product.mentorshipType,
-      stripePriceId: product.product.stripePriceId,
-      stripeProductId: product.product.stripeProductId,
-      paypalProductId: product.product.paypalProductId,
-      active: product.product.active,
-      createdAt: product.product.createdAt.toISOString(),
-      updatedAt: product.product.updatedAt.toISOString(),
+      id: product._id,
+      mentorId: product.mentorId,
+      mentorName: product.instructorName,
+      title: product.title,
+      description: product.description,
+      imageUrl: product.imageUrl,
+      price: product.price,
+      currency: product.currency,
+      sessionsPerPack: product.sessionsPerPack,
+      validityDays: product.validityDays,
+      mentorshipType: product.mentorshipType,
+      stripePriceId: product.stripePriceId,
+      stripeProductId: product.stripeProductId,
+      paypalProductId: product.paypalProductId,
+      active: product.active,
+      createdAt: new Date(product._creationTime).toISOString(),
+      updatedAt: new Date(product._creationTime).toISOString(),
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
@@ -135,12 +126,11 @@ export async function PUT(
       deactivateOldPrice,
     } = validationResult.data as UpdateProductInput;
 
-    // Get existing product
-    const [existingProduct] = await db
-      .select()
-      .from(mentorshipProducts)
-      .where(eq(mentorshipProducts.id, id))
-      .limit(1);
+    const convex = getConvexClient();
+
+    const existingProduct = await convex.query(api.products.getProductById, {
+      id: id as Id<"products">,
+    });
 
     if (!existingProduct) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
@@ -148,16 +138,13 @@ export async function PUT(
 
     oldStripePriceId = existingProduct.stripePriceId || undefined;
 
-    // Check if price changed - need to create new Stripe price
     const priceChanged = parseFloat(existingProduct.price) !== parseFloat(price);
 
     if (priceChanged && enableStripe && oldStripePriceId) {
-      // Get the Stripe product ID from the current price
       try {
         const oldPrice = await stripe.prices.retrieve(oldStripePriceId);
         const stripeProductId = oldPrice.product as string;
 
-        // Create new price
         const newPrice = await stripe.prices.create({
           product: stripeProductId,
           unit_amount: Math.round(parseFloat(price) * 100),
@@ -166,7 +153,6 @@ export async function PUT(
         });
         newStripePriceId = newPrice.id;
 
-        // Deactivate old price if requested (keeps record but new customers can't use it)
         if (deactivateOldPrice) {
           await stripe.prices.update(oldStripePriceId, { active: false });
         }
@@ -179,7 +165,6 @@ export async function PUT(
       }
     }
 
-// Update Stripe product if price changed
     if (oldStripePriceId) {
       try {
         const oldPrice = await stripe.prices.retrieve(oldStripePriceId);
@@ -196,51 +181,48 @@ export async function PUT(
       }
     }
 
-    // Determine paypalProductId value
-    let newPaypalProductId: string | null = existingProduct.paypalProductId;
+    let newPaypalProductId: string | null = existingProduct.paypalProductId ?? null;
     if (!enablePayPal) {
       newPaypalProductId = null;
     } else if (enablePayPal && !newPaypalProductId) {
       newPaypalProductId = "enabled";
     }
 
-    // Update product in database
-    const [updatedProduct] = await db
-      .update(mentorshipProducts)
-      .set({
-        ...(mentorId && { mentorId }),
-        title,
-        description,
-        imageUrl: imageUrl || null,
-        price,
-        sessionsPerPack,
-        validityDays,
-        ...(mentorshipType && { mentorshipType }),
-        stripePriceId: newStripePriceId || existingProduct.stripePriceId,
-        paypalProductId: newPaypalProductId,
-        active: enableStripe || enablePayPal,
-        updatedAt: new Date(),
-      })
-      .where(eq(mentorshipProducts.id, id))
-      .returning();
+    const updatedProduct = await convex.mutation(api.products.updateProduct, {
+      id: id as Id<"products">,
+      title,
+      description: description || undefined,
+      imageUrl: imageUrl || undefined,
+      price,
+      sessionsPerPack,
+      validityDays,
+      ...(mentorshipType && { mentorshipType }),
+      stripePriceId: newStripePriceId || undefined,
+      paypalProductId: newPaypalProductId ?? undefined,
+      active: enableStripe || enablePayPal,
+    });
+
+    if (!updatedProduct) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    }
 
     return NextResponse.json({
       success: true,
       message: "Product updated successfully",
       product: {
-        id: updatedProduct.id,
+        id: updatedProduct._id,
         mentorId: updatedProduct.mentorId,
         title: updatedProduct.title,
-        description: updatedProduct.description,
-        imageUrl: updatedProduct.imageUrl,
+        description: updatedProduct.description ?? null,
+        imageUrl: updatedProduct.imageUrl ?? null,
         price: updatedProduct.price,
         currency: updatedProduct.currency,
         sessionsPerPack: updatedProduct.sessionsPerPack,
         validityDays: updatedProduct.validityDays,
-        mentorshipType: updatedProduct.mentorshipType,
-        stripePriceId: updatedProduct.stripePriceId,
-        stripeProductId: updatedProduct.stripeProductId,
-        paypalProductId: updatedProduct.paypalProductId,
+        mentorshipType: updatedProduct.mentorshipType ?? null,
+        stripePriceId: updatedProduct.stripePriceId ?? null,
+        stripeProductId: updatedProduct.stripeProductId ?? null,
+        paypalProductId: updatedProduct.paypalProductId ?? null,
         active: updatedProduct.active,
       },
       changes: {
@@ -250,7 +232,6 @@ export async function PUT(
       },
     });
   } catch (error) {
-    // Cleanup: if we created a new price but update failed, deactivate it
     if (newStripePriceId) {
       try {
         await stripe.prices.update(newStripePriceId, { active: false });
