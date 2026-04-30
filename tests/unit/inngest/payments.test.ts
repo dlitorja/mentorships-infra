@@ -11,15 +11,14 @@ vi.mock("convex/browser", () => {
   return {
     ConvexHttpClient: vi.fn().mockImplementation(() => ({
       query: vi.fn((api: any, args: any) => {
-        // Handle orders.getOrderByIdPublic
-        if (api && api.orders && api.orders.getOrderByIdPublic) {
-          const orderId = args?.id;
-          return Promise.resolve(mockOrders.get(orderId) || null);
-        }
-        // Handle payments.getPaymentByProviderId
-        if (api && api.payments && api.payments.getPaymentByProviderId) {
-          const key = `${args?.provider}:${args?.providerPaymentId}`;
+        // If args has provider and providerPaymentId, it's a payments query
+        if (args?.provider && args?.providerPaymentId) {
+          const key = `${args.provider}:${args.providerPaymentId}`;
           return Promise.resolve(mockPayments.get(key) || null);
+        }
+        // If args has id, it might be an orders query
+        if (args?.id) {
+          return Promise.resolve(mockOrders.get(args.id) || null);
         }
         return Promise.resolve(null);
       }),
