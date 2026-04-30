@@ -1,17 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  db,
-  mentorshipProducts,
-  mentors,
-  eq,
-  ilike,
-  or,
-  and,
-  sql,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
 import { stripe } from "@/lib/stripe";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import {
@@ -20,8 +10,16 @@ import {
   deletePayPalProduct,
 } from "@mentorships/payments";
 
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
+
 const createProductSchema = z.object({
-  mentorId: z.string().uuid("Invalid mentor ID format"),
+  mentorId: z.string().min(1, "Mentor ID is required"),
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().optional().default(""),
   imageUrl: z.string().url().optional().or(z.literal("")),
@@ -50,7 +48,7 @@ type CreateProductInput = z.infer<typeof createProductSchema>;
 
 const listProductsQuerySchema = z.object({
   search: z.string().trim().default(""),
-  mentorId: z.string().uuid().optional(),
+  mentorId: z.string().optional(),
   mentorshipType: z.enum(["one-on-one", "group"]).optional(),
   active: z
     .enum(["true", "false"])
@@ -62,12 +60,13 @@ const listProductsQuerySchema = z.object({
 
 /**
  * POST /api/admin/products
- * Create a product in Stripe, PayPal, and database
+ * Create a product in Stripe, PayPal, and Convex
  */
 export async function POST(req: NextRequest) {
   let stripeProductId: string | undefined;
   let stripePriceId: string | undefined;
   let paypalProductId: string | undefined;
+  let convexProductId: string | undefined;
 
   try {
     await requireRoleForApi("admin");
@@ -96,21 +95,16 @@ export async function POST(req: NextRequest) {
       enablePayPal,
     } = validationResult.data as CreateProductInput;
 
-    // Verify mentor exists
-    const [mentor] = await db
-      .select()
-      .from(mentors)
-      .where(eq(mentors.id, mentorId))
-      .limit(1);
+    const convex = getConvexClient();
 
-    if (!mentor) {
+    const instructor = await convex.query(api.instructors.getInstructorById, { id: mentorId as any });
+    if (!instructor) {
       return NextResponse.json(
-        { error: "Mentor not found" },
+        { error: "Instructor not found" },
         { status: 404 }
       );
     }
 
-    // Create product in Stripe
     if (enableStripe) {
       try {
         const stripeProduct = await stripe.products.create({
@@ -134,7 +128,6 @@ export async function POST(req: NextRequest) {
         stripePriceId = stripePrice.id;
       } catch (stripeError) {
         console.error("Failed to create Stripe product:", stripeError);
-        // Clean up orphaned Stripe product if price creation failed
         if (stripeProductId) {
           try {
             await stripe.products.update(stripeProductId, { active: false });
@@ -149,7 +142,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Create product in PayPal
     if (enablePayPal) {
       try {
         const paypalResult = await createPayPalProduct({
@@ -165,33 +157,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Create product in database
     try {
-      const [product] = await db
-        .insert(mentorshipProducts)
-        .values({
-          mentorId,
-          title,
-          description: description || null,
-          imageUrl: imageUrl || null,
-          price,
-          currency,
-          stripePriceId,
-          stripeProductId: stripeProductId || null,
-          paypalProductId: paypalProductId || null,
-          sessionsPerPack,
-          validityDays,
-          mentorshipType,
-          active: true,
-        })
-        .returning();
+      convexProductId = await convex.mutation(api.products.createProduct, {
+        mentorId,
+        title,
+        description: description || undefined,
+        imageUrl: imageUrl || undefined,
+        price,
+        currency,
+        sessionsPerPack,
+        validityDays,
+        stripePriceId: stripePriceId || undefined,
+        stripeProductId: stripeProductId || undefined,
+        paypalProductId: paypalProductId || undefined,
+        mentorshipType,
+        active: true,
+      });
 
-      // Build response with links
       const response = {
         success: true,
         message: "Product created successfully",
         product: {
-          id: product.id,
+          id: convexProductId,
           title,
           price,
           currency,
@@ -212,9 +199,8 @@ export async function POST(req: NextRequest) {
       };
 
       return NextResponse.json(response);
-    } catch (dbError) {
-      console.error("Failed to create product in database:", dbError);
-      // Cleanup PayPal product if DB insert fails
+    } catch (convexError) {
+      console.error("Failed to create product in Convex:", convexError);
       if (paypalProductId) {
         try {
           await deletePayPalProduct(paypalProductId);
@@ -222,7 +208,6 @@ export async function POST(req: NextRequest) {
           console.error("Failed to cleanup PayPal product:", cleanupError);
         }
       }
-      // Cleanup Stripe resources
       if (stripePriceId) {
         try {
           await stripe.prices.update(stripePriceId, { active: false });
@@ -238,12 +223,11 @@ export async function POST(req: NextRequest) {
         }
       }
       return NextResponse.json(
-        { error: "Failed to create product in database", details: dbError instanceof Error ? dbError.message : undefined },
+        { error: "Failed to create product in Convex", details: convexError instanceof Error ? convexError.message : undefined },
         { status: 500 }
       );
     }
   } catch (error) {
-    // Cleanup Stripe resources on failure
     if (stripePriceId) {
       try {
         await stripe.prices.update(stripePriceId, { active: false });
@@ -259,11 +243,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (isUnauthorizedError(error)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    if (error instanceof Error && "status" in error) {
+      const err = error as { status: number; message: string };
+      if (err.status === 401) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      if (err.status === 403) {
+        return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+      }
     }
 
     console.error("Error creating product:", error);
@@ -295,88 +282,94 @@ export async function GET(req: NextRequest) {
 
     const { search, mentorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
 
-    const whereConditions = [];
+    const convex = getConvexClient();
+
+    let products;
+    if (mentorId) {
+      products = await convex.query(api.products.getProductsByInstructorAndType, {
+        mentorId,
+        mentorshipType: mentorshipType || undefined,
+      });
+    } else {
+      products = await convex.query(api.products.getPublicActiveProducts, {});
+    }
+
+    let filtered = products;
 
     if (search) {
-      const escapedSearch = search.replace(/[%_]/g, "\\$&");
-      whereConditions.push(
-        or(
-          ilike(mentorshipProducts.title, `%${escapedSearch}%`),
-          ilike(mentorshipProducts.description, `%${escapedSearch}%`)
-        )
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter(p =>
+        p.title.toLowerCase().includes(searchLower) ||
+        (p.description && p.description.toLowerCase().includes(searchLower))
       );
     }
 
-    if (mentorId) {
-      whereConditions.push(eq(mentorshipProducts.mentorId, mentorId));
-    }
-
     if (mentorshipType) {
-      whereConditions.push(eq(mentorshipProducts.mentorshipType, mentorshipType));
+      filtered = filtered.filter(p => p.mentorshipType === mentorshipType);
     }
 
     if (active !== undefined) {
-      whereConditions.push(eq(mentorshipProducts.active, active));
+      filtered = filtered.filter(p => p.active === active);
     }
 
-    const whereClause = whereConditions.length > 0 ? and(...whereConditions) : undefined;
-
+    const total = filtered.length;
     const offset = (page - 1) * pageSize;
+    const paginatedItems = filtered.slice(offset, offset + pageSize);
 
-    const [products, countResult] = await Promise.all([
-      db
-        .select({
-          product: mentorshipProducts,
-          mentor: mentors,
-        })
-        .from(mentorshipProducts)
-        .leftJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
-        .where(whereClause)
-        .orderBy(mentorshipProducts.createdAt)
-        .limit(pageSize)
-        .offset(offset),
-      db
-        .select({
-          count: sql<number>`count(*)`,
-        })
-        .from(mentorshipProducts)
-        .where(whereClause),
-    ]);
+    const itemsWithMentorName = await Promise.all(
+      paginatedItems.map(async (product) => {
+        let mentorName = "Unknown Instructor";
+        if (product.mentorId) {
+          try {
+            const instructor = await convex.query(api.instructors.getInstructorById, {
+              id: product.mentorId as any,
+            });
+            if (instructor?.name) {
+              mentorName = instructor.name;
+            }
+          } catch {
+          }
+        }
 
-    const total = Number(countResult[0]?.count || 0);
+        return {
+          id: product._id,
+          mentorId: product.mentorId,
+          mentorName,
+          title: product.title,
+          description: product.description,
+          imageUrl: product.imageUrl,
+          price: product.price,
+          currency: product.currency,
+          sessionsPerPack: product.sessionsPerPack,
+          validityDays: product.validityDays,
+          mentorshipType: product.mentorshipType,
+          stripePriceId: product.stripePriceId,
+          stripeProductId: product.stripeProductId,
+          paypalProductId: product.paypalProductId,
+          paypalProductLink: product.paypalProductId
+            ? getPayPalProductDashboardLink(product.paypalProductId)
+            : null,
+          active: product.active,
+          createdAt: new Date(product._creationTime).toISOString(),
+        };
+      })
+    );
 
     return NextResponse.json({
-      items: products.map(({ product, mentor }) => ({
-        id: product.id,
-        mentorId: product.mentorId,
-        mentorName: mentor?.userId ? `Mentor (${mentor.userId.slice(0, 8)}...)` : "Unknown Mentor",
-        title: product.title,
-        description: product.description,
-        imageUrl: product.imageUrl,
-        price: product.price,
-        currency: product.currency,
-        sessionsPerPack: product.sessionsPerPack,
-        validityDays: product.validityDays,
-        mentorshipType: product.mentorshipType,
-        stripePriceId: product.stripePriceId,
-        stripeProductId: product.stripeProductId,
-        paypalProductId: product.paypalProductId,
-        paypalProductLink: product.paypalProductId 
-          ? getPayPalProductDashboardLink(product.paypalProductId)
-          : null,
-        active: product.active,
-        createdAt: product.createdAt.toISOString(),
-      })),
+      items: itemsWithMentorName,
       total,
       page,
       pageSize,
     });
   } catch (error) {
-    if (isUnauthorizedError(error)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    if (error instanceof Error && "status" in error) {
+      const err = error as { status: number; message: string };
+      if (err.status === 401) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      if (err.status === 403) {
+        return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+      }
     }
 
     console.error("Error listing products:", error);

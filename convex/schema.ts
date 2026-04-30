@@ -123,7 +123,7 @@ export default defineSchema({
     .index("by_provider_providerPaymentId", ["provider", "providerPaymentId"]),
 
   products: defineTable({
-    mentorId: v.optional(v.string()), // Using string to allow legacy IDs from mentors table
+    mentorId: v.optional(v.id("instructors")),
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),

@@ -4,13 +4,7 @@ import { inngest } from "@/inngest/client";
 import { stripe } from "@/lib/stripe";
 import { reportError, reportInfo } from "@/lib/observability";
 
-/**
- * Webhook handler that verifies Stripe signatures and sends events to Inngest
- * Inngest handles all processing with automatic retries, idempotency, and error handling
- */
-
 export async function POST(req: NextRequest) {
-  // Validate environment variable at runtime
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     await reportError({
@@ -34,7 +28,6 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event;
 
   try {
-    // Verify webhook signature (CRITICAL for security!)
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
   } catch (err) {
     await reportError({
@@ -51,8 +44,7 @@ export async function POST(req: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        
-        // Validate required metadata
+
         const orderId = session.metadata?.order_id;
         const userId = session.metadata?.user_id;
         const packId = session.metadata?.pack_id;
@@ -71,8 +63,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Send event to Inngest for processing
-        // Inngest will handle retries, idempotency, and error recovery
         await inngest.send({
           name: "stripe/checkout.session.completed",
           data: {
@@ -109,7 +99,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Send event to Inngest for processing
         await inngest.send({
           name: "stripe/charge.refunded",
           data: {
@@ -149,5 +138,4 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Disable body parsing (Stripe needs raw body)
 export const runtime = "nodejs";

@@ -27,22 +27,15 @@ const paypalWebhookEnvelopeSchema = z.object({
   resource: z.record(z.string(), z.unknown()),
 });
 
-/**
- * Webhook handler that verifies PayPal signatures and sends events to Inngest
- * Inngest handles all processing with automatic retries, idempotency, and error handling
- */
-
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const headers: Record<string, string | string[] | undefined> = {};
-  
-  // Convert headers to plain object
+
   req.headers.forEach((value, key) => {
     headers[key.toLowerCase()] = value;
   });
 
   try {
-    // Verify webhook signature
     const webhookId = getPayPalWebhookId();
     const isValid = await verifyPayPalWebhookSignature(body, headers, webhookId);
 
@@ -56,7 +49,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
-    // Parse webhook event
     let parsedJson: unknown;
     try {
       parsedJson = JSON.parse(body);
@@ -93,7 +85,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid event" }, { status: 400 });
     }
 
-    // Handle different event types
     switch (parsedEvent.eventType) {
       case "PAYMENT.CAPTURE.COMPLETED": {
         const resourceResult = paymentResourceSchema.safeParse(parsedEvent.resource);
@@ -109,7 +100,7 @@ export async function POST(req: NextRequest) {
 
         const { id: captureId, links } = resourceResult.data;
         const orderLink = links?.find((link) => link.rel === "up");
-        
+
         if (!orderLink?.href) {
           await reportError({
             source: "webhooks/paypal",
@@ -124,7 +115,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Extract PayPal order ID from the href (format: https://api.paypal.com/v2/checkout/orders/{ORDER_ID})
         const orderIdMatch = orderLink.href.match(/\/orders\/([^\/]+)/);
         if (!orderIdMatch) {
           await reportError({
@@ -141,14 +131,13 @@ export async function POST(req: NextRequest) {
         }
         const paypalOrderId = orderIdMatch[1];
 
-        // Fetch the parent order to get custom_id from purchase_units
         let orderId: string | undefined;
         let packId: string | undefined;
-        
+
         try {
           const paypalOrder = await getPayPalOrder(paypalOrderId);
           const purchaseUnits = paypalOrder.purchaseUnits;
-          
+
           if (purchaseUnits && purchaseUnits.length > 0) {
             const customId = purchaseUnits[0].customId;
             if (typeof customId === "string") {
@@ -157,7 +146,6 @@ export async function POST(req: NextRequest) {
                 orderId = decoded.orderId;
                 packId = decoded.packId;
               } catch {
-                // Fallback: if not JSON, assume it's just orderId (legacy)
                 orderId = customId;
               }
             }
@@ -176,35 +164,20 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        if (!orderId) {
+        if (!orderId || !packId) {
           await reportError({
             source: "webhooks/paypal",
-            error: new Error("Missing order_id in PayPal capture event"),
-            message: "Missing order_id in PayPal capture event",
+            error: new Error("Missing order_id or pack_id in PayPal capture event"),
+            message: "Missing order_id or pack_id in PayPal capture event",
             level: "error",
-            context: { captureId, eventId: parsedEvent.id },
+            context: { orderId, packId, captureId, eventId: parsedEvent.id },
           });
           return NextResponse.json(
-            { error: "Missing order_id" },
+            { error: "Missing order_id or pack_id" },
             { status: 400 }
           );
         }
 
-        if (!packId) {
-          await reportError({
-            source: "webhooks/paypal",
-            error: new Error("Missing pack_id in PayPal capture event"),
-            message: "Missing pack_id in PayPal capture event",
-            level: "error",
-            context: { orderId, captureId, eventId: parsedEvent.id },
-          });
-          return NextResponse.json(
-            { error: "Missing pack_id" },
-            { status: 400 }
-          );
-        }
-        
-        // Send event to Inngest for processing
         await inngest.send({
           name: "paypal/payment.capture.completed",
           data: {
@@ -236,7 +209,7 @@ export async function POST(req: NextRequest) {
 
         const { id: refundId, links } = resourceResult.data;
         const captureLink = links?.find((link) => link.rel === "up");
-        
+
         if (!captureLink?.href) {
           await reportError({
             source: "webhooks/paypal",
@@ -251,7 +224,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Extract capture ID from the href (format: https://api.paypal.com/v2/payments/captures/{CAPTURE_ID})
         const captureIdMatch = captureLink.href.match(/\/captures\/([^\/]+)/);
         if (!captureIdMatch) {
           await reportError({
@@ -268,7 +240,6 @@ export async function POST(req: NextRequest) {
         }
         const captureId = captureIdMatch[1];
 
-        // Send event to Inngest for processing
         await inngest.send({
           name: "paypal/payment.capture.refunded",
           data: {
@@ -307,6 +278,4 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Disable body parsing (PayPal needs raw body for signature verification)
 export const runtime = "nodejs";
-

@@ -12,6 +12,11 @@ interface MenteeResultData {
   studentName?: string;
 }
 
+interface PricingData {
+  oneOnOne: number;
+  group?: number;
+}
+
 interface InstructorSeedData {
   name: string;
   slug: string;
@@ -26,6 +31,7 @@ interface InstructorSeedData {
   isNew?: boolean;
   testimonials: TestimonialData[];
   menteeResults: MenteeResultData[];
+  pricing: PricingData;
 }
 
 const instructorData: InstructorSeedData[] = [
@@ -53,6 +59,7 @@ const instructorData: InstructorSeedData[] = [
     isNew: false,
     testimonials: [],
     menteeResults: [],
+    pricing: { oneOnOne: 400 },
   },
   {
     name: "Cameron Nissen",
@@ -76,6 +83,7 @@ const instructorData: InstructorSeedData[] = [
     isNew: false,
     testimonials: [],
     menteeResults: [],
+    pricing: { oneOnOne: 375 },
   },
   {
     name: "Nino Vecia",
@@ -99,6 +107,7 @@ const instructorData: InstructorSeedData[] = [
     isNew: false,
     testimonials: [],
     menteeResults: [],
+    pricing: { oneOnOne: 475 },
   },
   {
     name: "Oliver Titley",
@@ -127,6 +136,7 @@ const instructorData: InstructorSeedData[] = [
       },
     ],
     menteeResults: [],
+    pricing: { oneOnOne: 400 },
   },
   {
     name: "Malina Dowling",
@@ -151,6 +161,7 @@ const instructorData: InstructorSeedData[] = [
     isNew: false,
     testimonials: [],
     menteeResults: [],
+    pricing: { oneOnOne: 375 },
   },
   {
     name: "Rakasa",
@@ -199,6 +210,7 @@ const instructorData: InstructorSeedData[] = [
         studentName: "Mentee Success Story",
       },
     ],
+    pricing: { oneOnOne: 475, group: 250 },
   },
   {
     name: "Amanda Kiefer",
@@ -224,6 +236,7 @@ const instructorData: InstructorSeedData[] = [
       },
     ],
     menteeResults: [],
+    pricing: { oneOnOne: 375 },
   },
   {
     name: "Neil Gray",
@@ -289,6 +302,7 @@ const instructorData: InstructorSeedData[] = [
         studentName: "Mentee Success Story",
       },
     ],
+    pricing: { oneOnOne: 460 },
   },
   {
     name: "Ash Kirk",
@@ -349,6 +363,7 @@ const instructorData: InstructorSeedData[] = [
       },
     ],
     menteeResults: [],
+    pricing: { oneOnOne: 375 },
   },
   {
     name: "Andrea Sipl",
@@ -391,6 +406,7 @@ const instructorData: InstructorSeedData[] = [
       },
     ],
     menteeResults: [],
+    pricing: { oneOnOne: 300 },
   },
 ];
 
@@ -490,6 +506,167 @@ export const seedInstructorProfiles = mutation({
       message: "Seed completed",
       results,
       totalInstructors: instructorData.length,
+    };
+  },
+});
+
+export const seedInstructorsWithProducts = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const results: {
+      instructor: string;
+      slug: string;
+      instructorId: any;
+      oneOnOneProductId: any;
+      groupProductId: any | null;
+      oneOnOneInventory: number;
+      groupInventory: number;
+    }[] = [];
+
+    for (const instructor of instructorData) {
+      const existingInstructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_slug", (q) => q.eq("slug", instructor.slug))
+        .first();
+
+      let instructorId: any;
+      let oneOnOneInventory = 3;
+      let groupInventory = instructor.pricing.group ? 2 : 0;
+
+      if (existingInstructor) {
+        instructorId = existingInstructor._id;
+        await ctx.db.patch(existingInstructor._id, {
+          name: instructor.name,
+          slug: instructor.slug,
+          tagline: instructor.tagline,
+          bio: instructor.bio,
+          background: instructor.background,
+          specialties: instructor.specialties,
+          profileImageUrl: instructor.profileImageUrl,
+          portfolioImages: instructor.portfolioImages,
+          socials: instructor.socials,
+          isActive: instructor.isActive,
+          isNew: instructor.isNew,
+          oneOnOneInventory,
+          groupInventory,
+          maxActiveStudents: 10,
+        });
+      } else {
+        instructorId = await ctx.db.insert("instructors", {
+          name: instructor.name,
+          slug: instructor.slug,
+          tagline: instructor.tagline,
+          bio: instructor.bio,
+          background: instructor.background,
+          specialties: instructor.specialties,
+          profileImageUrl: instructor.profileImageUrl,
+          portfolioImages: instructor.portfolioImages,
+          socials: instructor.socials,
+          isActive: instructor.isActive,
+          isNew: instructor.isNew,
+          oneOnOneInventory,
+          groupInventory,
+          maxActiveStudents: 10,
+        });
+      }
+
+      const oneOnOneProductId = await ctx.db.insert("products", {
+        mentorId: instructorId,
+        title: "1-on-1 Mentorship",
+        description: `${instructor.name} - 4-session 1-on-1 mentorship pack`,
+        price: instructor.pricing.oneOnOne.toString(),
+        currency: "usd",
+        sessionsPerPack: 4,
+        validityDays: 60,
+        mentorshipType: "one-on-one",
+        active: instructor.isActive,
+      });
+
+      let groupProductId: any = null;
+      if (instructor.pricing.group) {
+        groupProductId = await ctx.db.insert("products", {
+          mentorId: instructorId,
+          title: "Group Mentorship",
+          description: `${instructor.name} - 4-session group mentorship pack`,
+          price: instructor.pricing.group.toString(),
+          currency: "usd",
+          sessionsPerPack: 4,
+          validityDays: 60,
+          mentorshipType: "group",
+          active: instructor.isActive,
+        });
+      }
+
+      results.push({
+        instructor: instructor.name,
+        slug: instructor.slug,
+        instructorId,
+        oneOnOneProductId,
+        groupProductId,
+        oneOnOneInventory,
+        groupInventory,
+      });
+    }
+
+    return {
+      message: "Seed instructors and products completed",
+      results,
+      totalInstructors: instructorData.length,
+    };
+  },
+});
+
+export const backfillInstructorProfileMentorIds = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const profiles = await ctx.db.query("instructorProfiles").collect();
+    const results: { slug: string; mentorId: string | null }[] = [];
+
+    for (const profile of profiles) {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_slug", (q) => q.eq("slug", profile.slug))
+        .first();
+
+      if (instructor) {
+        await ctx.db.patch(profile._id, {
+          mentorId: instructor._id.toString(),
+        });
+        results.push({ slug: profile.slug, mentorId: instructor._id.toString() });
+      } else {
+        results.push({ slug: profile.slug, mentorId: null });
+      }
+    }
+
+    return {
+      message: "Backfill completed",
+      results,
+      totalProfiles: profiles.length,
+    };
+  },
+});
+
+export const clearInstructorsAndProducts = mutation({
+  args: { confirm: v.boolean() },
+  handler: async (ctx, args) => {
+    if (!args.confirm) {
+      return { message: "Please pass confirm: true to actually clear data" };
+    }
+
+    const instructors = await ctx.db.query("instructors").collect();
+    for (const instructor of instructors) {
+      await ctx.db.delete(instructor._id);
+    }
+
+    const products = await ctx.db.query("products").collect();
+    for (const product of products) {
+      await ctx.db.delete(product._id);
+    }
+
+    return {
+      message: "Cleared instructors and products",
+      instructorsDeleted: instructors.length,
+      productsDeleted: products.length,
     };
   },
 });
