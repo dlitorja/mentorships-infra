@@ -11,7 +11,7 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: April 30, 2026
+**Last Updated**: April 30, 2026 (Phase 4A-2 complete)
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
@@ -374,6 +374,10 @@ This monorepo contains multiple applications with distinct responsibilities:
 - Build verified successful
 - Phase 2 (Schema Translation) COMPLETED ✅
 - Phase 3 (Frontend Integration) COMPLETED ✅
+- Phase 4A (API Route Migration) COMPLETED ✅ (PRs #202, #203)
+  - Checkout routes migrated
+  - Admin routes migrated (products/[id], orders, refunds)
+  - ~14 @mentorships/db imports removed
 
 **Phase 3: Frontend Integration - COMPLETED** ✅
 - [x] Installed `@convex-dev/react-query` package
@@ -410,7 +414,7 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 **What Moves to Convex**:
 - Database (all tables: users, mentors, sessions, etc.)
-- API Routes (replaced with Convex queries/mutations)
+- API Routes (Phase 4A: checkout + admin routes migrated; ~111 imports remain)
 - File Storage (images ≤1MB free, ≤5MB Pro)
 - Workspace features (notes, links, images, messages)
 
@@ -429,6 +433,33 @@ This monorepo contains multiple applications with distinct responsibilities:
 - Auth: Convex configured with Clerk JWT issuer
 
 **Estimated Timeline**: ~3-4 weeks (21 days)
+
+**Phase 4A: API Route Migration - COMPLETED** ✅
+- [x] Migrated checkout routes (stripe, paypal, verify, cancel, success, capture)
+- [x] Migrated products route (by-stripe-price)
+- [x] Migrated session-packs routes (list, my)
+- [x] Migrated admin routes (products/[id], orders, refunds)
+- [x] Created `lib/errors.ts` with UnauthorizedError/ForbiddenError classes
+- [x] Created `lib/convex.ts` for shared getConvexClient
+- [x] Added Convex functions: getProductForAdmin, getOrdersForAdmin, adminProcessRefund
+- [x] Fixed P1 security: added requireAuth to checkout/cancel
+- [x] Fixed P2: added order existence verification in checkout/success
+- [x] Fixed CodeRabbit issue: replaced redirect() with NextResponse.redirect()
+
+**What moved to Convex (Phase 4A)**:
+- Checkout API routes → Convex queries/mutations
+- Admin product/order/refund routes → Convex queries/mutations
+- External services (Stripe, PayPal) remain in routes
+
+**What stays in routes (Phase 4A)**:
+- Stripe/PayPal API calls (webhooks, refunds)
+- create-from-stripe (complex Stripe integration)
+
+**Remaining API routes to migrate (~111 imports)**:
+- Admin routes: instructors, mentees, workspaces, audit-logs, etc.
+- Instructor routes: testimonials, mentees-results, sessions, etc.
+- Public routes: availability, booking, etc.
+- Webhook handlers (will need separate strategy)
 
 ---
 
@@ -1071,6 +1102,38 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
     - `products.mentorshipType` field (refers to session type, not role)
   - **Reference**: PR #197
 
+- ✅ **Phase 4A: API Route Migration - Checkout Routes** (COMPLETED - April 30, 2026)
+   - **Goal**: Migrate checkout/payment-critical routes from Drizzle/Supabase to Convex
+   - **Migrated routes** (PR #202):
+     - `checkout/stripe` - Create Stripe checkout sessions
+     - `checkout/paypal` - Create PayPal orders
+     - `checkout/verify` - Verify checkout sessions
+     - `checkout/cancel` - Cancel checkout (now requires auth - P1 security fix)
+     - `checkout/success` - Handle successful checkout (now verifies order exists - P2 fix)
+     - `checkout/paypal/capture` - Capture PayPal payment
+     - `products/by-stripe-price` - Get product by Stripe price ID
+     - `session-packs` - List session packs
+     - `session-packs/me` - Get user's session packs
+   - **Infrastructure changes**:
+     - Created `lib/errors.ts` with UnauthorizedError/ForbiddenError classes
+     - Created `lib/convex.ts` for shared getConvexClient (eliminates duplication)
+     - Updated `lib/auth-helpers.ts` and `lib/auth.ts` to remove @mentorships/db imports
+   - **Security fixes**:
+     - P1: Added requireAuth to checkout/cancel (was public)
+     - P2: Added order existence verification in checkout/success before redirect
+     - Fixed: Replaced redirect() with NextResponse.redirect() to avoid try/catch issues
+
+- ✅ **Phase 4A: API Route Migration - Admin Routes** (COMPLETED - April 30, 2026)
+   - **Migrated routes** (PR #203):
+     - `admin/products/[id]` - GET/PUT product (uses Convex getProductForAdmin + updateProduct)
+     - `admin/orders` - GET orders list (uses Convex getOrdersForAdmin)
+     - `admin/refunds` - POST refund (keeps Stripe/PayPal calls, uses Convex adminProcessRefund)
+   - **New Convex functions**:
+     - `convex/products.ts`: `getProductForAdmin` - product with instructor name for admin
+     - `convex/orders.ts`: `getOrdersForAdmin` - paginated orders with user + payment info
+     - `convex/payments.ts`: `adminProcessRefund` - handles payment/order DB updates
+   - **Approach**: External API calls (Stripe/PayPal) stay in routes; DB operations move to Convex
+
 - 🚧 **Booking Functionality Completion** (PENDING)
   - Instructor detail pages now read from Convex (instructorProfiles has data, getInstructorBySlug works)
   - But full booking requires:
@@ -1079,6 +1142,30 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
     3. **Inventory counts** set on instructor records
   - Currently: `instructorProfiles.mentorId` is NOT set, `instructors` table is empty, `products` table is empty
   - **Option B (Full Convex migration)** decided: checkout mutations will also move to Convex (separate session)
+
+### Phase 4: Convex API Route Migration - Remaining Work
+
+**Status**: Phase 4A partially complete (checkout + admin routes done)
+
+**Completed**:
+- ✅ Phase 4A-1: Checkout routes (stripe, paypal, verify, cancel, success, capture)
+- ✅ Phase 4A-2: Admin routes (products/[id], orders, refunds)
+- ~14 @mentorships/db imports removed
+
+**Remaining (~111 imports to migrate)**:
+- **4B: Instructor/mentee routes** - testimonials, mentees-results, sessions, session-counts
+- **4C: Webhook handlers** - stripe, paypal webhooks (keep but migrate other DB ops)
+- **4D: Public routes** - availability, booking, instructor pages
+- **4E: Admin remaining** - instructors, mentees, workspaces, audit-logs, inventory, waitlist
+- **create-from-stripe** - complex Stripe integration, keep on Drizzle for now
+
+**Approach for remaining routes**:
+1. Create Convex functions BEFORE migrating each route
+2. Use multiple sessions (4A-1, 4A-2, 4A-3...) to avoid blocking
+3. Keep Stripe/PayPal API calls in routes; move only DB ops to Convex
+4. Create PR, wait 3 minutes, fix failed CI checks, fix PR conflicts
+
+**Testing**: Manual smoke test of checkout + admin flows (Phase 4A-3) - PENDING
 
 - ✅ **Minor Enhancements** (COMPLETED - April 2026)
   - Pagination in admin workspace list (`useInfiniteQuery`)
