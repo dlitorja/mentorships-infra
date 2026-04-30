@@ -63,7 +63,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       currency: "usd",
     });
 
-    orderId = typeof order === "string" ? order : order._id;
+    orderId = order as string;
 
     let baseUrl: string;
     if (process.env.NEXT_PUBLIC_URL) {
