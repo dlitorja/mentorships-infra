@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 /** Fetches a single order by ID, returning null if unauthenticated. */
@@ -13,8 +13,8 @@ export const getOrderById = query({
   },
 });
 
-/** Fetches a single order by ID without requiring authentication. */
-export const getOrderByIdPublic = query({
+/** Fetches a single order by ID without requiring authentication. Internal use only. */
+export const getOrderByIdPublic = internalQuery({
   args: { id: v.id("orders") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);

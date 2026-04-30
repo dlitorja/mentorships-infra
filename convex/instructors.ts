@@ -1,19 +1,29 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 
-export const getStorageUrl = query({
+export const getStorageUrl = mutation({
   args: { storageId: v.string() },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
     const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
     return url;
   },
 });
 
-export const getMigrationStatus = query({
+export const getMigrationStatus = mutation({
   args: {},
   handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+
     const instructors = await ctx.db.query("instructors").collect();
     const profiles = await ctx.db.query("instructorProfiles").collect();
     const menteeResults = await ctx.db.query("menteeResults").collect();
@@ -60,9 +70,11 @@ export const getMigrationStatus = query({
   },
 });
 
-export const getInstructorByUserIdExternal = query({
+export const getInstructorByUserIdExternal = mutation({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
     return await ctx.db
       .query("instructors")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
@@ -78,7 +90,7 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   return user?.role === "admin";
 }
 
-export const listInstructorsInternal = query({
+export const listInstructorsInternal = internalQuery({
   args: {},
   handler: async (ctx) => {
     return await ctx.db
@@ -88,14 +100,14 @@ export const listInstructorsInternal = query({
   },
 });
 
-export const listInstructorProfilesInternal = query({
+export const listInstructorProfilesInternal = internalQuery({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("instructorProfiles").collect();
   },
 });
 
-export const listMenteeResultsInternal = query({
+export const listMenteeResultsInternal = internalQuery({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("menteeResults").collect();
@@ -538,6 +550,8 @@ function buildStorageKey(instructorSlug: string, type: ImageType, storageId: str
 export const generateInstructorUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -556,9 +570,12 @@ export const uploadInstructorProfileImage = mutation({
 
     const storageKey = buildStorageKey(instructor.slug, "profile", args.storageId);
     const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
 
     await ctx.db.patch(args.instructorId, {
-      profileImageUrl: url ?? `convex://storage/${args.storageId}`,
+      profileImageUrl: url,
       profileImageStorageId: args.storageId,
     });
 
@@ -580,6 +597,9 @@ export const uploadInstructorPortfolioImage = mutation({
     }
 
     const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
 
     const currentPortfolio = instructor.portfolioImages ?? [];
     const currentStorageIds = instructor.portfolioImageStorageIds ?? [];
@@ -592,7 +612,7 @@ export const uploadInstructorPortfolioImage = mutation({
       newStorageIds.push("");
     }
 
-    newPortfolioImages[args.index] = url ?? `convex://storage/${args.storageId}`;
+    newPortfolioImages[args.index] = url;
     newStorageIds[args.index] = args.storageId;
 
     await ctx.db.patch(args.instructorId, {
@@ -617,9 +637,12 @@ export const uploadMenteeResultImage = mutation({
     }
 
     const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
 
     await ctx.db.patch(args.menteeResultId, {
-      imageUrl: url ?? `convex://storage/${args.storageId}`,
+      imageUrl: url,
       imageStorageId: args.storageId,
     });
 

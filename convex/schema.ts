@@ -125,7 +125,7 @@ export default defineSchema({
     .index("by_provider_providerPaymentId", ["provider", "providerPaymentId"]),
 
   products: defineTable({
-    mentorId: v.optional(v.id("instructors")),
+    mentorId: v.optional(v.string()), // Using string for backward compatibility; migrate to instructor IDs
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
