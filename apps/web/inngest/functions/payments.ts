@@ -1,7 +1,7 @@
 import { inngest } from "../client";
-import { api } from "../../../convex/_generated/api";
+import { api } from "../../../../convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
-import { Id } from "../../../convex/_generated/dataModel";
+import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
 
 function getConvexClient() {
