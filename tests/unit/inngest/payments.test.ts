@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 process.env.NEXT_PUBLIC_CONVEX_URL = "https://test-convex-url.convex.cloud";
 
 // Mock the ConvexHttpClient with dynamic response based on API called
-vi.mock("../../../apps/web/node_modules/convex/browser", () => {
+vi.mock("convex/browser", () => {
   const mockOrders = new Map();
   const mockPayments = new Map();
 
@@ -152,7 +152,7 @@ describe("Inngest Payment Functions", () => {
   describe("Business Logic Tests", () => {
     it("should check idempotency - skip already paid order", async () => {
       // Import the mock module to set up data
-      const convexMock = await import("../../../apps/web/node_modules/convex/browser");
+      const convexMock = await import("convex/browser");
       const paymentModule = await import("../../../apps/web/inngest/functions/payments");
 
       const mockOrder = {
@@ -193,7 +193,7 @@ describe("Inngest Payment Functions", () => {
     });
 
     it("should throw error when order not found after retries", async () => {
-      const convexMock = await import("../../../apps/web/node_modules/convex/browser");
+      const convexMock = await import("convex/browser");
       const paymentModule = await import("../../../apps/web/inngest/functions/payments");
 
       // Don't set any mock order - it will return null and throw after retries
@@ -223,7 +223,7 @@ describe("Inngest Payment Functions", () => {
     });
 
     it("should process PayPal refund with idempotency check", async () => {
-      const convexMock = await import("../../../apps/web/node_modules/convex/browser");
+      const convexMock = await import("convex/browser");
       const paymentModule = await import("../../../apps/web/inngest/functions/payments");
 
       const mockPayment = {
