@@ -1,7 +1,86 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+
+export const getStorageUrl = mutation({
+  args: { storageId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    return url;
+  },
+});
+
+export const getMigrationStatus = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+
+    const instructors = await ctx.db.query("instructors").collect();
+    const profiles = await ctx.db.query("instructorProfiles").collect();
+    const menteeResults = await ctx.db.query("menteeResults").collect();
+
+    const instructorsNeedingProfileMigration = instructors.filter(
+      (i) => i.profileImageUrl && !i.profileImageStorageId
+    ).length;
+
+    const instructorsNeedingPortfolioMigration = instructors.filter(
+      (i) => i.portfolioImages &&
+      i.portfolioImages.length > 0 &&
+      (!i.portfolioImageStorageIds || i.portfolioImageStorageIds.length < i.portfolioImages.length)
+    ).length;
+
+    const profilesNeedingProfileMigration = profiles.filter(
+      (p) => p.profileImageUrl && !p.profileImageStorageId
+    ).length;
+
+    const profilesNeedingPortfolioMigration = profiles.filter(
+      (p) => p.portfolioImages &&
+      p.portfolioImages.length > 0 &&
+      (!p.portfolioImageStorageIds || p.portfolioImageStorageIds.length < p.portfolioImages.length)
+    ).length;
+
+    const menteeResultsNeedingMigration = menteeResults.filter(
+      (r) => r.imageUrl && !r.imageStorageId
+    ).length;
+
+    const instructorsWithStorageId = instructors.filter((i) => i.profileImageStorageId).length;
+    const profilesWithStorageId = profiles.filter((p) => p.profileImageStorageId).length;
+
+    return {
+      instructorsNeedingProfileMigration,
+      instructorsNeedingPortfolioMigration,
+      profilesNeedingProfileMigration,
+      profilesNeedingPortfolioMigration,
+      menteeResultsNeedingMigration,
+      instructorsWithStorageId,
+      profilesWithStorageId,
+      totalInstructors: instructors.length,
+      totalProfiles: profiles.length,
+      totalMenteeResults: menteeResults.length,
+    };
+  },
+});
+
+export const getInstructorByUserIdExternal = mutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+  },
+});
 
 async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -10,6 +89,51 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
     .first();
   return user?.role === "admin";
 }
+
+export const listInstructorsInternal = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+    return await ctx.db
+      .query("instructors")
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .collect();
+  },
+});
+
+export const listInstructorProfilesInternal = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+    return await ctx.db.query("instructorProfiles").collect();
+  },
+});
+
+export const listMenteeResultsInternal = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+    return await ctx.db.query("menteeResults").collect();
+  },
+});
 
 /** Returns the instructor matching the given userId, or null if not authenticated. */
 export const getInstructorByUserId = query({
@@ -299,6 +423,26 @@ export const createMenteeResult = mutation({
   },
 });
 
+export const createMenteeResultWithStorage = mutation({
+  args: {
+    instructorId: v.id('instructors'),
+    imageUrl: v.string(),
+    imageStorageId: v.string(),
+    studentName: v.optional(v.string()),
+    createdBy: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert('menteeResults', {
+      instructorId: args.instructorId,
+      imageUrl: args.imageUrl,
+      imageStorageId: args.imageStorageId,
+      studentName: args.studentName,
+      createdBy: args.createdBy,
+      createdAt: Date.now(),
+    });
+  },
+});
+
 /** Idempotent upsert for instructor profiles, keyed on slug. */
 export const upsertInstructorProfile = mutation({
   args: {
@@ -414,5 +558,274 @@ export const upsertMenteeResult = mutation({
       studentName: args.studentName,
       createdAt: Date.now(),
     });
+  },
+});
+
+type ImageType = "profile" | "portfolio" | "result";
+
+function buildStorageKey(instructorSlug: string, type: ImageType, storageId: string): string {
+  const typeFolder = type === "profile" ? "profile" : type === "portfolio" ? "portfolio" : "results";
+  return `instructors/${instructorSlug}/${typeFolder}/${storageId}`;
+}
+
+export const generateInstructorUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const uploadInstructorProfileImage = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageId: v.string(),
+    contentType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || !instructor.slug) {
+      throw new Error("Instructor not found or missing slug");
+    }
+
+    const storageKey = buildStorageKey(instructor.slug, "profile", args.storageId);
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
+
+    await ctx.db.patch(args.instructorId, {
+      profileImageUrl: url,
+      profileImageStorageId: args.storageId,
+    });
+
+    return { storageId: args.storageId, url, storageKey };
+  },
+});
+
+export const uploadInstructorPortfolioImage = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageId: v.string(),
+    contentType: v.string(),
+    index: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || !instructor.slug) {
+      throw new Error("Instructor not found or missing slug");
+    }
+
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
+
+    const currentPortfolio = instructor.portfolioImages ?? [];
+    const currentStorageIds = instructor.portfolioImageStorageIds ?? [];
+
+    const newPortfolioImages = [...currentPortfolio];
+    const newStorageIds = [...currentStorageIds];
+
+    while (newPortfolioImages.length <= args.index) {
+      newPortfolioImages.push("");
+      newStorageIds.push("");
+    }
+
+    newPortfolioImages[args.index] = url;
+    newStorageIds[args.index] = args.storageId;
+
+    await ctx.db.patch(args.instructorId, {
+      portfolioImages: newPortfolioImages,
+      portfolioImageStorageIds: newStorageIds,
+    });
+
+    return { storageId: args.storageId, url, index: args.index };
+  },
+});
+
+export const uploadMenteeResultImage = mutation({
+  args: {
+    menteeResultId: v.id("menteeResults"),
+    storageId: v.string(),
+    contentType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const menteeResult = await ctx.db.get(args.menteeResultId);
+    if (!menteeResult) {
+      throw new Error("Mentee result not found");
+    }
+
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
+
+    await ctx.db.patch(args.menteeResultId, {
+      imageUrl: url,
+      imageStorageId: args.storageId,
+    });
+
+    return { storageId: args.storageId, url };
+  },
+});
+
+export const updateInstructorProfileImage = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      throw new Error("Instructor not found");
+    }
+
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
+
+    await ctx.db.patch(args.instructorId, {
+      profileImageStorageId: args.storageId,
+      profileImageUrl: url,
+    });
+
+    return { storageId: args.storageId, url };
+  },
+});
+
+export const updateInstructorPortfolioImage = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageId: v.string(),
+    index: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      throw new Error("Instructor not found");
+    }
+
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
+
+    const currentStorageIds = instructor.portfolioImageStorageIds ?? [];
+    const newStorageIds = [...currentStorageIds];
+
+    while (newStorageIds.length <= args.index) {
+      newStorageIds.push("");
+    }
+    newStorageIds[args.index] = args.storageId;
+
+    const currentUrls = instructor.portfolioImages ?? [];
+    const newUrls = [...currentUrls];
+    while (newUrls.length <= args.index) {
+      newUrls.push("");
+    }
+    newUrls[args.index] = url;
+
+    await ctx.db.patch(args.instructorId, {
+      portfolioImageStorageIds: newStorageIds,
+      portfolioImages: newUrls,
+    });
+
+    return { storageId: args.storageId, url, index: args.index };
+  },
+});
+
+export const updateInstructorProfileStorageId = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageId: v.string(),
+    url: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.instructorId, {
+      profileImageStorageId: args.storageId,
+      profileImageUrl: args.url,
+    });
+    return { storageId: args.storageId, url: args.url };
+  },
+});
+
+export const updateInstructorPortfolioStorageIds = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageIds: v.array(v.string()),
+    urls: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.instructorId, {
+      portfolioImageStorageIds: args.storageIds,
+      portfolioImages: args.urls,
+    });
+    return { storageIds: args.storageIds, urls: args.urls };
+  },
+});
+
+export const updateMenteeResultStorageId = mutation({
+  args: {
+    menteeResultId: v.id("menteeResults"),
+    storageId: v.string(),
+    url: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.menteeResultId, {
+      imageStorageId: args.storageId,
+      imageUrl: args.url,
+    });
+    return { storageId: args.storageId, url: args.url };
+  },
+});
+
+export const updateInstructorProfileStorageIdForProfile = mutation({
+  args: {
+    slug: v.string(),
+    storageId: v.string(),
+    url: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const profile = await ctx.db
+      .query("instructorProfiles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    if (!profile) {
+      throw new Error("Instructor profile not found");
+    }
+
+    await ctx.db.patch(profile._id, {
+      profileImageStorageId: args.storageId,
+      profileImageUrl: args.url,
+    });
+    return { storageId: args.storageId, url: args.url };
+  },
+});
+
+export const updateInstructorPortfolioStorageIdsForProfile = mutation({
+  args: {
+    slug: v.string(),
+    storageIds: v.array(v.string()),
+    urls: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const profile = await ctx.db
+      .query("instructorProfiles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+
+    if (!profile) {
+      throw new Error("Instructor profile not found");
+    }
+
+    await ctx.db.patch(profile._id, {
+      portfolioImageStorageIds: args.storageIds,
+      portfolioImages: args.urls,
+    });
+    return { storageIds: args.storageIds, urls: args.urls };
   },
 });

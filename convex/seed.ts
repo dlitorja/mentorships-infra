@@ -649,6 +649,14 @@ export const backfillInstructorProfileMentorIds = mutation({
 export const clearInstructorsAndProducts = mutation({
   args: { confirm: v.boolean() },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+
     if (!args.confirm) {
       return { message: "Please pass confirm: true to actually clear data" };
     }
@@ -674,6 +682,14 @@ export const clearInstructorsAndProducts = mutation({
 export const clearInstructorData = mutation({
   args: { confirm: v.boolean() },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+
     if (!args.confirm) {
       return { message: "Please pass confirm: true to actually clear data" };
     }

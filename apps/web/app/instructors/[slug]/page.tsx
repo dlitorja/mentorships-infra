@@ -60,7 +60,9 @@ type Instructor = {
   specialties?: string[];
   background?: string[];
   profileImageUrl?: string;
+  profileImageStorageId?: string;
   portfolioImages?: string[];
+  portfolioImageStorageIds?: string[];
   socials?: SocialPlatform[];
   isActive: boolean;
   mentorId?: string;

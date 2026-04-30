@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabase-admin";
-import { getInstructorByUserId } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError } from "@/lib/auth";
-
-const BUCKET_NAME = "instructor-assets";
 
 const ALLOWED_TYPES = [
   "image/jpeg",
-  "image/png", 
+  "image/png",
   "image/webp",
   "image/gif",
 ];
@@ -15,17 +14,17 @@ const ALLOWED_TYPES = [
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
+
 function getFileExtension(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   return ext || ".jpg";
-}
-
-function generateStoragePath(
-  instructorSlug: string,
-  fileExtension: string
-): string {
-  const uuid = crypto.randomUUID();
-  return `instructors/${instructorSlug}/results/${uuid}${fileExtension}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -33,8 +32,12 @@ export async function POST(req: NextRequest) {
     const { requireDbUser } = await import("@/lib/auth");
     const user = await requireDbUser();
 
-    // Get instructor by user ID
-    const instructor = await getInstructorByUserId(user.id);
+    const convex = getConvexClient();
+
+    const instructor = await convex.mutation(api.instructors.getInstructorByUserIdExternal, {
+      userId: user.id,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -52,7 +55,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate file type
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
         { error: "Invalid file type. Allowed: jpg, png, webp, gif" },
@@ -60,7 +62,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate file size
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
         { error: "File too large. Maximum size is 10MB" },
@@ -76,39 +77,44 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const storagePath = generateStoragePath(instructor.slug, fileExtension);
+    const uploadUrl = await convex.mutation(api.instructors.generateInstructorUploadUrl, {});
 
-    // Convert File to ArrayBuffer
     const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      body: arrayBuffer,
+      headers: {
+        "Content-Type": file.type,
+      },
+    });
 
-    // Upload to Supabase Storage
-    const supabase = createSupabaseAdminClient();
-    
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(storagePath, buffer, {
-        contentType: file.type,
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error("Storage upload error:", uploadError);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Convex storage upload error:", errorText);
       return NextResponse.json(
-        { error: "Failed to upload file", details: uploadError.message },
+        { error: "Failed to upload file to Convex storage", details: errorText },
         { status: 500 }
       );
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from(BUCKET_NAME)
-      .getPublicUrl(storagePath);
+    const { storageId } = await response.json() as { storageId: string };
+
+    const url = await convex.mutation(api.instructors.getStorageUrl, { storageId });
+
+    const menteeResultId = await convex.mutation(api.instructors.createMenteeResultWithStorage, {
+      instructorId: instructor._id,
+      imageUrl: url ?? `convex://storage/${storageId}`,
+      imageStorageId: storageId,
+      studentName: "",
+      createdBy: user.id,
+    });
 
     return NextResponse.json({
       success: true,
-      url: urlData.publicUrl,
-      path: storagePath,
+      url: url ?? `convex://storage/${storageId}`,
+      storageId,
+      path: `instructors/${instructor.slug}/results/${storageId}`,
+      menteeResultId,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {

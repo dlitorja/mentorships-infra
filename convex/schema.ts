@@ -35,7 +35,9 @@ export default defineSchema({
     background: v.optional(v.array(v.string())),
     specialties: v.optional(v.array(v.string())),
     portfolioImages: v.optional(v.array(v.string())),
+    portfolioImageStorageIds: v.optional(v.array(v.string())),
     profileImageUrl: v.optional(v.string()),
+    profileImageStorageId: v.optional(v.string()),
     socials: v.optional(v.any()),
     mentorId: v.optional(v.string()),
     tagline: v.optional(v.string()),
@@ -123,7 +125,7 @@ export default defineSchema({
     .index("by_provider_providerPaymentId", ["provider", "providerPaymentId"]),
 
   products: defineTable({
-    mentorId: v.optional(v.id("instructors")),
+    mentorId: v.optional(v.string()), // Using string for backward compatibility; migrate to instructor IDs
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
@@ -152,8 +154,10 @@ export default defineSchema({
     specialties: v.optional(v.array(v.string())),
     background: v.optional(v.array(v.string())),
     profileImageUrl: v.optional(v.string()),
+    profileImageStorageId: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     portfolioImages: v.optional(v.array(v.string())),
+    portfolioImageStorageIds: v.optional(v.array(v.string())),
     socials: v.optional(v.any()),
     isActive: v.boolean(),
     isNew: v.optional(v.boolean()),
@@ -173,6 +177,7 @@ export default defineSchema({
   menteeResults: defineTable({
     instructorId: v.optional(v.string()), // Using string to allow legacy IDs
     imageUrl: v.optional(v.string()),
+    imageStorageId: v.optional(v.string()),
     imageUploadPath: v.optional(v.string()),
     studentName: v.optional(v.string()),
     createdBy: v.optional(v.string()),
