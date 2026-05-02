@@ -336,7 +336,7 @@ export const updateInstructor = mutation({
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
-    await ctx.db.patch(id, updates);
+    await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
     return await ctx.db.get(id);
   },
 });
@@ -902,6 +902,38 @@ export const getMenteeResultsByInstructorId = query({
   },
 });
 
+/** Returns a testimonial by ID, or null if not found/not owned by instructor. */
+export const getTestimonialById = query({
+  args: { id: v.id("instructorTestimonials"), instructorId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const testimonial = await ctx.db.get(args.id);
+    if (!testimonial || testimonial.instructorId !== args.instructorId) {
+      return null;
+    }
+    return testimonial;
+  },
+});
+
+/** Returns a mentee result by ID, or null if not found/not owned by instructor. */
+export const getMenteeResultById = query({
+  args: { id: v.id("menteeResults"), instructorId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const result = await ctx.db.get(args.id);
+    if (!result || result.instructorId !== args.instructorId) {
+      return null;
+    }
+    return result;
+  },
+});
+
 /** Updates mentor scheduling settings (timeZone and workingHours). */
 export const updateMentorSchedulingSettings = mutation({
   args: {
@@ -962,6 +994,7 @@ export const getMentorMenteesWithSessionInfo = query({
         const sessions = await ctx.db
           .query("sessions")
           .withIndex("by_studentId", (q) => q.eq("studentId", m.userId))
+          .filter((q) => q.eq(q.field("mentorId"), args.mentorId))
           .collect();
         
         const completedSessions = sessions.filter(s => s.status === "completed");
@@ -1016,18 +1049,6 @@ export const getUserSessionCountForMentor = query({
       expiresAt: pack.expiresAt ?? null,
       status: pack.status,
     };
-  },
-});
-
-/** Returns a session pack by ID. */
-export const getSessionPackById = query({
-  args: { id: v.id("sessionPacks") },
-  handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
-      return null;
-    }
-    return await ctx.db.get(args.id);
   },
 });
 

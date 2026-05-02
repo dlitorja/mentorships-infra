@@ -91,7 +91,7 @@ export async function GET(): Promise<NextResponse> {
       socials: instructor.socials,
       isActive: instructor.isActive,
       createdAt: new Date(instructor._creationTime).toISOString(),
-      updatedAt: new Date(instructor._creationTime).toISOString(),
+      updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : new Date(instructor._creationTime).toISOString(),
     });
   } catch (error) {
     console.error("Get instructor profile error:", error);

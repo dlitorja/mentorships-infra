@@ -7,6 +7,16 @@ import { inngest } from "@/inngest/client";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { z } from "zod";
 
+function decryptMentorRefreshToken(mentor: { googleRefreshToken?: string }): string | null {
+  if (!mentor.googleRefreshToken) return null;
+  try {
+    const decrypted = Buffer.from(mentor.googleRefreshToken, "base64").toString("utf-8");
+    return decrypted.startsWith("__decrypted__") ? decrypted.replace("__decrypted__", "") : null;
+  } catch {
+    return null;
+  }
+}
+
 const updateSessionSchema = z.object({
   status: z.enum(["scheduled", "completed", "canceled", "no_show"]).optional(),
   notes: z.string().optional(),
@@ -111,9 +121,10 @@ export async function PATCH(
           id: session.mentorId,
         });
 
-        if (mentorDoc?.googleRefreshToken) {
+        const decryptedToken = decryptMentorRefreshToken(mentorDoc);
+        if (decryptedToken) {
           try {
-            const calendar = await getGoogleCalendarClient(mentorDoc.googleRefreshToken);
+            const calendar = await getGoogleCalendarClient(decryptedToken);
             const calendarId = mentorDoc.googleCalendarId || "primary";
             await calendar.events.delete({
               calendarId,

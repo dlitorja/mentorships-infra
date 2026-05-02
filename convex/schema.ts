@@ -41,6 +41,7 @@ export default defineSchema({
     socials: v.optional(v.any()),
     mentorId: v.optional(v.string()),
     tagline: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"])
     .index("by_slug", ["slug"])
     .index("by_deletedAt", ["deletedAt"]),
