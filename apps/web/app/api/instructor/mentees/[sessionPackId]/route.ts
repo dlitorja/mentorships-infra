@@ -66,7 +66,7 @@ export async function PATCH(
 
     const { action, amount } = validationResult.data;
 
-    let updatedPack = sessionPack;
+    let updatedPack: typeof sessionPack | null = sessionPack;
     if (action === "increment") {
       updatedPack = await convex.mutation(api.sessionPacks.addSessionsToPack, {
         id: sessionPackId as Id<"sessionPacks">,
@@ -78,20 +78,10 @@ export async function PATCH(
         amount,
       });
     } else if (action === "set") {
-      const currentRemaining = sessionPack.remainingSessions;
-      const diff = amount - currentRemaining;
-      
-      if (diff > 0) {
-        updatedPack = await convex.mutation(api.sessionPacks.addSessionsToPack, {
-          id: sessionPackId as Id<"sessionPacks">,
-          amount: diff,
-        });
-      } else if (diff < 0) {
-        updatedPack = await convex.mutation(api.sessionPacks.removeSessionsFromPack, {
-          id: sessionPackId as Id<"sessionPacks">,
-          amount: Math.abs(diff),
-        });
-      }
+      updatedPack = await convex.mutation(api.sessionPacks.setRemainingSessions, {
+        id: sessionPackId as Id<"sessionPacks">,
+        amount,
+      });
     }
 
     if (!updatedPack) {

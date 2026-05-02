@@ -104,34 +104,48 @@ export async function PATCH(
     });
 
     if (validatedData.status === "canceled") {
-      await inngest.send({
-        name: "session/cancelled-email",
-        data: {
+      try {
+        await inngest.send({
+          name: "session/cancelled-email",
+          data: {
+            sessionId,
+            sessionPackId: session.sessionPackId,
+            studentId: session.studentId,
+            mentorId: session.mentorId,
+            scheduledAt: session.scheduledAt,
+            cancelledBy: "instructor" as const,
+          },
+        });
+      } catch (sendError) {
+        console.error("Failed to enqueue cancellation email:", sendError, {
           sessionId,
           sessionPackId: session.sessionPackId,
           studentId: session.studentId,
           mentorId: session.mentorId,
           scheduledAt: session.scheduledAt,
-          cancelledBy: "instructor" as const,
-        },
-      });
+        });
+      }
 
       if (session.googleCalendarEventId) {
         const mentorDoc = await convex.query(api.instructors.getMentorById, {
           id: session.mentorId,
         });
 
-        const decryptedToken = decryptMentorRefreshToken(mentorDoc);
-        if (decryptedToken) {
-          try {
-            const calendar = await getGoogleCalendarClient(decryptedToken);
-            const calendarId = mentorDoc.googleCalendarId || "primary";
-            await calendar.events.delete({
-              calendarId,
-              eventId: session.googleCalendarEventId,
-            });
-          } catch (calendarError) {
-            console.error("Failed to delete Google Calendar event:", calendarError);
+        if (!mentorDoc) {
+          console.error("Mentor not found for calendar cleanup");
+        } else {
+          const decryptedToken = decryptMentorRefreshToken(mentorDoc);
+          if (decryptedToken) {
+            try {
+              const calendar = await getGoogleCalendarClient(decryptedToken);
+              const calendarId = mentorDoc.googleCalendarId || "primary";
+              await calendar.events.delete({
+                calendarId,
+                eventId: session.googleCalendarEventId,
+              });
+            } catch (calendarError) {
+              console.error("Failed to delete Google Calendar event:", calendarError);
+            }
           }
         }
       }

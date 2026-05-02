@@ -12,12 +12,23 @@ const intervalSchema = z.object({
 
 const workingHoursSchema = z
   .record(z.string(), z.array(intervalSchema))
+  .superRefine((rec, ctx) => {
+    for (const key of Object.keys(rec)) {
+      const day = Number(key);
+      if (!Number.isInteger(day) || day < 0 || day > 6) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: "Day must be an integer between 0 and 6",
+        });
+      }
+    }
+  })
   .transform((rec) => {
     const out: Record<string, Array<{ start: string; end: string }>> = {};
     for (const [k, v] of Object.entries(rec)) {
       const day = Number(k);
-      if (!Number.isInteger(day) || day < 0 || day > 6) continue;
-      out[day as unknown as string] = v;
+      out[String(day)] = v;
     }
     return out;
   });

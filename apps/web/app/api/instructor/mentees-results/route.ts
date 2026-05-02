@@ -95,6 +95,8 @@ export async function POST(req: NextRequest) {
     const resultId = await convex.mutation(api.instructors.createMenteeResult, {
       instructorId: instructor._id,
       imageUrl: imageUrl || "",
+      imageUploadPath: imageUploadPath || "",
+      studentName: studentName || "",
     });
 
     return NextResponse.json({

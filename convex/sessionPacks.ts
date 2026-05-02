@@ -228,17 +228,39 @@ export const removeSessionsFromPack = mutation({
     if (!pack) {
       throw new Error("Session pack not found");
     }
-    
+
     const newRemaining = pack.remainingSessions - args.amount;
     if (newRemaining < 0) {
       throw new Error("Cannot remove more sessions than remaining");
     }
-    
+
     await ctx.db.patch(args.id, {
       remainingSessions: newRemaining,
       status: newRemaining === 0 ? "depleted" : pack.status,
     });
-    
+
+    return await ctx.db.get(args.id);
+  },
+});
+
+/** Atomically sets the remaining sessions for a session pack. */
+export const setRemainingSessions = mutation({
+  args: {
+    id: v.id("sessionPacks"),
+    amount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const pack = await ctx.db.get(args.id);
+    if (!pack) {
+      return null;
+    }
+
+    const newRemaining = Math.max(0, Math.min(args.amount, pack.totalSessions));
+    await ctx.db.patch(args.id, {
+      remainingSessions: newRemaining,
+      status: newRemaining === 0 ? "depleted" : newRemaining === pack.totalSessions ? "active" : pack.status,
+    });
+
     return await ctx.db.get(args.id);
   },
 });

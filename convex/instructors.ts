@@ -414,11 +414,15 @@ export const createMenteeResult = mutation({
   args: {
     instructorId: v.id('instructors'),
     imageUrl: v.string(),
+    imageUploadPath: v.optional(v.string()),
+    studentName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
+      imageUploadPath: args.imageUploadPath,
+      studentName: args.studentName,
     });
   },
 });
