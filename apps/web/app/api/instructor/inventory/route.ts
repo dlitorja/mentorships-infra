@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import { mentors } from "@mentorships/db";
-import { eq } from "drizzle-orm";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { inngest } from "@/inngest/client";
 
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(",").map((e) => e.trim()) || [
@@ -39,13 +38,10 @@ async function handleGet(
     const userId = searchParams.get("userId");
 
     const validated = inventoryQuerySchema.parse({ userId });
+    const convex = getConvexClient();
 
-    const instructor = await db.query.mentors.findFirst({
-      where: eq(mentors.userId, validated.userId),
-      columns: {
-        oneOnOneInventory: true,
-        groupInventory: true,
-      },
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: validated.userId,
     });
 
     if (!instructor) {
@@ -105,9 +101,10 @@ async function handlePut(
 
     const body = await request.json();
     const validated = inventoryUpdateSchema.parse(body);
+    const convex = getConvexClient();
 
-    const instructor = await db.query.mentors.findFirst({
-      where: eq(mentors.userId, validated.userId),
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: validated.userId,
     });
 
     if (!instructor) {
@@ -123,13 +120,11 @@ async function handlePut(
     const newOneOnOne = validated.oneOnOneInventory ?? currentOneOnOne;
     const newGroup = validated.groupInventory ?? currentGroup;
 
-    await db.update(mentors)
-      .set({
-        oneOnOneInventory: newOneOnOne,
-        groupInventory: newGroup,
-        updatedAt: new Date(),
-      })
-      .where(eq(mentors.userId, validated.userId));
+    await convex.mutation(api.instructors.updateInstructor, {
+      id: instructor._id,
+      oneOnOneInventory: newOneOnOne,
+      groupInventory: newGroup,
+    });
 
     const shouldNotifyOneOnOne =
       currentOneOnOne === 0 && newOneOnOne > 0;

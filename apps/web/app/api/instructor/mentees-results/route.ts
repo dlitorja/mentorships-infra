@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  getInstructorByUserId,
-  getMenteeResultsByInstructorId,
-  createMenteeResult,
-  isUnauthorizedError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const createMenteeResultSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal("")).default(""),
@@ -19,10 +17,13 @@ const createMenteeResultSchema = z.object({
  */
 export async function GET(req: NextRequest) {
   try {
-    const { requireDbUser } = await import("@/lib/auth");
-    const user = await requireDbUser();
+    const userId = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -30,20 +31,25 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const results = await getMenteeResultsByInstructorId(instructor.id);
+    const results = await convex.query(api.instructors.getMenteeResultsByInstructorId, {
+      instructorId: instructor._id,
+    });
 
     return NextResponse.json({
       items: results.map((r) => ({
-        id: r.id,
+        id: r._id,
         imageUrl: r.imageUrl,
         imageUploadPath: r.imageUploadPath,
         studentName: r.studentName,
-        createdAt: r.createdAt.toISOString(),
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date(r._creationTime).toISOString(),
       })),
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
     }
 
     console.error("Error getting mentee results:", error);
@@ -60,10 +66,13 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const { requireDbUser } = await import("@/lib/auth");
-    const user = await requireDbUser();
+    const userId = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -83,28 +92,28 @@ export async function POST(req: NextRequest) {
 
     const { imageUrl, imageUploadPath, studentName } = validationResult.data;
 
-    const result = await createMenteeResult({
-      instructorId: instructor.id,
-      imageUrl: imageUrl || null,
-      imageUploadPath: imageUploadPath || null,
-      studentName: studentName || null,
-      createdBy: user.id,
+    const resultId = await convex.mutation(api.instructors.createMenteeResult, {
+      instructorId: instructor._id,
+      imageUrl: imageUrl || "",
     });
 
     return NextResponse.json({
       success: true,
       message: "Mentee result added successfully",
       menteeResult: {
-        id: result.id,
-        imageUrl: result.imageUrl,
-        imageUploadPath: result.imageUploadPath,
-        studentName: result.studentName,
-        createdAt: result.createdAt.toISOString(),
+        id: resultId,
+        imageUrl: imageUrl || "",
+        imageUploadPath: imageUploadPath || "",
+        studentName: studentName || "",
+        createdAt: new Date().toISOString(),
       },
     }, { status: 201 });
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
     }
 
     console.error("Error adding mentee result:", error);

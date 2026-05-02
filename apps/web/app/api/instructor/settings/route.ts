@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMentorByUserId, updateMentorSchedulingSettings } from "@mentorships/db";
-import type { MentorWorkingHours } from "@mentorships/db";
-import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const intervalSchema = z.object({
   start: z.string().regex(/^\d{2}:\d{2}$/),
@@ -12,11 +13,11 @@ const intervalSchema = z.object({
 const workingHoursSchema = z
   .record(z.string(), z.array(intervalSchema))
   .transform((rec) => {
-    const out: MentorWorkingHours = {};
+    const out: Record<string, Array<{ start: string; end: string }>> = {};
     for (const [k, v] of Object.entries(rec)) {
       const day = Number(k);
       if (!Number.isInteger(day) || day < 0 || day > 6) continue;
-      out[day as 0 | 1 | 2 | 3 | 4 | 5 | 6] = v;
+      out[day as unknown as string] = v;
     }
     return out;
   });
@@ -28,15 +29,16 @@ const patchSchema = z.object({
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const user = await requireDbUser();
-    if (user.role !== "mentor") {
-      return NextResponse.json(
-        { error: "Forbidden: mentor role required" },
-        { status: 403 }
-      );
+    const userId = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
+
+    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+
+    if (!mentor) {
+      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
     }
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
 
     return NextResponse.json({
       success: true,
@@ -56,15 +58,16 @@ export async function GET(): Promise<NextResponse> {
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
-    const user = await requireDbUser();
-    if (user.role !== "mentor") {
-      return NextResponse.json(
-        { error: "Forbidden: mentor role required" },
-        { status: 403 }
-      );
+    const userId = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
+
+    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+
+    if (!mentor) {
+      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
     }
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
 
     const body = await req.json();
     const parsed = patchSchema.safeParse(body);
@@ -75,7 +78,8 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const updated = await updateMentorSchedulingSettings(mentor.id, {
+    const updated = await convex.mutation(api.instructors.updateMentorSchedulingSettings, {
+      id: mentor._id,
       timeZone: parsed.data.timeZone,
       workingHours: parsed.data.workingHours,
     });
@@ -95,4 +99,3 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
   }
 }
-

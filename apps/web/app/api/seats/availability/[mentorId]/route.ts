@@ -1,5 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
-import { checkSeatAvailability } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 
 /**
  * GET /api/seats/availability/:mentorId
@@ -30,7 +32,10 @@ export async function GET(
       );
     }
 
-    const availability = await checkSeatAvailability(mentorId);
+    const convex = getConvexClient();
+    const availability = await convex.query(api.instructors.checkSeatAvailability, {
+      mentorId: mentorId as Id<"instructors">,
+    });
 
     return NextResponse.json({
       success: true,
@@ -52,4 +57,3 @@ export async function GET(
     );
   }
 }
-

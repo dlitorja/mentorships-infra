@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getInstructorByUserId, updateInstructor } from "@mentorships/db";
-import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const socialsSchema = z.object({
   twitter: z.string().optional(),
@@ -60,15 +63,13 @@ function validateProfileRequirements(
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const user = await requireDbUser();
-    if (user.role !== "mentor") {
-      return NextResponse.json(
-        { error: "Forbidden: mentor role required" },
-        { status: 403 }
-      );
-    }
+    const userId = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -77,7 +78,7 @@ export async function GET(): Promise<NextResponse> {
     }
 
     return NextResponse.json({
-      id: instructor.id,
+      id: instructor._id,
       name: instructor.name,
       slug: instructor.slug,
       tagline: instructor.tagline,
@@ -89,8 +90,8 @@ export async function GET(): Promise<NextResponse> {
       portfolioImages: instructor.portfolioImages,
       socials: instructor.socials,
       isActive: instructor.isActive,
-      createdAt: instructor.createdAt.toISOString(),
-      updatedAt: instructor.updatedAt.toISOString(),
+      createdAt: new Date(instructor._creationTime).toISOString(),
+      updatedAt: new Date(instructor._creationTime).toISOString(),
     });
   } catch (error) {
     console.error("Get instructor profile error:", error);
@@ -103,15 +104,13 @@ export async function GET(): Promise<NextResponse> {
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
-    const user = await requireDbUser();
-    if (user.role !== "mentor") {
-      return NextResponse.json(
-        { error: "Forbidden: mentor role required" },
-        { status: 403 }
-      );
-    }
+    const userId = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -139,7 +138,8 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
     const data = parsed.data;
 
-    const updated = await updateInstructor(instructor.id, {
+    const updated = await convex.mutation(api.instructors.updateInstructor, {
+      id: instructor._id,
       ...(data.name !== undefined && { name: data.name }),
       ...(data.tagline !== undefined && { tagline: data.tagline }),
       ...(data.bio !== undefined && { bio: data.bio }),
@@ -155,19 +155,19 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       success: true,
       message: "Profile updated successfully",
       profile: {
-        id: updated.id,
-        name: updated.name,
-        slug: updated.slug,
-        tagline: updated.tagline,
-        bio: updated.bio,
-        specialties: updated.specialties,
-        background: updated.background,
-        profileImageUrl: updated.profileImageUrl,
-        profileImageUploadPath: updated.profileImageUploadPath,
-        portfolioImages: updated.portfolioImages,
-        socials: updated.socials,
-        isActive: updated.isActive,
-        updatedAt: updated.updatedAt.toISOString(),
+        id: updated?._id,
+        name: updated?.name,
+        slug: updated?.slug,
+        tagline: updated?.tagline,
+        bio: updated?.bio,
+        specialties: updated?.specialties,
+        background: updated?.background,
+        profileImageUrl: updated?.profileImageUrl,
+        profileImageUploadPath: updated?.profileImageUploadPath,
+        portfolioImages: updated?.portfolioImages,
+        socials: updated?.socials,
+        isActive: updated?.isActive,
+        updatedAt: new Date().toISOString(),
       },
     });
   } catch (error) {

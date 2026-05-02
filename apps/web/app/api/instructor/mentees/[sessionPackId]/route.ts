@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  getMentorByUserId,
-  getSessionPackById,
-  addSessionsToPack,
-  removeSessionsFromPack,
-  isUnauthorizedError,
-  isForbiddenError,
-  eq,
-  db,
-  sessionPacks,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const updateSessionCountSchema = z.object({
   action: z.enum(["increment", "decrement", "set"]),
@@ -26,12 +20,15 @@ export async function PATCH(
   { params }: { params: Promise<{ sessionPackId: string }> }
 ) {
   try {
-    const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    const user = await requireRoleForApi("mentor");
+    const userId = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
     const { sessionPackId } = await params;
 
-    const mentor = await getMentorByUserId(user.id);
+    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+
     if (!mentor) {
       return NextResponse.json(
         { error: "Mentor profile not found" },
@@ -39,7 +36,10 @@ export async function PATCH(
       );
     }
 
-    const sessionPack = await getSessionPackById(sessionPackId);
+    const sessionPack = await convex.query(api.sessionPacks.getSessionPackById, {
+      id: sessionPackId as Id<"sessionPacks">,
+    });
+
     if (!sessionPack) {
       return NextResponse.json(
         { error: "Session pack not found" },
@@ -47,7 +47,7 @@ export async function PATCH(
       );
     }
 
-    if (sessionPack.mentorId !== mentor.id) {
+    if (sessionPack.mentorId !== mentor._id) {
       return NextResponse.json(
         { error: "You do not have permission to modify this session pack" },
         { status: 403 }
@@ -68,17 +68,29 @@ export async function PATCH(
 
     let updatedPack = sessionPack;
     if (action === "increment") {
-      updatedPack = await addSessionsToPack(sessionPackId, amount);
+      updatedPack = await convex.mutation(api.sessionPacks.addSessionsToPack, {
+        id: sessionPackId as Id<"sessionPacks">,
+        amount,
+      });
     } else if (action === "decrement") {
-      updatedPack = await removeSessionsFromPack(sessionPackId, amount);
+      updatedPack = await convex.mutation(api.sessionPacks.removeSessionsFromPack, {
+        id: sessionPackId as Id<"sessionPacks">,
+        amount,
+      });
     } else if (action === "set") {
-      const currentRemaining = Number(sessionPack.remainingSessions);
+      const currentRemaining = sessionPack.remainingSessions;
       const diff = amount - currentRemaining;
       
       if (diff > 0) {
-        updatedPack = await addSessionsToPack(sessionPackId, diff);
+        updatedPack = await convex.mutation(api.sessionPacks.addSessionsToPack, {
+          id: sessionPackId as Id<"sessionPacks">,
+          amount: diff,
+        });
       } else if (diff < 0) {
-        updatedPack = await removeSessionsFromPack(sessionPackId, Math.abs(diff));
+        updatedPack = await convex.mutation(api.sessionPacks.removeSessionsFromPack, {
+          id: sessionPackId as Id<"sessionPacks">,
+          amount: Math.abs(diff),
+        });
       }
     }
 
@@ -92,9 +104,9 @@ export async function PATCH(
     return NextResponse.json({
       success: true,
       sessionPack: {
-        id: updatedPack.id,
-        totalSessions: Number(updatedPack.totalSessions),
-        remainingSessions: Number(updatedPack.remainingSessions),
+        id: updatedPack._id,
+        totalSessions: updatedPack.totalSessions,
+        remainingSessions: updatedPack.remainingSessions,
         status: updatedPack.status,
       },
     });

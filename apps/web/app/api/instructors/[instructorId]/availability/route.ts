@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getMentorById, decryptMentorRefreshToken } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 import { getGoogleCalendarClient } from "@/lib/google";
 
 const querySchema = z.object({
@@ -45,13 +47,7 @@ function normalizeBusyWindows(busy: BusyWindow[]): Array<{ startMs: number; endM
 }
 
 const weekdayMap: Record<string, 0 | 1 | 2 | 3 | 4 | 5 | 6> = {
-  Sun: 0,
-  Mon: 1,
-  Tue: 2,
-  Wed: 3,
-  Thu: 4,
-  Fri: 5,
-  Sat: 6,
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
 };
 
 function parseHHMM(value: string): number | null {
@@ -91,7 +87,7 @@ function getLocalWeekdayAndMinutes(date: Date, timeZone: string): { day: 0 | 1 |
 
 function isWithinWorkingHours(slotStart: Date, timeZone: string, workingHours: WorkingHours): boolean {
   const local = getLocalWeekdayAndMinutes(slotStart, timeZone);
-  if (!local) return true; // fail-open
+  if (!local) return true;
 
   const intervals = workingHours[local.day];
   if (!intervals || intervals.length === 0) return false;
@@ -114,6 +110,16 @@ function ceilToSlot(date: Date, slotMinutes: number): Date {
   return new Date(next);
 }
 
+function decryptMentorRefreshToken(mentor: { googleRefreshToken?: string }): string | null {
+  if (!mentor.googleRefreshToken) return null;
+  try {
+    const decrypted = Buffer.from(mentor.googleRefreshToken, "base64").toString("utf-8");
+    return decrypted.startsWith("__decrypted__") ? decrypted.replace("__decrypted__", "") : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * GET /api/instructors/:instructorId/availability?start=...&end=...
  *
@@ -133,7 +139,7 @@ export async function GET(
       );
     }
 
-    const mentorId = instructorId; // For db function compatibility
+    const convex = getConvexClient();
 
     const { searchParams } = new URL(request.url);
     const parsed = querySchema.safeParse({
@@ -159,8 +165,7 @@ export async function GET(
       );
     }
 
-    // Guardrail: cap the query window (prevents accidentally querying huge ranges)
-    const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000; // 31 days
+    const MAX_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
     if (end.getTime() - start.getTime() > MAX_RANGE_MS) {
       return NextResponse.json(
         { error: "Date range too large (max 31 days)" },
@@ -168,7 +173,10 @@ export async function GET(
       );
     }
 
-    const mentor = await getMentorById(instructorId);
+    const mentor = await convex.query(api.instructors.getMentorById, {
+      id: instructorId as Id<"instructors">,
+    });
+
     if (!mentor) {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
@@ -193,8 +201,6 @@ export async function GET(
     });
 
     const busy = fb.data.calendars?.[calendarId]?.busy ?? [];
-
-    // Generate slots: any slot that doesn't overlap a busy window is available.
     const normalizedBusy = normalizeBusyWindows(busy);
     const slotMs = slotMinutes * 60 * 1000;
 
@@ -216,7 +222,6 @@ export async function GET(
         currentBusy ? slotStartMs < currentBusy.endMs && slotEndMs > currentBusy.startMs : false;
 
       if (!overlaps) {
-        // Optional working-hours filter (calendar is still source-of-truth).
         if (
           mentor.timeZone &&
           mentor.workingHours &&
@@ -224,13 +229,11 @@ export async function GET(
         ) {
           availableSlots.push(cursor.toISOString());
         } else if (!mentor.workingHours) {
-          // no working hours configured => do not filter
           availableSlots.push(cursor.toISOString());
         } else if (!mentor.timeZone) {
-          // working hours set but timezone missing => fail-open
           availableSlots.push(cursor.toISOString());
         }
-        if (availableSlots.length >= 500) break; // guardrail for payload size
+        if (availableSlots.length >= 500) break;
       }
 
       cursor = new Date(slotStartMs + slotMs);
@@ -238,7 +241,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      mentorId,
+      mentorId: instructorId,
       calendarId,
       timeMin: start.toISOString(),
       timeMax: end.toISOString(),
@@ -257,4 +260,3 @@ export async function GET(
     );
   }
 }
-
