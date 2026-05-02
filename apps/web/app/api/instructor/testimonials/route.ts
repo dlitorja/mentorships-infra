@@ -17,11 +17,11 @@ const createTestimonialSchema = z.object({
  */
 export async function GET(req: NextRequest) {
   try {
-    const userId = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
-      userId,
+      userId: user.id,
     });
 
     if (!instructor) {
@@ -65,11 +65,11 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const userId = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
-      userId,
+      userId: user.id,
     });
 
     if (!instructor) {

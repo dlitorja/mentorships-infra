@@ -63,11 +63,11 @@ function validateProfileRequirements(
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const userId = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
-      userId,
+      userId: user.id,
     });
 
     if (!instructor) {
@@ -104,11 +104,11 @@ export async function GET(): Promise<NextResponse> {
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
-    const userId = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
-      userId,
+      userId: user.id,
     });
 
     if (!instructor) {

@@ -14,11 +14,11 @@ export async function DELETE(
   { params }: { params: Promise<{ resultId: string }> }
 ) {
   try {
-    const userId = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
-      userId,
+      userId: user.id,
     });
 
     if (!instructor) {

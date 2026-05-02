@@ -11,11 +11,11 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
  */
 export async function GET(req: NextRequest) {
   try {
-    const userId = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
-      userId,
+      userId: user.id,
     });
 
     if (!instructor) {

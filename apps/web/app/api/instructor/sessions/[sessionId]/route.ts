@@ -28,11 +28,11 @@ export async function PATCH(
   { params }: { params: Promise<{ sessionId: string }> }
 ): Promise<NextResponse> {
   try {
-    const userId = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
     const mentor = await convex.query(api.instructors.getInstructorByUserId, {
-      userId,
+      userId: user.id,
     });
 
     if (!mentor) {
