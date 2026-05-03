@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  getInstructorById,
-  createTestimonial,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { Id } from "@/convex/_generated/dataModel";
 
 const createTestimonialSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -39,8 +37,10 @@ export async function POST(
 
     const data = validationResult.data as CreateTestimonialInput;
 
-    // Check if instructor exists
-    const instructor = await getInstructorById(id);
+    const instructor = await fetchQuery(api.instructors.getInstructorById, {
+      id: id as Id<"instructors">,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -48,8 +48,8 @@ export async function POST(
       );
     }
 
-    const testimonial = await createTestimonial({
-      instructorId: id,
+    const testimonial = await fetchMutation(api.instructors.createTestimonial, {
+      instructorId: id as Id<"instructors">,
       name: data.name,
       text: data.text,
     });
@@ -58,10 +58,10 @@ export async function POST(
       success: true,
       message: "Testimonial added successfully",
       testimonial: {
-        id: testimonial.id,
+        id: testimonial._id,
         name: testimonial.name,
         text: testimonial.text,
-        createdAt: testimonial.createdAt.toISOString(),
+        createdAt: new Date(testimonial._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {

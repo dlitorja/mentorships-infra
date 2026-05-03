@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  db,
-  instructorTestimonials,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
-import { eq, and } from "drizzle-orm";
+import { api } from "@/convex/_generated/api";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { Id } from "@/convex/_generated/dataModel";
 
 /**
  * DELETE /api/admin/instructors/[id]/testimonials/[testimonialId]
@@ -21,15 +18,10 @@ export async function DELETE(
 
     const { id, testimonialId } = await params;
 
-    // Check if testimonial exists and belongs to the instructor
-    const [testimonial] = await db
-      .select()
-      .from(instructorTestimonials)
-      .where(and(
-        eq(instructorTestimonials.id, testimonialId),
-        eq(instructorTestimonials.instructorId, id)
-      ))
-      .limit(1);
+    const testimonial = await fetchQuery(api.instructors.getTestimonialById, {
+      id: testimonialId as Id<"instructorTestimonials">,
+      instructorId: id,
+    });
 
     if (!testimonial) {
       return NextResponse.json(
@@ -38,9 +30,9 @@ export async function DELETE(
       );
     }
 
-    await db
-      .delete(instructorTestimonials)
-      .where(eq(instructorTestimonials.id, testimonialId));
+    await fetchMutation(api.instructors.deleteTestimonial, {
+      id: testimonialId as Id<"instructorTestimonials">,
+    });
 
     return NextResponse.json({
       success: true,

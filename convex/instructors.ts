@@ -401,11 +401,14 @@ export const createTestimonial = mutation({
     text: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("instructorTestimonials", {
+    const id = await ctx.db.insert("instructorTestimonials", {
       instructorId: args.instructorId,
       name: args.name,
       text: args.text,
     });
+    const testimonial = await ctx.db.get(id);
+    if (!testimonial) throw new Error("Failed to create testimonial");
+    return testimonial;
   },
 });
 
@@ -418,12 +421,15 @@ export const createMenteeResult = mutation({
     studentName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert('menteeResults', {
+    const id = await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
       imageUploadPath: args.imageUploadPath,
       studentName: args.studentName,
     });
+    const result = await ctx.db.get(id);
+    if (!result) throw new Error("Failed to create mentee result");
+    return result;
   },
 });
 
@@ -443,7 +449,7 @@ export const createMenteeResultWithStorage = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    return await ctx.db.insert('menteeResults', {
+    const id = await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
       imageStorageId: args.imageStorageId,
@@ -451,6 +457,9 @@ export const createMenteeResultWithStorage = mutation({
       createdBy: args.createdBy,
       createdAt: Date.now(),
     });
+    const result = await ctx.db.get(id);
+    if (!result) throw new Error("Failed to create mentee result");
+    return result;
   },
 });
 
