@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { getGoogleCalendarClient } from "@/lib/google";
+import { decryptMentorRefreshToken } from "@/lib/crypto";
 
 const querySchema = z.object({
   start: z.string().datetime(),
@@ -108,16 +109,6 @@ function ceilToSlot(date: Date, slotMinutes: number): Date {
   const slotMs = slotMinutes * 60 * 1000;
   const next = Math.ceil(ms / slotMs) * slotMs;
   return new Date(next);
-}
-
-function decryptMentorRefreshToken(mentor: { googleRefreshToken?: string }): string | null {
-  if (!mentor.googleRefreshToken) return null;
-  try {
-    const decrypted = Buffer.from(mentor.googleRefreshToken, "base64").toString("utf-8");
-    return decrypted.startsWith("__decrypted__") ? decrypted.replace("__decrypted__", "") : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

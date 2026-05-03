@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     const { imageUrl, imageUploadPath, studentName } = validationResult.data;
 
-    const resultId = await convex.mutation(api.instructors.createMenteeResult, {
+    const result = await convex.mutation(api.instructors.createMenteeResult, {
       instructorId: instructor._id,
       imageUrl: imageUrl || "",
       imageUploadPath: imageUploadPath || "",
@@ -103,11 +103,11 @@ export async function POST(req: NextRequest) {
       success: true,
       message: "Mentee result added successfully",
       menteeResult: {
-        id: resultId,
-        imageUrl: imageUrl || "",
-        imageUploadPath: imageUploadPath || "",
-        studentName: studentName || "",
-        createdAt: new Date().toISOString(),
+        id: result._id,
+        imageUrl: result.imageUrl,
+        imageUploadPath: result.imageUploadPath,
+        studentName: result.studentName,
+        createdAt: new Date(result._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {
