@@ -111,16 +111,6 @@ function ceilToSlot(date: Date, slotMinutes: number): Date {
   return new Date(next);
 }
 
-function decryptMentorRefreshToken(mentor: { googleRefreshToken?: string }): string | null {
-  if (!mentor.googleRefreshToken) return null;
-  try {
-    const decrypted = Buffer.from(mentor.googleRefreshToken, "base64").toString("utf-8");
-    return decrypted.startsWith("__decrypted__") ? decrypted.replace("__decrypted__", "") : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * GET /api/instructors/:instructorId/availability?start=...&end=...
  *
