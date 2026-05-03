@@ -11,8 +11,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 2, 2026 (Phase 4D complete, Phase 4E identified)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E (Admin Routes) - DEFERRED** (15+ routes remain), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Last Updated**: May 3, 2026 (Phase 4E-1 complete - PR #206)
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -925,6 +925,17 @@ ls apps/web/app/api
 
 ## 🚧 Remaining Items to Tackle
 
+### Phase 4E: Admin Routes Convex Migration (In Progress)
+
+| Phase | Status | Routes | Notes |
+|-------|--------|--------|-------|
+| **4E-1: Low-Risk Singles** | ✅ COMPLETED | 5 routes | Testimonials CRUD, mentee-results CRUD, upload import fix |
+| **4E-2: Medium-Risk CRUD** | ⏳ DEFERRED | 5 routes | mentors table, session-count routes, waitlist, inventory read |
+| **4E-3: Complex Admin Routes** | ⏳ DEFERRED | 4 routes | Instructors list/create, inventory write, mentees invite |
+| **4E-4: Stats + Critical Paths** | ⏳ DEFERRED | 1 route | Admin stats aggregations, instructors PUT with Stripe product deactivation |
+
+**Remaining @mentorships/db imports**: 17 routes still using Drizzle
+
 ### Not Started (requires app creation)
 
 | Feature | Status | Notes |
@@ -971,7 +982,7 @@ ls apps/web/app/api
 
 ---
 
-**Next**: Discord Bot Slash Commands or Video Access Control (pending priority decision)
+**Next**: Phase 4E-2 (Admin Medium-Risk Routes) or Discord Bot Slash Commands or Video Access Control
 
 ---
 
@@ -1056,6 +1067,8 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
     - `instructors.createMenteeResultWithStorage` now returns mentee result document
   - Replaced @mentorships/db imports with @/lib/errors for error types
   - TypeScript typecheck passes, build succeeds
+  - CI checks: All passed (Lint, Unit Tests, E2E Tests, Build, Vercel deployments Ready)
+  - Reference: PR #206
 
 ### April 2026
 - ✅ **Preview Page Redesign (Underpaint-style)** (COMPLETED - April 26, 2026)
