@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
-import {
-  getMentorMenteesWithSessionInfo,
-  getMentorByUserId,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 /**
  * GET /api/instructor/mentees
@@ -13,29 +11,34 @@ import {
  */
 export async function GET(req: NextRequest) {
   try {
-    const { requireRoleForApi } = await import("@/lib/auth-helpers");
     const user = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) {
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+
+    if (!instructor) {
       return NextResponse.json(
         { error: "Mentor profile not found" },
         { status: 404 }
       );
     }
 
-    const mentees = await getMentorMenteesWithSessionInfo(mentor.id);
+    const mentees = await convex.query(api.instructors.getMentorMenteesWithSessionInfo, {
+      mentorId: instructor._id,
+    });
 
     return NextResponse.json({
       items: mentees.map((m) => ({
         userId: m.userId,
         email: m.email,
         sessionPackId: m.sessionPackId,
-        totalSessions: Number(m.totalSessions),
-        remainingSessions: Number(m.remainingSessions),
-        expiresAt: m.expiresAt?.toISOString() || null,
+        totalSessions: m.totalSessions,
+        remainingSessions: m.remainingSessions,
+        expiresAt: m.expiresAt ? new Date(m.expiresAt).toISOString() : null,
         status: m.status,
-        lastSessionCompletedAt: m.lastSessionCompletedAt?.toISOString() || null,
+        lastSessionCompletedAt: m.lastSessionCompletedAt ? new Date(m.lastSessionCompletedAt).toISOString() : null,
         completedSessionCount: m.completedSessionCount,
       })),
     });

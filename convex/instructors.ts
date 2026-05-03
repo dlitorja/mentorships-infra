@@ -336,7 +336,7 @@ export const updateInstructor = mutation({
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
-    await ctx.db.patch(id, updates);
+    await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
     return await ctx.db.get(id);
   },
 });
@@ -414,11 +414,15 @@ export const createMenteeResult = mutation({
   args: {
     instructorId: v.id('instructors'),
     imageUrl: v.string(),
+    imageUploadPath: v.optional(v.string()),
+    studentName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
+      imageUploadPath: args.imageUploadPath,
+      studentName: args.studentName,
     });
   },
 });
@@ -869,5 +873,244 @@ export const updateInstructorPortfolioStorageIdsForProfile = mutation({
       portfolioImages: args.urls,
     });
     return { storageIds: args.storageIds, urls: args.urls };
+  },
+});
+
+/** Returns all testimonials for a given instructor. */
+export const getTestimonialsByInstructorId = query({
+  args: { instructorId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    return await ctx.db
+      .query("instructorTestimonials")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+  },
+});
+
+/** Returns all mentee results for a given instructor. */
+export const getMenteeResultsByInstructorId = query({
+  args: { instructorId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    return await ctx.db
+      .query("menteeResults")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+  },
+});
+
+/** Returns a testimonial by ID, or null if not found/not owned by instructor. */
+export const getTestimonialById = query({
+  args: { id: v.id("instructorTestimonials"), instructorId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const testimonial = await ctx.db.get(args.id);
+    if (!testimonial || testimonial.instructorId !== args.instructorId) {
+      return null;
+    }
+    return testimonial;
+  },
+});
+
+/** Returns a mentee result by ID, or null if not found/not owned by instructor. */
+export const getMenteeResultById = query({
+  args: { id: v.id("menteeResults"), instructorId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const result = await ctx.db.get(args.id);
+    if (!result || result.instructorId !== args.instructorId) {
+      return null;
+    }
+    return result;
+  },
+});
+
+/** Updates mentor scheduling settings (timeZone and workingHours). */
+export const updateMentorSchedulingSettings = mutation({
+  args: {
+    id: v.id("instructors"),
+    timeZone: v.optional(v.string()),
+    workingHours: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const { id, ...updates } = args;
+    await ctx.db.patch(id, updates);
+    return await ctx.db.get(id);
+  },
+});
+
+/** Returns mentees with session pack info for a mentor. */
+export const getMentorMenteesWithSessionInfo = query({
+  args: { mentorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    
+    const sessionPacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .collect();
+    
+    const menteesMap = new Map<string, {
+      userId: string;
+      sessionPackId: string;
+      totalSessions: number;
+      remainingSessions: number;
+      expiresAt: number | null;
+      status: string;
+    }>();
+    
+    for (const pack of sessionPacks) {
+      if (!menteesMap.has(pack.userId) || pack.status === "active") {
+        menteesMap.set(pack.userId, {
+          userId: pack.userId,
+          sessionPackId: pack._id,
+          totalSessions: pack.totalSessions,
+          remainingSessions: pack.remainingSessions,
+          expiresAt: pack.expiresAt ?? null,
+          status: pack.status,
+        });
+      }
+    }
+    
+    const result = await Promise.all(
+      Array.from(menteesMap.values()).map(async (m) => {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", m.userId))
+          .first();
+        
+        const sessions = await ctx.db
+          .query("sessions")
+          .withIndex("by_studentId", (q) => q.eq("studentId", m.userId))
+          .filter((q) => q.eq(q.field("mentorId"), args.mentorId))
+          .collect();
+        
+        const completedSessions = sessions.filter(s => s.status === "completed");
+        const lastSession = completedSessions.length > 0
+          ? completedSessions.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))[0]
+          : null;
+        
+        return {
+          userId: m.userId,
+          email: user?.email ?? null,
+          sessionPackId: m.sessionPackId,
+          totalSessions: m.totalSessions,
+          remainingSessions: m.remainingSessions,
+          expiresAt: m.expiresAt,
+          status: m.status,
+          lastSessionCompletedAt: lastSession?.completedAt ?? null,
+          completedSessionCount: completedSessions.length,
+        };
+      })
+    );
+    
+    return result;
+  },
+});
+
+/** Returns the session count for a user's session pack with a mentor. */
+export const getUserSessionCountForMentor = query({
+  args: { userId: v.string(), mentorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    
+    const sessionPacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.eq(q.field("mentorId"), args.mentorId))
+      .collect();
+    
+    if (sessionPacks.length === 0) {
+      return null;
+    }
+    
+    const activePacks = sessionPacks.filter(p => p.status === "active");
+    const pack = activePacks.length > 0 ? activePacks[0] : sessionPacks[0];
+    
+    return {
+      sessionPackId: pack._id,
+      totalSessions: pack.totalSessions,
+      remainingSessions: pack.remainingSessions,
+      expiresAt: pack.expiresAt ?? null,
+      status: pack.status,
+    };
+  },
+});
+
+/** Returns an instructor by ID (mentorId style lookup). */
+export const getMentorById = query({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    return await ctx.db.get(args.id);
+  },
+});
+
+/** Deletes a testimonial by ID. */
+export const deleteTestimonial = mutation({
+  args: { id: v.id("instructorTestimonials") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+    return { success: true };
+  },
+});
+
+/** Deletes a mentee result by ID. */
+export const deleteMenteeResult = mutation({
+  args: { id: v.id("menteeResults") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+    return { success: true };
+  },
+});
+
+/** Checks seat availability for a mentor (public endpoint). */
+export const checkSeatAvailability = query({
+  args: { mentorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.mentorId);
+    if (!instructor) {
+      throw new Error("Instructor not found");
+    }
+
+    const activeSeats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_mentorId_status", (q) =>
+        q.eq("mentorId", args.mentorId).eq("status", "active")
+      )
+      .collect();
+
+    const maxSeats = instructor.oneOnOneInventory ?? 0;
+    const activeCount = activeSeats.length;
+    const remainingSeats = Math.max(0, maxSeats - activeCount);
+
+    return {
+      available: remainingSeats > 0,
+      activeSeats: activeCount,
+      maxSeats,
+      remainingSeats,
+    };
   },
 });

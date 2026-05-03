@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireDbUser, getUser } from "@/lib/auth";
-import { updateUserTimeZone } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 
 const updateTimeZoneSchema = z.object({
   timeZone: z.string().min(1, "Timezone is required"),
@@ -10,6 +12,7 @@ const updateTimeZoneSchema = z.object({
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireDbUser();
+    const convex = getConvexClient();
 
     const body = await req.json();
     const parsed = updateTimeZoneSchema.safeParse(body);
@@ -31,7 +34,10 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    await updateUserTimeZone(user.id, timeZone);
+    await convex.mutation(api.users.updateUser, {
+      id: user.id as Id<"users">,
+      timeZone,
+    });
 
     return NextResponse.json({ success: true, timeZone });
   } catch (error) {

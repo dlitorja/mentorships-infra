@@ -38,9 +38,11 @@ export default defineSchema({
     portfolioImageStorageIds: v.optional(v.array(v.string())),
     profileImageUrl: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
+    profileImageUploadPath: v.optional(v.string()),
     socials: v.optional(v.any()),
     mentorId: v.optional(v.string()),
     tagline: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"])
     .index("by_slug", ["slug"])
     .index("by_deletedAt", ["deletedAt"]),

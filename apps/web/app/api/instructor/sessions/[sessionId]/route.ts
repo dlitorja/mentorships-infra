@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireDbUser, isUnauthorizedError } from "@/lib/auth";
-import { db, sessions, eq, getMentorById, getMentorByUserId, getSessionById, getSessionPackById, decryptMentorRefreshToken } from "@mentorships/db";
+import { requireRoleForApi } from "@/lib/auth-helpers";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 import { inngest } from "@/inngest/client";
 import { getGoogleCalendarClient } from "@/lib/google";
+import { isUnauthorizedError } from "@/lib/errors";
 import { z } from "zod";
+
+function decryptMentorRefreshToken(mentor: { googleRefreshToken?: string }): string | null {
+  if (!mentor.googleRefreshToken) return null;
+  try {
+    const decrypted = Buffer.from(mentor.googleRefreshToken, "base64").toString("utf-8");
+    return decrypted.startsWith("__decrypted__") ? decrypted.replace("__decrypted__", "") : null;
+  } catch {
+    return null;
+  }
+}
 
 const updateSessionSchema = z.object({
   status: z.enum(["scheduled", "completed", "canceled", "no_show"]).optional(),
@@ -16,16 +29,12 @@ export async function PATCH(
   { params }: { params: Promise<{ sessionId: string }> }
 ): Promise<NextResponse> {
   try {
-    // Require authentication and check role
-    const user = await requireDbUser();
-    if (user.role !== "mentor") {
-      return NextResponse.json(
-        { error: "Forbidden: Mentor role required" },
-        { status: 403 }
-      );
-    }
+    const user = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const mentor = await getMentorByUserId(user.id);
+    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
 
     if (!mentor) {
       return NextResponse.json(
@@ -35,7 +44,9 @@ export async function PATCH(
     }
 
     const { sessionId } = await params;
-    const session = await getSessionById(sessionId);
+    const session = await convex.query(api.sessions.getSessionById, {
+      id: sessionId as Id<"sessions">,
+    });
 
     if (!session) {
       return NextResponse.json(
@@ -44,8 +55,7 @@ export async function PATCH(
       );
     }
 
-    // Verify the session belongs to this mentor
-    if (session.mentorId !== mentor.id) {
+    if (session.mentorId !== mentor._id) {
       return NextResponse.json(
         { error: "Unauthorized: Session does not belong to this mentor" },
         { status: 403 }
@@ -55,38 +65,23 @@ export async function PATCH(
     const body = await request.json();
     const validatedData = updateSessionSchema.parse(body);
 
-    // Prepare update object with proper types
     const updateData: {
       status?: "scheduled" | "completed" | "canceled" | "no_show";
       notes?: string;
       recordingUrl?: string;
-      completedAt?: Date | null;
-      canceledAt?: Date | null;
-      updatedAt: Date;
-    } = {
-      updatedAt: new Date(),
-    };
+      completedAt?: number;
+      canceledAt?: number;
+    } = {};
 
-    // Handle status changes
     if (validatedData.status) {
       updateData.status = validatedData.status;
 
-      // Set timestamps based on status
       if (validatedData.status === "completed") {
-        updateData.completedAt = new Date();
-        updateData.canceledAt = null;
+        updateData.completedAt = Date.now();
       } else if (validatedData.status === "canceled") {
-        updateData.canceledAt = new Date();
-        updateData.completedAt = null;
+        updateData.canceledAt = Date.now();
       } else if (validatedData.status === "no_show") {
-        // No-show is similar to completed - session happened but student didn't attend
-        // Set completedAt to mark the session as finished, clear canceledAt
-        updateData.completedAt = new Date();
-        updateData.canceledAt = null;
-      } else if (validatedData.status === "scheduled") {
-        // Reset timestamps when rescheduling
-        updateData.completedAt = null;
-        updateData.canceledAt = null;
+        updateData.completedAt = Date.now();
       }
     }
 
@@ -98,17 +93,13 @@ export async function PATCH(
       updateData.recordingUrl = validatedData.recordingUrl;
     }
 
-    // Update session
-    const [updatedSession] = await db
-      .update(sessions)
-      .set(updateData)
-      .where(eq(sessions.id, sessionId))
-      .returning();
+    const updatedSession = await convex.mutation(api.sessions.updateSession, {
+      id: sessionId as Id<"sessions">,
+      ...updateData,
+    });
 
-    // If session was canceled, trigger cancellation emails
     if (validatedData.status === "canceled") {
-      const pack = await getSessionPackById(session.sessionPackId);
-      if (pack) {
+      try {
         await inngest.send({
           name: "session/cancelled-email",
           data: {
@@ -120,23 +111,35 @@ export async function PATCH(
             cancelledBy: "instructor" as const,
           },
         });
+      } catch (sendError) {
+        console.error("Failed to enqueue cancellation email:", sendError, {
+          sessionId,
+          sessionPackId: session.sessionPackId,
+          studentId: session.studentId,
+          mentorId: session.mentorId,
+          scheduledAt: session.scheduledAt,
+        });
+      }
 
-        // Delete Google Calendar event if exists
-        if (session.googleCalendarEventId) {
-          const mentor = await getMentorById(session.mentorId);
-          if (mentor) {
-            const refreshToken = decryptMentorRefreshToken(mentor);
-            if (refreshToken) {
-              try {
-                const calendar = await getGoogleCalendarClient(refreshToken);
-                const calendarId = mentor.googleCalendarId || "primary";
-                await calendar.events.delete({
-                  calendarId,
-                  eventId: session.googleCalendarEventId,
-                });
-              } catch (calendarError) {
-                console.error("Failed to delete Google Calendar event:", calendarError);
-              }
+      if (session.googleCalendarEventId) {
+        const mentorDoc = await convex.query(api.instructors.getMentorById, {
+          id: session.mentorId,
+        });
+
+        if (!mentorDoc) {
+          console.error("Mentor not found for calendar cleanup");
+        } else {
+          const decryptedToken = decryptMentorRefreshToken(mentorDoc);
+          if (decryptedToken) {
+            try {
+              const calendar = await getGoogleCalendarClient(decryptedToken);
+              const calendarId = mentorDoc.googleCalendarId || "primary";
+              await calendar.events.delete({
+                calendarId,
+                eventId: session.googleCalendarEventId,
+              });
+            } catch (calendarError) {
+              console.error("Failed to delete Google Calendar event:", calendarError);
             }
           }
         }
@@ -148,7 +151,6 @@ export async function PATCH(
       session: updatedSession,
     });
   } catch (error) {
-    // Handle Zod validation errors
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: "Invalid request data", details: error.issues },
@@ -156,30 +158,14 @@ export async function PATCH(
       );
     }
 
-    // Handle authentication errors
     if (isUnauthorizedError(error)) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Rethrow Next.js redirect errors (shouldn't happen here, but just in case)
-    if (
-      error instanceof Error &&
-      (error.message.includes("NEXT_REDIRECT") ||
-        error.constructor.name === "RedirectError")
-    ) {
-      throw error;
-    }
-
-    // Log error without exposing sensitive data
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("Error updating session:", errorMessage);
+    console.error("Error updating session:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
     );
   }
 }
-

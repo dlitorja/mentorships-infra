@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  db,
-  instructorTestimonials,
-  getInstructorByUserId,
-  isUnauthorizedError,
-} from "@mentorships/db";
-import { eq, and } from "drizzle-orm";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 /**
  * DELETE /api/instructor/testimonials/[testimonialId]
@@ -16,10 +14,13 @@ export async function DELETE(
   { params }: { params: Promise<{ testimonialId: string }> }
 ) {
   try {
-    const { requireDbUser } = await import("@/lib/auth");
-    const user = await requireDbUser();
+    const user = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -29,17 +30,11 @@ export async function DELETE(
 
     const { testimonialId } = await params;
 
-    // Check if testimonial exists and belongs to this instructor
-    const [testimonial] = await db
-      .select()
-      .from(instructorTestimonials)
-      .where(
-        and(
-          eq(instructorTestimonials.id, testimonialId),
-          eq(instructorTestimonials.instructorId, instructor.id)
-        )
-      )
-      .limit(1);
+    const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, {
+      instructorId: instructor._id,
+    });
+
+    const testimonial = testimonials.find(t => t._id === testimonialId);
 
     if (!testimonial) {
       return NextResponse.json(
@@ -48,9 +43,9 @@ export async function DELETE(
       );
     }
 
-    await db
-      .delete(instructorTestimonials)
-      .where(eq(instructorTestimonials.id, testimonialId));
+    await convex.mutation(api.instructors.deleteTestimonial, {
+      id: testimonialId as Id<"instructorTestimonials">,
+    });
 
     return NextResponse.json({
       success: true,

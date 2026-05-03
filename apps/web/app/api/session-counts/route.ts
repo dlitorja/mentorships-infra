@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import {
-  incrementRemainingSessions,
-  decrementRemainingSessions,
-  getSessionPackById,
-  getMentorByUserId,
-} from "@mentorships/db";
-import { getDbUser, UnauthorizedError } from "@/lib/auth";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { UnauthorizedError } from "@/lib/errors";
 
 function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string | null {
   if (!user?.emailAddresses?.length) return null;
@@ -18,32 +15,33 @@ function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string 
   return user.emailAddresses[0]?.emailAddress ?? null;
 }
 
-async function requireAdminOrMentor(sessionPackId: string) {
+async function requireAdminOrMentor(convex: ReturnType<typeof getConvexClient>, sessionPackId: string) {
   const { userId } = await auth();
   if (!userId) {
     throw new UnauthorizedError("Authentication required");
   }
 
-  const user = await currentUser();
-  const dbUser = await getDbUser();
-  const userEmail = getPrimaryEmail(user);
+  const dbUser = await convex.query(api.users.getUserByUserId, { userId });
   const isAdmin = dbUser?.role === "admin";
 
   if (isAdmin) {
     return { userId, isAdmin: true };
   }
 
-  const mentor = await getMentorByUserId(userId);
-  if (!mentor) {
-    throw new UnauthorizedError("Mentor access required");
-  }
+  const pack = await convex.query(api.sessionPacks.getSessionPackById, {
+    id: sessionPackId as Id<"sessionPacks">,
+  });
 
-  const pack = await getSessionPackById(sessionPackId);
   if (!pack) {
     throw new Error("Session pack not found");
   }
 
-  if (mentor.id !== pack.mentorId) {
+  const instructor = await convex.query(api.instructors.getInstructorByUserId, { userId });
+  if (!instructor) {
+    throw new UnauthorizedError("Mentor access required");
+  }
+
+  if (instructor._id !== pack.mentorId) {
     throw new UnauthorizedError("You can only modify session packs for your own mentees");
   }
 
@@ -51,12 +49,13 @@ async function requireAdminOrMentor(sessionPackId: string) {
 }
 
 const updateSessionSchema = z.object({
-  sessionPackId: z.string().uuid("Invalid session pack ID"),
+  sessionPackId: z.string().min(1, "Invalid session pack ID"),
   action: z.enum(["increment", "decrement"]),
 });
 
 export async function POST(request: Request): Promise<Response> {
   try {
+    const convex = getConvexClient();
     const body = await request.json();
     const parseResult = updateSessionSchema.safeParse(body);
 
@@ -68,22 +67,27 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const { sessionPackId, action } = parseResult.data;
-
-    await requireAdminOrMentor(sessionPackId);
+    await requireAdminOrMentor(convex, sessionPackId);
 
     if (action === "increment") {
-      const updated = await incrementRemainingSessions(sessionPackId);
+      const updated = await convex.mutation(api.sessionPacks.addSessionsToPack, {
+        id: sessionPackId as Id<"sessionPacks">,
+        amount: 1,
+      });
       return NextResponse.json({
         message: "Session added successfully",
-        remainingSessions: updated.remainingSessions,
-        totalSessions: updated.totalSessions,
+        remainingSessions: updated?.remainingSessions,
+        totalSessions: updated?.totalSessions,
       });
     } else {
-      const updated = await decrementRemainingSessions(sessionPackId);
+      const updated = await convex.mutation(api.sessionPacks.removeSessionsFromPack, {
+        id: sessionPackId as Id<"sessionPacks">,
+        amount: 1,
+      });
       return NextResponse.json({
         message: "Session removed successfully",
-        remainingSessions: updated.remainingSessions,
-        totalSessions: updated.totalSessions,
+        remainingSessions: updated?.remainingSessions,
+        totalSessions: updated?.totalSessions,
       });
     }
   } catch (error) {

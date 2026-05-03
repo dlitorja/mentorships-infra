@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAllActiveProductsPaginated } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 
 /**
  * GET /api/products
@@ -9,11 +10,11 @@ import { getAllActiveProductsPaginated } from "@mentorships/db";
  */
 export async function GET(req: NextRequest) {
   try {
-    const { items: products } = await getAllActiveProductsPaginated(1, 100);
+    const convex = getConvexClient();
+    const products = await convex.query(api.products.getPublicActiveProducts, {});
 
-    // Return products with only safe/public fields
     const publicProducts = products.map((product) => ({
-      id: product.id,
+      id: product._id,
       title: product.title,
       price: product.price,
       sessionsPerPack: product.sessionsPerPack,

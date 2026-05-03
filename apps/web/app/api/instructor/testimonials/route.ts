@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  getInstructorByUserId,
-  getTestimonialsByInstructorId,
-  createTestimonial,
-  isUnauthorizedError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const createTestimonialSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -18,10 +17,13 @@ const createTestimonialSchema = z.object({
  */
 export async function GET(req: NextRequest) {
   try {
-    const { requireDbUser } = await import("@/lib/auth");
-    const user = await requireDbUser();
+    const user = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -29,19 +31,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const testimonials = await getTestimonialsByInstructorId(instructor.id);
+    const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, {
+      instructorId: instructor._id,
+    });
 
     return NextResponse.json({
       items: testimonials.map((t) => ({
-        id: t.id,
+        id: t._id,
         name: t.name,
         text: t.text,
-        createdAt: t.createdAt.toISOString(),
+        createdAt: new Date(t._creationTime).toISOString(),
       })),
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
     }
 
     console.error("Error getting testimonials:", error);
@@ -58,10 +65,13 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const { requireDbUser } = await import("@/lib/auth");
-    const user = await requireDbUser();
+    const user = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -81,8 +91,8 @@ export async function POST(req: NextRequest) {
 
     const { name, text } = validationResult.data;
 
-    const testimonial = await createTestimonial({
-      instructorId: instructor.id,
+    const testimonialId = await convex.mutation(api.instructors.createTestimonial, {
+      instructorId: instructor._id,
       name,
       text,
     });
@@ -91,15 +101,18 @@ export async function POST(req: NextRequest) {
       success: true,
       message: "Testimonial added successfully",
       testimonial: {
-        id: testimonial.id,
-        name: testimonial.name,
-        text: testimonial.text,
-        createdAt: testimonial.createdAt.toISOString(),
+        id: testimonialId,
+        name,
+        text,
+        createdAt: new Date().toISOString(),
       },
     }, { status: 201 });
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
     }
 
     console.error("Error adding testimonial:", error);

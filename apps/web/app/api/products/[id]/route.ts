@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
 import { requireAuth, isUnauthorizedError } from "@/lib/auth";
 
 /**
@@ -13,12 +15,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Require authentication
     await requireAuth();
     
     const { id } = await params;
+    const convex = getConvexClient();
     
-    const product = await getProductById(id);
+    const product = await convex.query(api.products.getProductById, {
+      id: id as Id<"products">,
+    });
     
     if (!product) {
       return NextResponse.json(
@@ -28,16 +32,13 @@ export async function GET(
     }
 
     return NextResponse.json({
-      id: product.id,
+      id: product._id,
       title: product.title,
       price: product.price,
       sessionsPerPack: product.sessionsPerPack,
       validityDays: product.validityDays,
       stripePriceId: product.stripePriceId,
-      mentor: {
-        id: product.mentor.id,
-        userId: product.mentor.userId,
-      },
+      mentorId: product.mentorId,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
@@ -54,4 +55,3 @@ export async function GET(
     );
   }
 }
-

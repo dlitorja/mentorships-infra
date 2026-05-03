@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  db,
-  menteeResults,
-  getInstructorByUserId,
-  isUnauthorizedError,
-} from "@mentorships/db";
-import { eq, and } from "drizzle-orm";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError } from "@/lib/errors";
+import { requireRoleForApi } from "@/lib/auth-helpers";
 
 /**
  * DELETE /api/instructor/mentees-results/[resultId]
@@ -16,10 +14,13 @@ export async function DELETE(
   { params }: { params: Promise<{ resultId: string }> }
 ) {
   try {
-    const { requireDbUser } = await import("@/lib/auth");
-    const user = await requireDbUser();
+    const user = await requireRoleForApi("mentor");
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorByUserId(user.id);
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
@@ -29,17 +30,11 @@ export async function DELETE(
 
     const { resultId } = await params;
 
-    // Check if mentee result exists and belongs to this instructor
-    const [result] = await db
-      .select()
-      .from(menteeResults)
-      .where(
-        and(
-          eq(menteeResults.id, resultId),
-          eq(menteeResults.instructorId, instructor.id)
-        )
-      )
-      .limit(1);
+    const results = await convex.query(api.instructors.getMenteeResultsByInstructorId, {
+      instructorId: instructor._id,
+    });
+
+    const result = results.find(r => r._id === resultId);
 
     if (!result) {
       return NextResponse.json(
@@ -48,9 +43,9 @@ export async function DELETE(
       );
     }
 
-    await db
-      .delete(menteeResults)
-      .where(eq(menteeResults.id, resultId));
+    await convex.mutation(api.instructors.deleteMenteeResult, {
+      id: resultId as Id<"menteeResults">,
+    });
 
     return NextResponse.json({
       success: true,
