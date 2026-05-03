@@ -68,8 +68,8 @@ export async function PATCH(
       status?: "scheduled" | "completed" | "canceled" | "no_show";
       notes?: string;
       recordingUrl?: string;
-      completedAt?: number | null;
-      canceledAt?: number | null;
+      completedAt?: number;
+      canceledAt?: number;
     } = {};
 
     if (validatedData.status) {
@@ -77,16 +77,10 @@ export async function PATCH(
 
       if (validatedData.status === "completed") {
         updateData.completedAt = Date.now();
-        updateData.canceledAt = null;
       } else if (validatedData.status === "canceled") {
         updateData.canceledAt = Date.now();
-        updateData.completedAt = null;
       } else if (validatedData.status === "no_show") {
         updateData.completedAt = Date.now();
-        updateData.canceledAt = null;
-      } else if (validatedData.status === "scheduled") {
-        updateData.completedAt = null;
-        updateData.canceledAt = null;
       }
     }
 

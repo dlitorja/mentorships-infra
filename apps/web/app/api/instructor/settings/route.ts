@@ -91,8 +91,8 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
     const updated = await convex.mutation(api.instructors.updateMentorSchedulingSettings, {
       id: mentor._id,
-      timeZone: parsed.data.timeZone,
-      workingHours: parsed.data.workingHours,
+      ...(parsed.data.timeZone !== undefined && parsed.data.timeZone !== null && { timeZone: parsed.data.timeZone }),
+      ...(parsed.data.workingHours !== undefined && { workingHours: parsed.data.workingHours }),
     });
 
     return NextResponse.json({

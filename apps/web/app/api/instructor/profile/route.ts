@@ -30,8 +30,8 @@ const patchSchema = z.object({
 type PatchInput = z.infer<typeof patchSchema>;
 
 interface ExistingInstructor {
-  profileImageUrl: string | null;
-  portfolioImages: string[] | null;
+  profileImageUrl?: string | null;
+  portfolioImages?: string[] | null;
 }
 
 function validateProfileRequirements(
@@ -140,12 +140,11 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     const updated = await convex.mutation(api.instructors.updateInstructor, {
       id: instructor._id,
       ...(data.name !== undefined && { name: data.name }),
-      ...(data.tagline !== undefined && { tagline: data.tagline }),
-      ...(data.bio !== undefined && { bio: data.bio }),
+      ...(data.tagline !== undefined && data.tagline !== null && { tagline: data.tagline }),
+      ...(data.bio !== undefined && data.bio !== null && { bio: data.bio }),
       ...(data.specialties !== undefined && { specialties: data.specialties }),
       ...(data.background !== undefined && { background: data.background }),
-      ...(data.profileImageUrl !== undefined && { profileImageUrl: data.profileImageUrl }),
-      ...(data.profileImageUploadPath !== undefined && { profileImageUploadPath: data.profileImageUploadPath }),
+      ...(data.profileImageUrl !== undefined && data.profileImageUrl !== null && { profileImageUrl: data.profileImageUrl }),
       ...(data.portfolioImages !== undefined && { portfolioImages: data.portfolioImages }),
       ...(data.socials !== undefined && { socials: data.socials }),
     });
