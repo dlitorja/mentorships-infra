@@ -6,6 +6,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
+const sessionPackIdSchema = z.string().min(1, "Session pack ID is required");
 const updateSessionCountSchema = z.object({
   action: z.enum(["increment", "decrement", "set"]),
   amount: z.number().int().min(1).default(1),
@@ -23,7 +24,9 @@ export async function PATCH(
     const user = await requireRoleForApi("mentor");
     const convex = getConvexClient();
 
-    const { sessionPackId } = await params;
+    const rawParams = await params;
+    const rawSessionPackId = sessionPackIdSchema.parse(rawParams.sessionPackId);
+    const sessionPackId = rawSessionPackId as Id<"sessionPacks">;
 
     const mentor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
@@ -37,7 +40,7 @@ export async function PATCH(
     }
 
     const sessionPack = await convex.query(api.sessionPacks.getSessionPackById, {
-      id: sessionPackId as Id<"sessionPacks">,
+      id: sessionPackId,
     });
 
     if (!sessionPack) {
@@ -69,17 +72,17 @@ export async function PATCH(
     let updatedPack: typeof sessionPack | null = sessionPack;
     if (action === "increment") {
       updatedPack = await convex.mutation(api.sessionPacks.addSessionsToPack, {
-        id: sessionPackId as Id<"sessionPacks">,
+        id: sessionPackId,
         amount,
       });
     } else if (action === "decrement") {
       updatedPack = await convex.mutation(api.sessionPacks.removeSessionsFromPack, {
-        id: sessionPackId as Id<"sessionPacks">,
+        id: sessionPackId,
         amount,
       });
     } else if (action === "set") {
       updatedPack = await convex.mutation(api.sessionPacks.setRemainingSessions, {
-        id: sessionPackId as Id<"sessionPacks">,
+        id: sessionPackId,
         amount,
       });
     }
@@ -101,6 +104,12 @@ export async function PATCH(
       },
     });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: "Invalid request", details: error.issues },
+        { status: 400 }
+      );
+    }
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

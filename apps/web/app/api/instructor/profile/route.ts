@@ -86,6 +86,7 @@ export async function GET(): Promise<NextResponse> {
       specialties: instructor.specialties,
       background: instructor.background,
       profileImageUrl: instructor.profileImageUrl,
+      profileImageUploadPath: instructor.profileImageUploadPath ?? null,
       portfolioImages: instructor.portfolioImages,
       socials: instructor.socials,
       isActive: instructor.isActive,
@@ -145,6 +146,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       ...(data.specialties !== undefined && { specialties: data.specialties }),
       ...(data.background !== undefined && { background: data.background }),
       ...(data.profileImageUrl !== undefined && data.profileImageUrl !== null && { profileImageUrl: data.profileImageUrl }),
+      ...(data.profileImageUploadPath !== undefined && data.profileImageUploadPath !== null && { profileImageUploadPath: data.profileImageUploadPath }),
       ...(data.portfolioImages !== undefined && { portfolioImages: data.portfolioImages }),
       ...(data.socials !== undefined && { socials: data.socials }),
     });
@@ -161,6 +163,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
         specialties: updated?.specialties,
         background: updated?.background,
         profileImageUrl: updated?.profileImageUrl,
+        profileImageUploadPath: updated?.profileImageUploadPath ?? null,
         portfolioImages: updated?.portfolioImages,
         socials: updated?.socials,
         isActive: updated?.isActive,

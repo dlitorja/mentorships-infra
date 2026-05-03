@@ -5,6 +5,7 @@ import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { inngest } from "@/inngest/client";
 import { getGoogleCalendarClient } from "@/lib/google";
+import { isUnauthorizedError } from "@/lib/errors";
 import { z } from "zod";
 
 function decryptMentorRefreshToken(mentor: { googleRefreshToken?: string }): string | null {
@@ -155,6 +156,10 @@ export async function PATCH(
         { error: "Invalid request data", details: error.issues },
         { status: 400 }
       );
+    }
+
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     console.error("Error updating session:", error);

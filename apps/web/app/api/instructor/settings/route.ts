@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
-import { isUnauthorizedError } from "@/lib/errors";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const intervalSchema = z.object({
@@ -59,10 +59,13 @@ export async function GET(): Promise<NextResponse> {
       },
     });
   } catch (error) {
-    console.error("Get instructor settings error:", error);
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+    }
+    console.error("Get instructor settings error:", error);
     return NextResponse.json({ error: "Failed to load settings" }, { status: 500 });
   }
 }
@@ -103,10 +106,13 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (error) {
-    console.error("Update instructor settings error:", error);
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+    }
+    console.error("Update instructor settings error:", error);
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });
   }
 }
