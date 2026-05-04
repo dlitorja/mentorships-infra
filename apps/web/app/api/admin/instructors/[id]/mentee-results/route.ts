@@ -49,24 +49,12 @@ export async function POST(
       );
     }
 
-    const resultId = await convex.mutation(api.instructors.createMenteeResult, {
+    const result = await convex.mutation(api.instructors.createMenteeResult, {
       instructorId: id as Id<"instructors">,
       imageUrl: data.imageUrl || "",
       imageUploadPath: data.imageUploadPath || undefined,
       studentName: data.studentName || undefined,
-    }) as unknown as Id<"menteeResults">;
-
-    const result = await convex.query(api.instructors.getMenteeResultById, {
-      id: resultId,
-      instructorId: id,
     });
-
-    if (!result) {
-      return NextResponse.json(
-        { error: "Failed to retrieve created mentee result" },
-        { status: 500 }
-      );
-    }
 
     return NextResponse.json({
       success: true,

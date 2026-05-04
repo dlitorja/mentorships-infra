@@ -48,7 +48,7 @@ title: "Character Design with Neil Gray",
       {
         title: "Complete Character Art Bundle",
         description: "Get both courses together and save on your character art education.",
-        url: "https://home.huckleberry.art/offers/gkAXKN2g/checkout",
+        url: "https://home.huckleberry.art/neil-gray-course-bundle",
         imageUrl: "/instructors/neil-gray/bundle.jpg",
         promoText: "Save over 67% on both courses combined!",
       },
