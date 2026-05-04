@@ -149,3 +149,51 @@ export const deleteUser = mutation({
     await ctx.db.delete(args.id);
   },
 });
+
+export const syncUser = mutation({
+  args: {
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+    role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
+    timeZone: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const email = identity.email;
+    if (!email) throw new Error("User email not found in auth identity");
+
+    const existingByEmail = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+
+    if (existingByEmail) {
+      const updates: Partial<Doc<"users">> = {
+        userId: identity.subject,
+        firstName: args.firstName ?? existingByEmail.firstName,
+        lastName: args.lastName ?? existingByEmail.lastName,
+        timeZone: args.timeZone ?? existingByEmail.timeZone,
+      };
+      if (args.role) {
+        updates.role = args.role;
+      }
+      await ctx.db.patch(existingByEmail._id, updates);
+      return await ctx.db.get(existingByEmail._id);
+    }
+
+    const id = await ctx.db.insert("users", {
+      userId: identity.subject,
+      email: email,
+      firstName: args.firstName,
+      lastName: args.lastName,
+      role: args.role ?? "student",
+      timeZone: args.timeZone,
+    });
+
+    const inserted = await ctx.db.get(id);
+    if (!inserted) throw new Error("Failed to create user");
+    return inserted;
+  },
+});
