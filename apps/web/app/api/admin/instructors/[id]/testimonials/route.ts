@@ -49,23 +49,11 @@ export async function POST(
       );
     }
 
-    const testimonialId = await convex.mutation(api.instructors.createTestimonial, {
+    const testimonial = await convex.mutation(api.instructors.createTestimonial, {
       instructorId: id as Id<"instructors">,
       name: data.name,
       text: data.text,
-    }) as unknown as Id<"instructorTestimonials">;
-
-    const testimonial = await convex.query(api.instructors.getTestimonialById, {
-      id: testimonialId,
-      instructorId: id,
     });
-
-    if (!testimonial) {
-      return NextResponse.json(
-        { error: "Failed to retrieve created testimonial" },
-        { status: 500 }
-      );
-    }
 
     return NextResponse.json({
       success: true,

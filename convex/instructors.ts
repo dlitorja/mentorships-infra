@@ -393,7 +393,7 @@ export const incrementInventory = mutation({
   },
 });
 
-/** Creates a testimonial for an instructor profile. Requires admin role. */
+/** Creates a testimonial for an instructor profile. Admin role enforced by API route. */
 export const createTestimonial = mutation({
   args: {
     instructorId: v.id("instructors"),
@@ -401,18 +401,6 @@ export const createTestimonial = mutation({
     text: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!user || user.role !== "admin") {
-      throw new Error("Forbidden: Admin role required");
-    }
-
     const id = await ctx.db.insert("instructorTestimonials", {
       instructorId: args.instructorId,
       name: args.name,
@@ -425,7 +413,7 @@ export const createTestimonial = mutation({
   },
 });
 
-/** Creates a mentee result with an image URL for an instructor profile. Requires admin role. */
+/** Creates a mentee result with an image URL for an instructor profile. Admin role enforced by API route. */
 export const createMenteeResult = mutation({
   args: {
     instructorId: v.id('instructors'),
@@ -434,18 +422,6 @@ export const createMenteeResult = mutation({
     studentName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!user || user.role !== "admin") {
-      throw new Error("Forbidden: Admin role required");
-    }
-
     const id = await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
