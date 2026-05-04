@@ -86,7 +86,7 @@ export default function ProductsPage() {
 
   const fetchMentors = async () => {
     try {
-      const res = await fetch("/api/admin/mentors");
+      const res = await fetch("/api/admin/instructors/mentors");
       const json = await res.json();
       const parsed = mentorSchema.array().safeParse(json.items);
       if (res.ok && parsed.success) {

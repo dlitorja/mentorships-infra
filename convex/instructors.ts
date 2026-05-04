@@ -1114,3 +1114,36 @@ export const checkSeatAvailability = query({
     };
   },
 });
+
+/** Updates inventory fields for an instructor. Requires admin role. */
+export const updateInstructorInventory = mutation({
+  args: {
+    id: v.id("instructors"),
+    oneOnOneInventory: v.optional(v.number()),
+    groupInventory: v.optional(v.number()),
+    maxActiveStudents: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+
+    const { id, ...updates } = args;
+    const filteredUpdates: Record<string, number> = {};
+    if (updates.oneOnOneInventory !== undefined) filteredUpdates.oneOnOneInventory = updates.oneOnOneInventory;
+    if (updates.groupInventory !== undefined) filteredUpdates.groupInventory = updates.groupInventory;
+    if (updates.maxActiveStudents !== undefined) filteredUpdates.maxActiveStudents = updates.maxActiveStudents;
+
+    if (Object.keys(filteredUpdates).length === 0) {
+      throw new Error("No valid fields to update");
+    }
+
+    await ctx.db.patch(id, { ...filteredUpdates, updatedAt: Date.now() });
+    return await ctx.db.get(id);
+  },
+});

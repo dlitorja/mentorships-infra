@@ -322,7 +322,7 @@ export default function EditInstructorPage() {
   const { data: mentorsData } = useQuery({
     queryKey: ["mentors"],
     queryFn: async () => {
-      const result = await apiFetch<{ items: { id: string; email: string | null }[] }>("/api/admin/mentors");
+      const result = await apiFetch<{ items: { id: string; email: string | null }[] }>("/api/admin/instructors/mentors");
       return mentorsResponseSchema.parse(result);
     },
   });

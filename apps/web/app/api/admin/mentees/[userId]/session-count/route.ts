@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  getSessionCountsForMentee,
-  createSessionCount,
-  updateSessionCount,
-  adjustSessionCount,
-  deleteSessionCount,
-  upsertSessionCount,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
 const createSchema = z.object({
-  instructorId: z.string().uuid("Invalid instructor ID"),
+  instructorId: z.string(),
   sessionCount: z.number().int("Must be an integer"),
   notes: z.string().optional(),
 });
@@ -41,7 +34,19 @@ export async function GET(
 
     const { userId } = await params;
 
-    const counts = await getSessionCountsForMentee(userId);
+    const convex = getConvexClient();
+    type SessionCountResult = {
+      id: string;
+      userId: string;
+      instructorId: string;
+      sessionCount: number;
+      notes: string | null;
+      createdAt: number;
+      updatedAt: number;
+      instructorName: string | null;
+      instructorSlug: string | null;
+    };
+    const counts = await convex.query((api as any).menteeSessionCounts.getSessionCountsForMentee, { userId }) as SessionCountResult[];
 
     return NextResponse.json({
       items: counts.map((c) => ({
@@ -52,8 +57,8 @@ export async function GET(
         instructorSlug: c.instructorSlug,
         sessionCount: c.sessionCount,
         notes: c.notes,
-        createdAt: c.createdAt.toISOString(),
-        updatedAt: c.updatedAt.toISOString(),
+        createdAt: new Date(c.createdAt).toISOString(),
+        updatedAt: new Date(c.updatedAt).toISOString(),
       })),
     });
   } catch (error) {
@@ -97,16 +102,22 @@ export async function POST(
 
     const { instructorId, sessionCount, notes } = validation.data;
 
-    const result = await upsertSessionCount(userId, instructorId, sessionCount, notes);
+    const convex = getConvexClient();
+    const result = await convex.mutation((api as any).menteeSessionCounts.upsertSessionCount, {
+      userId,
+      instructorId,
+      sessionCount,
+      notes,
+    });
 
     return NextResponse.json({
-      id: result.id,
+      id: result._id,
       userId: result.userId,
       instructorId: result.instructorId,
       sessionCount: result.sessionCount,
-      notes: result.notes,
-      createdAt: result.createdAt.toISOString(),
-      updatedAt: result.updatedAt.toISOString(),
+      notes: result.notes ?? null,
+      createdAt: new Date(result.createdAt).toISOString(),
+      updatedAt: new Date(result.updatedAt).toISOString(),
     }, { status: 201 });
   } catch (error) {
     if (isUnauthorizedError(error)) {
@@ -141,6 +152,8 @@ export async function PATCH(
 
     const { id, adjustment, sessionCount, notes } = body;
 
+    const convex = getConvexClient();
+
     if (adjustment !== undefined) {
       if (typeof adjustment !== "number") {
         return NextResponse.json({ error: "Invalid adjustment value" }, { status: 400 });
@@ -153,19 +166,23 @@ export async function PATCH(
         );
       }
 
-      const result = await adjustSessionCount(id, adjustment, notes);
+      const result = await convex.mutation((api as any).menteeSessionCounts.adjustSessionCount, {
+        id,
+        adjustment,
+        notes,
+      });
       if (!result) {
         return NextResponse.json({ error: "Session count not found" }, { status: 404 });
       }
 
       return NextResponse.json({
-        id: result.id,
+        id: result._id,
         userId: result.userId,
         instructorId: result.instructorId,
         sessionCount: result.sessionCount,
-        notes: result.notes,
-        createdAt: result.createdAt.toISOString(),
-        updatedAt: result.updatedAt.toISOString(),
+        notes: result.notes ?? null,
+        createdAt: new Date(result.createdAt).toISOString(),
+        updatedAt: new Date(result.updatedAt).toISOString(),
       });
     }
 
@@ -178,19 +195,23 @@ export async function PATCH(
         );
       }
 
-      const result = await updateSessionCount(id, sessionCount, notes);
+      const result = await convex.mutation((api as any).menteeSessionCounts.updateSessionCount, {
+        id,
+        sessionCount,
+        notes,
+      });
       if (!result) {
         return NextResponse.json({ error: "Session count not found" }, { status: 404 });
       }
 
       return NextResponse.json({
-        id: result.id,
+        id: result._id,
         userId: result.userId,
         instructorId: result.instructorId,
         sessionCount: result.sessionCount,
-        notes: result.notes,
-        createdAt: result.createdAt.toISOString(),
-        updatedAt: result.updatedAt.toISOString(),
+        notes: result.notes ?? null,
+        createdAt: new Date(result.createdAt).toISOString(),
+        updatedAt: new Date(result.updatedAt).toISOString(),
       });
     }
 
@@ -231,7 +252,10 @@ export async function DELETE(
       return NextResponse.json({ error: "Missing id parameter" }, { status: 400 });
     }
 
-    const deleted = await deleteSessionCount(id);
+    const convex = getConvexClient();
+    const deleted = await convex.mutation((api as any).menteeSessionCounts.deleteSessionCount, {
+      id,
+    });
     if (!deleted) {
       return NextResponse.json({ error: "Session count not found" }, { status: 404 });
     }

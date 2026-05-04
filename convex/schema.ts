@@ -287,4 +287,15 @@ export default defineSchema({
     createdAt: v.number(),
   }).index("by_instructorSlug_mentorshipType", ["instructorSlug", "mentorshipType"])
     .index("by_email_instructorSlug", ["email", "instructorSlug"]),
+
+  menteeSessionCounts: defineTable({
+    userId: v.string(),
+    instructorId: v.id("instructors"),
+    sessionCount: v.number(),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_userId", ["userId"])
+    .index("by_instructorId", ["instructorId"])
+    .index("by_userId_instructorId", ["userId", "instructorId"]),
 });
