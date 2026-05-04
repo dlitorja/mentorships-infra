@@ -46,7 +46,7 @@ export async function GET(
       instructorName: string | null;
       instructorSlug: string | null;
     };
-    const counts = await convex.query((api as any).menteeSessionCounts.getSessionCountsForMentee, { userId }) as SessionCountResult[];
+    const counts = await convex.query(api.menteeSessionCounts.getSessionCountsForMentee, { userId }) as SessionCountResult[];
 
     return NextResponse.json({
       items: counts.map((c) => ({
@@ -103,7 +103,7 @@ export async function POST(
     const { instructorId, sessionCount, notes } = validation.data;
 
     const convex = getConvexClient();
-    const result = await convex.mutation((api as any).menteeSessionCounts.upsertSessionCount, {
+    const result = await convex.mutation(api.menteeSessionCounts.upsertSessionCount, {
       userId,
       instructorId,
       sessionCount,
@@ -158,7 +158,7 @@ export async function PATCH(
 
     const convex = getConvexClient();
 
-    const counts = await convex.query((api as any).menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
+    const counts = await convex.query(api.menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
     const record = counts.find((c) => c.id === id);
     if (!record) {
       return NextResponse.json({ error: "Session count not found" }, { status: 404 });
@@ -179,7 +179,7 @@ export async function PATCH(
         );
       }
 
-      const result = await convex.mutation((api as any).menteeSessionCounts.adjustSessionCount, {
+      const result = await convex.mutation(api.menteeSessionCounts.adjustSessionCount, {
         id,
         adjustment,
         notes,
@@ -208,7 +208,7 @@ export async function PATCH(
         );
       }
 
-      const result = await convex.mutation((api as any).menteeSessionCounts.updateSessionCount, {
+      const result = await convex.mutation(api.menteeSessionCounts.updateSessionCount, {
         id,
         sessionCount,
         notes,
@@ -267,7 +267,7 @@ export async function DELETE(
 
     const convex = getConvexClient();
 
-    const counts = await convex.query((api as any).menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
+    const counts = await convex.query(api.menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
     const record = counts.find((c) => c.id === id);
     if (!record) {
       return NextResponse.json({ error: "Session count not found" }, { status: 404 });
@@ -276,7 +276,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const deleted = await convex.mutation((api as any).menteeSessionCounts.deleteSessionCount, {
+    const deleted = await convex.mutation(api.menteeSessionCounts.deleteSessionCount, {
       id,
     });
     if (!deleted) {

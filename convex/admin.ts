@@ -37,7 +37,7 @@ export const getAllMentors = query({
         if (instructor.userId) {
           const user = await ctx.db
             .query("users")
-            .withIndex("by_userId", (q) => q.eq("userId", instructor.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", instructor.userId!))
             .first();
           email = user?.email ?? null;
         }

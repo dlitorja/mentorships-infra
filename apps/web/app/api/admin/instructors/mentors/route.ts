@@ -25,14 +25,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       groupInventory: number | null;
       createdAt: number | null;
     };
-    const result = await convex.query((api as any).admin.getAllMentors, {}) as MentorResult[];
+    const result = await convex.query(api.admin.getAllMentors, {}) as MentorResult[];
 
     const formattedMentors = result
-      .filter((mentor) => mentor.userId !== null && mentor.email !== null)
+      .filter((mentor): mentor is MentorResult & { userId: string } => mentor.userId !== null)
       .map((mentor) => ({
         id: mentor.id,
-        userId: mentor.userId!,
-        email: mentor.email!,
+        userId: mentor.userId,
+        email: mentor.email,
         maxActiveStudents: mentor.maxActiveStudents ?? 0,
         oneOnOneInventory: mentor.oneOnOneInventory ?? 0,
         groupInventory: mentor.groupInventory ?? 0,
