@@ -27,15 +27,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     };
     const result = await convex.query((api as any).admin.getAllMentors, {}) as MentorResult[];
 
-    const formattedMentors = result.map((mentor) => ({
-      id: mentor.id,
-      userId: mentor.userId,
-      email: mentor.email,
-      maxActiveStudents: mentor.maxActiveStudents,
-      oneOnOneInventory: mentor.oneOnOneInventory,
-      groupInventory: mentor.groupInventory,
-      createdAt: mentor.createdAt ? new Date(mentor.createdAt).toISOString() : null,
-    }));
+    const formattedMentors = result
+      .filter((mentor) => mentor.userId !== null && mentor.email !== null)
+      .map((mentor) => ({
+        id: mentor.id,
+        userId: mentor.userId!,
+        email: mentor.email!,
+        maxActiveStudents: mentor.maxActiveStudents ?? 0,
+        oneOnOneInventory: mentor.oneOnOneInventory ?? 0,
+        groupInventory: mentor.groupInventory ?? 0,
+        createdAt: mentor.createdAt ? new Date(mentor.createdAt).toISOString() : null,
+      }));
 
     return NextResponse.json({ items: formattedMentors });
   } catch (error) {

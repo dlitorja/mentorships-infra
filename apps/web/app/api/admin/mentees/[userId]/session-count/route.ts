@@ -147,12 +147,25 @@ export async function PATCH(
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const { userId } = await params;
+    const { userId: pathUserId } = await params;
     const body = await req.json();
 
     const { id, adjustment, sessionCount, notes } = body;
 
+    if (!id) {
+      return NextResponse.json({ error: "Missing id" }, { status: 400 });
+    }
+
     const convex = getConvexClient();
+
+    const counts = await convex.query((api as any).menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
+    const record = counts.find((c) => c.id === id);
+    if (!record) {
+      return NextResponse.json({ error: "Session count not found" }, { status: 404 });
+    }
+    if (record.userId !== pathUserId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     if (adjustment !== undefined) {
       if (typeof adjustment !== "number") {
@@ -244,7 +257,7 @@ export async function DELETE(
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const { userId } = await params;
+    const { userId: pathUserId } = await params;
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -253,6 +266,16 @@ export async function DELETE(
     }
 
     const convex = getConvexClient();
+
+    const counts = await convex.query((api as any).menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
+    const record = counts.find((c) => c.id === id);
+    if (!record) {
+      return NextResponse.json({ error: "Session count not found" }, { status: 404 });
+    }
+    if (record.userId !== pathUserId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     const deleted = await convex.mutation((api as any).menteeSessionCounts.deleteSessionCount, {
       id,
     });

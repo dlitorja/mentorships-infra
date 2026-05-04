@@ -39,16 +39,16 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const convexUser = await convex.query(api.users.getUserByEmail, {
+    const convexUser = await convex.query(api.queries.http.getUserIdByEmail, {
       email,
     });
 
-    if (!convexUser) {
+    if (!convexUser || !convexUser.id) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     await convex.mutation(api.users.updateUser, {
-      id: convexUser._id,
+      id: convexUser.id,
       timeZone,
     });
 

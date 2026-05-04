@@ -203,7 +203,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     );
 
-    if (result.success > 0) {
+    if (result.success > 0 && result.failed === 0) {
       const unnotifiedEntries = entries.filter((e) => !e.notifiedAt);
       if (unnotifiedEntries.length > 0) {
         await convex.mutation(api.waitlist.markNotified, {

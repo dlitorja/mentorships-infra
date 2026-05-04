@@ -93,7 +93,7 @@ export const upsertSessionCount = mutation({
       userId: args.userId,
       instructorId: args.instructorId,
       sessionCount: args.sessionCount,
-      notes: args.notes ?? null,
+      notes: args.notes,
       createdAt: now,
       updatedAt: now,
     });
