@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  db,
-  menteeResults,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
-import { eq, and } from "drizzle-orm";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import type { Id } from "@/convex/_generated/dataModel";
 
 /**
  * DELETE /api/admin/instructors/[id]/mentee-results/[resultId]
@@ -20,16 +17,12 @@ export async function DELETE(
     await requireRoleForApi("admin");
 
     const { id, resultId } = await params;
+    const convex = getConvexClient();
 
-    // Check if mentee result exists and belongs to the instructor
-    const [result] = await db
-      .select()
-      .from(menteeResults)
-      .where(and(
-        eq(menteeResults.id, resultId),
-        eq(menteeResults.instructorId, id)
-      ))
-      .limit(1);
+    const result = await convex.query(api.instructors.getMenteeResultById, {
+      id: resultId as Id<"menteeResults">,
+      instructorId: id,
+    });
 
     if (!result) {
       return NextResponse.json(
@@ -38,9 +31,9 @@ export async function DELETE(
       );
     }
 
-    await db
-      .delete(menteeResults)
-      .where(eq(menteeResults.id, resultId));
+    await convex.mutation(api.instructors.deleteMenteeResult, {
+      id: resultId as Id<"menteeResults">,
+    });
 
     return NextResponse.json({
       success: true,

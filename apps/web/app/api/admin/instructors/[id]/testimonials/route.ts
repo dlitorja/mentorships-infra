@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  getInstructorById,
-  createTestimonial,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const createTestimonialSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -39,8 +37,11 @@ export async function POST(
 
     const data = validationResult.data as CreateTestimonialInput;
 
-    // Check if instructor exists
-    const instructor = await getInstructorById(id);
+    const convex = getConvexClient();
+
+    const instructor = await convex.query(api.instructors.getInstructorById, {
+      id: id as Id<"instructors">,
+    });
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -48,20 +49,25 @@ export async function POST(
       );
     }
 
-    const testimonial = await createTestimonial({
-      instructorId: id,
+    const testimonialId = await convex.mutation(api.instructors.createTestimonial, {
+      instructorId: id as Id<"instructors">,
       name: data.name,
       text: data.text,
+    });
+
+    const testimonial = await convex.query(api.instructors.getTestimonialById, {
+      id: testimonialId,
+      instructorId: id,
     });
 
     return NextResponse.json({
       success: true,
       message: "Testimonial added successfully",
       testimonial: {
-        id: testimonial.id,
-        name: testimonial.name,
-        text: testimonial.text,
-        createdAt: testimonial.createdAt.toISOString(),
+        id: testimonial!._id,
+        name: testimonial!.name,
+        text: testimonial!.text,
+        createdAt: new Date(testimonial!.createdAt ?? testimonial!._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {

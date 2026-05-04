@@ -405,6 +405,7 @@ export const createTestimonial = mutation({
       instructorId: args.instructorId,
       name: args.name,
       text: args.text,
+      createdAt: Date.now(),
     });
   },
 });
