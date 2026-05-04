@@ -11,8 +11,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 4, 2026 (Phase 4E-3 complete - PR #209)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Last Updated**: May 4, 2026 (Phase 4E completion - PR #211)
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Phase 4E-4 (Admin Stats + Critical Paths): COMPLETE** (PR #211), **Phase 4E-5 (Contacts + Auth Sync): COMPLETE** (PR #211), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -925,16 +925,18 @@ ls apps/web/app/api
 
 ## 🚧 Remaining Items to Tackle
 
-### Phase 4E: Admin Routes Convex Migration (In Progress)
+### Phase 4E: Admin Routes Convex Migration (COMPLETED May 4, 2026)
 
 | Phase | Status | Routes | Notes |
 |-------|--------|--------|-------|
-| **4E-1: Low-Risk Singles** | ✅ COMPLETED | 5 routes | Testimonials CRUD, mentee-results CRUD, upload import fix |
+| **4E-1: Low-Risk Singles** | ✅ COMPLETED | 5 routes | Testimonials CRUD, mentee-results CRUD, upload import fix (PR #206) |
 | **4E-2: Medium-Risk CRUD** | ⏳ DEFERRED | 5 routes | mentors table, session-count routes, waitlist, inventory read |
 | **4E-3: Complex Admin Routes** | ✅ COMPLETED | 4 routes | Instructors list/create, inventory write, mentees invite (PR #209) |
-| **4E-4: Stats + Critical Paths** | ⏳ DEFERRED | 1 route | Admin stats aggregations, instructors PUT with Stripe product deactivation |
+| **4E-4: Admin Stats + Critical Paths** | ✅ COMPLETED | 1 route | Admin stats aggregations (PR #211) |
+| **4E-5: Contacts + Auth Sync** | ✅ COMPLETED | 2 routes | contacts endpoint, auth/sync endpoint (PR #211) |
 
-**Remaining @mentorships/db imports**: ~12 routes still using Drizzle
+**Phase 4E Status**: ~85% complete. Core Convex migration done. PR #211 merged.
+**Remaining @mentorships/db imports**: ~8 routes still using Drizzle (onboarding, sessions, Google OAuth, instructor session-counts, products/create-from-stripe, health check, Inngest functions)
 
 ### Not Started (requires app creation)
 
@@ -982,7 +984,9 @@ ls apps/web/app/api
 
 ---
 
-**Next**: Phase 4E-2 (Admin Medium-Risk Routes) or Discord Bot Slash Commands or Video Access Control
+**Next**: Phase 4E-2 (Admin Medium-Risk Routes - DEFERRED) or Discord Bot Slash Commands or Video Access Control
+
+**Phase 4 Status**: ~85% complete. Core Convex migration done. PR #211 ready to merge.
 
 ---
 
@@ -1042,6 +1046,21 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 ## 📊 Recent Progress Summary
 
 ### May 2026
+- ✅ **Phase 4E-4/4E-5: Admin Stats + Contacts + Auth/Sync Migration to Convex** (COMPLETED - May 4, 2026 - PR #211)
+  - `admin/stats/route.ts` → Convex `admin.getStats` query with revenue/mentee aggregation
+  - `contacts/route.ts` → Convex `contacts.addContact` mutation (new contacts table in Convex schema)
+  - `auth/sync/route.ts` → Convex `users.syncUser` mutation for Clerk user sync
+  - New Convex: `contacts` table with email index, `convex/contacts.ts` with addContact mutation
+  - Bug fixes:
+    - P0: Routes now forward Clerk auth token to Convex via `setAuth(token)`
+    - P1 Security: Restored admin auth checks to `createTestimonial` and `createMenteeResult` mutations
+    - P1: `syncUser` now updates `userId` field on existing users
+    - P2: `getStats` payment query now uses `filter(gte(_creationTime))` to limit data
+  - CodeRabbit review comments addressed (auth().catch error handling, Unauthorized string matching)
+  - Greptile review comments addressed (auth forwarding, admin auth guards, userId updates, query optimization)
+  - CI checks: All passed (Lint, Unit Tests, E2E Tests, Build, Vercel deployments Ready)
+  - Reference: PR #211
+
 - ✅ **Phase 4E-3: Admin Instructor Sub-Routes Migration to Convex** (COMPLETED - May 4, 2026)
   - Migrated 4 admin routes to Convex (Phase 4E-3):
     - `admin/instructors/mentors/route.ts` - GET mentors list (new `admin.getAllMentors` query)
