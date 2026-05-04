@@ -144,6 +144,10 @@ export const removeFromWaitlist = mutation({
 export const removeMultipleFromWaitlist = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
     for (const id of args.ids) {
       await ctx.db.delete(id);
     }
@@ -181,6 +185,10 @@ export const removeByEmail = mutation({
 export const markNotified = mutation({
   args: { ids: v.array(v.id("marketingWaitlist")) },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
     for (const id of args.ids) {
       await ctx.db.patch(id, { notifiedAt: Date.now() });
     }
@@ -195,6 +203,10 @@ export const markNotifiedByInstructor = mutation({
     mentorshipType: v.optional(v.union(v.literal("oneOnOne"), v.literal("group"))),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
     const entries = await ctx.db
       .query("marketingWaitlist")
       .withIndex("by_instructorSlug_mentorshipType", (q) =>

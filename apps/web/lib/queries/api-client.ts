@@ -338,7 +338,7 @@ type FetchMentorsResponse = z.infer<typeof FetchMentorsResponseSchema>;
  * Fetch all mentors for admin
  */
 export async function fetchMentors(): Promise<FetchMentorsResponse> {
-  const data = await apiFetch<unknown>("/api/admin/mentors");
+  const data = await apiFetch<unknown>("/api/admin/instructors/mentors");
   return FetchMentorsResponseSchema.parse(data);
 }
 

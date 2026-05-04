@@ -83,6 +83,17 @@ export const getUserEmail = query({
   },
 });
 
+export const getUserIdByEmail = query({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+    return { id: user?._id ?? null };
+  },
+});
+
 /** Fetches a workspace's non-deleted notes and images for data export. */
 export const getWorkspaceExportData = query({
   args: { workspaceId: v.id("workspaces") },

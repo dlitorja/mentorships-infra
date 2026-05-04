@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireDbUser, getUser } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
-import { Id } from "@/convex/_generated/dataModel";
+import { isUnauthorizedError } from "@/lib/errors";
 
 const updateTimeZoneSchema = z.object({
   timeZone: z.string().min(1, "Timezone is required"),
@@ -11,7 +11,12 @@ const updateTimeZoneSchema = z.object({
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
-    const user = await requireDbUser();
+    const clerkUser = await getUser();
+    const email = clerkUser?.emailAddresses?.[0]?.emailAddress;
+    if (!email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const convex = getConvexClient();
 
     const body = await req.json();
@@ -34,13 +39,27 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    const convexUser = await convex.query(api.queries.http.getUserIdByEmail, {
+      email,
+    });
+
+    if (!convexUser || !convexUser.id) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
     await convex.mutation(api.users.updateUser, {
-      id: user.id as Id<"users">,
+      id: convexUser.id,
       timeZone,
     });
 
     return NextResponse.json({ success: true, timeZone });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Update user settings error:", error);
     return NextResponse.json(
       { error: "Failed to update settings" },

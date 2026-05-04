@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, mentors, users, eq, isUnauthorizedError, isForbiddenError } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { protectWithRateLimit } from "@/lib/ratelimit";
 
@@ -13,24 +15,29 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     await requireRoleForApi("admin");
 
-    const allMentors: { mentor: typeof mentors.$inferSelect; email: string | null }[] = await db
-      .select({
-        mentor: mentors,
-        email: users.email,
-      })
-      .from(mentors)
-      .leftJoin(users, eq(mentors.userId, users.id))
-      .orderBy(mentors.createdAt);
+    const convex = getConvexClient();
+    type MentorResult = {
+      id: string;
+      userId: string | null;
+      email: string | null;
+      maxActiveStudents: number | null;
+      oneOnOneInventory: number | null;
+      groupInventory: number | null;
+      createdAt: number | null;
+    };
+    const result = await convex.query(api.admin.getAllMentors, {}) as MentorResult[];
 
-    const formattedMentors = allMentors.map(({ mentor, email }) => ({
-      id: mentor.id,
-      userId: mentor.userId,
-      email: email ?? null,
-      maxActiveStudents: mentor.maxActiveStudents,
-      oneOnOneInventory: mentor.oneOnOneInventory,
-      groupInventory: mentor.groupInventory,
-      createdAt: mentor.createdAt ? mentor.createdAt.toISOString() : null,
-    }));
+    const formattedMentors = result
+      .filter((mentor): mentor is MentorResult & { userId: string } => mentor.userId !== null)
+      .map((mentor) => ({
+        id: mentor.id,
+        userId: mentor.userId,
+        email: mentor.email,
+        maxActiveStudents: mentor.maxActiveStudents ?? 0,
+        oneOnOneInventory: mentor.oneOnOneInventory ?? 0,
+        groupInventory: mentor.groupInventory ?? 0,
+        createdAt: mentor.createdAt ? new Date(mentor.createdAt).toISOString() : null,
+      }));
 
     return NextResponse.json({ items: formattedMentors });
   } catch (error) {

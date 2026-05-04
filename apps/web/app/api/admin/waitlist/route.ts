@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db, waitlist, eq, and, desc, inArray, isUnauthorizedError, isForbiddenError, instructors } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { protectWithRateLimit } from "@/lib/ratelimit";
 import { z } from "zod";
@@ -8,11 +10,11 @@ import { sendWaitlistNotifications } from "@/lib/email/waitlist-notification";
 const waitlistNotificationSchema = z.object({
   instructorSlug: z.string(),
   mentorshipType: z.enum(["oneOnOne", "group"]),
-  entryIds: z.array(z.number()).optional(),
+  entryIds: z.array(z.string()).optional(),
 });
 
 const markNotifiedSchema = z.object({
-  entryIds: z.array(z.number()),
+  entryIds: z.array(z.string()),
 });
 
 /** Fetch waitlist entries for an instructor by slug */
@@ -35,21 +37,20 @@ export async function GET(
       return NextResponse.json({ error: "Missing slug parameter" }, { status: 400 });
     }
 
-    let query = db.select().from(waitlist).where(eq(waitlist.instructorSlug, slug));
+    const convex = getConvexClient();
+    const mentorshipType = typeFilter === "oneOnOne" || typeFilter === "group" ? typeFilter : undefined;
+    const entries = await convex.query(api.waitlist.getWaitlistForInstructor, {
+      instructorSlug: slug,
+      mentorshipType,
+    });
 
-    const entries = await query.orderBy(desc(waitlist.createdAt));
-
-    const filtered = typeFilter
-      ? entries.filter((e) => e.type === (typeFilter === "oneOnOne" ? "one-on-one" : "group"))
-      : entries;
-
-    const formatted = filtered.map((entry) => ({
-      id: entry.id,
+    const formatted = entries.map((entry) => ({
+      id: entry._id,
       email: entry.email,
-      type: entry.type === "one-on-one" ? "oneOnOne" : "group",
-      notified: entry.notified,
-      createdAt: entry.createdAt?.toISOString() ?? null,
-      updatedAt: entry.updatedAt?.toISOString() ?? null,
+      type: entry.mentorshipType,
+      notified: !!entry.notifiedAt,
+      createdAt: new Date(entry.createdAt).toISOString(),
+      notifiedAt: entry.notifiedAt ? new Date(entry.notifiedAt).toISOString() : null,
     }));
 
     return NextResponse.json({ items: formatted });
@@ -83,13 +84,12 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: true, updated: 0 });
     }
 
-    const now = new Date();
-    await db
-      .update(waitlist)
-      .set({ notified: true, updatedAt: now })
-      .where(inArray(waitlist.id, validated.entryIds));
+    const convex = getConvexClient();
+    const result = await convex.mutation(api.waitlist.markNotified, {
+      ids: validated.entryIds as any,
+    });
 
-    return NextResponse.json({ success: true, updated: validated.entryIds.length });
+    return NextResponse.json({ success: true, updated: result.count });
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -123,14 +123,17 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Missing ids parameter" }, { status: 400 });
     }
 
-    const ids = idsParam.split(",").map(Number).filter((n) => !isNaN(n));
+    const ids = idsParam.split(",").filter((id) => id.length > 0);
     if (ids.length === 0) {
       return NextResponse.json({ success: true, deleted: 0 });
     }
 
-    await db.delete(waitlist).where(inArray(waitlist.id, ids));
+    const convex = getConvexClient();
+    const result = await convex.mutation(api.waitlist.removeMultipleFromWaitlist, {
+      ids: ids as any,
+    });
 
-    return NextResponse.json({ success: true, deleted: ids.length });
+    return NextResponse.json({ success: true, deleted: result.count });
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -157,71 +160,55 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const body = await request.json();
     const validated = waitlistNotificationSchema.parse(body);
 
+    const convex = getConvexClient();
+
     let entries;
     if (validated.entryIds && validated.entryIds.length > 0) {
-      entries = await db
-        .select()
-        .from(waitlist)
-        .where(
-          and(
-            eq(waitlist.instructorSlug, validated.instructorSlug),
-            eq(
-              waitlist.type,
-              validated.mentorshipType === "oneOnOne" ? "one-on-one" : "group"
-            ),
-            inArray(waitlist.id, validated.entryIds)
-          )
-        );
+      const allEntries = await convex.query(api.waitlist.getWaitlistForInstructor, {
+        instructorSlug: validated.instructorSlug,
+        mentorshipType: validated.mentorshipType,
+      });
+      const idSet = new Set(validated.entryIds);
+      entries = allEntries.filter((e) => idSet.has(e._id));
     } else {
-      entries = await db
-        .select()
-        .from(waitlist)
-        .where(
-          and(
-            eq(waitlist.instructorSlug, validated.instructorSlug),
-            eq(
-              waitlist.type,
-              validated.mentorshipType === "oneOnOne" ? "one-on-one" : "group"
-            )
-          )
-        );
+      entries = await convex.query(api.waitlist.getWaitlistForInstructor, {
+        instructorSlug: validated.instructorSlug,
+        mentorshipType: validated.mentorshipType,
+      });
     }
 
     if (entries.length === 0) {
       return NextResponse.json({ success: true, sent: 0, message: "No entries to notify" });
     }
 
-    const [instructor] = await db
-      .select({ name: instructors.name })
-      .from(instructors)
-      .where(eq(instructors.slug, validated.instructorSlug))
-      .limit(1);
+    const instructorResult = await convex.query(api.instructors.getInstructorBySlugForAdmin, {
+      slug: validated.instructorSlug,
+    });
 
-    const instructorName = instructor?.name || validated.instructorSlug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const instructorName = instructorResult?.name ||
+      validated.instructorSlug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
     const result = await sendWaitlistNotifications(
       entries.map((e) => ({
-        id: String(e.id),
+        id: e._id,
         email: e.email,
-        createdAt: e.createdAt?.getTime() ?? Date.now(),
-        notifiedAt: e.notified ? e.updatedAt?.getTime() ?? null : null,
+        createdAt: e.createdAt,
+        notifiedAt: e.notifiedAt ?? null,
       })),
       {
-        instructorName: instructorName,
+        instructorName,
         instructorSlug: validated.instructorSlug,
         mentorshipType: validated.mentorshipType,
         purchaseUrl: `/instructors/${validated.instructorSlug}`,
       }
     );
 
-    // Mark entries as notified after successful send
-    if (result.success > 0) {
-      const entryIds = entries.filter(e => !e.notified).map(e => e.id);
-      if (entryIds.length > 0) {
-        await db
-          .update(waitlist)
-          .set({ notified: true, updatedAt: new Date() })
-          .where(inArray(waitlist.id, entryIds));
+    if (result.success > 0 && result.failed === 0) {
+      const unnotifiedEntries = entries.filter((e) => !e.notifiedAt);
+      if (unnotifiedEntries.length > 0) {
+        await convex.mutation(api.waitlist.markNotified, {
+          ids: unnotifiedEntries.map((e) => e._id),
+        });
       }
     }
 
