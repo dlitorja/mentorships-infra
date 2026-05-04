@@ -299,4 +299,11 @@ export default defineSchema({
   }).index("by_userId", ["userId"])
     .index("by_instructorId", ["instructorId"])
     .index("by_userId_instructorId", ["userId", "instructorId"]),
+
+  contacts: defineTable({
+    email: v.string(),
+    artGoals: v.optional(v.string()),
+    source: v.optional(v.string()),
+    optedIn: v.optional(v.boolean()),
+  }).index("by_email", ["email"]),
 });

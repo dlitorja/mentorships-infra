@@ -56,3 +56,97 @@ export const getAllMentors = query({
     return results.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
   },
 });
+
+function getStartOfMonth(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+}
+
+function getStartOfLastMonth(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth() - 1, 1).getTime();
+}
+
+function getStartOfYear(date: Date): number {
+  return new Date(date.getFullYear(), 0, 1).getTime();
+}
+
+export const getStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
+
+    const now = new Date();
+    const startOfMonth = getStartOfMonth(now);
+    const startOfLastMonth = getStartOfLastMonth(now);
+    const startOfYear = getStartOfYear(now);
+
+    const activeSeatReservations = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
+
+    const sessionPackIds = new Set<string>();
+    for (const seat of activeSeatReservations) {
+      if (seat.sessionPackId) {
+        sessionPackIds.add(seat.sessionPackId);
+      }
+    }
+
+    let totalActiveMentees = 0;
+    for (const packId of sessionPackIds) {
+      const pack = await ctx.db.get(packId as Id<"sessionPacks">);
+      if (pack && pack.status === "active") {
+        totalActiveMentees++;
+      }
+    }
+
+    const allPayments = await ctx.db
+      .query("payments")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .collect();
+
+    let revenueThisMonth = 0;
+    let revenueLastMonth = 0;
+    let revenueThisYear = 0;
+    let hasRevenueData = false;
+
+    for (const payment of allPayments) {
+      const amount = parseFloat(payment.amount) || 0;
+      const createdAt = payment._creationTime;
+
+      if (amount > 0) {
+        hasRevenueData = true;
+      }
+
+      if (createdAt >= startOfYear) {
+        revenueThisYear += amount;
+      }
+
+      if (createdAt >= startOfMonth) {
+        revenueThisMonth += amount;
+      } else if (createdAt >= startOfLastMonth && createdAt < startOfMonth) {
+        revenueLastMonth += amount;
+      }
+    }
+
+    let revenueChange = 0;
+    if (revenueLastMonth > 0) {
+      revenueChange = ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100;
+    } else if (revenueThisMonth > 0) {
+      revenueChange = 100;
+    }
+
+    return {
+      totalActiveMentees,
+      revenueThisMonth: revenueThisMonth / 100,
+      revenueLastMonth: revenueLastMonth / 100,
+      revenueChange: Math.round(revenueChange * 10) / 10,
+      revenueThisYear: revenueThisYear / 100,
+      hasRevenueData,
+      hasMenteeData: totalActiveMentees > 0,
+      hasHistoricalRevenue: revenueLastMonth > 0,
+    };
+  },
+});

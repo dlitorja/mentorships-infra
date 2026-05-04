@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
+import type * as contacts from "../contacts.js";
 import type * as http from "../http.js";
 import type * as instructors from "../instructors.js";
 import type * as menteeSessionCounts from "../menteeSessionCounts.js";
@@ -35,6 +36,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminWorkspaces: typeof adminWorkspaces;
+  contacts: typeof contacts;
   http: typeof http;
   instructors: typeof instructors;
   menteeSessionCounts: typeof menteeSessionCounts;

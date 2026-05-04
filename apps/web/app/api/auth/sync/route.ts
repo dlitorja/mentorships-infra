@@ -1,25 +1,26 @@
 import { NextResponse } from "next/server";
-import { getOrCreateUser } from "@mentorships/db";
-import { requireAuth, isUnauthorizedError } from "@/lib/auth";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
+import { auth } from "@clerk/nextjs/server";
 
-/**
- * API route to manually sync Clerk user to Supabase
- * This is useful for testing or manual sync operations
- * 
- * GET /api/auth/sync - Sync current user
- */
 export async function GET() {
   try {
-    // Ensure user is authenticated
-    await requireAuth();
-    
-    // Sync user to database
-    const user = await getOrCreateUser();
-    
+    const { userId: clerkUserId } = await auth().catch(() => ({ userId: null }));
+    if (!clerkUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const convex = getConvexClient();
+    const user = await convex.mutation(api.users.syncUser, {});
+
+    if (!user) {
+      return NextResponse.json({ error: "Failed to sync user" }, { status: 500 });
+    }
+
     return NextResponse.json({
       success: true,
       user: {
-        id: user.id,
+        id: user._id,
         email: user.email,
         role: user.role,
       },
@@ -27,11 +28,8 @@ export async function GET() {
   } catch (error) {
     console.error("Error syncing user:", error);
 
-    if (isUnauthorizedError(error)) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      );
+    if (error instanceof Error && error.message === "Unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     return NextResponse.json(
@@ -40,4 +38,3 @@ export async function GET() {
     );
   }
 }
-
