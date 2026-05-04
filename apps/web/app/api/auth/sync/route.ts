@@ -5,12 +5,19 @@ import { auth } from "@clerk/nextjs/server";
 
 export async function GET() {
   try {
-    const { userId: clerkUserId } = await auth().catch(() => ({ userId: null }));
+    const clerkAuth = await auth();
+    const { userId: clerkUserId } = clerkAuth;
     if (!clerkUserId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const convex = getConvexClient();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
+
     const user = await convex.mutation(api.users.syncUser, {});
 
     if (!user) {
@@ -28,7 +35,7 @@ export async function GET() {
   } catch (error) {
     console.error("Error syncing user:", error);
 
-    if (error instanceof Error && error.message === "Unauthorized") {
+    if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
