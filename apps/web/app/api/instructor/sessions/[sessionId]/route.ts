@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleForApi } from "@/lib/auth-helpers";
-import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { z } from "zod";
+import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/convex/_generated/api";
+import {
+  isUnauthorizedError,
+  isForbiddenError,
+} from "@/lib/errors";
+import { decryptMentorRefreshToken } from "@/lib/crypto";
+import { requireRoleForApi } from "@/lib/auth-helpers";
+import { getConvexClient } from "@/lib/convex";
 import { inngest } from "@/inngest/client";
 import { getGoogleCalendarClient } from "@/lib/google";
-import { isUnauthorizedError } from "@/lib/errors";
-import { z } from "zod";
-
-function decryptMentorRefreshToken(mentor: { googleRefreshToken?: string }): string | null {
-  if (!mentor.googleRefreshToken) return null;
-  try {
-    const decrypted = Buffer.from(mentor.googleRefreshToken, "base64").toString("utf-8");
-    return decrypted.startsWith("__decrypted__") ? decrypted.replace("__decrypted__", "") : null;
-  } catch {
-    return null;
-  }
-}
 
 const updateSessionSchema = z.object({
   status: z.enum(["scheduled", "completed", "canceled", "no_show"]).optional(),

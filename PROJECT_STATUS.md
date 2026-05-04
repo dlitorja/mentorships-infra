@@ -11,8 +11,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: April 30, 2026 (Phase 4A-2 complete)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Last Updated**: May 3, 2026 (Phase 4E-1 complete - PR #206)
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -925,6 +925,17 @@ ls apps/web/app/api
 
 ## 🚧 Remaining Items to Tackle
 
+### Phase 4E: Admin Routes Convex Migration (In Progress)
+
+| Phase | Status | Routes | Notes |
+|-------|--------|--------|-------|
+| **4E-1: Low-Risk Singles** | ✅ COMPLETED | 5 routes | Testimonials CRUD, mentee-results CRUD, upload import fix |
+| **4E-2: Medium-Risk CRUD** | ⏳ DEFERRED | 5 routes | mentors table, session-count routes, waitlist, inventory read |
+| **4E-3: Complex Admin Routes** | ⏳ DEFERRED | 4 routes | Instructors list/create, inventory write, mentees invite |
+| **4E-4: Stats + Critical Paths** | ⏳ DEFERRED | 1 route | Admin stats aggregations, instructors PUT with Stripe product deactivation |
+
+**Remaining @mentorships/db imports**: 17 routes still using Drizzle
+
 ### Not Started (requires app creation)
 
 | Feature | Status | Notes |
@@ -971,7 +982,7 @@ ls apps/web/app/api
 
 ---
 
-**Next**: Discord Bot Slash Commands or Video Access Control (pending priority decision)
+**Next**: Phase 4E-2 (Admin Medium-Risk Routes) or Discord Bot Slash Commands or Video Access Control
 
 ---
 
@@ -1029,6 +1040,35 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 ---
 
 ## 📊 Recent Progress Summary
+
+### May 2026
+- ✅ **Phase 4B: Instructor/Public Routes Migration to Convex** (COMPLETED - May 2, 2026)
+  - Migrated instructor and public routes away from Drizzle (@mentorships/db)
+  - Fixed TypeScript type errors in instructor API routes
+  - Fixed profileImageUploadPath response (not in Convex schema)
+  - Pass user.id instead of user object to getInstructorByUserId
+  - Multiple CodeRabbit review comment fixes
+  - Reference: PR #205
+
+- ✅ **Phase 4D: User Settings + Additional Fixes** (COMPLETED - May 2, 2026)
+  - Migrated user settings PATCH to Convex
+  - All API routes in apps/web/app/api/* have been migrated away from Drizzle except remaining admin routes (Phase 4E)
+
+- ✅ **Phase 4E-1: Admin Low-Risk Routes Migration to Convex** (COMPLETED - May 3, 2026)
+  - Migrated 5 low-risk admin routes to Convex (fetchQuery/fetchMutation pattern):
+    - `admin/instructors/[id]/testimonials/route.ts` (POST) - create testimonial
+    - `admin/instructors/[id]/testimonials/[testimonialId]/route.ts` (DELETE) - delete testimonial
+    - `admin/instructors/[id]/mentee-results/route.ts` (POST) - create mentee result
+    - `admin/instructors/[id]/mentee-results/[resultId]/route.ts` (DELETE) - delete mentee result
+    - `admin/instructors/upload/route.ts` - error type import fix only
+  - Updated Convex mutations to return full documents instead of just Ids:
+    - `instructors.createTestimonial` now returns testimonial document
+    - `instructors.createMenteeResult` now returns mentee result document
+    - `instructors.createMenteeResultWithStorage` now returns mentee result document
+  - Replaced @mentorships/db imports with @/lib/errors for error types
+  - TypeScript typecheck passes, build succeeds
+  - CI checks: All passed (Lint, Unit Tests, E2E Tests, Build, Vercel deployments Ready)
+  - Reference: PR #206
 
 ### April 2026
 - ✅ **Preview Page Redesign (Underpaint-style)** (COMPLETED - April 26, 2026)
@@ -1145,19 +1185,37 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 
 ### Phase 4: Convex API Route Migration - Remaining Work
 
-**Status**: Phase 4A partially complete (checkout + admin routes done)
+**Status**: Phase 4D complete - all main API route categories migrated
 
 **Completed**:
 - ✅ Phase 4A-1: Checkout routes (stripe, paypal, verify, cancel, success, capture)
 - ✅ Phase 4A-2: Admin routes (products/[id], orders, refunds)
-- ~14 @mentorships/db imports removed
+- ✅ Phase 4B: Instructor/mentee routes (testimonials, mentees-results, sessions, session-counts) - COMPLETED May 2, 2026
+- ✅ Phase 4D: Public routes + user settings + type fixes - COMPLETED May 2, 2026 (PR #205)
+- ~14 @mentorships/db imports removed (Phase 4A)
+- Additional ~14+ @mentorships/db imports removed (Phases 4B, 4D)
 
-**Remaining (~111 imports to migrate)**:
-- **4B: Instructor/mentee routes** - testimonials, mentees-results, sessions, session-counts
-- **4C: Webhook handlers** - stripe, paypal webhooks (keep but migrate other DB ops)
-- **4D: Public routes** - availability, booking, instructor pages
-- **4E: Admin remaining** - instructors, mentees, workspaces, audit-logs, inventory, waitlist
-- **create-from-stripe** - complex Stripe integration, keep on Drizzle for now
+**Remaining (17 imports still using @mentorships/db)**:
+- **4E-1: Admin low-risk routes (COMPLETED May 3, 2026)** ✅
+  - admin/instructors/[id]/testimonials POST/DELETE
+  - admin/instructors/[id]/mentee-results POST/DELETE
+  - admin/instructors/upload (error types only)
+- **4E-2: Admin medium-risk routes** - DEFERRED
+  - instructors, mentees, inventory, waitlist, stats, mentors
+  - Complex cross-table queries (instructors ↔ mentors ↔ sessionPacks)
+  - Stripe/PayPal integration concerns
+- **Other remaining routes**:
+  - `/api/instructor/mentees/session-counts/[userId]/route.ts`
+  - `/api/sessions/route.ts`
+  - `/api/contacts/route.ts`
+  - `/api/products/create-from-stripe/route.ts`
+  - `/api/auth/sync/route.ts`
+  - `/api/health/db/route.ts`
+  - `/api/onboarding/submit/route.ts`
+  - `/api/onboarding/submissions/[submissionId]/signed-urls/route.ts`
+  - `/api/instructor/onboarding/review/route.ts`
+  - `/api/auth/google/route.ts`
+  - `/api/auth/google/callback/route.ts`
 
 **Approach for remaining routes**:
 1. Create Convex functions BEFORE migrating each route
@@ -1166,6 +1224,102 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 4. Create PR, wait 3 minutes, fix failed CI checks, fix PR conflicts
 
 **Testing**: Manual smoke test of checkout + admin flows (Phase 4A-3) - PENDING
+
+---
+
+### Phase 4E: Admin Routes Migration - Deferred (Detailed Analysis)
+
+**Status**: DEFERRED - 15+ admin routes still use Clerk auth + Supabase queries directly
+
+**Why Deferred**:
+- Complex cross-table queries (instructors ↔ mentors ↔ sessionPacks)
+- Stripe/PayPal integration concerns (payment processing, product management)
+- Instructor management requires deep understanding of existing Clerk+Supabase auth patterns
+
+**Routes in Scope (15 admin routes)**:
+
+| Route | Risk Level | Key Concerns |
+|-------|------------|--------------|
+| `admin/instructors/route.ts` | HIGH | Cross-table writes (instructors + mentors), active mentee validation, Clerk invitations |
+| `admin/instructors/[id]/route.ts` | HIGH | Product deactivation (Stripe/PayPal), active student checks |
+| `admin/instructors/mentors/route.ts` | MEDIUM | Direct mentors table CRUD |
+| `admin/instructors/[id]/create-instructor-booking/route.ts` | HIGH | Stripe/PayPal product creation, cross-table booking logic |
+| `admin/instructors/[id]/testimonials/route.ts` | LOW | Single table CRUD |
+| `admin/instructors/[id]/mentee-results/route.ts` | LOW | Single table CRUD |
+| `admin/mentees/route.ts` | MEDIUM | Cross-table queries |
+| `admin/mentees/[userId]/session-count/route.ts` | MEDIUM | Session count validation |
+| `admin/mentees/invite/route.ts` | MEDIUM | Clerk invitation integration |
+| `admin/inventory/route.ts` | MEDIUM | Inventory management, waitlist triggering |
+| `admin/waitlist/route.ts` | MEDIUM | Waitlist management, email notifications |
+| `admin/stats/route.ts` | HIGH | Complex SQL aggregations (revenue, active mentees, monthly comparisons) |
+| `admin/instructors/upload/route.ts` | LOW | Already mostly Convex (only uses error types from @mentorships/db) |
+| `admin/instructors/[id]/testimonials/[testimonialId]/route.ts` | LOW | Single table delete |
+| `admin/instructors/[id]/mentee-results/[resultId]/route.ts` | LOW | Single table delete |
+
+**Identified Risks**:
+
+1. **Financial Blast Radius** (HIGH)
+   - Routes that deactivate Stripe/PayPal products could break payment flow
+   - Routes that modify instructor active status affect booking availability
+   - Mitigation: Migration should happen in small PRs with thorough testing; keep Stripe/PayPal calls in routes
+
+2. **Cross-Table Transaction Complexity** (HIGH)
+   - `admin/instructors/route.ts` POST does: insert instructor → insert mentor → update instructor with mentorId → dispatch Inngest event
+   - `admin/stats/route.ts` does: 5 separate aggregation queries across payments, sessionPacks, seatReservations
+   - Mitigation: Create Convex mutations that handle transactions atomically; use Convex query aggregations
+
+3. **Auth Pattern Changes** (MEDIUM)
+   - Currently uses `requireRoleForApi("admin")` from `@/lib/auth-helpers`
+   - Convex functions use `ctx.auth.getUserIdentity()` with custom role checking
+   - Mitigation: Ensure auth helpers are updated consistently across all routes
+
+4. **Data Consistency During Migration** (MEDIUM)
+   - Dual-write period: some data in Supabase, some in Convex
+   - Order creation flow touches: orders (Supabase), sessionPacks (Convex), seatReservations (Convex)
+   - Mitigation: Migrate one table at a time; maintain consistency through Inngest events
+
+5. **Stripe/PayPal Product Sync** (HIGH)
+   - Product creation/deactivation syncs to Stripe/PayPal
+   - Product prices linked to session pack inventory
+   - Mitigation: Keep external API calls in routes; only move DB operations to Convex
+
+**Recommended Migration Order** (lowest risk first):
+
+1. **Phase 4E-1: Low-Risk Singles** (5 routes)
+   - testimonial create/delete
+   - mentee-results create/delete
+   - upload route (error types only)
+
+2. **Phase 4E-2: Medium-Risk CRUD** (5 routes)
+   - mentors table direct CRUD
+   - session-count routes
+   - waitlist routes
+   - inventory read routes
+
+3. **Phase 4E-3: Complex Admin Routes** (4 routes)
+   - instructors list/create (high risk - Clerk invitations)
+   - inventory write routes (waitlist notifications)
+   - mentees invite (Clerk invitations)
+
+4. **Phase 4E-4: Stats + Critical Paths** (1 route)
+   - admin/stats (complex aggregations)
+   - instructors/[id] PUT (Stripe product deactivation)
+
+**Migration Strategy**:
+1. Create Convex functions for each table/route BEFORE migrating
+2. Test each route in isolation before moving to next
+3. Keep Stripe/PayPal calls in API routes (only move DB ops to Convex)
+4. Use feature flags or gradual rollout for critical routes
+5. Full smoke test after each phase
+
+**Alternative Consideration**:
+- Could defer Phase 4E indefinitely since:
+  - Checkout flow (revenue-critical) already migrated to Convex
+  - Admin routes are internal tooling, not customer-facing
+  - Drizzle/Supabase still functional and maintained
+  - Only pay off technical debt when it causes pain
+
+---
 
 - ✅ **Minor Enhancements** (COMPLETED - April 2026)
   - Pagination in admin workspace list (`useInfiniteQuery`)

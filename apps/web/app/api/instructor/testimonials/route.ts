@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     const { name, text } = validationResult.data;
 
-    const testimonialId = await convex.mutation(api.instructors.createTestimonial, {
+    const testimonial = await convex.mutation(api.instructors.createTestimonial, {
       instructorId: instructor._id,
       name,
       text,
@@ -101,10 +101,10 @@ export async function POST(req: NextRequest) {
       success: true,
       message: "Testimonial added successfully",
       testimonial: {
-        id: testimonialId,
-        name,
-        text,
-        createdAt: new Date().toISOString(),
+        id: testimonial._id,
+        name: testimonial.name,
+        text: testimonial.text,
+        createdAt: new Date(testimonial._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {

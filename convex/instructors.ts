@@ -401,12 +401,15 @@ export const createTestimonial = mutation({
     text: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("instructorTestimonials", {
+    const id = await ctx.db.insert("instructorTestimonials", {
       instructorId: args.instructorId,
       name: args.name,
       text: args.text,
       createdAt: Date.now(),
     });
+    const testimonial = await ctx.db.get(id);
+    if (!testimonial) throw new Error("Failed to create testimonial");
+    return testimonial;
   },
 });
 
@@ -419,12 +422,15 @@ export const createMenteeResult = mutation({
     studentName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert('menteeResults', {
+    const id = await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
       imageUploadPath: args.imageUploadPath,
       studentName: args.studentName,
     });
+    const result = await ctx.db.get(id);
+    if (!result) throw new Error("Failed to create mentee result");
+    return result;
   },
 });
 
@@ -444,7 +450,7 @@ export const createMenteeResultWithStorage = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    return await ctx.db.insert('menteeResults', {
+    const id = await ctx.db.insert('menteeResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
       imageStorageId: args.imageStorageId,
@@ -452,6 +458,9 @@ export const createMenteeResultWithStorage = mutation({
       createdBy: args.createdBy,
       createdAt: Date.now(),
     });
+    const result = await ctx.db.get(id);
+    if (!result) throw new Error("Failed to create mentee result");
+    return result;
   },
 });
 
@@ -879,7 +888,7 @@ export const updateInstructorPortfolioStorageIdsForProfile = mutation({
 
 /** Returns all testimonials for a given instructor. */
 export const getTestimonialsByInstructorId = query({
-  args: { instructorId: v.string() },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -894,7 +903,7 @@ export const getTestimonialsByInstructorId = query({
 
 /** Returns all mentee results for a given instructor. */
 export const getMenteeResultsByInstructorId = query({
-  args: { instructorId: v.string() },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -939,7 +948,7 @@ export const getMenteeResultById = query({
   },
 });
 
-/** Updates mentor scheduling settings (timeZone and workingHours). */
+/** Updates mentor scheduling settings (timeZone and workingHours). Requires admin role or self. */
 export const updateMentorSchedulingSettings = mutation({
   args: {
     id: v.id("instructors"),
@@ -947,6 +956,25 @@ export const updateMentorSchedulingSettings = mutation({
     workingHours: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    
+    if (!user || (user.role !== "admin" && user.role !== "mentor")) {
+      throw new Error("Forbidden");
+    }
+    
+    if (user.role === "mentor") {
+      const instructor = await ctx.db.get(args.id);
+      if (!instructor || instructor.userId !== identity.subject) {
+        throw new Error("Forbidden");
+      }
+    }
+    
     const { id, ...updates } = args;
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
@@ -1069,19 +1097,69 @@ export const getMentorById = query({
   },
 });
 
-/** Deletes a testimonial by ID. */
+/** Deletes a testimonial by ID. Requires admin role or instructor ownership. */
 export const deleteTestimonial = mutation({
   args: { id: v.id("instructorTestimonials") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    
+    if (!user || (user.role !== "admin" && user.role !== "mentor")) {
+      throw new Error("Forbidden");
+    }
+    
+    const testimonial = await ctx.db.get(args.id);
+    if (!testimonial) throw new Error("Testimonial not found");
+    
+    if (user.role === "mentor") {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      if (!instructor || instructor._id !== testimonial.instructorId) {
+        throw new Error("Forbidden");
+      }
+    }
+    
     await ctx.db.delete(args.id);
     return { success: true };
   },
 });
 
-/** Deletes a mentee result by ID. */
+/** Deletes a mentee result by ID. Requires admin role or instructor ownership. */
 export const deleteMenteeResult = mutation({
   args: { id: v.id("menteeResults") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    
+    if (!user || (user.role !== "admin" && user.role !== "mentor")) {
+      throw new Error("Forbidden");
+    }
+    
+    const menteeResult = await ctx.db.get(args.id);
+    if (!menteeResult) throw new Error("Mentee result not found");
+    
+    if (user.role === "mentor") {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      if (!instructor || instructor._id !== menteeResult.instructorId) {
+        throw new Error("Forbidden");
+      }
+    }
+    
     await ctx.db.delete(args.id);
     return { success: true };
   },
