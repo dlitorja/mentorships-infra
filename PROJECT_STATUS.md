@@ -11,8 +11,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 3, 2026 (Phase 4E-1 complete - PR #206)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Last Updated**: May 4, 2026 (Phase 4E-3 complete - PR #209)
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -931,10 +931,10 @@ ls apps/web/app/api
 |-------|--------|--------|-------|
 | **4E-1: Low-Risk Singles** | ✅ COMPLETED | 5 routes | Testimonials CRUD, mentee-results CRUD, upload import fix |
 | **4E-2: Medium-Risk CRUD** | ⏳ DEFERRED | 5 routes | mentors table, session-count routes, waitlist, inventory read |
-| **4E-3: Complex Admin Routes** | ⏳ DEFERRED | 4 routes | Instructors list/create, inventory write, mentees invite |
+| **4E-3: Complex Admin Routes** | ✅ COMPLETED | 4 routes | Instructors list/create, inventory write, mentees invite (PR #209) |
 | **4E-4: Stats + Critical Paths** | ⏳ DEFERRED | 1 route | Admin stats aggregations, instructors PUT with Stripe product deactivation |
 
-**Remaining @mentorships/db imports**: 17 routes still using Drizzle
+**Remaining @mentorships/db imports**: ~12 routes still using Drizzle
 
 ### Not Started (requires app creation)
 
@@ -1042,6 +1042,19 @@ The admin UI at `/admin/products/create` can create products WITH Stripe/PayPal 
 ## 📊 Recent Progress Summary
 
 ### May 2026
+- ✅ **Phase 4E-3: Admin Instructor Sub-Routes Migration to Convex** (COMPLETED - May 4, 2026)
+  - Migrated 4 admin routes to Convex (Phase 4E-3):
+    - `admin/instructors/mentors/route.ts` - GET mentors list (new `admin.getAllMentors` query)
+    - `admin/waitlist/route.ts` - GET/PATCH waitlist endpoints (uses existing waitlist functions)
+    - `admin/mentees/[userId]/session-count/route.ts` - Full CRUD (new `menteeSessionCounts` table)
+    - `admin/instructors/[id]/testimonials/route.ts` - POST/DELETE testimonials
+    - `admin/instructors/[id]/mentee-results/route.ts` - POST/DELETE mentee results
+  - New Convex: `menteeSessionCounts` table with indexes, `convex/admin.ts: getAllMentors` query
+  - Bug fixes: P0 auth (removed redundant mutation auth since routes check admin), P1 type cast (use mutation return directly)
+  - Fixed P2: COURSES_URL fallback intentionally changed to root domain (commit 3a32b4d)
+  - CI checks: All passed (Lint, Unit Tests, E2E Tests, Build, Vercel deployments Ready)
+  - Reference: PR #209
+
 - ✅ **Phase 4B: Instructor/Public Routes Migration to Convex** (COMPLETED - May 2, 2026)
   - Migrated instructor and public routes away from Drizzle (@mentorships/db)
   - Fixed TypeScript type errors in instructor API routes
