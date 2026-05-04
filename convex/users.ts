@@ -171,6 +171,7 @@ export const syncUser = mutation({
 
     if (existingByEmail) {
       const updates: Partial<Doc<"users">> = {
+        userId: identity.subject,
         firstName: args.firstName ?? existingByEmail.firstName,
         lastName: args.lastName ?? existingByEmail.lastName,
         timeZone: args.timeZone ?? existingByEmail.timeZone,

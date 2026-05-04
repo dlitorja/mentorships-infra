@@ -105,6 +105,7 @@ export const getStats = query({
     const allPayments = await ctx.db
       .query("payments")
       .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .filter((q) => q.gte(q.field("_creationTime"), startOfYear))
       .collect();
 
     let revenueThisMonth = 0;
