@@ -3,6 +3,7 @@ import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const createSchema = z.object({
   instructorId: z.string(),
@@ -105,7 +106,7 @@ export async function POST(
     const convex = getConvexClient();
     const result = await convex.mutation(api.menteeSessionCounts.upsertSessionCount, {
       userId,
-      instructorId,
+      instructorId: instructorId as Id<"instructors">,
       sessionCount,
       notes,
     });
