@@ -16,6 +16,7 @@ import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
+import { buildAdminPurchaseEmail } from "@/lib/emails/admin-purchase-notification-email";
 import { purchaseMentorshipEventSchema } from "../types";
 import { inngest } from "../client";
 
@@ -256,6 +257,55 @@ export const onboardingFlow = inngest.createFunction(
       });
 
       return { sent: sendResult.ok, resendId: sendResult.ok ? sendResult.id : null };
+    });
+
+    await step.run("send-admin-email", async () => {
+      const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean);
+
+      if (adminEmails.length === 0) {
+        return { sent: false, reason: "no_admin_emails_configured" };
+      }
+
+      const dashboardUrl = `${baseUrl}/admin`;
+
+      const adminEmailContent = buildAdminPurchaseEmail({
+        orderId,
+        studentName: studentName,
+        studentEmail: studentEmail,
+        instructorName: mentorName,
+        sessionCount: pack.totalSessions,
+        purchaseAmount: order.totalAmount,
+        currency: order.currency ?? "USD",
+        paymentProvider: provider as "stripe" | "paypal",
+        dashboardUrl,
+      });
+
+      const sendResults = await Promise.all(
+        adminEmails.map((adminEmail) =>
+          sendEmail({
+            to: adminEmail,
+            subject: adminEmailContent.subject,
+            html: adminEmailContent.html,
+            text: adminEmailContent.text,
+            headers: {
+              ...adminEmailContent.headers,
+              "X-Order-Id": orderId,
+              "X-Session-Pack-Id": pack.id,
+              "X-Mentor-Id": mentor.id,
+            },
+          })
+        )
+      );
+
+      const allSuccessful = sendResults.every((r) => r.ok);
+      return {
+        sent: allSuccessful,
+        recipients: adminEmails,
+        results: sendResults.map((r) => (r.ok ? { ok: true, id: r.id } : { ok: false, error: "error" in r ? r.error : "unknown" })),
+      };
     });
 
     await step.run("queue-discord-actions", async () => {

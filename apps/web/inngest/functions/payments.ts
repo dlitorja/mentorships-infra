@@ -115,6 +115,16 @@ export const processStripeCheckout = inngest.createFunction(
       });
     });
 
+    await step.run("create-seat-and-workspace", async () => {
+      return await convex.mutation(api.seatReservations.createSeatReservation, {
+        mentorId: product.mentorId as Id<"instructors">,
+        userId,
+        sessionPackId: sessionPack as Id<"sessionPacks">,
+        seatExpiresAt: expiresAt,
+        gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
+      });
+    });
+
     const inventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
     await step.run("decrement-inventory", async () => {
       if (!product.mentorId) {
@@ -288,6 +298,16 @@ export const processPayPalCheckout = inngest.createFunction(
         remainingSessions: product.sessionsPerPack,
         expiresAt,
         paymentId: payment as Id<"payments">,
+      });
+    });
+
+    await step.run("create-seat-and-workspace", async () => {
+      return await convex.mutation(api.seatReservations.createSeatReservation, {
+        mentorId: product.mentorId as Id<"instructors">,
+        userId: order.userId,
+        sessionPackId: sessionPack as Id<"sessionPacks">,
+        seatExpiresAt: expiresAt,
+        gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
       });
     });
 
