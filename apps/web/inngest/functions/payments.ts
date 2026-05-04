@@ -115,7 +115,7 @@ export const processStripeCheckout = inngest.createFunction(
       });
     });
 
-    const seatAndWorkspace = await step.run("create-seat-and-workspace", async () => {
+    await step.run("create-seat-and-workspace", async () => {
       return await convex.mutation(api.seatReservations.createSeatReservation, {
         mentorId: product.mentorId as Id<"instructors">,
         userId,
@@ -301,7 +301,7 @@ export const processPayPalCheckout = inngest.createFunction(
       });
     });
 
-    const seatAndWorkspace = await step.run("create-seat-and-workspace", async () => {
+    await step.run("create-seat-and-workspace", async () => {
       return await convex.mutation(api.seatReservations.createSeatReservation, {
         mentorId: product.mentorId as Id<"instructors">,
         userId: order.userId,

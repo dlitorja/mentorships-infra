@@ -25,19 +25,6 @@ function formatCurrency(amount: string, currency: string): string {
   }).format(num);
 }
 
-function getBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_URL) {
-    return process.env.NEXT_PUBLIC_URL;
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("NEXT_PUBLIC_URL or VERCEL_URL must be set in production");
-  }
-  return "http://localhost:3000";
-}
-
 export function buildAdminPurchaseEmail(args: AdminPurchaseEmailArgs): AdminPurchaseEmail {
   const subject = `New mentorship purchase - ${args.studentName || args.studentEmail} with ${args.instructorName}`;
   const greetingName = args.studentName?.trim() || args.studentEmail;
@@ -95,7 +82,7 @@ export function buildAdminPurchaseEmail(args: AdminPurchaseEmailArgs): AdminPurc
           </tr>
         </table>
 
-        <a href="${args.dashboardUrl}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">View Dashboard</a>
+        <a href="${escapeHtml(args.dashboardUrl)}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">View Dashboard</a>
       </div>
     </div>
   `.trim();

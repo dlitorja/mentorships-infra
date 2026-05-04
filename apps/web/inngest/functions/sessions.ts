@@ -273,7 +273,7 @@ export const handleRenewalReminder = inngest.createFunction(
             type: "final_renewal_reminder",
             userId,
             sessionPackId,
-            message: `Your pack is complete. Renew within 72 hours to keep your seat. Grace period ends: ${gracePeriodEndsAt}`,
+            message: `Your pack is complete. Renew within 7 days to keep your seat. Grace period ends: ${gracePeriodEndsAt}`,
             sessionNumber: 4,
             gracePeriodEndsAt,
           },
