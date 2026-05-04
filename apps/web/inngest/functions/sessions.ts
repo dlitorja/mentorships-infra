@@ -70,9 +70,9 @@ export const handleSessionCompleted = inngest.createFunction(
     // Step 5: Handle seat status based on remaining sessions
     await step.run("update-seat-status", async () => {
       if (updatedPack.remainingSessions === 0) {
-        // All sessions used - start grace period (72 hours)
+        // All sessions used - start grace period (7 days)
         const gracePeriodEndsAt = new Date();
-        gracePeriodEndsAt.setHours(gracePeriodEndsAt.getHours() + 72);
+        gracePeriodEndsAt.setDate(gracePeriodEndsAt.getDate() + 7);
 
         await updateSeatReservationStatus(
           sessionPackId,
@@ -109,7 +109,7 @@ export const handleSessionCompleted = inngest.createFunction(
             userId,
             sessionNumber: 4,
             remainingSessions: updatedPack.remainingSessions,
-            gracePeriodEndsAt: new Date(Date.now() + 72 * 60 * 60 * 1000), // 72 hours
+            gracePeriodEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
           },
         });
       });

@@ -4,9 +4,9 @@ import { seatReservations, mentors, sessionPacks, sessions } from "../../schema"
 import type { SeatStatus } from "../../schema/seatReservations";
 
 /**
- * Grace period duration in milliseconds (72 hours)
+ * Grace period duration in milliseconds (7 days)
  */
-const GRACE_PERIOD_MS = 72 * 60 * 60 * 1000;
+const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Reserve a seat for a student with a mentor
