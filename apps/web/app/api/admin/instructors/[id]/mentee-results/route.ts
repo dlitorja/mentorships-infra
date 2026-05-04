@@ -54,7 +54,7 @@ export async function POST(
       imageUrl: data.imageUrl || "",
       imageUploadPath: data.imageUploadPath || undefined,
       studentName: data.studentName || undefined,
-    });
+    }) as unknown as Id<"menteeResults">;
 
     const result = await convex.query(api.instructors.getMenteeResultById, {
       id: resultId,

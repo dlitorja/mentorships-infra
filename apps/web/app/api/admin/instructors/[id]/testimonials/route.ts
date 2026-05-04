@@ -53,7 +53,7 @@ export async function POST(
       instructorId: id as Id<"instructors">,
       name: data.name,
       text: data.text,
-    });
+    }) as unknown as Id<"instructorTestimonials">;
 
     const testimonial = await convex.query(api.instructors.getTestimonialById, {
       id: testimonialId,
