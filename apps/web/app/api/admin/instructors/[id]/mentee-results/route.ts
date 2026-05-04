@@ -61,15 +61,22 @@ export async function POST(
       instructorId: id,
     });
 
+    if (!result) {
+      return NextResponse.json(
+        { error: "Failed to retrieve created mentee result" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       message: "Mentee result added successfully",
       menteeResult: {
-        id: result!._id,
-        imageUrl: result!.imageUrl,
-        imageUploadPath: result!.imageUploadPath ?? null,
-        studentName: result!.studentName ?? null,
-        createdAt: new Date(result!.createdAt ?? result!._creationTime).toISOString(),
+        id: result._id,
+        imageUrl: result.imageUrl,
+        imageUploadPath: result.imageUploadPath ?? null,
+        studentName: result.studentName ?? null,
+        createdAt: new Date(result.createdAt ?? result._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {

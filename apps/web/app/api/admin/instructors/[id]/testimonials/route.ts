@@ -60,14 +60,21 @@ export async function POST(
       instructorId: id,
     });
 
+    if (!testimonial) {
+      return NextResponse.json(
+        { error: "Failed to retrieve created testimonial" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       message: "Testimonial added successfully",
       testimonial: {
-        id: testimonial!._id,
-        name: testimonial!.name,
-        text: testimonial!.text,
-        createdAt: new Date(testimonial!.createdAt ?? testimonial!._creationTime).toISOString(),
+        id: testimonial._id,
+        name: testimonial.name,
+        text: testimonial.text,
+        createdAt: new Date(testimonial.createdAt ?? testimonial._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {
