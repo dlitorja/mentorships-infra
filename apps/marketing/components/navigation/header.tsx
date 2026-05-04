@@ -14,7 +14,7 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 
-const COURSES_URL = process.env.NEXT_PUBLIC_COURSES_URL || ("https://home.huckleberry.art/store" as const);
+const COURSES_URL = process.env.NEXT_PUBLIC_COURSES_URL || ("https://home.huckleberry.art" as const);
 const MENTORSHIPS_URL = process.env.NEXT_PUBLIC_MENTORSHIPS_URL || ("https://mentorships.huckleberry.art" as const);
 const DISCORD_URL = process.env.NEXT_PUBLIC_DISCORD_URL || ("https://discord.com/invite/4DqDyKZyA8" as const);
 const LOGIN_URL = process.env.NEXT_PUBLIC_LOGIN_URL || ("https://home.huckleberry.art/login" as const);

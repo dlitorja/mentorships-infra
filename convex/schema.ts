@@ -174,6 +174,7 @@ export default defineSchema({
     name: v.string(),
     text: v.string(),
     role: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
   }).index("by_instructorId", ["instructorId"]),
 
   menteeResults: defineTable({

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const createMenteeResultSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal("")).default(""),
@@ -37,11 +37,11 @@ export async function POST(
     }
 
     const data = validationResult.data as CreateMenteeResultInput;
+    const convex = getConvexClient();
 
-    const instructor = await fetchQuery(api.instructors.getInstructorById, {
+    const instructor = await convex.query(api.instructors.getInstructorById, {
       id: id as Id<"instructors">,
     });
-
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -49,12 +49,24 @@ export async function POST(
       );
     }
 
-    const result = await fetchMutation(api.instructors.createMenteeResult, {
+    const resultId = await convex.mutation(api.instructors.createMenteeResult, {
       instructorId: id as Id<"instructors">,
       imageUrl: data.imageUrl || "",
       imageUploadPath: data.imageUploadPath || undefined,
       studentName: data.studentName || undefined,
+    }) as unknown as Id<"menteeResults">;
+
+    const result = await convex.query(api.instructors.getMenteeResultById, {
+      id: resultId,
+      instructorId: id,
     });
+
+    if (!result) {
+      return NextResponse.json(
+        { error: "Failed to retrieve created mentee result" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -62,9 +74,9 @@ export async function POST(
       menteeResult: {
         id: result._id,
         imageUrl: result.imageUrl,
-        imageUploadPath: result.imageUploadPath,
-        studentName: result.studentName,
-        createdAt: new Date(result._creationTime).toISOString(),
+        imageUploadPath: result.imageUploadPath ?? null,
+        studentName: result.studentName ?? null,
+        createdAt: new Date(result.createdAt ?? result._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {

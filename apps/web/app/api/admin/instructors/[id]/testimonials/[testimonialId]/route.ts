@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 /**
  * DELETE /api/admin/instructors/[id]/testimonials/[testimonialId]
@@ -17,8 +17,9 @@ export async function DELETE(
     await requireRoleForApi("admin");
 
     const { id, testimonialId } = await params;
+    const convex = getConvexClient();
 
-    const testimonial = await fetchQuery(api.instructors.getTestimonialById, {
+    const testimonial = await convex.query(api.instructors.getTestimonialById, {
       id: testimonialId as Id<"instructorTestimonials">,
       instructorId: id,
     });
@@ -30,7 +31,7 @@ export async function DELETE(
       );
     }
 
-    await fetchMutation(api.instructors.deleteTestimonial, {
+    await convex.mutation(api.instructors.deleteTestimonial, {
       id: testimonialId as Id<"instructorTestimonials">,
     });
 

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 
 const createTestimonialSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -37,10 +37,11 @@ export async function POST(
 
     const data = validationResult.data as CreateTestimonialInput;
 
-    const instructor = await fetchQuery(api.instructors.getInstructorById, {
+    const convex = getConvexClient();
+
+    const instructor = await convex.query(api.instructors.getInstructorById, {
       id: id as Id<"instructors">,
     });
-
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -48,11 +49,23 @@ export async function POST(
       );
     }
 
-    const testimonial = await fetchMutation(api.instructors.createTestimonial, {
+    const testimonialId = await convex.mutation(api.instructors.createTestimonial, {
       instructorId: id as Id<"instructors">,
       name: data.name,
       text: data.text,
+    }) as unknown as Id<"instructorTestimonials">;
+
+    const testimonial = await convex.query(api.instructors.getTestimonialById, {
+      id: testimonialId,
+      instructorId: id,
     });
+
+    if (!testimonial) {
+      return NextResponse.json(
+        { error: "Failed to retrieve created testimonial" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -61,7 +74,7 @@ export async function POST(
         id: testimonial._id,
         name: testimonial.name,
         text: testimonial.text,
-        createdAt: new Date(testimonial._creationTime).toISOString(),
+        createdAt: new Date(testimonial.createdAt ?? testimonial._creationTime).toISOString(),
       },
     }, { status: 201 });
   } catch (error) {
