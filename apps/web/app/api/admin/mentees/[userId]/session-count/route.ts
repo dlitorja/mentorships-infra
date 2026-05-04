@@ -181,7 +181,7 @@ export async function PATCH(
       }
 
       const result = await convex.mutation(api.menteeSessionCounts.adjustSessionCount, {
-        id,
+        id: id as Id<"menteeSessionCounts">,
         adjustment,
         notes,
       });
@@ -210,7 +210,7 @@ export async function PATCH(
       }
 
       const result = await convex.mutation(api.menteeSessionCounts.updateSessionCount, {
-        id,
+        id: id as Id<"menteeSessionCounts">,
         sessionCount,
         notes,
       });
@@ -278,7 +278,7 @@ export async function DELETE(
     }
 
     const deleted = await convex.mutation(api.menteeSessionCounts.deleteSessionCount, {
-      id,
+      id: id as Id<"menteeSessionCounts">,
     });
     if (!deleted) {
       return NextResponse.json({ error: "Session count not found" }, { status: 404 });
