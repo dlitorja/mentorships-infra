@@ -18,11 +18,8 @@ export const mentors = pgTable("mentors", {
   id: uuid("id")
     .primaryKey()
     .defaultRandom(),
-  // References Clerk user ID from users table
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" })
-    .unique(),
+  // References Clerk user ID (stored as string, FK not enforced at DB level)
+  userId: text("user_id").notNull().unique(),
   /**
    * Google Calendar integration
    *
