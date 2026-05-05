@@ -127,11 +127,15 @@ export async function GET(req: NextRequest) {
  * Create a new instructor
  */
 export async function POST(req: NextRequest) {
+  console.log("[createInstructor] Starting");
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
+    console.log("[createInstructor] Checking auth");
     await requireRoleForApi("admin");
+    console.log("[createInstructor] Auth passed");
 
     const body = await req.json();
+    console.log("[createInstructor] Body:", JSON.stringify(body).slice(0, 200));
     const validationResult = createInstructorSchema.safeParse(body);
 
     if (!validationResult.success) {
@@ -204,6 +208,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    console.log("[createInstructor] Creating instructor in DB");
     const instructor = await createInstructor({
       name: data.name,
       slug: data.slug,
@@ -220,9 +225,11 @@ export async function POST(req: NextRequest) {
       mentorId: data.mentorId || null,
       email: data.email ? data.email.toLowerCase() : null,
     });
+    console.log("[createInstructor] Created:", instructor.id);
 
     // Create mentor record if createMentor is true
     if (data.createMentor) {
+      console.log("[createInstructor] Creating mentor record");
       const userId = data.userId || `instructor-${instructor.id}`;
       
       const [createdMentor] = await db
@@ -245,6 +252,7 @@ export async function POST(req: NextRequest) {
     // Sync inventory to Convex via Inngest (non-blocking)
     if (data.createMentor) {
       try {
+        console.log("[createInstructor] Sending Inngest event");
         await inngest.send({
           name: "instructor/created",
           data: {
@@ -256,6 +264,7 @@ export async function POST(req: NextRequest) {
             maxActiveStudents: data.maxActiveStudents,
           },
         });
+        console.log("[createInstructor] Inngest event sent");
       } catch (err) {
         console.error("Failed to dispatch instructor/created Inngest event:", err);
       }
@@ -265,6 +274,7 @@ export async function POST(req: NextRequest) {
     let invitationError: string | undefined;
 
     if (data.email) {
+      console.log("[createInstructor] Creating Clerk invitation for:", data.email);
       const normalizedEmail = data.email.toLowerCase();
       const invitationResult = await createClerkInvitation({
         emailAddress: normalizedEmail,
@@ -314,6 +324,9 @@ export async function POST(req: NextRequest) {
       invitationError,
     }, { status: 201 });
   } catch (error) {
+    console.error("[createInstructor] Error:", error);
+    console.error("[createInstructor] Error type:", error?.constructor?.name);
+    console.error("[createInstructor] Error cause:", error?.cause);
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
