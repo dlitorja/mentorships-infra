@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
+import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
@@ -33,10 +34,20 @@ const storageIdSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
+    const clerkAuth = await auth();
+    const { userId: clerkUserId } = clerkAuth;
+    if (!clerkUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
     const convex = getConvexClient();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (token) {
+      convex.setAuth(token);
+    }
 
     const formData = await req.formData();
     const fileRaw = formData.get("file");
