@@ -230,12 +230,12 @@ export async function POST(req: NextRequest) {
     // Create mentor record if createMentor is true
     if (data.createMentor) {
       console.log("[createInstructor] Creating mentor record");
-      const userId = data.userId || `instructor-${instructor.id}`;
+      const mentorUserId = data.userId || instructor.id;
       
       const [createdMentor] = await db
         .insert(mentors)
         .values({
-          userId,
+          userId: mentorUserId,
           maxActiveStudents: data.maxActiveStudents,
           oneOnOneInventory: data.oneOnOneInventory,
           groupInventory: data.groupInventory,
