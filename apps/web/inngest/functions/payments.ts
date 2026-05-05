@@ -116,13 +116,28 @@ export const processStripeCheckout = inngest.createFunction(
     });
 
     await step.run("create-seat-and-workspace", async () => {
-      return await convex.mutation(api.seatReservations.createSeatReservation, {
-        mentorId: product.mentorId as Id<"instructors">,
-        userId,
-        sessionPackId: sessionPack as Id<"sessionPacks">,
-        seatExpiresAt: expiresAt,
-        gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
-      });
+      if (!product.mentorId) {
+        throw new Error(`Product has no mentorId: ${packId}`);
+      }
+      try {
+        return await convex.mutation(api.seatReservations.createSeatReservation, {
+          mentorId: product.mentorId as Id<"instructors">,
+          userId,
+          sessionPackId: sessionPack as Id<"sessionPacks">,
+          seatExpiresAt: expiresAt,
+          gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("already exists")) {
+          const existing = await convex.query(api.seatReservations.getSeatReservationBySessionPack, {
+            sessionPackId: sessionPack as Id<"sessionPacks">,
+          });
+          if (existing) {
+            return existing;
+          }
+        }
+        throw error;
+      }
     });
 
     const inventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
@@ -302,13 +317,28 @@ export const processPayPalCheckout = inngest.createFunction(
     });
 
     await step.run("create-seat-and-workspace", async () => {
-      return await convex.mutation(api.seatReservations.createSeatReservation, {
-        mentorId: product.mentorId as Id<"instructors">,
-        userId: order.userId,
-        sessionPackId: sessionPack as Id<"sessionPacks">,
-        seatExpiresAt: expiresAt,
-        gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
-      });
+      if (!product.mentorId) {
+        throw new Error(`Product has no mentorId: ${packId}`);
+      }
+      try {
+        return await convex.mutation(api.seatReservations.createSeatReservation, {
+          mentorId: product.mentorId as Id<"instructors">,
+          userId: order.userId,
+          sessionPackId: sessionPack as Id<"sessionPacks">,
+          seatExpiresAt: expiresAt,
+          gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("already exists")) {
+          const existing = await convex.query(api.seatReservations.getSeatReservationBySessionPack, {
+            sessionPackId: sessionPack as Id<"sessionPacks">,
+          });
+          if (existing) {
+            return existing;
+          }
+        }
+        throw error;
+      }
     });
 
     const paypalInventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
