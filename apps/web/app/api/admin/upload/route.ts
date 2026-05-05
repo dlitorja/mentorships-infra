@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
-import { auth } from "@clerk/nextjs/server";
+import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
@@ -15,6 +14,14 @@ const ALLOWED_TYPES = [
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
+
 function getFileExtension(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   return ext || ".jpg";
@@ -26,19 +33,10 @@ const storageIdSchema = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    const clerkAuth = await auth();
-    const { userId: clerkUserId } = clerkAuth;
-    if (!clerkUserId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { requireRoleForApi } = await import("@/lib/auth-helpers");
+    await requireRoleForApi("admin");
 
     const convex = getConvexClient();
-    convex.setAuth(token);
 
     const formData = await req.formData();
     const fileRaw = formData.get("file");

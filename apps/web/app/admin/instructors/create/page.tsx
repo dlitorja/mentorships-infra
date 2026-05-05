@@ -97,6 +97,7 @@ export default function CreateInstructorPage() {
   const [customBackground, setCustomBackground] = useState("");
   const [portfolioInput, setPortfolioInput] = useState("");
   const [portfolioDragActive, setPortfolioDragActive] = useState(false);
+  const [portfolioUploadError, setPortfolioUploadError] = useState<string | null>(null);
   const portfolioDragCounter = useRef(0);
   const portfolioFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -171,6 +172,7 @@ export default function CreateInstructorPage() {
     e.preventDefault();
     portfolioDragCounter.current = 0;
     setPortfolioDragActive(false);
+    setPortfolioUploadError(null);
 
     const files = Array.from(e.dataTransfer.files).filter((f) =>
       ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(f.type)
@@ -191,6 +193,9 @@ export default function CreateInstructorPage() {
             ? prev.portfolioImages
             : [...prev.portfolioImages, data.url],
         }));
+      } else {
+        const error = await response.json().catch(() => ({ error: "Upload failed" }));
+        setPortfolioUploadError(error.error || "Failed to upload image");
       }
     }
   };
@@ -210,6 +215,7 @@ export default function CreateInstructorPage() {
   };
 
   const handlePortfolioFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPortfolioUploadError(null);
     const files = Array.from(e.target.files || []).filter((f) =>
       ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(f.type)
     );
@@ -229,6 +235,9 @@ export default function CreateInstructorPage() {
             ? prev.portfolioImages
             : [...prev.portfolioImages, data.url],
         }));
+      } else {
+        const error = await response.json().catch(() => ({ error: "Upload failed" }));
+        setPortfolioUploadError(error.error || "Failed to upload image");
       }
     }
 
@@ -415,6 +424,9 @@ export default function CreateInstructorPage() {
                       </div>
                     ))}
                   </div>
+                )}
+                {portfolioUploadError && (
+                  <p className="text-sm text-red-500 mt-2">{portfolioUploadError}</p>
                 )}
               </div>
               <div className="flex justify-between">
