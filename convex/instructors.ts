@@ -608,8 +608,6 @@ function buildStorageKey(instructorSlug: string, type: ImageType, storageId: str
 export const generateInstructorUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
     return await ctx.storage.generateUploadUrl();
   },
 });
