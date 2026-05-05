@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getConvexClient } from "@/lib/convex";
+import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
 const ALLOWED_TYPES = [
@@ -13,33 +15,42 @@ const ALLOWED_TYPES = [
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
-
 function getFileExtension(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   return ext || ".jpg";
 }
 
+const storageIdSchema = z.object({
+  storageId: z.string(),
+});
+
 export async function POST(req: NextRequest) {
   try {
-    const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    await requireRoleForApi("admin");
+    const clerkAuth = await auth();
+    const { userId: clerkUserId } = clerkAuth;
+    if (!clerkUserId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const convex = getConvexClient();
+    convex.setAuth(token);
 
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
+    const fileRaw = formData.get("file");
 
-    if (!file) {
+    if (!(fileRaw instanceof File)) {
       return NextResponse.json(
-        { error: "No file provided" },
+        { error: "No file provided or invalid file type" },
         { status: 400 }
       );
     }
+
+    const file: File = fileRaw;
 
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
@@ -63,8 +74,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const convex = getConvexClient();
-
     const uploadUrl = await convex.mutation(api.instructors.generateInstructorUploadUrl, {});
 
     const arrayBuffer = await file.arrayBuffer();
@@ -85,13 +94,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { storageId } = await response.json() as { storageId: string };
+    const parsed = storageIdSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid response from Convex storage" },
+        { status: 500 }
+      );
+    }
+
+    const { storageId } = parsed.data;
 
     const url = await convex.query(api.instructors.getStorageUrl, { storageId });
 
+    if (!url) {
+      return NextResponse.json(
+        { error: "Failed to get storage URL for uploaded file" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      url: url ?? `convex://storage/${storageId}`,
+      url,
       storageId,
       path: `admin-uploads/${storageId}`,
     });

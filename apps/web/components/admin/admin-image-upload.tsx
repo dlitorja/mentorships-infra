@@ -147,7 +147,7 @@ export function AdminImageUpload({
           border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
           transition-colors duration-200 ease-in-out
           ${isDragActive && !isDragReject ? "border-primary bg-primary/5" : ""}
-          ${isDragReject ? "border-red-500 bg-red-5" : ""}
+          ${isDragReject ? "border-red-500 bg-red-50" : ""}
           ${!isDragActive ? "border-muted-foreground/30 hover:border-muted-foreground/50" : ""}
           ${isUploading ? "opacity-50 cursor-not-allowed" : ""}
         `}
@@ -188,8 +188,7 @@ export function AdminImageUpload({
             alt="Preview"
             className="w-full h-full object-cover"
             onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.style.display = "none";
+              e.currentTarget.style.display = "none";
             }}
           />
         </div>
