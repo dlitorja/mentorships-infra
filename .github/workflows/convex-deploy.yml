@@ -1,0 +1,28 @@
+name: Deploy Convex
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'convex/**'
+      - '!convex/_generated/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install
+      - name: Deploy Convex
+        env:
+          CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
+          CONVEX_PROJECT_NAME: mentorships-infra
+        run: pnpm exec convex deploy --yes
