@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ArrowLeft, Plus, X, Check } from "lucide-react";
-import { apiFetch } from "@/lib/queries/api-client";
+import { Loader2, ArrowLeft, Plus, X, Upload } from "lucide-react";
+import { AdminImageUpload } from "@/components/admin/admin-image-upload";
 
 type Socials = {
   twitter?: string;
@@ -96,6 +96,9 @@ export default function CreateInstructorPage() {
   const [customSpecialty, setCustomSpecialty] = useState("");
   const [customBackground, setCustomBackground] = useState("");
   const [portfolioInput, setPortfolioInput] = useState("");
+  const [portfolioDragActive, setPortfolioDragActive] = useState(false);
+  const portfolioDragCounter = useRef(0);
+  const portfolioFileInputRef = useRef<HTMLInputElement>(null);
 
   const createMutation = useMutation({
     mutationFn: async (data: InstructorFormData) => {
@@ -162,6 +165,80 @@ export default function CreateInstructorPage() {
       ...prev,
       portfolioImages: prev.portfolioImages.filter((_, i) => i !== index),
     }));
+  };
+
+  const handlePortfolioDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    portfolioDragCounter.current = 0;
+    setPortfolioDragActive(false);
+
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(f.type)
+    );
+
+    for (const file of files) {
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      const response = await fetch("/api/admin/upload", {
+        method: "POST",
+        body: uploadFormData,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setFormData((prev) => ({
+          ...prev,
+          portfolioImages: prev.portfolioImages.includes(data.url)
+            ? prev.portfolioImages
+            : [...prev.portfolioImages, data.url],
+        }));
+      }
+    }
+  };
+
+  const handlePortfolioDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    portfolioDragCounter.current += 1;
+    setPortfolioDragActive(true);
+  };
+
+  const handlePortfolioDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    portfolioDragCounter.current -= 1;
+    if (portfolioDragCounter.current === 0) {
+      setPortfolioDragActive(false);
+    }
+  };
+
+  const handlePortfolioFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []).filter((f) =>
+      ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(f.type)
+    );
+
+    for (const file of files) {
+      const uploadFormData = new FormData();
+      uploadFormData.append("file", file);
+      const response = await fetch("/api/admin/upload", {
+        method: "POST",
+        body: uploadFormData,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setFormData((prev) => ({
+          ...prev,
+          portfolioImages: prev.portfolioImages.includes(data.url)
+            ? prev.portfolioImages
+            : [...prev.portfolioImages, data.url],
+        }));
+      }
+    }
+
+    if (portfolioFileInputRef.current) {
+      portfolioFileInputRef.current.value = "";
+    }
+  };
+
+  const handlePortfolioDropZoneClick = () => {
+    portfolioFileInputRef.current?.click();
   };
 
   const updateSocial = (key: keyof Socials, value: string) => {
@@ -280,25 +357,12 @@ export default function CreateInstructorPage() {
               <CardDescription>Add profile picture and portfolio images</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="profileImageUrl">Profile Picture URL</Label>
-                <Input
-                  id="profileImageUrl"
-                  value={formData.profileImageUrl}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, profileImageUrl: e.target.value }))}
-                  placeholder="https://example.com/profile.jpg"
-                />
-                {formData.profileImageUrl && (
-                  <div className="mt-2 relative w-32 h-32 rounded-lg overflow-hidden border">
-                    <img 
-                      src={formData.profileImageUrl} 
-                      alt="Profile preview" 
-                      className="w-full h-full object-cover"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  </div>
-                )}
-              </div>
+              <AdminImageUpload
+                label="Profile Picture"
+                value={formData.profileImageUrl}
+                onChange={(url) => setFormData((prev) => ({ ...prev, profileImageUrl: url }))}
+                placeholder="https://example.com/profile.jpg"
+              />
               <div>
                 <Label>Portfolio Images</Label>
                 <div className="flex gap-2 mt-2">
@@ -312,6 +376,31 @@ export default function CreateInstructorPage() {
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
+                <div
+                  onClick={handlePortfolioDropZoneClick}
+                  onDragEnter={handlePortfolioDragEnter}
+                  onDragLeave={handlePortfolioDragLeave}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handlePortfolioDrop}
+                  className={`border-2 border-dashed rounded-lg p-4 mt-2 text-center cursor-pointer transition-colors ${
+                    portfolioDragActive
+                      ? "border-primary bg-primary/5"
+                      : "border-muted-foreground/30 hover:border-muted-foreground/50"
+                  }`}
+                >
+                  <Upload className="h-6 w-6 mx-auto text-muted-foreground mb-1" />
+                  <span className="text-sm text-muted-foreground">
+                    Drag & drop images here or click to browse
+                  </span>
+                </div>
+                <input
+                  ref={portfolioFileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={handlePortfolioFileSelect}
+                  className="hidden"
+                />
                 {formData.portfolioImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {formData.portfolioImages.map((url, i) => (
