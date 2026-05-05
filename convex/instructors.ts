@@ -6,10 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 export const getStorageUrl = query({
   args: { storageId: v.string() },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
-    return url;
+    return await ctx.storage.getUrl(args.storageId as Id<"_storage">);
   },
 });
 
