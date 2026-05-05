@@ -1,24 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  db,
-  instructors,
-  mentors,
-  instructorTestimonials,
-  menteeResults,
-  mentorshipProducts,
-  sessionPacks,
-  getInstructorById,
-  updateInstructor,
-  deleteInstructor,
-  getTestimonialsByInstructorId,
-  getMenteeResultsByInstructorId,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
-import { eq, gt, and, isNull, or } from "drizzle-orm";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
-import { inngest } from "@/inngest/client";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
@@ -41,7 +34,6 @@ const updateInstructorSchema = z.object({
   }).optional().nullable(),
   isActive: z.boolean().optional(),
   userId: z.string().optional().nullable(),
-  mentorId: z.string().uuid().optional().nullable(),
   deactivateProducts: z.boolean().optional(),
   oneOnOneInventory: z.number().int().min(0).optional(),
   groupInventory: z.number().int().min(0).optional(),
@@ -49,72 +41,6 @@ const updateInstructorSchema = z.object({
 });
 
 type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
-
-async function checkActiveMentees(mentorId: string): Promise<number> {
-  const activeMentees = await db
-    .select()
-    .from(sessionPacks)
-    .where(
-      and(
-        eq(sessionPacks.mentorId, mentorId),
-        eq(sessionPacks.status, "active"),
-        gt(sessionPacks.remainingSessions, 0),
-        or(
-          isNull(sessionPacks.expiresAt),
-          gt(sessionPacks.expiresAt, new Date())
-        )
-      )
-    );
-  return activeMentees.length;
-}
-
-async function checkActiveProducts(mentorId: string) {
-  const products = await db
-    .select()
-    .from(mentorshipProducts)
-    .where(
-      and(
-        eq(mentorshipProducts.mentorId, mentorId),
-        eq(mentorshipProducts.active, true)
-      )
-    );
-  return products;
-}
-
-async function deactivateProductsOnStripe(products: typeof mentorshipProducts.$inferSelect[]) {
-  const results = {
-    success: [] as string[],
-    failed: [] as { id: string; error: string }[],
-  };
-
-  for (const product of products) {
-    if (product.stripeProductId) {
-      try {
-        await stripe.products.update(product.stripeProductId, { active: false });
-        results.success.push(product.stripeProductId);
-      } catch (error) {
-        results.failed.push({
-          id: product.stripeProductId,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-      }
-    }
-
-    if (product.stripePriceId) {
-      try {
-        await stripe.prices.update(product.stripePriceId, { active: false });
-        results.success.push(product.stripePriceId);
-      } catch (error) {
-        results.failed.push({
-          id: product.stripePriceId,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-      }
-    }
-  }
-
-  return results;
-}
 
 /**
  * GET /api/admin/instructors/[id]
@@ -129,8 +55,9 @@ export async function GET(
     await requireRoleForApi("admin");
 
     const { id } = await params;
+    const convex = getConvexClient();
 
-    const instructor = await getInstructorById(id);
+    const instructor = await convex.query(api.instructors.getInstructorById, { id: id as any });
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -138,11 +65,11 @@ export async function GET(
       );
     }
 
-    const testimonials = await getTestimonialsByInstructorId(id);
-    const menteeResultsData = await getMenteeResultsByInstructorId(id);
+    const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, { instructorId: id as any });
+    const menteeResultsData = await convex.query(api.instructors.getMenteeResultsByInstructorId, { instructorId: id as any });
 
     return NextResponse.json({
-      id: instructor.id,
+      id: instructor._id,
       name: instructor.name,
       slug: instructor.slug,
       email: instructor.email,
@@ -157,20 +84,20 @@ export async function GET(
       isActive: instructor.isActive,
       userId: instructor.userId,
       mentorId: instructor.mentorId,
-      createdAt: instructor.createdAt.toISOString(),
-      updatedAt: instructor.updatedAt.toISOString(),
-      testimonials: testimonials.map((t) => ({
-        id: t.id,
+      createdAt: new Date(instructor._creationTime).toISOString(),
+      updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : null,
+      testimonials: testimonials.map((t: any) => ({
+        id: t._id,
         name: t.name,
         text: t.text,
-        createdAt: t.createdAt.toISOString(),
+        createdAt: new Date(t._creationTime).toISOString(),
       })),
-      menteeResults: menteeResultsData.map((r) => ({
-        id: r.id,
+      menteeResults: menteeResultsData.map((r: any) => ({
+        id: r._id,
         imageUrl: r.imageUrl,
         imageUploadPath: r.imageUploadPath,
         studentName: r.studentName,
-        createdAt: r.createdAt.toISOString(),
+        createdAt: new Date(r._creationTime).toISOString(),
       })),
     });
   } catch (error) {
@@ -214,8 +141,9 @@ export async function PUT(
     }
 
     const data = validationResult.data as UpdateInstructorInput;
+    const convex = getConvexClient();
 
-    const existing = await getInstructorById(id);
+    const existing = await convex.query(api.instructors.getInstructorById, { id: id as any });
     if (!existing) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -224,8 +152,8 @@ export async function PUT(
     }
 
     if (data.slug && data.slug !== existing.slug) {
-      const slugExists = await db.select().from(instructors).where(eq(instructors.slug, data.slug)).limit(1);
-      if (slugExists.length > 0) {
+      const slugInstructor = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: data.slug });
+      if (slugInstructor && slugInstructor._id !== id) {
         return NextResponse.json(
           { error: "Slug already exists" },
           { status: 400 }
@@ -233,163 +161,34 @@ export async function PUT(
       }
     }
 
-    // Validate mentorId if being changed
-    if (data.mentorId !== undefined && data.mentorId !== existing.mentorId) {
-      // Check mentor exists (only if not null)
-      if (data.mentorId !== null) {
-        const mentorExists = await db.select().from(mentors).where(eq(mentors.id, data.mentorId)).limit(1);
-        if (mentorExists.length === 0) {
-          return NextResponse.json(
-            { error: "Mentor not found" },
-            { status: 400 }
-          );
-        }
-
-        // Check if mentorId is already assigned to another instructor
-        const existingAssignment = await db
-          .select({ id: instructors.id })
-          .from(instructors)
-          .where(eq(instructors.mentorId, data.mentorId))
-          .limit(1);
-        if (existingAssignment.length > 0 && existingAssignment[0].id !== id) {
-          return NextResponse.json(
-            { error: "Mentor is already assigned to another instructor" },
-            { status: 400 }
-          );
-        }
-      }
-    }
-
-    const mentorId = Object.prototype.hasOwnProperty.call(data, "mentorId") ? data.mentorId : existing.mentorId;
-
-    if (data.isActive === false && existing.isActive !== false) {
-      if (mentorId) {
-        const activeMenteeCount = await checkActiveMentees(mentorId);
-        if (activeMenteeCount > 0) {
-          return NextResponse.json(
-            {
-              error: "Cannot deactivate instructor with active mentees",
-              activeMenteeCount,
-            },
-            { status: 400 }
-          );
-        }
-
-        const activeProducts = await checkActiveProducts(mentorId);
-
-        if (activeProducts.length > 0 && !data.deactivateProducts) {
-          return NextResponse.json(
-            {
-              error: "Instructor has active products",
-              activeProducts: activeProducts.map((p) => ({
-                id: p.id,
-                title: p.title,
-                stripeProductId: p.stripeProductId,
-                stripePriceId: p.stripePriceId,
-              })),
-              requiresProductDeactivation: true,
-            },
-            { status: 400 }
-          );
-        }
-
-        if (activeProducts.length > 0 && data.deactivateProducts) {
-          const stripeResults = await deactivateProductsOnStripe(activeProducts);
-
-          // Only mark products inactive in DB where Stripe succeeded
-          const successfulStripeIds = new Set([...stripeResults.success]);
-
-          for (const product of activeProducts) {
-            const productStripeId = product.stripeProductId;
-            const priceStripeId = product.stripePriceId;
-
-            // Require ALL Stripe operations for this product to succeed
-            const productSucceeded = !productStripeId || successfulStripeIds.has(productStripeId);
-            const priceSucceeded = !priceStripeId || successfulStripeIds.has(priceStripeId);
-            const stripeSucceeded = productSucceeded && priceSucceeded;
-
-            if (stripeSucceeded) {
-              await db
-                .update(mentorshipProducts)
-                .set({ active: false })
-                .where(eq(mentorshipProducts.id, product.id));
-            }
-          }
-
-          // Only deactivate instructor if ALL products fully succeeded
-          const failedProducts = activeProducts.filter((p) => {
-            const productStripeId = p.stripeProductId;
-            const priceStripeId = p.stripePriceId;
-            const productSucceeded = !productStripeId || successfulStripeIds.has(productStripeId);
-            const priceSucceeded = !priceStripeId || successfulStripeIds.has(priceStripeId);
-            return !(productSucceeded && priceSucceeded);
-          });
-
-          if (failedProducts.length === 0) {
-            await updateInstructor(id, { isActive: false });
-          }
-
-          return NextResponse.json({
-            success: true,
-            message: "Instructor and products deactivated",
-            productsDeactivated: {
-              stripeSuccess: stripeResults.success,
-              stripeFailed: stripeResults.failed,
-            },
-          });
-        }
-      }
-    }
-
-    const updateData: Partial<typeof instructors.$inferInsert> = {};
-
+    const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.slug !== undefined) updateData.slug = data.slug;
-    if (data.tagline !== undefined) updateData.tagline = data.tagline || null;
-    if (data.bio !== undefined) updateData.bio = data.bio || null;
+    if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : null;
+    if (data.tagline !== undefined) updateData.tagline = data.tagline;
+    if (data.bio !== undefined) updateData.bio = data.bio;
     if (data.specialties !== undefined) updateData.specialties = data.specialties;
     if (data.background !== undefined) updateData.background = data.background;
-    if (data.profileImageUrl !== undefined) updateData.profileImageUrl = data.profileImageUrl || null;
-    if (data.profileImageUploadPath !== undefined) updateData.profileImageUploadPath = data.profileImageUploadPath || null;
+    if (data.profileImageUrl !== undefined) updateData.profileImageUrl = data.profileImageUrl || undefined;
+    if (data.profileImageUploadPath !== undefined) updateData.profileImageUploadPath = data.profileImageUploadPath;
     if (data.portfolioImages !== undefined) updateData.portfolioImages = data.portfolioImages;
     if (data.socials !== undefined) updateData.socials = data.socials;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
     if (data.userId !== undefined) updateData.userId = data.userId;
-    if (data.mentorId !== undefined) updateData.mentorId = data.mentorId || null;
-    if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : null;
+    if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
+    if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
+    if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
 
-    // Check if inventory fields are being updated
-    const inventoryFieldsChanged =
-      data.oneOnOneInventory !== undefined ||
-      data.groupInventory !== undefined ||
-      data.maxActiveStudents !== undefined;
-
-    const updated = await updateInstructor(id, updateData);
-
-    // Sync inventory to Convex via Inngest if inventory fields changed (non-blocking)
-    if (inventoryFieldsChanged && (updated.slug || existing.slug)) {
-      try {
-        await inngest.send({
-          name: "instructor/updated",
-          data: {
-            slug: updated.slug ?? existing.slug,
-            name: updated.name ?? existing.name,
-            email: updated.email ?? existing.email,
-            oneOnOneInventory: data.oneOnOneInventory,
-            groupInventory: data.groupInventory,
-            maxActiveStudents: data.maxActiveStudents,
-          },
-        });
-      } catch (err) {
-        console.error("Failed to dispatch instructor/updated Inngest event:", err);
-      }
-    }
+    const updated = await convex.mutation(api.instructors.updateInstructor, {
+      id: id as any,
+      ...updateData,
+    });
 
     return NextResponse.json({
       success: true,
       message: "Instructor updated successfully",
       instructor: {
-        id: updated.id,
+        id: updated._id,
         name: updated.name,
         slug: updated.slug,
         email: updated.email,
@@ -403,7 +202,7 @@ export async function PUT(
         isActive: updated.isActive,
         userId: updated.userId,
         mentorId: updated.mentorId,
-        updatedAt: updated.updatedAt.toISOString(),
+        updatedAt: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : null,
       },
     });
   } catch (error) {
@@ -424,7 +223,7 @@ export async function PUT(
 
 /**
  * DELETE /api/admin/instructors/[id]
- * Delete an instructor
+ * Delete an instructor (soft delete)
  */
 export async function DELETE(
   req: NextRequest,
@@ -435,9 +234,9 @@ export async function DELETE(
     await requireRoleForApi("admin");
 
     const { id } = await params;
+    const convex = getConvexClient();
 
-    // Check if instructor exists
-    const existing = await getInstructorById(id);
+    const existing = await convex.query(api.instructors.getInstructorById, { id: id as any });
     if (!existing) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -445,7 +244,7 @@ export async function DELETE(
       );
     }
 
-    await deleteInstructor(id);
+    await convex.mutation(api.instructors.deleteInstructor, { id: id as any });
 
     return NextResponse.json({
       success: true,

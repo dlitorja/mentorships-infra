@@ -1,23 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  db,
-  instructors,
-  mentors,
-  mentorshipProducts,
-  sessionPacks,
-  getInstructors,
-  createInstructor,
-  isUnauthorizedError,
-  isForbiddenError,
-  eq,
-  and,
-  gt,
-  isNull,
-  or,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
-import { inngest } from "@/inngest/client";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 const createInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -40,8 +34,6 @@ const createInstructorSchema = z.object({
   }).optional(),
   isActive: z.boolean().default(true),
   userId: z.string().optional(),
-  mentorId: z.string().uuid().optional(),
-  createMentor: z.boolean().optional().default(false),
   oneOnOneInventory: z.number().int().min(0).optional().default(0),
   groupInventory: z.number().int().min(0).optional().default(0),
   maxActiveStudents: z.number().int().min(1).optional().default(10),
@@ -77,19 +69,33 @@ export async function GET(req: NextRequest) {
     }
 
     const { search, includeInactive, page, pageSize } = parsedQuery.data;
-    const offset = (page - 1) * pageSize;
 
-    const { items: allInstructors, total } = await getInstructors({
-      includeInactive,
-      search,
-      limit: pageSize,
-      offset,
-    });
+    const convex = getConvexClient();
+    const allInstructors = await convex.query(api.instructors.getInstructorsForAdmin, {});
+
+    let filtered = allInstructors;
+
+    if (!includeInactive) {
+      filtered = filtered.filter((inst: any) => inst.isActive !== false);
+    }
+
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter((inst: any) =>
+        inst.name?.toLowerCase().includes(searchLower) ||
+        inst.email?.toLowerCase().includes(searchLower) ||
+        inst.slug?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    const total = filtered.length;
+    const offset = (page - 1) * pageSize;
+    const paginatedItems = filtered.slice(offset, offset + pageSize);
 
     return NextResponse.json({
-      items: allInstructors.map((inst) => ({
+      items: paginatedItems.map((inst: any) => ({
         kind: "instructor" as const,
-        id: inst.id,
+        id: inst._id,
         name: inst.name,
         slug: inst.slug,
         email: inst.email,
@@ -100,7 +106,7 @@ export async function GET(req: NextRequest) {
         profileImageUrl: inst.profileImageUrl,
         isActive: inst.isActive,
         mentorId: inst.mentorId,
-        createdAt: inst.createdAt.toISOString(),
+        createdAt: new Date(inst._creationTime).toISOString(),
       })),
       total,
       page,
@@ -146,128 +152,38 @@ export async function POST(req: NextRequest) {
     }
 
     const data = validationResult.data as CreateInstructorInput;
+    const convex = getConvexClient();
 
-    // Check if slug already exists
-    const existing = await db.select().from(instructors).where(eq(instructors.slug, data.slug)).limit(1);
-    if (existing.length > 0) {
-      return NextResponse.json(
-        { error: "Slug already exists" },
-        { status: 400 }
-      );
-    }
+    const userId = data.userId || crypto.randomUUID();
 
-    // Validate mentorId exists if provided
-    if (data.mentorId) {
-      const mentorExists = await db.select().from(mentors).where(eq(mentors.id, data.mentorId)).limit(1);
-      if (mentorExists.length === 0) {
-        return NextResponse.json(
-          { error: "Mentor not found" },
-          { status: 400 }
-        );
+    console.log("[createInstructor] Creating instructor in Convex");
+    let instructorId: string;
+    try {
+      instructorId = await convex.mutation(api.instructors.createInstructor, {
+        userId,
+        name: data.name,
+        slug: data.slug,
+        email: data.email ? data.email.toLowerCase() : undefined,
+        tagline: data.tagline || undefined,
+        bio: data.bio || undefined,
+        specialties: data.specialties,
+        background: data.background,
+        profileImageUrl: data.profileImageUrl || undefined,
+        profileImageUploadPath: data.profileImageUploadPath || undefined,
+        portfolioImages: data.portfolioImages,
+        socials: data.socials || undefined,
+        isActive: data.isActive,
+        isNew: true,
+        maxActiveStudents: data.maxActiveStudents,
+        oneOnOneInventory: data.oneOnOneInventory,
+        groupInventory: data.groupInventory,
+      });
+      console.log("[createInstructor] Created:", instructorId);
+    } catch (err: any) {
+      if (err.message === "Slug already exists") {
+        return NextResponse.json({ error: "Slug already exists" }, { status: 400 });
       }
-
-      // Check if mentorId is already assigned to another instructor
-      const existingAssignment = await db
-        .select({ id: instructors.id })
-        .from(instructors)
-        .where(eq(instructors.mentorId, data.mentorId))
-        .limit(1);
-      if (existingAssignment.length > 0) {
-        return NextResponse.json(
-          { error: "Mentor is already assigned to another instructor" },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Validation: Check for active mentees if creating with isActive: false and mentorId
-    if (data.isActive === false && data.mentorId) {
-      const activeMentees = await db
-        .select()
-        .from(sessionPacks)
-        .where(
-          and(
-            eq(sessionPacks.mentorId, data.mentorId),
-            eq(sessionPacks.status, "active"),
-            gt(sessionPacks.remainingSessions, 0),
-            or(
-              isNull(sessionPacks.expiresAt),
-              gt(sessionPacks.expiresAt, new Date())
-            )
-          )
-        );
-
-      if (activeMentees.length > 0) {
-        return NextResponse.json(
-          {
-            error: "Cannot create inactive instructor with active mentees",
-            activeMenteeCount: activeMentees.length,
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    console.log("[createInstructor] Creating instructor in DB");
-    const instructor = await createInstructor({
-      name: data.name,
-      slug: data.slug,
-      tagline: data.tagline || null,
-      bio: data.bio || null,
-      specialties: data.specialties || [],
-      background: data.background || [],
-      profileImageUrl: data.profileImageUrl || null,
-      profileImageUploadPath: data.profileImageUploadPath || null,
-      portfolioImages: data.portfolioImages || [],
-      socials: data.socials || null,
-      isActive: data.isActive,
-      userId: data.userId || null,
-      mentorId: data.mentorId || null,
-      email: data.email ? data.email.toLowerCase() : null,
-    });
-    console.log("[createInstructor] Created:", instructor.id);
-
-    // Create mentor record if createMentor is true
-    if (data.createMentor) {
-      console.log("[createInstructor] Creating mentor record");
-      const mentorUserId = data.userId || instructor.id;
-      
-      const [createdMentor] = await db
-        .insert(mentors)
-        .values({
-          userId: mentorUserId,
-          maxActiveStudents: data.maxActiveStudents,
-          oneOnOneInventory: data.oneOnOneInventory,
-          groupInventory: data.groupInventory,
-        })
-        .returning();
-
-      // Update instructor with mentorId
-      await db
-        .update(instructors)
-        .set({ mentorId: createdMentor.id })
-        .where(eq(instructors.id, instructor.id));
-    }
-
-    // Sync inventory to Convex via Inngest (non-blocking)
-    if (data.createMentor) {
-      try {
-        console.log("[createInstructor] Sending Inngest event");
-        await inngest.send({
-          name: "instructor/created",
-          data: {
-            slug: data.slug,
-            name: data.name,
-            email: data.email,
-            oneOnOneInventory: data.oneOnOneInventory,
-            groupInventory: data.groupInventory,
-            maxActiveStudents: data.maxActiveStudents,
-          },
-        });
-        console.log("[createInstructor] Inngest event sent");
-      } catch (err) {
-        console.error("Failed to dispatch instructor/created Inngest event:", err);
-      }
+      throw err;
     }
 
     let invitationSent = false;
@@ -278,7 +194,7 @@ export async function POST(req: NextRequest) {
       const normalizedEmail = data.email.toLowerCase();
       const invitationResult = await createClerkInvitation({
         emailAddress: normalizedEmail,
-        instructorId: instructor.id,
+        instructorId,
       });
 
       invitationSent = invitationResult.success;
@@ -289,37 +205,32 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Fetch updated instructor to get mentorId if created
-    const [updatedInstructor] = await db
-      .select()
-      .from(instructors)
-      .where(eq(instructors.id, instructor.id))
-      .limit(1);
+    const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId as any });
 
     return NextResponse.json({
       success: true,
       message: "Instructor created successfully",
       instructor: {
-        id: instructor.id,
-        name: instructor.name,
-        slug: instructor.slug,
-        tagline: instructor.tagline,
-        bio: instructor.bio,
-        specialties: instructor.specialties,
-        background: instructor.background,
-        profileImageUrl: instructor.profileImageUrl,
-        portfolioImages: instructor.portfolioImages,
-        socials: instructor.socials,
-        isActive: instructor.isActive,
-        mentorId: updatedInstructor?.mentorId || instructor.mentorId,
-        email: instructor.email,
-        createdAt: instructor.createdAt.toISOString(),
+        id: instructor?._id,
+        name: instructor?.name,
+        slug: instructor?.slug,
+        tagline: instructor?.tagline,
+        bio: instructor?.bio,
+        specialties: instructor?.specialties,
+        background: instructor?.background,
+        profileImageUrl: instructor?.profileImageUrl,
+        portfolioImages: instructor?.portfolioImages,
+        socials: instructor?.socials,
+        isActive: instructor?.isActive,
+        mentorId: instructor?.mentorId,
+        email: instructor?.email,
+        createdAt: instructor ? new Date(instructor._creationTime).toISOString() : null,
       },
-      inventory: data.createMentor ? {
+      inventory: {
         oneOnOneInventory: data.oneOnOneInventory,
         groupInventory: data.groupInventory,
         maxActiveStudents: data.maxActiveStudents,
-      } : undefined,
+      },
       invitationSent,
       invitationError,
     }, { status: 201 });

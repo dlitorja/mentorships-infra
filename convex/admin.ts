@@ -151,3 +151,91 @@ export const getStats = query({
     };
   },
 });
+
+type MenteeWithSessionInfo = {
+  id: string;
+  userId: string;
+  email: string | null;
+  mentorId: Id<"instructors">;
+  instructorName: string | null;
+  instructorSlug: string | null;
+  totalSessions: number;
+  remainingSessions: number;
+  purchasedAt: number;
+  expiresAt: number | null;
+  status: "active" | "depleted" | "expired" | "refunded";
+  createdAt: number;
+};
+
+export const getAllMenteesForAdmin = query({
+  args: {
+    search: v.optional(v.string()),
+    instructorId: v.optional(v.id("instructors")),
+    page: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { items: [], total: 0, page: 1, pageSize: 20 };
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) return { items: [], total: 0, page: 1, pageSize: 20 };
+
+    let sessionPacks = await ctx.db.query("sessionPacks").collect();
+
+    if (args.instructorId) {
+      sessionPacks = sessionPacks.filter(sp => sp.mentorId === args.instructorId);
+    }
+
+    if (args.search) {
+      const searchLower = args.search.toLowerCase();
+      const userIds = new Set<string>();
+      const users = await ctx.db.query("users").collect();
+      for (const user of users) {
+        if (user.email?.toLowerCase().includes(searchLower)) {
+          userIds.add(user.userId);
+        }
+      }
+      sessionPacks = sessionPacks.filter(sp => userIds.has(sp.userId));
+    }
+
+    const total = sessionPacks.length;
+
+    const page = args.page ?? 1;
+    const pageSize = args.pageSize ?? 20;
+    const offset = (page - 1) * pageSize;
+
+    const sortedPacks = sessionPacks
+      .sort((a, b) => b._creationTime - a._creationTime)
+      .slice(offset, offset + pageSize);
+
+    const results: MenteeWithSessionInfo[] = await Promise.all(
+      sortedPacks.map(async (pack) => {
+        let email: string | null = null;
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", pack.userId))
+          .first();
+        email = user?.email ?? null;
+
+        const instructor = await ctx.db.get(pack.mentorId);
+
+        return {
+          id: pack._id,
+          userId: pack.userId,
+          email,
+          mentorId: pack.mentorId,
+          instructorName: instructor?.name ?? null,
+          instructorSlug: instructor?.slug ?? null,
+          totalSessions: pack.totalSessions,
+          remainingSessions: pack.remainingSessions,
+          purchasedAt: pack.purchasedAt,
+          expiresAt: pack.expiresAt ?? null,
+          status: pack.status,
+          createdAt: pack._creationTime,
+        };
+      })
+    );
+
+    return { items: results, total, page, pageSize };
+  },
+});

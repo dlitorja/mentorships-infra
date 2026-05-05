@@ -1,29 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  db,
-  menteeInvitations,
-  instructors,
-  eq,
-  and,
-  gt,
-  desc,
-  sql,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 const INVITATION_EXPIRY_DAYS = 7;
 
 const createInvitationSchema = z.object({
   email: z.string().email("Invalid email address"),
-  instructorId: z.string().uuid("Invalid instructor ID"),
+  instructorId: z.string(),
 });
 
 const listInvitationsQuerySchema = z.object({
   status: z.enum(["pending", "accepted", "expired", "cancelled", "all"]).optional(),
-  instructorId: z.string().uuid().optional(),
+  instructorId: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -49,61 +48,28 @@ export async function GET(req: NextRequest) {
     }
 
     const { status, instructorId, page, pageSize } = parsedQuery.data;
-    const offset = (page - 1) * pageSize;
+    const convex = getConvexClient();
 
-    const conditions = [];
-
-    if (status && status !== "all") {
-      conditions.push(eq(menteeInvitations.status, status));
-    }
-
-    if (instructorId) {
-      conditions.push(eq(menteeInvitations.instructorId, instructorId));
-    }
-
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const [invitations, countResult] = await Promise.all([
-      db
-        .select({
-          id: menteeInvitations.id,
-          email: menteeInvitations.email,
-          instructorId: menteeInvitations.instructorId,
-          clerkInvitationId: menteeInvitations.clerkInvitationId,
-          expiresAt: menteeInvitations.expiresAt,
-          status: menteeInvitations.status,
-          createdAt: menteeInvitations.createdAt,
-          instructorName: instructors.name,
-          instructorSlug: instructors.slug,
-        })
-        .from(menteeInvitations)
-        .leftJoin(
-          instructors,
-          eq(menteeInvitations.instructorId, instructors.id)
-        )
-        .where(whereClause)
-        .orderBy(desc(menteeInvitations.createdAt))
-        .limit(pageSize)
-        .offset(offset),
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(menteeInvitations)
-        .where(whereClause),
-    ]);
+    const result = await convex.query(api.menteeInvitations.listMenteeInvitations, {
+      status: status === "all" ? undefined : status,
+      instructorId: instructorId as any || undefined,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+    });
 
     return NextResponse.json({
-      items: invitations.map((inv) => ({
+      items: result.items.map((inv: any) => ({
         id: inv.id,
         email: inv.email,
         instructorId: inv.instructorId,
         instructorName: inv.instructorName,
         instructorSlug: inv.instructorSlug,
         clerkInvitationId: inv.clerkInvitationId,
-        expiresAt: inv.expiresAt.toISOString(),
+        expiresAt: new Date(inv.expiresAt).toISOString(),
         status: inv.status,
-        createdAt: inv.createdAt.toISOString(),
+        createdAt: new Date(inv.createdAt).toISOString(),
       })),
-      total: countResult[0]?.count || 0,
+      total: result.total,
       page,
       pageSize,
     });
@@ -144,47 +110,16 @@ export async function POST(req: NextRequest) {
 
     const { email, instructorId } = validationResult.data;
     const normalizedEmail = email.toLowerCase();
+    const convex = getConvexClient();
 
-    // Verify instructor exists
-    const instructor = await db
-      .select({
-        id: instructors.id,
-        name: instructors.name,
-        mentorId: instructors.mentorId,
-      })
-      .from(instructors)
-      .where(eq(instructors.id, instructorId))
-      .limit(1);
-
-    if (instructor.length === 0) {
+    const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId as any });
+    if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
         { status: 404 }
       );
     }
 
-    // Check for existing pending invitation
-    const existingPending = await db
-      .select()
-      .from(menteeInvitations)
-      .where(
-        and(
-          eq(menteeInvitations.email, normalizedEmail),
-          eq(menteeInvitations.instructorId, instructorId),
-          eq(menteeInvitations.status, "pending"),
-          gt(menteeInvitations.expiresAt, new Date())
-        )
-      )
-      .limit(1);
-
-    if (existingPending.length > 0) {
-      return NextResponse.json(
-        { error: "A pending invitation already exists for this email and instructor" },
-        { status: 400 }
-      );
-    }
-
-    // Create Clerk invitation with instructorId as metadata
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL 
       || (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : null)
       || "https://huckleberry.art";
@@ -202,33 +137,38 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Calculate expiration
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + INVITATION_EXPIRY_DAYS);
+    const expiresAt = Date.now() + (INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
-    // Store invitation in database
-    const [storedInvitation] = await db
-      .insert(menteeInvitations)
-      .values({
+    let invitationId: string;
+    try {
+      invitationId = await convex.mutation(api.menteeInvitations.createMenteeInvitation, {
         email: normalizedEmail,
-        instructorId: instructorId,
+        instructorId: instructorId as any,
         clerkInvitationId: invitationResult.invitationId,
         expiresAt,
         status: "pending",
-      })
-      .returning();
+      });
+    } catch (err: any) {
+      if (err.message === "A pending invitation already exists for this email and instructor") {
+        return NextResponse.json(
+          { error: "A pending invitation already exists for this email and instructor" },
+          { status: 400 }
+        );
+      }
+      throw err;
+    }
 
     return NextResponse.json({
       success: true,
       invitation: {
-        id: storedInvitation.id,
-        email: storedInvitation.email,
-        instructorId: storedInvitation.instructorId,
-        instructorName: instructor[0].name,
-        clerkInvitationId: storedInvitation.clerkInvitationId,
-        expiresAt: storedInvitation.expiresAt.toISOString(),
-        status: storedInvitation.status,
-        createdAt: storedInvitation.createdAt.toISOString(),
+        id: invitationId,
+        email: normalizedEmail,
+        instructorId,
+        instructorName: instructor.name,
+        clerkInvitationId: invitationResult.invitationId,
+        expiresAt: new Date(expiresAt).toISOString(),
+        status: "pending",
+        createdAt: new Date().toISOString(),
       },
     }, { status: 201 });
   } catch (error) {
