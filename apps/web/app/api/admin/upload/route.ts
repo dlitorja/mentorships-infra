@@ -136,7 +136,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("[upload] Full error:", error);
     console.error("[upload] Error constructor:", error?.constructor?.name);
-    console.error("[upload] Error cause:", error?.cause);
+    if (error && typeof error === 'object' && 'cause' in error) {
+      console.error("[upload] Error cause:", (error as {cause: unknown}).cause);
+    }
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
