@@ -326,7 +326,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error("[createInstructor] Error:", error);
     console.error("[createInstructor] Error type:", error?.constructor?.name);
-    console.error("[createInstructor] Error cause:", error?.cause);
+    if (error && typeof error === 'object' && 'cause' in error) {
+      console.error("[createInstructor] Error cause:", (error as {cause: unknown}).cause);
+    }
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
