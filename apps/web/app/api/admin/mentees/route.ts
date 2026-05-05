@@ -1,23 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { clerkClient } from "@clerk/nextjs/server";
-import {
-  db,
-  sessionPacks,
-  users,
-  instructors,
-  mentors,
-  eq,
-  and,
-  or,
-  ilike,
-  desc,
-  sql,
-  isNull,
-  gt,
-  isUnauthorizedError,
-  isForbiddenError,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 interface ClerkUserName {
   firstName?: string | null;
@@ -26,7 +20,7 @@ interface ClerkUserName {
 
 const listMenteesQuerySchema = z.object({
   search: z.string().trim().default(""),
-  instructorId: z.string().uuid().optional(),
+  instructorId: z.string().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -52,68 +46,16 @@ export async function GET(req: NextRequest) {
     }
 
     const { search, instructorId, page, pageSize } = parsedQuery.data;
-    const offset = (page - 1) * pageSize;
+    const convex = getConvexClient();
 
-    const conditions = [];
+    const result = await convex.query(api.admin.getAllMenteesForAdmin, {
+      search: search || undefined,
+      instructorId: instructorId as any || undefined,
+      page,
+      pageSize,
+    });
 
-    if (search) {
-      const searchPattern = `%${search.toLowerCase().replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
-      conditions.push(
-        or(
-          ilike(users.email, searchPattern),
-          ilike(users.id, searchPattern)
-        )
-      );
-    }
-
-    let resolvedMentorId: string | undefined;
-    if (instructorId) {
-      const instructor = await db
-        .select({ mentorId: instructors.mentorId })
-        .from(instructors)
-        .where(eq(instructors.id, instructorId))
-        .limit(1);
-      
-      if (instructor.length > 0 && instructor[0].mentorId) {
-        resolvedMentorId = instructor[0].mentorId;
-        conditions.push(eq(sessionPacks.mentorId, resolvedMentorId));
-      }
-    }
-
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    const [mentees, countResult] = await Promise.all([
-      db
-        .select({
-          id: sessionPacks.id,
-          userId: sessionPacks.userId,
-          email: users.email,
-          mentorId: sessionPacks.mentorId,
-          instructorName: instructors.name,
-          instructorSlug: instructors.slug,
-          totalSessions: sessionPacks.totalSessions,
-          remainingSessions: sessionPacks.remainingSessions,
-          status: sessionPacks.status,
-          expiresAt: sessionPacks.expiresAt,
-          purchasedAt: sessionPacks.purchasedAt,
-        })
-        .from(sessionPacks)
-        .innerJoin(users, eq(sessionPacks.userId, users.id))
-        .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
-        .leftJoin(instructors, eq(mentors.id, instructors.mentorId))
-        .where(whereClause)
-        .orderBy(desc(sessionPacks.purchasedAt))
-        .limit(pageSize)
-        .offset(offset),
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(sessionPacks)
-        .innerJoin(users, eq(sessionPacks.userId, users.id))
-        .where(whereClause),
-    ]);
-
-// Batch-fetch Clerk user data for firstName/lastName
-    const userIds = [...new Set(mentees.map((m) => m.userId))];
+    const userIds = [...new Set(result.items.map((m: any) => m.userId))];
     let clerkUserMap = new Map<string, ClerkUserName>();
 
     if (userIds.length > 0) {
@@ -127,7 +69,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      items: mentees.map((m) => {
+      items: result.items.map((m: any) => {
         const clerkUser = clerkUserMap.get(m.userId);
         return {
           kind: "mentee" as const,
@@ -139,16 +81,16 @@ export async function GET(req: NextRequest) {
           mentorId: m.mentorId,
           instructorName: m.instructorName || "Unknown",
           instructorSlug: m.instructorSlug,
-          totalSessions: Number(m.totalSessions),
-          remainingSessions: Number(m.remainingSessions),
+          totalSessions: m.totalSessions,
+          remainingSessions: m.remainingSessions,
           status: m.status,
-          expiresAt: m.expiresAt?.toISOString() || null,
-          purchasedAt: m.purchasedAt.toISOString(),
+          expiresAt: m.expiresAt ? new Date(m.expiresAt).toISOString() : null,
+          purchasedAt: new Date(m.purchasedAt).toISOString(),
         };
       }),
-      total: countResult[0]?.count || 0,
-      page,
-      pageSize,
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {

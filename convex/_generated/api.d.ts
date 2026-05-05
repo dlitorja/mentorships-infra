@@ -13,6 +13,7 @@ import type * as adminWorkspaces from "../adminWorkspaces.js";
 import type * as contacts from "../contacts.js";
 import type * as http from "../http.js";
 import type * as instructors from "../instructors.js";
+import type * as menteeInvitations from "../menteeInvitations.js";
 import type * as menteeSessionCounts from "../menteeSessionCounts.js";
 import type * as mutations_http from "../mutations/http.js";
 import type * as orders from "../orders.js";
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   contacts: typeof contacts;
   http: typeof http;
   instructors: typeof instructors;
+  menteeInvitations: typeof menteeInvitations;
   menteeSessionCounts: typeof menteeSessionCounts;
   "mutations/http": typeof mutations_http;
   orders: typeof orders;

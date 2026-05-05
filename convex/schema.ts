@@ -306,4 +306,16 @@ export default defineSchema({
     source: v.optional(v.string()),
     optedIn: v.optional(v.boolean()),
   }).index("by_email", ["email"]),
+
+  menteeInvitations: defineTable({
+    email: v.string(),
+    instructorId: v.id("instructors"),
+    clerkInvitationId: v.optional(v.string()),
+    expiresAt: v.number(),
+    status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled")),
+    deletedAt: v.optional(v.number()),
+  }).index("by_email", ["email"])
+    .index("by_instructorId", ["instructorId"])
+    .index("by_status", ["status"])
+    .index("by_email_instructorId", ["email", "instructorId"]),
 });

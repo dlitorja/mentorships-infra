@@ -291,6 +291,15 @@ export const createInstructor = mutation({
     pricing: v.optional(v.string()),
     oneOnOneInventory: v.optional(v.number()),
     groupInventory: v.optional(v.number()),
+    tagline: v.optional(v.string()),
+    background: v.optional(v.array(v.string())),
+    portfolioImages: v.optional(v.array(v.string())),
+    socials: v.optional(v.any()),
+    isActive: v.optional(v.boolean()),
+    isNew: v.optional(v.boolean()),
+    profileImageUrl: v.optional(v.string()),
+    profileImageUploadPath: v.optional(v.string()),
+    profileImageStorageId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -301,12 +310,32 @@ export const createInstructor = mutation({
     if (existing) {
       return existing._id;
     }
+
+    if (args.slug) {
+      const existingBySlug = await ctx.db
+        .query("instructors")
+        .withIndex("by_slug", (q) => q.eq("slug", args.slug!))
+        .first();
+      
+      if (existingBySlug && existingBySlug.userId !== args.userId) {
+        throw new Error("Slug already exists");
+      }
+    }
     
     return await ctx.db.insert("instructors", {
-      ...args,
+      userId: args.userId,
       name: args.name ?? undefined,
       slug: args.slug ?? undefined,
       email: args.email ?? undefined,
+      tagline: args.tagline ?? undefined,
+      background: args.background ?? undefined,
+      portfolioImages: args.portfolioImages ?? undefined,
+      socials: args.socials ?? undefined,
+      isActive: args.isActive ?? true,
+      isNew: args.isNew ?? true,
+      profileImageUrl: args.profileImageUrl ?? undefined,
+      profileImageUploadPath: args.profileImageUploadPath ?? undefined,
+      profileImageStorageId: args.profileImageStorageId ?? undefined,
       maxActiveStudents: args.maxActiveStudents ?? 10,
       oneOnOneInventory: args.oneOnOneInventory ?? 0,
       groupInventory: args.groupInventory ?? 0,
@@ -330,6 +359,17 @@ export const updateInstructor = mutation({
     pricing: v.optional(v.string()),
     oneOnOneInventory: v.optional(v.number()),
     groupInventory: v.optional(v.number()),
+    tagline: v.optional(v.string()),
+    background: v.optional(v.array(v.string())),
+    portfolioImages: v.optional(v.array(v.string())),
+    socials: v.optional(v.any()),
+    isActive: v.optional(v.boolean()),
+    isNew: v.optional(v.boolean()),
+    profileImageUrl: v.optional(v.string()),
+    profileImageUploadPath: v.optional(v.string()),
+    profileImageStorageId: v.optional(v.string()),
+    specialties: v.optional(v.array(v.string())),
+    mentorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
