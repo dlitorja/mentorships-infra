@@ -293,6 +293,7 @@ export const createInstructor = mutation({
     groupInventory: v.optional(v.number()),
     tagline: v.optional(v.string()),
     background: v.optional(v.array(v.string())),
+    specialties: v.optional(v.array(v.string())),
     portfolioImages: v.optional(v.array(v.string())),
     socials: v.optional(v.any()),
     isActive: v.optional(v.boolean()),

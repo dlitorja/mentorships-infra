@@ -184,6 +184,13 @@ export async function PUT(
       ...updateData,
     });
 
+    if (!updated) {
+      return NextResponse.json(
+        { error: "Failed to update instructor" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       success: true,
       message: "Instructor updated successfully",
