@@ -27,7 +27,7 @@ export const instructorPortals: InstructorPortal[] = [
     bio: "Professional character artist with years of experience in the entertainment industry.",
     imageUrl: "/images/instructors/neil-gray.jpg",
     courses: [
-      {
+{
         title: "Drawing Drapery and Clothing with Neil Gray",
         description: "Master the art of drawing fabric, folds, and clothing on figures.",
         url: "https://home.huckleberry.art/drawing-drapery-and-clothing-with-neil-gray",
