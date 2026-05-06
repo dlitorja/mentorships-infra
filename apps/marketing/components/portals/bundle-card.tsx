@@ -9,16 +9,16 @@ interface BundleCardProps {
   buttonText?: string;
 }
 
-export function BundleCard({ title, description, url, imageUrl, promoText, buttonText }: BundleCardProps) {
+export function BundleCard({ title, description, url, imageUrl, promoText, buttonText }: BundleCardProps): JSX.Element {
   return (
     <BaseCard
       title={title}
       description={description}
       url={url}
       imageUrl={imageUrl}
-      buttonText={buttonText || "Get the Bundle — 20% Off"}
+      buttonText={buttonText ?? "Get the Bundle — 20% Off"}
       promoText={
-        promoText ||
+        promoText ??
         "Save more with this bundle! Get both courses together at a discounted rate."
       }
       variant="bundle"
