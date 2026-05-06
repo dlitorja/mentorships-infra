@@ -1,3 +1,4 @@
+import React from "react";
 import { BaseCard } from "./base-card";
 
 interface BundleCardProps {
@@ -9,7 +10,7 @@ interface BundleCardProps {
   buttonText?: string;
 }
 
-export function BundleCard({ title, description, url, imageUrl, promoText, buttonText }: BundleCardProps): JSX.Element {
+export function BundleCard({ title, description, url, imageUrl, promoText, buttonText }: BundleCardProps): React.JSX.Element {
   return (
     <BaseCard
       title={title}
