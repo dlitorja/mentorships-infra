@@ -236,14 +236,6 @@ export const getPublicInstructors = query({
 /** Returns all non-deleted instructors for admin with inventory data, excluding sensitive fields. */
 export const getInstructorsForAdmin = query({
   handler: async (ctx) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
-      return [];
-    }
-    const isAdmin = await isAdminUser(ctx, user.subject);
-    if (!isAdmin) {
-      return [];
-    }
     const instructors = await ctx.db
       .query("instructors")
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
