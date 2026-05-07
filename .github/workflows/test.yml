@@ -195,11 +195,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       
-      - name: Deploy Convex (for type generation)
-        env:
-          CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
-        run: pnpm exec convex deploy
-      
       - name: Build
         run: pnpm build
         env:
