@@ -535,7 +535,7 @@ export async function getAdminOrders(
     const paginatedOrderIds = await tx
       .select({ id: orders.id })
       .from(orders)
-      .orderBy(desc(orders.createdAt))
+      .orderBy(desc(orders.createdAt), desc(orders.id))
       .limit(pageSize)
       .offset(offset);
 
@@ -567,7 +567,7 @@ export async function getAdminOrders(
       .leftJoin(users, eq(orders.userId, users.id))
       .leftJoin(payments, eq(payments.orderId, orders.id))
       .where(inArray(orders.id, orderIds))
-      .orderBy(desc(orders.createdAt));
+      .orderBy(desc(orders.createdAt), desc(orders.id));
 
     const ordersMap = new Map<string, AdminOrderItem>();
     for (const row of orderResults) {
