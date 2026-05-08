@@ -1,6 +1,6 @@
 import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable, count, sum } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentors, users, sessionPacks, sessions, seatReservations, orders, payments, instructors } from "../../schema";
+import { mentors, users, sessionPacks, sessions, seatReservations, orders, payments, instructors, mentorshipProducts } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 import type { OrderStatus } from "../../schema/orders";
 
@@ -718,6 +718,135 @@ export async function getAdminInstructors(
         createdAt: r.createdAt,
         activeMenteeCount: Number(r.activeMenteeCount) || 0,
         totalCompletedSessions: Number(r.totalCompletedSessions) || 0,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  });
+}
+
+export type AdminProductItem = {
+  id: string;
+  mentorId: string;
+  mentorName: string | null;
+  title: string;
+  description: string | null;
+  imageUrl: string | null;
+  price: string;
+  currency: string;
+  sessionsPerPack: number;
+  validityDays: number;
+  mentorshipType: string;
+  stripePriceId: string | null;
+  stripeProductId: string | null;
+  paypalProductId: string | null;
+  paypalProductLink: string | null;
+  active: boolean;
+  createdAt: Date;
+};
+
+export type AdminProductResult = {
+  items: AdminProductItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export async function getAdminProducts(
+  search?: string,
+  mentorId?: string,
+  mentorshipType?: "one-on-one" | "group",
+  active?: boolean,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<AdminProductResult> {
+  const offset = (page - 1) * pageSize;
+
+  return await db.transaction(async (tx) => {
+    const conditions: any[] = [isNull(mentorshipProducts.deletedAt)];
+
+    if (mentorId) {
+      conditions.push(eq(mentorshipProducts.mentorId, mentorId));
+    }
+
+    if (mentorshipType) {
+      conditions.push(eq(mentorshipProducts.mentorshipType, mentorshipType));
+    }
+
+    if (active !== undefined) {
+      conditions.push(eq(mentorshipProducts.active, active));
+    }
+
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      conditions.push(
+        or(
+          ilike(mentorshipProducts.title, searchTerm),
+          ilike(mentorshipProducts.description, searchTerm)
+        )
+      );
+    }
+
+    const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const countResult = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(mentorshipProducts)
+      .leftJoin(instructors, eq(mentorshipProducts.mentorId, instructors.mentorId))
+      .where(whereCondition);
+
+    const total = Number(countResult[0]?.count || 0);
+
+    const results = await tx
+      .select({
+        id: mentorshipProducts.id,
+        mentorId: mentorshipProducts.mentorId,
+        mentorName: instructors.name,
+        title: mentorshipProducts.title,
+        description: mentorshipProducts.description,
+        imageUrl: mentorshipProducts.imageUrl,
+        price: mentorshipProducts.price,
+        currency: mentorshipProducts.currency,
+        sessionsPerPack: mentorshipProducts.sessionsPerPack,
+        validityDays: mentorshipProducts.validityDays,
+        mentorshipType: mentorshipProducts.mentorshipType,
+        stripePriceId: mentorshipProducts.stripePriceId,
+        stripeProductId: mentorshipProducts.stripeProductId,
+        paypalProductId: mentorshipProducts.paypalProductId,
+        active: mentorshipProducts.active,
+        createdAt: mentorshipProducts.createdAt,
+      })
+      .from(mentorshipProducts)
+      .leftJoin(instructors, eq(mentorshipProducts.mentorId, instructors.mentorId))
+      .where(whereCondition)
+      .orderBy(desc(mentorshipProducts.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    return {
+      items: results.map(r => ({
+        id: r.id,
+        mentorId: r.mentorId,
+        mentorName: r.mentorName || "Unknown Instructor",
+        title: r.title,
+        description: r.description,
+        imageUrl: r.imageUrl,
+        price: r.price,
+        currency: r.currency,
+        sessionsPerPack: r.sessionsPerPack,
+        validityDays: r.validityDays,
+        mentorshipType: r.mentorshipType,
+        stripePriceId: r.stripePriceId,
+        stripeProductId: r.stripeProductId,
+        paypalProductId: r.paypalProductId,
+        paypalProductLink: r.paypalProductId
+          ? (process.env.PAYPAL_MODE || "sandbox") === "live"
+            ? `https://www.paypal.com/myaccount/integrationproducts/${r.paypalProductId}`
+            : `https://www.sandbox.paypal.com/myaccount/integrationproducts/${r.paypalProductId}`
+          : null,
+        active: r.active,
+        createdAt: r.createdAt,
       })),
       total,
       page,

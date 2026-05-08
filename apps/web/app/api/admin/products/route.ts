@@ -10,6 +10,7 @@ import {
   getPayPalProductDashboardLink,
   deletePayPalProduct,
 } from "@mentorships/payments";
+import { getAdminProducts } from "@mentorships/db";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -283,85 +284,23 @@ export async function GET(req: NextRequest) {
 
     const { search, mentorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
 
-    const convex = getConvexClient();
-
-    let products;
-    if (mentorId) {
-      products = await convex.query(api.products.getProductsByInstructorAndType, {
-        mentorId: mentorId as Id<"instructors">,
-        mentorshipType: mentorshipType || undefined,
-      });
-    } else {
-      products = await convex.query(api.products.getPublicActiveProducts, {});
-    }
-
-    let filtered = products;
-
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filtered = filtered.filter(p =>
-        p.title.toLowerCase().includes(searchLower) ||
-        (p.description && p.description.toLowerCase().includes(searchLower))
-      );
-    }
-
-    if (mentorshipType) {
-      filtered = filtered.filter(p => p.mentorshipType === mentorshipType);
-    }
-
-    if (active !== undefined) {
-      filtered = filtered.filter(p => p.active === active);
-    }
-
-    const total = filtered.length;
-    const offset = (page - 1) * pageSize;
-    const paginatedItems = filtered.slice(offset, offset + pageSize);
-
-    const itemsWithMentorName = await Promise.all(
-      paginatedItems.map(async (product) => {
-        let mentorName = "Unknown Instructor";
-        if (product.mentorId) {
-          try {
-            const instructor = await convex.query(api.instructors.getInstructorById, {
-              id: product.mentorId as any,
-            });
-            if (instructor?.name) {
-              mentorName = instructor.name;
-            }
-          } catch {
-            // Instructor lookup failed, keep default mentorName
-          }
-        }
-
-        return {
-          id: product._id,
-          mentorId: product.mentorId,
-          mentorName,
-          title: product.title,
-          description: product.description,
-          imageUrl: product.imageUrl,
-          price: product.price,
-          currency: product.currency,
-          sessionsPerPack: product.sessionsPerPack,
-          validityDays: product.validityDays,
-          mentorshipType: product.mentorshipType,
-          stripePriceId: product.stripePriceId,
-          stripeProductId: product.stripeProductId,
-          paypalProductId: product.paypalProductId,
-          paypalProductLink: product.paypalProductId
-            ? getPayPalProductDashboardLink(product.paypalProductId)
-            : null,
-          active: product.active,
-          createdAt: new Date(product._creationTime).toISOString(),
-        };
-      })
+    const result = await getAdminProducts(
+      search,
+      mentorId,
+      mentorshipType,
+      active,
+      page,
+      pageSize
     );
 
     return NextResponse.json({
-      items: itemsWithMentorName,
-      total,
-      page,
-      pageSize,
+      items: result.items.map(item => ({
+        ...item,
+        createdAt: item.createdAt.toISOString(),
+      })),
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
     });
   } catch (error) {
     if (error instanceof Error && "status" in error) {
