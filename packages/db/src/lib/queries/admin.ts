@@ -1,6 +1,6 @@
 import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable, count, sum } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentors, users, sessionPacks, sessions, seatReservations, orders, payments } from "../../schema";
+import { mentors, users, sessionPacks, sessions, seatReservations, orders, payments, instructors } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 import type { OrderStatus } from "../../schema/orders";
 
@@ -454,8 +454,8 @@ export async function getAdminMentees(
         userId: sessionPacks.userId,
         email: users.email,
         mentorId: sessionPacks.mentorId,
-        instructorName: mentors.name,
-        instructorSlug: mentors.slug,
+        instructorName: instructors.name,
+        instructorSlug: instructors.slug,
         totalSessions: sessionPacks.totalSessions,
         remainingSessions: sessionPacks.remainingSessions,
         status: sessionPacks.status,
@@ -466,7 +466,7 @@ export async function getAdminMentees(
       .from(sessionPacks)
       .innerJoin(users, eq(sessionPacks.userId, users.id))
       .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
-      .leftJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+      .leftJoin(instructors, eq(sessionPacks.mentorId, instructors.id))
       .where(whereClause)
       .orderBy(desc(sessionPacks.createdAt))
       .limit(pageSize)
