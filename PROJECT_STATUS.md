@@ -11,8 +11,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 4, 2026 (Phase 4E-4 complete - PR #213)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Last Updated**: May 8, 2026 (Admin SQL Migration COMPLETE - PR #232, Bugfix PR #233)
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **SQL Pagination Bugfix** (PR #233), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
 
 ---
 
@@ -932,9 +932,9 @@ ls apps/web/app/api
 | **4E-1: Low-Risk Singles** | ✅ COMPLETED | 5 routes | Testimonials CRUD, mentee-results CRUD, upload import fix |
 | **4E-2: Medium-Risk CRUD** | ⏳ DEFERRED | 5 routes | mentors table, session-count routes, waitlist, inventory read |
 | **4E-3: Complex Admin Routes** | ✅ COMPLETED | 4 routes | Instructors list/create, inventory write, mentees invite (PR #209) |
-| **4E-4: Stats + Critical Paths** | ⏳ DEFERRED | 1 route | Admin stats aggregations, instructors PUT with Stripe product deactivation |
+| **4E-4: Stats + Critical Paths** | ✅ COMPLETED | 6 routes | Admin stats/mentees/orders/instructors/products → SQL (PR #232) |
 
-**Remaining @mentorships/db imports**: ~12 routes still using Drizzle
+**Remaining @mentorships/db imports**: ~8 routes still using Drizzle (refunds POST, products POST, workspaces mutations, session management)
 
 ### Not Started (requires app creation)
 
@@ -956,6 +956,39 @@ ls apps/web/app/api
 |--------|--------|-------|
 | **Docstring Coverage** | Low priority | 28.57% → 80% threshold |
 | **Type Safety in Create Page** | Low priority | Replace `any` with discriminated unions |
+
+---
+
+## 🎯 SQL/Drizzle vs Convex Decision Framework
+
+### When to Use SQL/Drizzle (Analytics & Aggregations)
+- **Admin dashboard reads** - stats, paginated lists with filtering
+- **Complex JOINs** - data spread across multiple tables
+- **Aggregation queries** - counts, sums, revenue calculations
+- **Period comparisons** - month-over-month, year-over-year
+
+### When to Use Convex (Real-time & Mutations)
+- **Real-time features** - workspace chat, live updates
+- **Multi-step mutations** - creates that orchestrate external APIs (Stripe + PayPal + Convex)
+- **Single-record CRUD** - product by ID, instructor by ID
+- **External API orchestration** - Google Calendar, Stripe, PayPal calls
+
+### Current Split (apps/web/api/admin)
+**SQL/Drizzle** (READ - analytics):
+- `GET /api/admin/stats` → `getAdminStats()`
+- `GET /api/admin/mentees` → `getAdminMentees()`
+- `GET /api/admin/orders` → `getAdminOrders()` (bugfix: PR #233)
+- `GET /api/admin/instructors` → `getAdminInstructors()`
+- `GET /api/admin/products` → `getAdminProducts()`
+
+**Convex** (WRITE - transactional):
+- `POST /api/admin/products` → creates in Stripe + PayPal + Convex
+- `POST /api/admin/refunds` → Convex mutation + Stripe/PayPal API calls
+- `POST /api/admin/instructors` → creates instructor + Clerk invitation
+- `POST /api/admin/workspaces/*` → workspace CRUD
+
+### Remaining Items (~8 routes with @mentorships/db imports)
+These are mostly writes correctly placed in Convex. No urgent migrations needed.
 
 ---
 
