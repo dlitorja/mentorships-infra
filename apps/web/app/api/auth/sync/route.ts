@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { auth } from "@clerk/nextjs/server";
+import { clerkClient } from "@clerk/nextjs/server";
 
 export async function GET() {
   try {
@@ -18,8 +19,8 @@ export async function GET() {
     }
     convex.setAuth(token);
 
-    const clerkUser = clerkAuth.user;
-    const role = clerkUser?.publicMetadata?.role as string | undefined;
+    const clerkUser = await clerkClient.users.getUser(clerkUserId);
+    const role = clerkUser.publicMetadata?.role as string | undefined;
 
     const user = await convex.mutation(api.users.syncUser, { role });
 
