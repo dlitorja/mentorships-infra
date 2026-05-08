@@ -19,8 +19,13 @@ export async function GET() {
     }
     convex.setAuth(token);
 
-    const clerkUser = await clerkClient.users.getUser(clerkUserId);
-    const role = clerkUser.publicMetadata?.role as string | undefined;
+    const client = await clerkClient();
+    const clerkUser = await client.users.getUser(clerkUserId);
+    const rawRole = clerkUser.publicMetadata?.role;
+    const validRoles = ["student", "mentor", "admin", "video_editor"] as const;
+    const role = typeof rawRole === "string" && validRoles.includes(rawRole as typeof validRoles[number])
+      ? rawRole as typeof validRoles[number]
+      : undefined;
 
     const user = await convex.mutation(api.users.syncUser, { role });
 
