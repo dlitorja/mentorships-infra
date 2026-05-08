@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { isUnauthorizedError } from "@/lib/errors";
 import { getAdminStats } from "@mentorships/db";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     console.error("Error fetching admin stats:", error);
 
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { getAdminOrders } from "@mentorships/db";
+
+const listOrdersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 /**
  * GET /api/admin/orders
@@ -14,9 +21,18 @@ export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
-    const { searchParams } = new URL(req.url);
-    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-    const pageSize = Math.min(Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10)), 100);
+    const parsedQuery = listOrdersQuerySchema.safeParse(
+      Object.fromEntries(new URL(req.url).searchParams)
+    );
+
+    if (!parsedQuery.success) {
+      return NextResponse.json(
+        { error: "Invalid query", details: parsedQuery.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { page, pageSize } = parsedQuery.data;
 
     const result = await getAdminOrders(page, pageSize);
 
@@ -45,10 +61,10 @@ export async function GET(req: NextRequest) {
       pageSize: result.pageSize,
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error instanceof Error && error.message.includes("Forbidden")) {
+    if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 

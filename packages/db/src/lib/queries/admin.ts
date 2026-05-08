@@ -443,7 +443,6 @@ export async function getAdminMentees(
       .select({ count: sql<number>`count(*)` })
       .from(sessionPacks)
       .innerJoin(users, eq(sessionPacks.userId, users.id))
-      .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
       .where(whereClause);
 
     const total = Number(countResult[0]?.count || 0);
@@ -465,7 +464,6 @@ export async function getAdminMentees(
       })
       .from(sessionPacks)
       .innerJoin(users, eq(sessionPacks.userId, users.id))
-      .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
       .leftJoin(instructors, eq(sessionPacks.mentorId, instructors.id))
       .where(whereClause)
       .orderBy(desc(sessionPacks.createdAt))
@@ -544,45 +542,53 @@ export async function getAdminOrders(
         totalAmount: orders.totalAmount,
         currency: orders.currency,
         createdAt: orders.createdAt,
+        paymentId: payments.id,
+        paymentProvider: payments.provider,
+        paymentProviderPaymentId: payments.providerPaymentId,
+        paymentAmount: payments.amount,
+        paymentCurrency: payments.currency,
+        paymentStatus: payments.status,
+        paymentRefundedAmount: payments.refundedAmount,
       })
       .from(orders)
       .leftJoin(users, eq(orders.userId, users.id))
+      .leftJoin(payments, eq(payments.orderId, orders.id))
       .orderBy(desc(orders.createdAt))
-      .limit(pageSize)
-      .offset(offset);
+      .limit(pageSize * 3)
+      .offset(0);
 
-    const ordersWithPayments = await Promise.all(
-      orderResults.map(async (order) => {
-        const paymentResults = await tx
-          .select({
-            id: payments.id,
-            provider: payments.provider,
-            providerPaymentId: payments.providerPaymentId,
-            amount: payments.amount,
-            currency: payments.currency,
-            status: payments.status,
-            refundedAmount: payments.refundedAmount,
-          })
-          .from(payments)
-          .where(eq(payments.orderId, order.id));
+    const ordersMap = new Map<string, AdminOrderItem>();
+    for (const row of orderResults) {
+      if (!ordersMap.has(row.id)) {
+        ordersMap.set(row.id, {
+          id: row.id,
+          userId: row.userId,
+          userEmail: row.userEmail,
+          status: row.status,
+          provider: row.provider,
+          totalAmount: row.totalAmount,
+          currency: row.currency,
+          createdAt: row.createdAt,
+          payments: [],
+        });
+      }
+      if (row.paymentId) {
+        ordersMap.get(row.id)!.payments.push({
+          id: row.paymentId,
+          provider: row.paymentProvider,
+          providerPaymentId: row.paymentProviderPaymentId,
+          amount: row.paymentAmount,
+          currency: row.paymentCurrency,
+          status: row.paymentStatus,
+          refundedAmount: row.paymentRefundedAmount,
+        });
+      }
+    }
 
-        return {
-          ...order,
-          payments: paymentResults.map(p => ({
-            id: p.id,
-            provider: p.provider,
-            providerPaymentId: p.providerPaymentId,
-            amount: p.amount,
-            currency: p.currency,
-            status: p.status,
-            refundedAmount: p.refundedAmount,
-          })),
-        };
-      })
-    );
+    const paginatedItems = Array.from(ordersMap.values()).slice(0, pageSize);
 
     return {
-      items: ordersWithPayments,
+      items: paginatedItems,
       total,
       page,
       pageSize,

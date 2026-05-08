@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { clerkClient } from "@clerk/nextjs/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { getAdminMentees } from "@mentorships/db";
 
 interface ClerkUserName {
@@ -82,10 +83,10 @@ export async function GET(req: NextRequest) {
       pageSize: result.pageSize,
     });
   } catch (error) {
-    if (error instanceof Error && error.message.includes("Unauthorized")) {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error instanceof Error && error.message.includes("Forbidden")) {
+    if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 
