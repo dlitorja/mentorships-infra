@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
-import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { z } from "zod";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { getAdminOrders } from "@mentorships/db";
+
+const listOrdersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
 
 /**
  * GET /api/admin/orders
@@ -11,25 +16,25 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
  * Query params:
  * - page: Page number (default: 1)
  * - pageSize: Items per page (default: 20, max: 100)
- * - status: Filter by order status (not yet supported in Convex)
  */
 export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
-    const { searchParams } = new URL(req.url);
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const pageSize = Math.min(parseInt(searchParams.get("pageSize") || "20", 10), 100);
+    const parsedQuery = listOrdersQuerySchema.safeParse(
+      Object.fromEntries(new URL(req.url).searchParams)
+    );
 
-    const validatedPageSize = Math.min(Math.max(1, pageSize), 100);
-    const validatedPage = Math.max(1, page);
-    const offset = (validatedPage - 1) * validatedPageSize;
+    if (!parsedQuery.success) {
+      return NextResponse.json(
+        { error: "Invalid query", details: parsedQuery.error.issues },
+        { status: 400 }
+      );
+    }
 
-    const convex = getConvexClient();
-    const result = await convex.query(api.orders.getOrdersForAdmin, {
-      limit: validatedPageSize,
-      offset,
-    });
+    const { page, pageSize } = parsedQuery.data;
+
+    const result = await getAdminOrders(page, pageSize);
 
     return NextResponse.json({
       items: result.items.map((order) => ({
@@ -52,8 +57,8 @@ export async function GET(req: NextRequest) {
         })),
       })),
       total: result.total,
-      page: validatedPage,
-      pageSize: validatedPageSize,
+      page: result.page,
+      pageSize: result.pageSize,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {

@@ -4,6 +4,8 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
+import { requireRoleForApi } from "@/lib/auth-helpers";
+import { getAdminInstructors } from "@mentorships/db";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -54,7 +56,6 @@ type CreateInstructorInput = z.infer<typeof createInstructorSchema>;
  */
 export async function GET(req: NextRequest) {
   try {
-    const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
     const parsedQuery = listInstructorsQuerySchema.safeParse(
@@ -70,32 +71,17 @@ export async function GET(req: NextRequest) {
 
     const { search, includeInactive, page, pageSize } = parsedQuery.data;
 
-    const convex = getConvexClient();
-    const allInstructors = await convex.query(api.instructors.getInstructorsForAdmin, {});
-
-    let filtered = allInstructors;
-
-    if (!includeInactive) {
-      filtered = filtered.filter((inst: any) => inst.isActive !== false);
-    }
-
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filtered = filtered.filter((inst: any) =>
-        inst.name?.toLowerCase().includes(searchLower) ||
-        inst.email?.toLowerCase().includes(searchLower) ||
-        inst.slug?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    const total = filtered.length;
-    const offset = (page - 1) * pageSize;
-    const paginatedItems = filtered.slice(offset, offset + pageSize);
+    const result = await getAdminInstructors(
+      search || undefined,
+      includeInactive,
+      page,
+      pageSize
+    );
 
     return NextResponse.json({
-      items: paginatedItems.map((inst: any) => ({
+      items: result.items.map((inst) => ({
         kind: "instructor" as const,
-        id: inst._id,
+        id: inst.id,
         name: inst.name,
         slug: inst.slug,
         email: inst.email,
@@ -105,12 +91,12 @@ export async function GET(req: NextRequest) {
         background: inst.background,
         profileImageUrl: inst.profileImageUrl,
         isActive: inst.isActive,
-        mentorId: inst.mentorId,
-        createdAt: new Date(inst._creationTime).toISOString(),
+        mentorId: inst.id,
+        createdAt: new Date(inst.createdAt).toISOString(),
       })),
-      total,
-      page,
-      pageSize,
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
