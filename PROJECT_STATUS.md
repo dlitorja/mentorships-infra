@@ -12,7 +12,7 @@
     - Supabase Storage images retained as backup (dual-write during transition)
 
 **Last Updated**: May 8, 2026 (Admin SQL Migration COMPLETE - PR #232, Bugfix PR #233)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **SQL Pagination Bugfix** (PR #233), Discord Bot Slash Commands NOT STARTED, Video Access Control NOT STARTED
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
 
@@ -936,6 +936,18 @@ ls apps/web/app/api
 
 **Remaining @mentorships/db imports**: ~8 routes still using Drizzle (refunds POST, products POST, workspaces mutations, session management)
 
+**Architectural Decision (May 8, 2026)**: Admin READ endpoints migrated from Convex to SQL/Drizzle for analytical workloads. Convex remains for WRITE operations (creates, updates, refunds) and transactional multi-step operations. This follows the principle: SQL for aggregations/analytics, Convex for real-time sync and mutations.
+
+**Migration Pattern Applied**:
+- `GET /api/admin/stats` → SQL (`getAdminStats()`) ✅
+- `GET /api/admin/mentees` → SQL (`getAdminMentees()`) ✅
+- `GET /api/admin/orders` → SQL (`getAdminOrders()`) ✅
+- `GET /api/admin/instructors` → SQL (`getAdminInstructors()`) ✅
+- `GET /api/admin/products` → SQL (`getAdminProducts()`) ✅ (FIXED N+1 query problem)
+- `POST /api/admin/instructors` → Convex mutation (creates instructor + Clerk invitation) ✅
+- `POST /api/admin/refunds` → Convex mutation + Stripe/PayPal API calls ✅
+- `POST /api/admin/products` → Convex mutation + Stripe/PayPal API calls ✅ (STAYS - multi-provider orchestration)
+
 ### Not Started (requires app creation)
 
 | Feature | Status | Notes |
@@ -1016,6 +1028,12 @@ These are mostly writes correctly placed in Convex. No urgent migrations needed.
 ---
 
 **Next**: Phase 4E-2 (Admin Medium-Risk Routes) or Discord Bot Slash Commands or Video Access Control
+
+**Recent Fix (May 8, 2026)**:
+- Fixed 500 errors on `/api/admin/stats` by migrating from Convex N+1 queries to efficient SQL aggregation
+- `getStats` Convex query was calling `.collect()` on entire `seatReservations` and `payments` tables, then doing N individual `db.get()` calls per row
+- Now uses proper SQL JOINs and aggregation functions (COUNT, SUM, GROUP BY)
+- PR #231 also fixed N+1 in `getAdminOrders` (101 queries → 2 queries per page)
 
 ---
 
