@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { clerkClient } from "@clerk/nextjs/server";
-import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
-import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
+import { requireRoleForApi } from "@/lib/auth-helpers";
+import { getAdminMentees } from "@mentorships/db";
 
 interface ClerkUserName {
   firstName?: string | null;
@@ -31,7 +22,6 @@ const listMenteesQuerySchema = z.object({
  */
 export async function GET(req: NextRequest) {
   try {
-    const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
     const parsedQuery = listMenteesQuerySchema.safeParse(
@@ -46,16 +36,15 @@ export async function GET(req: NextRequest) {
     }
 
     const { search, instructorId, page, pageSize } = parsedQuery.data;
-    const convex = getConvexClient();
 
-    const result = await convex.query(api.admin.getAllMenteesForAdmin, {
-      search: search || undefined,
-      instructorId: instructorId as any || undefined,
+    const result = await getAdminMentees(
+      search || undefined,
+      instructorId,
       page,
-      pageSize,
-    });
+      pageSize
+    );
 
-    const userIds = [...new Set(result.items.map((m: any) => m.userId))];
+    const userIds = [...new Set(result.items.map((m) => m.userId))];
     let clerkUserMap = new Map<string, ClerkUserName>();
 
     if (userIds.length > 0) {
@@ -69,7 +58,7 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      items: result.items.map((m: any) => {
+      items: result.items.map((m) => {
         const clerkUser = clerkUserMap.get(m.userId);
         return {
           kind: "mentee" as const,
@@ -93,10 +82,10 @@ export async function GET(req: NextRequest) {
       pageSize: result.pageSize,
     });
   } catch (error) {
-    if (isUnauthorizedError(error)) {
+    if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (isForbiddenError(error)) {
+    if (error instanceof Error && error.message.includes("Forbidden")) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 

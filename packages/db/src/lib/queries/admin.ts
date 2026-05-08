@@ -1,7 +1,8 @@
-import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable } from "drizzle-orm";
+import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable, count, sum } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentors, users, sessionPacks, sessions, seatReservations } from "../../schema";
+import { mentors, users, sessionPacks, sessions, seatReservations, orders, payments } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
+import type { OrderStatus } from "../../schema/orders";
 
 const instructorUsers = aliasedTable(users, "instructor_users");
 
@@ -327,4 +328,394 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
     completedSessionsCount: r.completedSessionsCount,
     seatStatus: r.seatStatus,
   }));
+}
+
+export type AdminStats = {
+  totalActiveMentees: number;
+  revenueThisMonth: number;
+  revenueLastMonth: number;
+  revenueChange: number;
+  revenueThisYear: number;
+  hasRevenueData: boolean;
+  hasMenteeData: boolean;
+  hasHistoricalRevenue: boolean;
+};
+
+export async function getAdminStats(): Promise<AdminStats> {
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+  const [statsResult, revenueResult] = await Promise.all([
+    db
+      .select({ count: sql<number>`COUNT(DISTINCT ${seatReservations.sessionPackId})` })
+      .from(seatReservations)
+      .innerJoin(sessionPacks, eq(seatReservations.sessionPackId, sessionPacks.id))
+      .where(and(
+        eq(seatReservations.status, "active"),
+        eq(sessionPacks.status, "active")
+      )),
+    db
+      .select({
+        revenueThisMonth: sql<number>`COALESCE(SUM(CASE WHEN ${payments.createdAt} >= ${startOfMonth} THEN ${payments.amount}::numeric ELSE 0 END), 0)::numeric`,
+        revenueLastMonth: sql<number>`COALESCE(SUM(CASE WHEN ${payments.createdAt} >= ${startOfLastMonth} AND ${payments.createdAt} < ${startOfMonth} THEN ${payments.amount}::numeric ELSE 0 END), 0)::numeric`,
+        revenueThisYear: sql<number>`COALESCE(SUM(CASE WHEN ${payments.createdAt} >= ${startOfYear} THEN ${payments.amount}::numeric ELSE 0 END), 0)::numeric`,
+      })
+      .from(payments)
+      .where(eq(payments.status, "completed")),
+  ]);
+
+  const totalActiveMentees = Number(statsResult[0]?.count || 0);
+  const revenueStats = revenueResult[0] || {
+    revenueThisMonth: "0",
+    revenueLastMonth: "0",
+    revenueThisYear: "0",
+  };
+
+  const revenueThisMonth = Number(revenueStats.revenueThisMonth) / 100;
+  const revenueLastMonth = Number(revenueStats.revenueLastMonth) / 100;
+  const revenueThisYear = Number(revenueStats.revenueThisYear) / 100;
+
+  let revenueChange = 0;
+  if (revenueLastMonth > 0) {
+    revenueChange = ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100;
+  } else if (revenueThisMonth > 0) {
+    revenueChange = 100;
+  }
+
+  return {
+    totalActiveMentees,
+    revenueThisMonth,
+    revenueLastMonth,
+    revenueChange: Math.round(revenueChange * 10) / 10,
+    revenueThisYear,
+    hasRevenueData: revenueThisYear > 0,
+    hasMenteeData: totalActiveMentees > 0,
+    hasHistoricalRevenue: revenueLastMonth > 0,
+  };
+}
+
+export type AdminMenteeItem = {
+  id: string;
+  userId: string;
+  email: string;
+  mentorId: string;
+  instructorName: string | null;
+  instructorSlug: string | null;
+  totalSessions: number;
+  remainingSessions: number;
+  status: SessionPackStatus;
+  expiresAt: Date | null;
+  purchasedAt: Date;
+  createdAt: Date;
+};
+
+export type AdminMenteeResult = {
+  items: AdminMenteeItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export async function getAdminMentees(
+  search?: string,
+  instructorId?: string,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<AdminMenteeResult> {
+  const offset = (page - 1) * pageSize;
+
+  return await db.transaction(async (tx) => {
+    const conditions: any[] = [];
+
+    if (instructorId) {
+      conditions.push(eq(sessionPacks.mentorId, instructorId));
+    }
+
+    if (search && search.trim()) {
+      conditions.push(ilike(users.email, `%${search.trim()}%`));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const countResult = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(sessionPacks)
+      .innerJoin(users, eq(sessionPacks.userId, users.id))
+      .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
+      .where(whereClause);
+
+    const total = Number(countResult[0]?.count || 0);
+
+    const results = await tx
+      .select({
+        id: sessionPacks.id,
+        userId: sessionPacks.userId,
+        email: users.email,
+        mentorId: sessionPacks.mentorId,
+        instructorName: mentors.name,
+        instructorSlug: mentors.slug,
+        totalSessions: sessionPacks.totalSessions,
+        remainingSessions: sessionPacks.remainingSessions,
+        status: sessionPacks.status,
+        expiresAt: sessionPacks.expiresAt,
+        purchasedAt: sessionPacks.purchasedAt,
+        createdAt: sessionPacks.createdAt,
+      })
+      .from(sessionPacks)
+      .innerJoin(users, eq(sessionPacks.userId, users.id))
+      .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
+      .leftJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+      .where(whereClause)
+      .orderBy(desc(sessionPacks.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    return {
+      items: results.map(r => ({
+        id: r.id,
+        userId: r.userId,
+        email: r.email || "Unknown",
+        mentorId: r.mentorId,
+        instructorName: r.instructorName || "Unknown",
+        instructorSlug: r.instructorSlug,
+        totalSessions: r.totalSessions,
+        remainingSessions: r.remainingSessions,
+        status: r.status,
+        expiresAt: r.expiresAt,
+        purchasedAt: r.purchasedAt,
+        createdAt: r.createdAt,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  });
+}
+
+export type AdminOrderItem = {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  status: OrderStatus;
+  provider: "stripe" | "paypal";
+  totalAmount: string;
+  currency: string;
+  createdAt: Date;
+  payments: {
+    id: string;
+    provider: "stripe" | "paypal";
+    providerPaymentId: string;
+    amount: string;
+    currency: string;
+    status: "pending" | "completed" | "refunded" | "failed";
+    refundedAmount: string | null;
+  }[];
+};
+
+export type AdminOrderResult = {
+  items: AdminOrderItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export async function getAdminOrders(
+  page: number = 1,
+  pageSize: number = 20
+): Promise<AdminOrderResult> {
+  const offset = (page - 1) * pageSize;
+
+  return await db.transaction(async (tx) => {
+    const countResult = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(orders);
+
+    const total = Number(countResult[0]?.count || 0);
+
+    const orderResults = await tx
+      .select({
+        id: orders.id,
+        userId: orders.userId,
+        userEmail: users.email,
+        status: orders.status,
+        provider: orders.provider,
+        totalAmount: orders.totalAmount,
+        currency: orders.currency,
+        createdAt: orders.createdAt,
+      })
+      .from(orders)
+      .leftJoin(users, eq(orders.userId, users.id))
+      .orderBy(desc(orders.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    const ordersWithPayments = await Promise.all(
+      orderResults.map(async (order) => {
+        const paymentResults = await tx
+          .select({
+            id: payments.id,
+            provider: payments.provider,
+            providerPaymentId: payments.providerPaymentId,
+            amount: payments.amount,
+            currency: payments.currency,
+            status: payments.status,
+            refundedAmount: payments.refundedAmount,
+          })
+          .from(payments)
+          .where(eq(payments.orderId, order.id));
+
+        return {
+          ...order,
+          payments: paymentResults.map(p => ({
+            id: p.id,
+            provider: p.provider,
+            providerPaymentId: p.providerPaymentId,
+            amount: p.amount,
+            currency: p.currency,
+            status: p.status,
+            refundedAmount: p.refundedAmount,
+          })),
+        };
+      })
+    );
+
+    return {
+      items: ordersWithPayments,
+      total,
+      page,
+      pageSize,
+    };
+  });
+}
+
+export type AdminInstructorItem = {
+  id: string;
+  userId: string;
+  email: string;
+  name: string;
+  slug: string;
+  bio: string | null;
+  tagline: string | null;
+  specialties: string[] | null;
+  background: string[] | null;
+  profileImageUrl: string | null;
+  isActive: boolean;
+  oneOnOneInventory: number | null;
+  groupInventory: number | null;
+  maxActiveStudents: number | null;
+  createdAt: Date;
+  activeMenteeCount: number;
+  totalCompletedSessions: number;
+};
+
+export type AdminInstructorResult = {
+  items: AdminInstructorItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export async function getAdminInstructors(
+  search?: string,
+  includeInactive?: boolean,
+  page: number = 1,
+  pageSize: number = 20
+): Promise<AdminInstructorResult> {
+  const offset = (page - 1) * pageSize;
+
+  return await db.transaction(async (tx) => {
+    let whereClause = isNull(mentors.deletedAt);
+    if (!includeInactive) {
+      whereClause = and(whereClause, eq(mentors.isActive, true));
+    }
+
+    let countQuery = tx
+      .select({ count: sql<number>`count(*)` })
+      .from(mentors)
+      .innerJoin(users, eq(mentors.userId, users.id))
+      .where(whereClause);
+
+    if (search && search.trim()) {
+      const searchTerm = `%${search.trim()}%`;
+      const searchCondition = or(
+        ilike(users.email, searchTerm),
+        ilike(mentors.name, searchTerm),
+        ilike(mentors.slug, searchTerm)
+      );
+      whereClause = and(whereClause, searchCondition);
+      countQuery = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(mentors)
+        .innerJoin(users, eq(mentors.userId, users.id))
+        .where(and(whereClause, searchCondition));
+    }
+
+    const countResult = await countQuery;
+    const total = Number(countResult[0]?.count || 0);
+
+    const results = await tx
+      .select({
+        id: mentors.id,
+        userId: users.id,
+        email: users.email,
+        name: mentors.name,
+        slug: mentors.slug,
+        bio: mentors.bio,
+        tagline: mentors.tagline,
+        specialties: mentors.specialties,
+        background: mentors.background,
+        profileImageUrl: mentors.profileImageUrl,
+        isActive: mentors.isActive,
+        oneOnOneInventory: mentors.oneOnOneInventory,
+        groupInventory: mentors.groupInventory,
+        maxActiveStudents: mentors.maxActiveStudents,
+        createdAt: mentors.createdAt,
+        activeMenteeCount: sql<number>`COALESCE((
+          SELECT COUNT(DISTINCT ${seatReservations.id})
+          FROM ${seatReservations}
+          WHERE ${seatReservations.mentorId} = ${mentors.id}
+            AND ${seatReservations.status} = 'active'
+        ), 0)`,
+        totalCompletedSessions: sql<number>`COALESCE((
+          SELECT COUNT(*)
+          FROM ${sessions}
+          INNER JOIN ${sessionPacks} ON ${sessions.sessionPackId} = ${sessionPacks.id}
+          WHERE ${sessionPacks.mentorId} = ${mentors.id}
+            AND ${sessions.status} = 'completed'
+        ), 0)`,
+      })
+      .from(mentors)
+      .innerJoin(users, eq(mentors.userId, users.id))
+      .where(whereClause)
+      .orderBy(desc(mentors.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    return {
+      items: results.map(r => ({
+        id: r.id,
+        userId: r.userId,
+        email: r.email,
+        name: r.name || "",
+        slug: r.slug || "",
+        bio: r.bio,
+        tagline: r.tagline,
+        specialties: r.specialties,
+        background: r.background,
+        profileImageUrl: r.profileImageUrl,
+        isActive: r.isActive ?? true,
+        oneOnOneInventory: r.oneOnOneInventory,
+        groupInventory: r.groupInventory,
+        maxActiveStudents: r.maxActiveStudents,
+        createdAt: r.createdAt,
+        activeMenteeCount: Number(r.activeMenteeCount) || 0,
+        totalCompletedSessions: Number(r.totalCompletedSessions) || 0,
+      })),
+      total,
+      page,
+      pageSize,
+    };
+  });
 }

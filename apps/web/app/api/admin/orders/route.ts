@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
-import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { getAdminOrders } from "@mentorships/db";
 
 /**
  * GET /api/admin/orders
@@ -11,25 +9,16 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
  * Query params:
  * - page: Page number (default: 1)
  * - pageSize: Items per page (default: 20, max: 100)
- * - status: Filter by order status (not yet supported in Convex)
  */
 export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
 
     const { searchParams } = new URL(req.url);
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const pageSize = Math.min(parseInt(searchParams.get("pageSize") || "20", 10), 100);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+    const pageSize = Math.min(Math.max(1, parseInt(searchParams.get("pageSize") || "20", 10)), 100);
 
-    const validatedPageSize = Math.min(Math.max(1, pageSize), 100);
-    const validatedPage = Math.max(1, page);
-    const offset = (validatedPage - 1) * validatedPageSize;
-
-    const convex = getConvexClient();
-    const result = await convex.query(api.orders.getOrdersForAdmin, {
-      limit: validatedPageSize,
-      offset,
-    });
+    const result = await getAdminOrders(page, pageSize);
 
     return NextResponse.json({
       items: result.items.map((order) => ({
@@ -52,14 +41,14 @@ export async function GET(req: NextRequest) {
         })),
       })),
       total: result.total,
-      page: validatedPage,
-      pageSize: validatedPageSize,
+      page: result.page,
+      pageSize: result.pageSize,
     });
   } catch (error) {
-    if (isUnauthorizedError(error)) {
+    if (error instanceof Error && error.message.includes("Unauthorized")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (isForbiddenError(error)) {
+    if (error instanceof Error && error.message.includes("Forbidden")) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 
