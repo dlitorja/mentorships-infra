@@ -626,70 +626,70 @@ export async function getAdminInstructors(
   const offset = (page - 1) * pageSize;
 
   return await db.transaction(async (tx) => {
-    let whereClause = isNull(mentors.deletedAt);
-    if (!includeInactive) {
-      whereClause = and(whereClause, eq(mentors.isActive, true));
-    }
+    let whereClause = includeInactive ? undefined : eq(instructors.isActive, true);
 
-    let countQuery = tx
-      .select({ count: sql<number>`count(*)` })
-      .from(mentors)
-      .innerJoin(users, eq(mentors.userId, users.id))
-      .where(whereClause);
+    const conditions: any[] = [];
+    if (!includeInactive) {
+      conditions.push(eq(instructors.isActive, true));
+    }
 
     if (search && search.trim()) {
       const searchTerm = `%${search.trim()}%`;
-      const searchCondition = or(
-        ilike(users.email, searchTerm),
-        ilike(mentors.name, searchTerm),
-        ilike(mentors.slug, searchTerm)
+      conditions.push(
+        or(
+          ilike(users.email, searchTerm),
+          ilike(instructors.name, searchTerm),
+          ilike(instructors.slug, searchTerm)
+        )
       );
-      whereClause = and(whereClause, searchCondition);
-      countQuery = tx
-        .select({ count: sql<number>`count(*)` })
-        .from(mentors)
-        .innerJoin(users, eq(mentors.userId, users.id))
-        .where(and(whereClause, searchCondition));
     }
 
-    const countResult = await countQuery;
+    const whereCondition = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const countResult = await tx
+      .select({ count: sql<number>`count(*)` })
+      .from(instructors)
+      .leftJoin(users, eq(instructors.userId, users.id))
+      .where(whereCondition);
+
     const total = Number(countResult[0]?.count || 0);
 
     const results = await tx
       .select({
-        id: mentors.id,
+        id: instructors.id,
         userId: users.id,
         email: users.email,
-        name: mentors.name,
-        slug: mentors.slug,
-        bio: mentors.bio,
-        tagline: mentors.tagline,
-        specialties: mentors.specialties,
-        background: mentors.background,
-        profileImageUrl: mentors.profileImageUrl,
-        isActive: mentors.isActive,
+        name: instructors.name,
+        slug: instructors.slug,
+        bio: instructors.bio,
+        tagline: instructors.tagline,
+        specialties: instructors.specialties,
+        background: instructors.background,
+        profileImageUrl: instructors.profileImageUrl,
+        isActive: instructors.isActive,
         oneOnOneInventory: mentors.oneOnOneInventory,
         groupInventory: mentors.groupInventory,
         maxActiveStudents: mentors.maxActiveStudents,
-        createdAt: mentors.createdAt,
+        createdAt: instructors.createdAt,
         activeMenteeCount: sql<number>`COALESCE((
           SELECT COUNT(DISTINCT ${seatReservations.id})
           FROM ${seatReservations}
-          WHERE ${seatReservations.mentorId} = ${mentors.id}
+          WHERE ${seatReservations.mentorId} = ${instructors.mentorId}
             AND ${seatReservations.status} = 'active'
         ), 0)`,
         totalCompletedSessions: sql<number>`COALESCE((
           SELECT COUNT(*)
           FROM ${sessions}
           INNER JOIN ${sessionPacks} ON ${sessions.sessionPackId} = ${sessionPacks.id}
-          WHERE ${sessionPacks.mentorId} = ${mentors.id}
+          WHERE ${sessionPacks.mentorId} = ${instructors.mentorId}
             AND ${sessions.status} = 'completed'
         ), 0)`,
       })
-      .from(mentors)
-      .innerJoin(users, eq(mentors.userId, users.id))
-      .where(whereClause)
-      .orderBy(desc(mentors.createdAt))
+      .from(instructors)
+      .leftJoin(users, eq(instructors.userId, users.id))
+      .leftJoin(mentors, eq(instructors.mentorId, mentors.id))
+      .where(whereCondition)
+      .orderBy(desc(instructors.createdAt))
       .limit(pageSize)
       .offset(offset);
 
