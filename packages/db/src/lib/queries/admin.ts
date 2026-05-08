@@ -592,8 +592,8 @@ export async function getAdminOrders(
 
 export type AdminInstructorItem = {
   id: string;
-  userId: string;
-  email: string;
+  userId: string | null;
+  email: string | null;
   name: string;
   slug: string;
   bio: string | null;
