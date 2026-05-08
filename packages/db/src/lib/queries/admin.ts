@@ -1,4 +1,4 @@
-import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable, count, sum } from "drizzle-orm";
+import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable, count, sum, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
 import { mentors, users, sessionPacks, sessions, seatReservations, orders, payments, instructors, mentorshipProducts } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
@@ -532,6 +532,19 @@ export async function getAdminOrders(
 
     const total = Number(countResult[0]?.count || 0);
 
+    const paginatedOrderIds = await tx
+      .select({ id: orders.id })
+      .from(orders)
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(pageSize)
+      .offset(offset);
+
+    if (paginatedOrderIds.length === 0) {
+      return { items: [], total, page, pageSize };
+    }
+
+    const orderIds = paginatedOrderIds.map(o => o.id);
+
     const orderResults = await tx
       .select({
         id: orders.id,
@@ -553,9 +566,8 @@ export async function getAdminOrders(
       .from(orders)
       .leftJoin(users, eq(orders.userId, users.id))
       .leftJoin(payments, eq(payments.orderId, orders.id))
-      .orderBy(desc(orders.createdAt))
-      .limit(pageSize * 3)
-      .offset(0);
+      .where(inArray(orders.id, orderIds))
+      .orderBy(desc(orders.createdAt), desc(orders.id));
 
     const ordersMap = new Map<string, AdminOrderItem>();
     for (const row of orderResults) {
@@ -585,7 +597,7 @@ export async function getAdminOrders(
       }
     }
 
-    const paginatedItems = Array.from(ordersMap.values()).slice(0, pageSize);
+    const paginatedItems = Array.from(ordersMap.values());
 
     return {
       items: paginatedItems,
@@ -632,8 +644,6 @@ export async function getAdminInstructors(
   const offset = (page - 1) * pageSize;
 
   return await db.transaction(async (tx) => {
-    let whereClause = includeInactive ? undefined : eq(instructors.isActive, true);
-
     const conditions: any[] = [];
     if (!includeInactive) {
       conditions.push(eq(instructors.isActive, true));
