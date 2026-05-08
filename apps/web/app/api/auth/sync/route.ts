@@ -18,7 +18,10 @@ export async function GET() {
     }
     convex.setAuth(token);
 
-    const user = await convex.mutation(api.users.syncUser, {});
+    const clerkUser = clerkAuth.user;
+    const role = clerkUser?.publicMetadata?.role as string | undefined;
+
+    const user = await convex.mutation(api.users.syncUser, { role });
 
     if (!user) {
       return NextResponse.json({ error: "Failed to sync user" }, { status: 500 });
