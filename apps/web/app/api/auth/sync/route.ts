@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { auth } from "@clerk/nextjs/server";
+import { clerkClient } from "@clerk/nextjs/server";
 
 export async function GET() {
   try {
@@ -18,7 +19,15 @@ export async function GET() {
     }
     convex.setAuth(token);
 
-    const user = await convex.mutation(api.users.syncUser, {});
+    const client = await clerkClient();
+    const clerkUser = await client.users.getUser(clerkUserId);
+    const rawRole = clerkUser.publicMetadata?.role;
+    const validRoles = ["student", "mentor", "admin", "video_editor"] as const;
+    const role = typeof rawRole === "string" && validRoles.includes(rawRole as typeof validRoles[number])
+      ? rawRole as typeof validRoles[number]
+      : undefined;
+
+    const user = await convex.mutation(api.users.syncUser, { role });
 
     if (!user) {
       return NextResponse.json({ error: "Failed to sync user" }, { status: 500 });
