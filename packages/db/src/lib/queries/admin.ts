@@ -572,14 +572,14 @@ export async function getAdminOrders(
           payments: [],
         });
       }
-      if (row.paymentId) {
+      if (row.paymentId && row.paymentProvider) {
         ordersMap.get(row.id)!.payments.push({
           id: row.paymentId,
           provider: row.paymentProvider,
-          providerPaymentId: row.paymentProviderPaymentId,
-          amount: row.paymentAmount,
-          currency: row.paymentCurrency,
-          status: row.paymentStatus,
+          providerPaymentId: row.paymentProviderPaymentId!,
+          amount: row.paymentAmount!,
+          currency: row.paymentCurrency!,
+          status: row.paymentStatus!,
           refundedAmount: row.paymentRefundedAmount,
         });
       }
