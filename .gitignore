@@ -101,4 +101,4 @@ local/
 # Clerk
 .clerk/
 
-.trigger
+.triggermigration-data/
