@@ -1,4 +1,5 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -1364,5 +1365,35 @@ export const updateInstructorInventory = mutation({
 
     await ctx.db.patch(id, { ...filteredUpdates, updatedAt: Date.now() });
     return await ctx.db.get(id);
+  },
+});
+
+export const unlinkInstructorByUserId = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!instructor) {
+      return { unlinked: false, reason: "No instructor found with matching userId", userId: args.userId };
+    }
+
+    await ctx.db.patch(instructor._id, { userId: undefined, updatedAt: Date.now() });
+    return {
+      unlinked: true,
+      instructorId: instructor._id,
+      instructorName: instructor.name ?? null,
+      userId: args.userId,
+    };
+  },
+});
+
+export const unlinkClerkUserFromInstructor = internalAction({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.runMutation(internal.instructors.unlinkInstructorByUserId, { userId: args.userId });
+    return { unlinked: true, userId: args.userId };
   },
 });
