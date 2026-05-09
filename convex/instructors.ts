@@ -1390,10 +1390,14 @@ export const unlinkInstructorByUserId = internalMutation({
   },
 });
 
+type UnlinkInstructorResult =
+  | { unlinked: true; instructorId: Id<"instructors">; instructorName: string | null; userId: string }
+  | { unlinked: false; reason: string; userId: string };
+
 export const unlinkClerkUserFromInstructor = internalAction({
   args: { userId: v.string() },
-  handler: async (ctx, args) => {
-    await ctx.runMutation(internal.instructors.unlinkInstructorByUserId, { userId: args.userId });
-    return { unlinked: true, userId: args.userId };
+  handler: async (ctx, args): Promise<UnlinkInstructorResult> => {
+    const result = await ctx.runMutation(internal.instructors.unlinkInstructorByUserId, { userId: args.userId });
+    return result as UnlinkInstructorResult;
   },
 });
