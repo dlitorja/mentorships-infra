@@ -13,12 +13,6 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
     return _dbInstance;
   }
 
-  if (_client) {
-    void _client.end({ timeout: 5 }).catch(() => {});
-    _client = null;
-    _dbInstance = null;
-  }
-
   if (!connectionString) {
     throw new Error("DATABASE_URL environment variable is required");
   }
@@ -48,7 +42,7 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
     cleaned = `${cleaned}${separator}sslmode=require`;
   }
 
-  _client = postgres(cleaned, {
+  const nextClient = postgres(cleaned, {
     max: 10,
     onnotice: () => {},
     prepare: false,
@@ -58,7 +52,13 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
     ssl: isLocalConnection ? false : "require",
   });
 
-  _dbInstance = drizzle(_client, { schema });
+  const nextDb = drizzle(nextClient, { schema });
+
+  if (_client) {
+    void _client.end({ timeout: 5 }).catch(() => {});
+  }
+  _client = nextClient;
+  _dbInstance = nextDb;
   _cachedConnectionString = connectionString;
   return _dbInstance;
 };
