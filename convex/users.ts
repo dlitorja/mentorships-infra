@@ -107,6 +107,7 @@ export const createUser = mutation({
   args: {
     userId: v.string(),
     email: v.string(),
+    clerkId: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
@@ -122,7 +123,11 @@ export const createUser = mutation({
       return existing._id;
     }
     
-    return await ctx.db.insert("users", args);
+    const { clerkId, ...rest } = args;
+    return await ctx.db.insert("users", {
+      ...rest,
+      clerkId: clerkId ?? `placeholder_${args.userId}`,
+    });
   },
 });
 
@@ -186,6 +191,7 @@ export const syncUser = mutation({
     const id = await ctx.db.insert("users", {
       userId: identity.subject,
       email: email,
+      clerkId: identity.subject,
       firstName: args.firstName,
       lastName: args.lastName,
       role: args.role ?? "student",
@@ -195,5 +201,50 @@ export const syncUser = mutation({
     const inserted = await ctx.db.get(id);
     if (!inserted) throw new Error("Failed to create user");
     return inserted;
+  },
+});
+
+export const migrateUser = mutation({
+  args: {
+    userId: v.string(),
+    email: v.string(),
+    role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
+    timeZone: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existingByUserId = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (existingByUserId) {
+      const updates: Partial<Doc<"users">> = {
+        email: args.email,
+        role: args.role ?? existingByUserId.role,
+        timeZone: args.timeZone ?? existingByUserId.timeZone,
+      };
+      await ctx.db.patch(existingByUserId._id, updates);
+      return { action: "updated", id: existingByUserId._id };
+    }
+
+    const id = await ctx.db.insert("users", {
+      userId: args.userId,
+      email: args.email,
+      clerkId: `migrated_${args.userId}`,
+      role: args.role ?? "student",
+      timeZone: args.timeZone,
+      firstName: undefined,
+      lastName: undefined,
+    });
+
+    return { action: "inserted", id };
+  },
+});
+
+export const getAllUsersForMigration = query({
+  handler: async (ctx) => {
+    return await ctx.db.query("users").collect();
   },
 });
