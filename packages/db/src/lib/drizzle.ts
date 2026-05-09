@@ -9,12 +9,10 @@ let _cachedConnectionString: string | null = null;
 export const getDb = (): PostgresJsDatabase<typeof schema> => {
   const connectionString = process.env.DATABASE_URL;
 
-  // Only recreate when the connection string actually changes.
   if (_dbInstance && _cachedConnectionString === connectionString) {
     return _dbInstance;
   }
 
-  // Close previous pool if exists
   if (_client) {
     void _client.end({ timeout: 5 }).catch(() => {});
     _client = null;
@@ -27,15 +25,6 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
 
   let cleaned = connectionString.replace(/^["']|["']$/g, "");
 
-  // Normalize: re-set password through URL API so it is consistently percent-encoded.
-  try {
-    const u = new URL(cleaned);
-    u.password = decodeURIComponent(u.password);
-    cleaned = u.toString();
-  } catch {
-    // Defer error reporting to the explicit validation below.
-  }
-
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(cleaned);
@@ -43,11 +32,17 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
     throw new Error("Invalid DATABASE_URL format");
   }
 
+  try {
+    parsedUrl.password = decodeURIComponent(parsedUrl.password);
+    cleaned = parsedUrl.toString();
+  } catch {
+    // If normalization fails, continue with original cleaned URL
+  }
+
   const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
   const isLocalConnection =
     hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
 
-  // Add sslmode to query params if not present
   if (!isLocalConnection && !parsedUrl.searchParams.has("sslmode")) {
     const separator = cleaned.includes("?") ? "&" : "?";
     cleaned = `${cleaned}${separator}sslmode=require`;
