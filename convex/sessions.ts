@@ -1,4 +1,5 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 /** Returns a session by its ID. */
@@ -212,5 +213,52 @@ export const migrateSession = mutation({
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+export const handleRenewalReminder = internalAction({
+  args: {
+    sessionPackId: v.string(),
+    userId: v.string(),
+    sessionNumber: v.number(),
+    remainingSessions: v.number(),
+    gracePeriodEndsAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const { sessionPackId, userId, sessionNumber, remainingSessions, gracePeriodEndsAt } = args;
+
+    if (sessionNumber === 3) {
+      await ctx.runAction(internal.notifications.handleNotificationSend, {
+        payload: {
+          type: "renewal_reminder",
+          userId,
+          sessionPackId,
+          message: "You have 1 session remaining. Renew now to continue your mentorship.",
+          sessionNumber: 3,
+        },
+      });
+    } else if (sessionNumber === 4) {
+      const graceDate = gracePeriodEndsAt
+        ? new Date(gracePeriodEndsAt).toLocaleString("en-US", { timeZone: "UTC" })
+        : "in 7 days";
+
+      await ctx.runAction(internal.notifications.handleNotificationSend, {
+        payload: {
+          type: "final_renewal_reminder",
+          userId,
+          sessionPackId,
+          message: `Your pack is complete. Renew within 7 days to keep your seat. Grace period ends: ${graceDate}`,
+          sessionNumber: 4,
+          gracePeriodEndsAt,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      sessionPackId,
+      userId,
+      sessionNumber,
+    };
   },
 });

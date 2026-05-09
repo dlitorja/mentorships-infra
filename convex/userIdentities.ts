@@ -1,4 +1,4 @@
-import { mutation } from "./_generated/server";
+import { mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 export const migrateUserIdentity = mutation({
@@ -56,5 +56,20 @@ export const migrateUserIdentity = mutation({
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+export const getByUserIdAndProvider = internalQuery({
+  args: {
+    userId: v.string(),
+    provider: v.union(v.literal("discord")),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("userIdentities")
+      .withIndex("by_userId_provider", (q) =>
+        q.eq("userId", args.userId).eq("provider", args.provider)
+      )
+      .first();
   },
 });

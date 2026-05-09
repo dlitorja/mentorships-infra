@@ -11,6 +11,7 @@
 import type * as admin from "../admin.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
 import type * as contacts from "../contacts.js";
+import type * as crons from "../crons.js";
 import type * as discordActionQueue from "../discordActionQueue.js";
 import type * as http from "../http.js";
 import type * as instructorUploads from "../instructorUploads.js";
@@ -21,6 +22,7 @@ import type * as menteeSessionCounts from "../menteeSessionCounts.js";
 import type * as migrationQueries from "../migrationQueries.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_http from "../mutations/http.js";
+import type * as notifications from "../notifications.js";
 import type * as orders from "../orders.js";
 import type * as payments from "../payments.js";
 import type * as products from "../products.js";
@@ -45,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminWorkspaces: typeof adminWorkspaces;
   contacts: typeof contacts;
+  crons: typeof crons;
   discordActionQueue: typeof discordActionQueue;
   http: typeof http;
   instructorUploads: typeof instructorUploads;
@@ -55,6 +58,7 @@ declare const fullApi: ApiFromModules<{
   migrationQueries: typeof migrationQueries;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/http": typeof mutations_http;
+  notifications: typeof notifications;
   orders: typeof orders;
   payments: typeof payments;
   products: typeof products;

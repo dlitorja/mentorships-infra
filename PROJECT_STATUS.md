@@ -759,11 +759,807 @@ Instead of 16 separate scripts with fragile CLI invocations, we now use:
 - [ ] Deprecate Drizzle mutation functions
 - [ ] Document architecture in `ARCHITECTURE.md`
 
-**References**:
-- Convex schema: `convex/schema.ts`
-- Preprocessor: `scripts/migrate-to-convex/preprocessor.ts`
-- Orchestrator: `scripts/migrate-to-convex/migrate-all.ts`
-- Legacy mappings: `convex/legacyMappings.ts`
+---
+
+## 🔧 Detailed Implementation Plan (Phase 3-5)
+
+### Architecture Decisions (May 2026)
+
+**What Stays in Inngest (Reliability)**:
+- External webhooks (Stripe, PayPal, Clerk) - Inngest handles signature verification, retries, and observability
+- Email sending functions - Inngest provides reliable delivery with retries
+- Notification routing - Inngest's step functions handle fan-out to multiple channels
+- Scheduled cron jobs for background cleanup - Inngest handles distributed scheduling
+
+**What Moves to Convex (Internal Logic)**:
+- Session state transitions (completion, cancellation)
+- Clerk user linking/unlinking (internal business logic)
+- Seat reservation expiration checks (data-driven cron)
+- Discord queue processing (background worker)
+- Onboarding workflow orchestration (multi-step with external calls)
+
+**Sync Architecture**:
+```
+External Webhooks (Stripe/PayPal/Clerk)
+    │
+    ▼
+Inngest (reliable ingestion + signature verification)
+    │
+    ├──► Convex (source of truth - all writes)
+    │
+    ├──► Convex triggers Inngest events (data.sync.*)
+    │
+    └──► Inngest sync handler → Drizzle replica (30-60s delay acceptable)
+```
+
+---
+
+### Phase 3A: Simple Function Migrations (Week 1, Days 1-3)
+
+**Pattern**: Convert Inngest functions to Convex `internalAction` for event-driven logic, Convex `schedules.task()` for cron jobs.
+
+#### 3A-1: `clerk-user-deleted.ts` → Convex internalAction
+
+**Current Inngest function** (`inngest/functions/clerk-user-deleted.ts`):
+- Triggered by `clerk/user.deleted` event
+- Sets `instructors.userId = null` when Clerk user is deleted
+- Simple single-table update
+
+**Convex replacement** (`convex/instructors.ts`):
+```typescript
+// Using Convex internalAction pattern from context7 docs
+export const unlinkClerkUserFromInstructor = internalAction({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.runQuery(
+      internal.instructors.getByUserId,
+      { userId: args.userId }
+    );
+    if (instructor) {
+      await ctx.runMutation(
+        internal.instructors.update,
+        { id: instructor._id, userId: undefined }
+      );
+    }
+  },
+});
+```
+
+**Files to modify**:
+- `convex/instructors.ts` - Add `unlinkClerkUserFromInstructor` internalAction
+- `inngest/functions/clerk-user-deleted.ts` - Deprecate (remove after verification)
+
+**Trigger**: Keep Inngest webhook receiving `clerk/user.deleted`, but have it call Convex internalAction instead of Drizzle query.
+
+**Estimated time**: 2 hours
+
+---
+
+#### 3A-2: `notifications.ts` → Convex internalAction
+
+**Current**: `handleNotificationSend` routes to email/Discord based on user preferences.
+
+**Convex replacement**: Create `convex/notifications.ts` with internalAction that handles notification dispatch.
+
+**Pattern from context7** (Convex action for external API calls):
+```typescript
+export const sendNotification = internalAction({
+  args: {
+    userId: v.string(),
+    type: v.union(v.literal("email"), v.literal("discord")),
+    content: v.object({
+      subject: v.optional(v.string()),
+      body: v.string(),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.runQuery(internal.users.getById, { id: args.userId });
+    
+    if (args.type === "email" && user?.email) {
+      await sendEmailAction({ to: user.email, ...args.content });
+    }
+    
+    if (args.type === "discord") {
+      const identity = await ctx.runQuery(
+        internal.userIdentities.getByUserIdAndProvider,
+        { userId: args.userId, provider: "discord" }
+      );
+      if (identity?.providerUserId) {
+        await sendDiscordDmAction({ discordId: identity.providerUserId, ...args.content });
+      }
+    }
+  },
+});
+```
+
+**Files to create/modify**:
+- `convex/notifications.ts` - New file with notification actions
+- `inngest/functions/notifications.ts` - Update to call Convex action
+
+**Estimated time**: 4 hours
+
+---
+
+#### 3A-3: `handleRenewalReminder` → Convex internalAction
+
+**Current**: Triggered by `session/renewal-reminder` event, sends notification to user.
+
+**Convex replacement**: Create internalAction in `convex/sessions.ts` to handle renewal reminders.
+
+**Files to modify**:
+- `convex/sessions.ts` - Add `handleRenewalReminder` internalAction
+- Remove Inngest function after verification
+
+**Estimated time**: 2 hours
+
+---
+
+#### 3A-4: `sendGracePeriodFinalWarning` → Convex schedules.task() cron
+
+**Current**: Hourly cron checks `seatReservations` for grace period ending within 12 hours.
+
+**Convex replacement**: Use `schedules.task()` pattern from context7 docs:
+
+```typescript
+// convex/crons.ts
+import { cronJobs } from "convex/server";
+import { internal } from "./_generated/api";
+
+const crons = cronJobs();
+
+crons.interval(
+  "send-grace-period-warnings",
+  { hours: 1 },
+  internal.seatReservations.sendGracePeriodWarnings,
+);
+
+export default crons;
+```
+
+**Files to create/modify**:
+- `convex/seatReservations.ts` - Add `sendGracePeriodWarnings` internal mutation
+- `convex/crons.ts` - Add new cron interval (or add to existing crons.ts if it exists)
+
+**Estimated time**: 3 hours
+
+---
+
+### Phase 3B: Medium Function Migrations (Week 1, Days 4-5 + Week 2)
+
+#### 3B-1: `sessions.ts` - `handleSessionCompleted` → Convex internalAction
+
+**Current**: Updates session status, decrements pack remaining sessions, triggers renewal reminders.
+
+**Convex replacement**:
+```typescript
+export const handleSessionCompleted = internalAction({
+  args: {
+    sessionId: v.id("sessions"),
+    recordingUrl: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // 1. Update session status to completed
+    await ctx.runMutation(internal.sessions.completeSession, {
+      id: args.sessionId,
+      recordingUrl: args.recordingUrl,
+      notes: args.notes,
+    });
+
+    // 2. Get session pack and decrement remaining
+    const session = await ctx.runQuery(internal.sessions.getById, { id: args.sessionId });
+    if (session) {
+      await ctx.runMutation(internal.sessionPacks.useSession, {
+        id: session.sessionPackId,
+      });
+
+      // 3. Check if renewal reminder needed (session 3 or 4 of pack)
+      const completedCount = await ctx.runQuery(
+        internal.sessions.getCompletedCountForPack,
+        { sessionPackId: session.sessionPackId }
+      );
+      
+      if (completedCount === 3 || completedCount === 4) {
+        await ctx.runMutation(internal.notifications.queueRenewalReminder, {
+          sessionPackId: session.sessionPackId,
+          reminderType: completedCount === 4 ? "final" : "warning",
+        });
+      }
+    }
+  },
+});
+```
+
+**Files to create/modify**:
+- `convex/sessions.ts` - Add `handleSessionCompleted` internalAction
+- `convex/sessionPacks.ts` - Add `useSession` mutation if not exists
+- `inngest/functions/sessions.ts` - Remove `handleSessionCompleted` after verification
+
+**Estimated time**: 5 hours
+
+---
+
+#### 3B-2: `sessions.ts` - `checkSeatExpiration` → Convex scheduled task
+
+**Current**: Hourly cron that releases expired seats.
+
+**Convex replacement**: Use `crons.interval()` pattern:
+
+```typescript
+// convex/crons.ts
+crons.interval(
+  "check-seat-expiration",
+  { hours: 1 },
+  internal.seatReservations.processExpiredSeats,
+);
+```
+
+**Files to modify**:
+- `convex/seatReservations.ts` - Add `processExpiredSeats` internal mutation
+- `convex/crons.ts` - Add interval (or confirm existing)
+
+**Estimated time**: 4 hours
+
+---
+
+#### 3B-3: `discord.ts` - `processDiscordActionQueue` → Convex scheduled task
+
+**Current**: Every-minute cron processes `discordActionQueue` for role assignments and DMs.
+
+**Convex replacement**: Use `crons.interval()` with batch processing:
+
+```typescript
+// convex/crons.ts
+crons.interval(
+  "process-discord-actions",
+  { minutes: 1 },
+  internal.discordActionQueue.processPending,
+);
+
+// convex/discordActionQueue.ts
+export const processPending = internalAction({
+  args: {},
+  handler: async (ctx, args) => {
+    const actions = await ctx.runQuery(
+      internal.discordActionQueue.claimStaleActions,
+      { limit: 25 }
+    );
+    
+    for (const action of actions) {
+      try {
+        if (action.type === "assign_mentee_role") {
+          await ctx.runAction(internal.discord.assignRole, {
+            userId: action.subjectUserId,
+            roleName: action.metadata?.roleName,
+          });
+        } else if (action.type === "dm_instructor_new_signup") {
+          await ctx.runAction(internal.discord.sendDm, {
+            userId: action.subjectUserId,
+            message: action.metadata?.message,
+          });
+        }
+        await ctx.runMutation(internal.discordActionQueue.markDone, { id: action._id });
+      } catch (error) {
+        await ctx.runMutation(internal.discordActionQueue.handleError, {
+          id: action._id,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+  },
+});
+```
+
+**Files to create/modify**:
+- `convex/discordActionQueue.ts` - Add `processPending`, `claimStaleActions`, `markDone`, `handleError`
+- `convex/discord.ts` - Add `assignRole`, `sendDm` internalActions for Discord API calls
+- `convex/crons.ts` - Add interval
+
+**Estimated time**: 5 hours
+
+---
+
+#### 3B-4: `clerk-user-linking.ts` → Convex internalAction with transaction
+
+**Current**: Links Clerk user to instructor, creates mentor record if needed.
+
+**Convex replacement**:
+```typescript
+export const linkClerkUserToInstructor = internalAction({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // 1. Find instructor by email (case-insensitive)
+    const instructor = await ctx.runQuery(
+      internal.instructors.getByEmail,
+      { email: args.email.toLowerCase() }
+    );
+    
+    if (!instructor) return { success: false, reason: "instructor_not_found" };
+    
+    // 2. Check if mentor exists for this user, create if not
+    const existingMentor = await ctx.runQuery(
+      internal.mentors.getByUserId,
+      { userId: args.clerkUserId }
+    );
+    
+    let mentorId = existingMentor?._id;
+    if (!mentorId) {
+      mentorId = await ctx.runMutation(internal.mentors.create, {
+        userId: args.clerkUserId,
+      });
+    }
+    
+    // 3. Update instructor with userId and mentorId
+    await ctx.runMutation(internal.instructors.linkUserAndMentor, {
+      id: instructor._id,
+      userId: args.clerkUserId,
+      mentorId,
+    });
+    
+    // 4. Handle any pending mentee invitations
+    const pendingInvitations = await ctx.runQuery(
+      internal.menteeInvitations.getPendingByEmail,
+      { email: args.email }
+    );
+    
+    for (const invitation of pendingInvitations) {
+      await ctx.runMutation(internal.menteeInvitations.accept, {
+        id: invitation._id,
+        userId: args.clerkUserId,
+      });
+    }
+    
+    return { success: true };
+  },
+});
+```
+
+**Files to create/modify**:
+- `convex/instructors.ts` - Add `linkUserAndMentor` mutation, `getByEmail` query
+- `convex/mentors.ts` - Add `getByUserId` query (verify exists)
+- `convex/menteeInvitations.ts` - Add `getPendingByEmail`, `accept` mutation
+- `inngest/functions/clerk-user-linking.ts` - Deprecate
+
+**Estimated time**: 4 hours
+
+---
+
+#### 3B-5: `booking-emails.ts` - 4 functions → Convex
+
+| Function | Convex Pattern | Effort |
+|----------|---------------|--------|
+| `handleSessionBookingEmails` | `internalAction` triggered by `session/booked` | 4hr |
+| `handleSessionReminderEmails` | `schedules.task()` with `wait.for()` delay | 4hr |
+| `handleSessionCancellationEmails` | `internalAction` triggered by `session/canceled` | 3hr |
+| `scheduleSessionReminders` | Use Convex `wait.for()` in action instead of Inngest sleep | 4hr |
+
+**Scheduling Pattern** (from context7 docs):
+```typescript
+// Instead of Inngest step.sleep(), use Convex scheduler
+await ctx.runAction(internal.notifications.scheduleReminder, {
+  sessionId: args.sessionId,
+  type: "24h",
+  runAt: scheduledAt - 24 * 60 * 60 * 1000,
+});
+
+// Or use step.runAction with runAfter for delayed execution
+const result = await step.runAction(
+  internal.notifications.sendReminder,
+  { sessionId },
+  { runAfter: 24 * 60 * 60 * 1000 }
+);
+```
+
+**Files to create/modify**:
+- `convex/bookingEmails.ts` - New file with all 4 functions
+- `convex/notifications.ts` - Add scheduling helpers
+- `inngest/functions/booking-emails.ts` - Deprecate after verification
+
+**Estimated time**: 2 days
+
+---
+
+### Phase 3C: Complex Function Migration (Week 2, Days 3-5)
+
+#### 3C-1: `onboarding.ts` → Convex Workflow using `@convex-dev/workflow`
+
+**Why `@convex-dev/workflow`**: Multi-step workflow with external API calls (Clerk, email, Discord), each step can fail and needs retry without redoing successful steps.
+
+**Current flow**:
+1. Validate purchase event
+2. Create Discord identity record
+3. Send onboarding email to student
+4. Send instructor notification email
+5. Send admin notification email
+6. Queue Discord actions
+
+**Convex Workflow pattern** (from context7 docs):
+```typescript
+import { v } from "convex/values";
+import { WorkflowManager } from "@convex-dev/workflow";
+import { components, internal } from "./_generated/api";
+
+const workflow = new WorkflowManager(components.workflow);
+
+export const onboardingWorkflow = workflow.define({
+  args: {
+    orderId: v.id("orders"),
+    userId: v.string(),
+    mentorId: v.id("instructors"),
+    sessionPackId: v.id("sessionPacks"),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    stepsCompleted: v.array(v.string()),
+  }),
+  handler: async (step, args): Promise<{ success: boolean; stepsCompleted: string[] }> => {
+    const completedSteps: string[] = [];
+
+    // Step 1: Validate purchase
+    const order = await step.runQuery(
+      internal.orders.getOrder,
+      { orderId: args.orderId },
+      { inline: true }
+    );
+    
+    if (!order) {
+      return { success: false, stepsCompleted: [] };
+    }
+
+    // Step 2: Create Discord identity (with retry for external API)
+    const discordIdentity = await step.runAction(
+      internal.discord.getIdentity,
+      { userId: args.userId },
+      { retry: { maxAttempts: 3, initialBackoffMs: 500, base: 2 } }
+    );
+    
+    if (discordIdentity?.discordUserId) {
+      await step.runMutation(
+        internal.userIdentities.create,
+        {
+          userId: args.userId,
+          provider: "discord",
+          providerUserId: discordIdentity.discordUserId,
+        }
+      );
+      completedSteps.push("discord_identity");
+    }
+
+    // Step 3: Send onboarding email to student (with retry)
+    await step.runAction(
+      internal.email.sendOnboardingStudent,
+      {
+        userId: args.userId,
+        mentorId: args.mentorId,
+        sessionPackId: args.sessionPackId,
+      },
+      { retry: { maxAttempts: 3, initialBackoffMs: 1000, base: 2 } }
+    );
+    completedSteps.push("student_email");
+
+    // Step 4: Send instructor notification email
+    await step.runAction(
+      internal.email.sendOnboardingInstructor,
+      {
+        userId: args.userId,
+        mentorId: args.mentorId,
+      },
+      { retry: { maxAttempts: 3, initialBackoffMs: 1000, base: 2 } }
+    );
+    completedSteps.push("instructor_email");
+
+    // Step 5: Send admin notification email
+    await step.runAction(
+      internal.email.sendOnboardingAdmin,
+      { orderId: args.orderId },
+      { retry: true }
+    );
+    completedSteps.push("admin_email");
+
+    // Step 6: Queue Discord actions
+    await step.runMutation(
+      internal.discordActionQueue.createActions,
+      {
+        mentorId: args.mentorId,
+        userId: args.userId,
+        actions: [
+          { type: "assign_mentee_role", subjectUserId: args.userId },
+          { type: "dm_instructor_new_signup", subjectUserId: args.userId },
+        ],
+      }
+    );
+    completedSteps.push("discord_queue");
+
+    return { success: true, stepsCompleted: completedSteps };
+  },
+  workpoolOptions: {
+    retryActionsByDefault: true,
+  },
+});
+```
+
+**Files to create/modify**:
+- `convex/workflows/onboarding.ts` - New file with workflow
+- `convex/workflows/index.ts` - Export workflows
+- `convex/http.ts` - Register webhook endpoint to trigger workflow
+- `inngest/functions/onboarding.ts` - Deprecate after verification
+
+**Estimated time**: 2 days
+
+---
+
+### Phase 3D: API Route Migrations (Week 3)
+
+#### Critical Write Migrations
+
+| Route | Current | Target | Priority |
+|-------|---------|--------|----------|
+| `api/onboarding/submit/route.ts` | Drizzle writes to `menteeOnboardingSubmissions` + `discordActionQueue` | Convex mutation | High |
+| `api/sessions/route.ts` (POST) | Drizzle writes to `sessions` + Google Calendar | Hybrid: Google Calendar in route, Convex mutation for session creation | High |
+| `api/instructor/onboarding/review/route.ts` | Drizzle write | Convex mutation | Medium |
+
+**Google Calendar Integration Decision (Hybrid Approach)**:
+- Keep Google Calendar API calls in API route (requires OAuth refresh token decryption)
+- Call Convex mutation to create session record after calendar event succeeds
+- This maintains reliability: if calendar succeeds but Convex fails, route handles cleanup
+
+```typescript
+// api/sessions/route.ts (conceptual hybrid approach)
+export async function POST(req: NextRequest) {
+  // ... validation, eligibility check, Google Calendar call ...
+  
+  const calendarEventId = await calendar.events.insert({ ... });
+  
+  // Now call Convex mutation instead of Drizzle insert
+  const session = await convexMutation("sessions.create", {
+    mentorId,
+    studentId: user.id,
+    sessionPackId,
+    scheduledAt: start.getTime(),
+    googleCalendarEventId: calendarEventId,
+  });
+  
+  // Trigger Inngest for emails (kept in Inngest for reliability)
+  await inngest.send({
+    name: "session/booked",
+    data: { sessionId: session._id, ... }
+  });
+  
+  return NextResponse.json({ session });
+}
+```
+
+**Files to modify**:
+- `apps/web/app/api/sessions/route.ts` - Replace Drizzle insert with Convex mutation call
+- `apps/web/app/api/onboarding/submit/route.ts` - Replace Drizzle with Convex mutation
+- `apps/web/app/api/instructor/onboarding/review/route.ts` - Replace Drizzle with Convex mutation
+
+**Estimated time**: 3 days
+
+---
+
+### Phase 4: Event-Driven Sync (Week 4, Days 1-5)
+
+**Architecture**: Convex triggers Inngest → Drizzle replica
+
+**Sync Events** (30-60 second eventual consistency is acceptable):
+- `data.sessions.changed` - Session created/updated/canceled
+- `data.sessionPacks.changed` - Pack created/updated
+- `data.seatReservations.changed` - Seat reserved/released
+- `data.orders.changed` - Order created/updated
+- `data.payments.changed` - Payment created/updated
+
+**Implementation Pattern**:
+
+1. **Create Convex internal mutation to send sync events**:
+```typescript
+// convex/sync.ts
+export const notifyDataChange = internalAction({
+  args: {
+    table: v.string(),
+    operation: v.union(v.literal("insert"), v.literal("update"), v.literal("delete")),
+    id: v.string(),
+    data: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    // Use step.runAction with retry for reliable delivery
+    await ctx.runAction(internal.inngest.sendEvent, {
+      event: {
+        name: `data.${args.table}.${args.operation}`,
+        data: {
+          id: args.id,
+          operation: args.operation,
+          data: args.data,
+          timestamp: Date.now(),
+        },
+      },
+    });
+  },
+});
+```
+
+2. **Wrap existing Convex mutations to call sync**:
+```typescript
+// In each mutation that needs sync, add at the end:
+await ctx.runMutation(internal.sync.notifyDataChange, {
+  table: "sessions",
+  operation: "insert",
+  id: result._id.toString(),
+  data: result,
+});
+```
+
+3. **Create Inngest sync handlers**:
+```typescript
+// inngest/functions/sync-to-drizzle.ts
+export const syncSessionsToDrizzle = inngest.createFunction(
+  {
+    id: "sync-sessions-to-drizzle",
+    retries: { maxAttempts: 5 },
+  },
+  { event: "data.sessions.*" },
+  async ({ event, step }) => {
+    await step.run("sync-to-drizzle", async () => {
+      const { operation, data } = event.data;
+      
+      if (operation === "insert") {
+        await db.insert(sessions).values({
+          id: data.id,
+          mentorId: data.mentorId,
+          studentId: data.studentId,
+          // ... map all fields
+        });
+      } else if (operation === "update") {
+        await db.update(sessions).set(data).where(eq(sessions.id, data.id));
+      }
+      // Handle delete similarly
+    });
+  }
+);
+```
+
+**Files to create**:
+- `convex/sync.ts` - Internal actions for sync events
+- `inngest/functions/sync-to-drizzle.ts` - Sync handlers (one per table group)
+- `convex/crons.ts` - Register sync event sending if needed
+
+**Estimated time**: 4 days
+
+---
+
+### Phase 5: Cleanup (Week 4, Days 6-7 + Week 5)
+
+#### 5-1: Deprecate Drizzle Mutations
+
+Mark deprecated functions and remove from exports:
+- `packages/db/src/lib/mutations/sessions.ts` - Mark as deprecated
+- `packages/db/src/lib/mutations/onboarding.ts` - Mark as deprecated
+- `packages/db/src/lib/mutations/menteeOnboarding.ts` - Mark as deprecated
+
+#### 5-2: Remove Connection Pool Fix
+
+After verifying only reads hit Drizzle, the connection pool sizing in `packages/db/src/lib/drizzle.ts` can be simplified.
+
+#### 5-3: Document Architecture
+
+Create `ARCHITECTURE.md`:
+```
+# Mentorship Platform Architecture
+
+## Data Flow
+- Convex = Source of truth for all app data
+- Drizzle = Read-only replica for complex aggregation queries
+- Inngest = External webhook handling + reliable email/notification delivery
+
+## Key Decisions (May 2026)
+- External webhooks (Stripe, PayPal, Clerk) → Inngest
+- Internal business logic → Convex actions/scheduled tasks
+- Email/notification delivery → Inngest (reliable retry)
+- Complex admin queries → Drizzle (read replica)
+
+## Sync Strategy
+- Convex mutations trigger `data.*` events via Inngest
+- 30-60 second eventual consistency acceptable
+- Idempotency keys prevent duplicate writes
+```
+
+**Estimated time**: 2-3 days
+
+---
+
+### File Mapping Summary
+
+| Inngest File | Convex Replacement | Pattern |
+|--------------|-------------------|---------|
+| `inngest/functions/clerk-user-deleted.ts` | `convex/instructors.ts` (new internalAction) | internalAction |
+| `inngest/functions/clerk-user-linking.ts` | `convex/instructors.ts` + `convex/menteeInvitations.ts` | internalAction with transaction |
+| `inngest/functions/notifications.ts` | `convex/notifications.ts` | internalAction |
+| `inngest/functions/sessions.ts` - `handleSessionCompleted` | `convex/sessions.ts` | internalAction |
+| `inngest/functions/sessions.ts` - `checkSeatExpiration` | `convex/seatReservations.ts` + `convex/crons.ts` | schedules.task() |
+| `inngest/functions/sessions.ts` - `handleRenewalReminder` | `convex/sessions.ts` | internalAction |
+| `inngest/functions/sessions.ts` - `sendGracePeriodFinalWarning` | `convex/seatReservations.ts` + `convex/crons.ts` | schedules.task() |
+| `inngest/functions/discord.ts` | `convex/discordActionQueue.ts` + `convex/crons.ts` | schedules.task() |
+| `inngest/functions/onboarding.ts` | `convex/workflows/onboarding.ts` | @convex-dev/workflow |
+| `inngest/functions/booking-emails.ts` (4 functions) | `convex/bookingEmails.ts` + `convex/notifications.ts` | internalAction + schedules.task() |
+
+**API Routes to modify**:
+| Route | Change |
+|-------|--------|
+| `apps/web/app/api/sessions/route.ts` | Replace Drizzle insert with Convex mutation |
+| `apps/web/app/api/onboarding/submit/route.ts` | Replace Drizzle with Convex mutation |
+| `apps/web/app/api/instructor/onboarding/review/route.ts` | Replace Drizzle with Convex mutation |
+
+**New Files to Create**:
+- `convex/notifications.ts` - Notification actions
+- `convex/bookingEmails.ts` - Email scheduling actions
+- `convex/workflows/onboarding.ts` - Onboarding workflow
+- `convex/sync.ts` - Sync event actions
+- `inngest/functions/sync-to-drizzle.ts` - Drizzle replica sync handlers
+
+---
+
+### Timeline Summary
+
+```
+Week 1, Days 1-3: Phase 3A (Simple functions)
+  - clerk-user-deleted.ts → Convex
+  - notifications.ts → Convex
+  - handleRenewalReminder → Convex
+  - sendGracePeriodFinalWarning → Convex
+
+Week 1, Days 4-5: Phase 3B start (Medium functions)
+  - handleSessionCompleted → Convex
+  - checkSeatExpiration → Convex scheduled task
+
+Week 2, Days 1-2: Phase 3B finish
+  - processDiscordActionQueue → Convex scheduled task
+  - clerk-user-linking.ts → Convex
+
+Week 2, Days 3-5: Phase 3C (Complex function)
+  - onboarding.ts → Convex Workflow (@convex-dev/workflow)
+  - booking-emails.ts (4 functions) → Convex
+
+Week 3: Phase 3D (API Routes)
+  - sessions/route.ts → Hybrid (Google Calendar in route + Convex mutation)
+  - onboarding/submit/route.ts → Convex mutation
+
+Week 4, Days 1-5: Phase 4 (Event-Driven Sync)
+  - Create sync event actions in Convex
+  - Create Inngest sync handlers for Drizzle replica
+
+Week 4, Days 6-7 + Week 5: Phase 5 (Cleanup)
+  - Deprecate Drizzle mutations
+  - Document architecture
+  - Verify all routes work
+```
+
+**Total: ~5 weeks**
+
+---
+
+### Open Questions / Decisions Made
+
+| Question | Decision |
+|----------|----------|
+| Use `@convex-dev/workflow` for onboarding? | **Yes** - Multi-step with external calls needs durability |
+| Keep Google Calendar in route or move to Convex? | **Hybrid** - Keep in route (OAuth token management), call Convex mutation for session creation |
+| What stays in Inngest? | External webhooks, email/notification sending, high-frequency scheduled tasks |
+| What moves to Convex? | Internal state transitions, Clerk user linking, seat expiration, Discord queue processing |
+| Sync frequency? | 30-60 seconds (acceptable for admin analytics) |
+| Testing approach? | Shadow mode first, then gradual cutover per function |
+
+---
+
+### References
+
+- **Convex Workflow**: `@convex-dev/workflow` package with `WorkflowManager` (context7: /get-convex/workflow)
+- **Convex Scheduled Tasks**: `cronJobs()` from `convex/server` (context7: /websites/convex_dev)
+- **Convex Internal Actions**: `internalAction` for server-side logic with external calls (context7: /get-convex/convex-backend)
+- **Inngest Step Functions**: `step.run()`, `step.sendEvent()` for reliable execution (context7: /websites/inngest)
+- **Inngest Cron Triggers**: `cron()` helper for scheduling (context7: /websites/inngest)
 
 ---
 

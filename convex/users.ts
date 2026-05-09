@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
@@ -246,5 +246,15 @@ export const migrateUser = mutation({
 export const getAllUsersForMigration = query({
   handler: async (ctx) => {
     return await ctx.db.query("users").collect();
+  },
+});
+
+export const getUserByClerkId = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
   },
 });

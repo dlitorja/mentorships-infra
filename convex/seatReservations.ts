@@ -1,4 +1,5 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalAction, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 
@@ -306,5 +307,74 @@ export const migrateSeatReservation = mutation({
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+export const updateFinalWarningSent = internalMutation({
+  args: {
+    seatId: v.id("seatReservations"),
+    sentAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.seatId, {
+      finalWarningNotificationSentAt: args.sentAt,
+    });
+    return { success: true };
+  },
+});
+
+export const listSeatsNeedingWarning = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const warningThreshold = now + 12 * 60 * 60 * 1000;
+
+    const seats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_status", (q) => q.eq("status", "grace"))
+      .filter((q) =>
+        q.and(
+          q.lte(q.field("gracePeriodEndsAt"), warningThreshold),
+          q.gt(q.field("gracePeriodEndsAt"), now),
+          q.eq(q.field("finalWarningNotificationSentAt"), undefined)
+        )
+      )
+      .collect();
+
+    return seats.map((seat) => ({
+      seatId: seat._id,
+      sessionPackId: seat.sessionPackId,
+      gracePeriodEndsAt: seat.gracePeriodEndsAt,
+      userId: seat.userId,
+    }));
+  },
+});
+
+export const sendGracePeriodFinalWarning = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const seats = await ctx.runQuery(internal.seatReservations.listSeatsNeedingWarning, {});
+
+    let sentCount = 0;
+    for (const seat of seats) {
+      await ctx.runAction(internal.notifications.handleNotificationSend, {
+        payload: {
+          type: "grace_period_final_warning",
+          userId: seat.userId,
+          sessionPackId: seat.sessionPackId,
+          message: "Your seat will be released in 12 hours. Renew now to keep your mentorship active.",
+          gracePeriodEndsAt: seat.gracePeriodEndsAt ?? undefined,
+        },
+      });
+
+      await ctx.runMutation(internal.seatReservations.updateFinalWarningSent, {
+        seatId: seat.seatId,
+        sentAt: Date.now(),
+      });
+
+      sentCount++;
+    }
+
+    return { success: true, warningsSent: sentCount };
   },
 });
