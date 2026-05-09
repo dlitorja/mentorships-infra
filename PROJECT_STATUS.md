@@ -11,8 +11,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 8, 2026 (Admin SQL Migration COMPLETE - PR #232, Bugfix PR #233)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
+**Last Updated**: May 8, 2026
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Source of Truth Migration: IN PROGRESS**, Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
 
@@ -646,6 +646,122 @@ This monorepo contains multiple applications with distinct responsibilities:
 
 ---
 
+### Phase 5: Convex as Single Source of Truth Migration
+**Status**: 🚧 **IN PROGRESS** - Migration infrastructure built, awaiting execution
+
+**Goal**: Convex becomes the single source of truth for all application data. Drizzle becomes a read-only reporting replica synced via Inngest events.
+
+**Architecture Decision (May 8, 2026)**:
+- Convex = Source of truth, real-time queries, mutations, app data
+- Drizzle = Read-only replica for complex aggregation/admin queries
+- Sync = Event-driven via Inngest after each Convex mutation
+
+**New Migration Approach (May 9, 2026)**:
+Instead of 16 separate scripts with fragile CLI invocations, we now use:
+1. **Preprocessor** (`scripts/migrate-to-convex/preprocessor.ts`) - Exports Drizzle tables to JSONL with FK resolution
+2. **Import Tool** (`npx convex import`) - Native Convex import for each table
+3. **Orchestrator** (`scripts/migrate-to-convex/migrate-all.ts`) - Runs full migration in order
+
+**Migration Execution (May 9, 2026)** ✅ COMPLETED:
+- [x] Created `scripts/migrate-to-convex/export-from-supabase.js` using Supabase REST API
+- [x] Exported all tables to JSONL files in `migration-data/`:
+  - users (11), instructors (16), orders (5), payments (2), sessionPacks (2)
+  - seatReservations (1), discordActionQueue (3), waitlist (7), adminDigestSettings (1)
+- [x] Imported data to Convex via `npx convex import --table <table> --jsonl migration-data/<table>.jsonl`
+- [x] Created mentor-instructor link via `migration-data/mentor-instructor.jsonl`
+- [x] Created `convex/migrateIds.ts` with `resolveAllLegacyIds` mutation
+- [x] Created `convex/migrationQueries.ts` with internal queries for data access
+- [x] Ran `migrateIds:resolveAllLegacyIds` mutation - resolved:
+  - 2 payments (orderId → Convex document ID)
+  - 2 sessionPacks (mentorId, paymentId → Convex document IDs)
+  - 1 seatReservation (mentorId, sessionPackId → Convex document IDs)
+- [x] Restored `convex/schema.ts` to use `v.id()` for all resolved fields (payments.orderId, sessionPacks.mentorId/paymentId, seatReservations.mentorId/sessionPackId)
+
+**Supabase REST API Export Method**:
+- Used Supabase REST API instead of direct Postgres connection (WSL network issues)
+- API Key: stored in environment as `sb_secret_*` (masked)
+- Tables exported via `POST /rest/v1/rpc/exec_sql` with Drizzle SQL queries
+- Instructor data exported with FK resolution (userId, instructorId lookups)
+
+**Migration Files Created**:
+- `convex/schema.ts` - Added `legacyId: v.optional(v.string())` to all tables
+- `convex/legacyMappings.ts` - Query helpers to find records by legacyId
+- `scripts/migrate-to-convex/preprocessor.ts` - Node.js script using direct postgres connection
+- `scripts/migrate-to-convex/migrate-all.ts` - Orchestrator for full migration
+
+**Migration Order** (respects FK dependencies):
+```
+01 users         (no FK dependencies)
+02 instructors   (FK: userId → users)
+03 products      (no FK)
+04 orders        (FK: userId → users)
+05 payments      (FK: orderId → orders)
+06 sessionPacks  (FK: userId, mentorId, paymentId)
+07 sessions      (FK: mentorId, sessionPackId)
+08 seatReservations (FK: orderId, mentorId, sessionPackId)
+09 contacts      (no FK)
+10 menteeInvitations (FK: instructorId → instructors)
+11 menteeSessionCounts (FK: instructorId → instructors)
+12 userIdentities (no FK)
+13 discordActionQueue (no FK)
+14 videoEditorAssignments (no FK)
+15 instructorUploads (FK: instructorId → instructors)
+16 monthlyStorageCosts (no FK)
+```
+
+**Inngest Function Audit**:
+| Function | Current Store | Status |
+|----------|--------------|--------|
+| `payments.ts` | Convex (writes) | ✅ Already using Convex |
+| `sessions.ts` | Drizzle | ❌ Needs migration |
+| `onboarding.ts` | Drizzle | ❌ Needs migration |
+| `clerk-user-linking.ts` | Drizzle | ❌ Needs migration |
+| `discord.ts` | Drizzle | ❌ Needs migration |
+| `clerk-user-deleted.ts` | Drizzle | ❌ Needs migration |
+| `notifications.ts` | Drizzle | ❌ Needs migration |
+| `booking-emails.ts` | Drizzle | ❌ Needs migration |
+
+**Migration Phases**:
+
+**Phase 1: Schema & Infrastructure** ✅ COMPLETE
+- [x] Add `legacyId` field to all Convex tables
+- [x] Add `clerkId` as required field on users table
+- [x] Make `userId` required on instructors table
+- [x] Create `legacyMappings.ts` query helpers
+- [x] Create `preprocessor.ts` for Drizzle export + FK resolution
+- [x] Create `migrate-all.ts` orchestrator
+
+**Phase 2: Run Migration** ✅ COMPLETED (May 9, 2026)
+- [x] Exported all data from Supabase to JSONL files via REST API
+- [x] Imported all tables to Convex (users, instructors, orders, payments, sessionPacks, seatReservations, discordActionQueue, waitlist)
+- [x] Resolved all legacy UUID string IDs to proper Convex document IDs
+- [x] Verified data integrity with migration queries
+
+**Phase 3: Inngest Function Migration (1-2 weeks)**
+- [ ] Migrate `sessions.ts` to Convex
+- [ ] Migrate `onboarding.ts` to Convex
+- [ ] Migrate `clerk-user-linking.ts` to Convex
+- [ ] Migrate `clerk-user-deleted.ts` to Convex
+- [ ] Migrate `discord.ts` to Convex
+- [ ] Migrate `notifications.ts` to Convex
+- [ ] Migrate `booking-emails.ts` to Convex
+
+**Phase 4: Event-Driven Sync (3-5 days)**
+- [ ] Create Inngest sync handlers for Drizzle replica
+- [ ] Event flow: Convex Mutation → `inngest.send()` → Inngest handler → Drizzle
+
+**Phase 5: Cleanup (2-3 days)**
+- [ ] Deprecate Drizzle mutation functions
+- [ ] Document architecture in `ARCHITECTURE.md`
+
+**References**:
+- Convex schema: `convex/schema.ts`
+- Preprocessor: `scripts/migrate-to-convex/preprocessor.ts`
+- Orchestrator: `scripts/migrate-to-convex/migrate-all.ts`
+- Legacy mappings: `convex/legacyMappings.ts`
+
+---
+
 ### Priority 1: Notifications & Automation (Discord + Email)
 **Status**: ✅ **COMPLETED** - Email + Discord delivery implemented; Discord automation queue worker implemented
 
@@ -973,27 +1089,32 @@ ls apps/web/app/api
 
 ## 🎯 SQL/Drizzle vs Convex Decision Framework
 
-### When to Use SQL/Drizzle (Analytics & Aggregations)
+### Architecture (Source of Truth Migration - May 2026)
+- **Convex** = Single source of truth for all application data
+- **Drizzle** = Read-only replica for complex aggregation/admin queries
+- **Sync** = Event-driven via Inngest after each Convex mutation
+
+### When to Use SQL/Drizzle (Analytics & Aggregations - Read-Only Replica)
 - **Admin dashboard reads** - stats, paginated lists with filtering
 - **Complex JOINs** - data spread across multiple tables
 - **Aggregation queries** - counts, sums, revenue calculations
 - **Period comparisons** - month-over-month, year-over-year
 
-### When to Use Convex (Real-time & Mutations)
+### When to Use Convex (Source of Truth - All Mutations)
+- **All writes** - Create, update, delete operations
 - **Real-time features** - workspace chat, live updates
 - **Multi-step mutations** - creates that orchestrate external APIs (Stripe + PayPal + Convex)
 - **Single-record CRUD** - product by ID, instructor by ID
 - **External API orchestration** - Google Calendar, Stripe, PayPal calls
 
 ### Current Split (apps/web/api/admin)
-**SQL/Drizzle** (READ - analytics):
-- `GET /api/admin/stats` → `getAdminStats()`
-- `GET /api/admin/mentees` → `getAdminMentees()`
-- `GET /api/admin/orders` → `getAdminOrders()` (bugfix: PR #233)
-- `GET /api/admin/instructors` → `getAdminInstructors()`
-- `GET /api/admin/products` → `getAdminProducts()`
+**SQL/Drizzle** (READ - complex aggregations, read-only replica):
+- `GET /api/admin/stats` → `getAdminStats()` - revenue aggregation
+- `GET /api/admin/mentees` → `getAdminMentees()` - paginated with counts
+- `GET /api/admin/orders` → `getAdminOrders()` - complex JOINs
+- `GET /api/admin/instructors` → `getAdminInstructors()` - search with filters
 
-**Convex** (WRITE - transactional):
+**Convex** (WRITE - source of truth):
 - `POST /api/admin/products` → creates in Stripe + PayPal + Convex
 - `POST /api/admin/refunds` → Convex mutation + Stripe/PayPal API calls
 - `POST /api/admin/instructors` → creates instructor + Clerk invitation
@@ -1027,7 +1148,7 @@ These are mostly writes correctly placed in Convex. No urgent migrations needed.
 
 ---
 
-**Next**: Phase 4E-2 (Admin Medium-Risk Routes) or Discord Bot Slash Commands or Video Access Control
+**Next**: Source of Truth Migration (Phase 1: Add missing Convex tables + write migration scripts)
 
 **Recent Fix (May 8, 2026)**:
 - Fixed 500 errors on `/api/admin/stats` by migrating from Convex N+1 queries to efficient SQL aggregation
