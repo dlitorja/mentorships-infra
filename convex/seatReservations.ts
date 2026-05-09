@@ -356,25 +356,40 @@ export const sendGracePeriodFinalWarning = internalAction({
     const seats = await ctx.runQuery(internal.seatReservations.listSeatsNeedingWarning, {});
 
     let sentCount = 0;
+    let failedCount = 0;
     for (const seat of seats) {
-      await ctx.runAction(internal.notifications.handleNotificationSend, {
-        payload: {
-          type: "grace_period_final_warning",
-          userId: seat.userId,
-          sessionPackId: seat.sessionPackId,
-          message: "Your seat will be released in 12 hours. Renew now to keep your mentorship active.",
-          gracePeriodEndsAt: seat.gracePeriodEndsAt ?? undefined,
-        },
-      });
+      try {
+        const result = await ctx.runAction(internal.notifications.handleNotificationSend, {
+          payload: {
+            type: "grace_period_final_warning",
+            userId: seat.userId,
+            sessionPackId: seat.sessionPackId,
+            message: "Your seat will be released in 12 hours. Renew now to keep your mentorship active.",
+            gracePeriodEndsAt: seat.gracePeriodEndsAt ?? undefined,
+          },
+        });
 
-      await ctx.runMutation(internal.seatReservations.updateFinalWarningSent, {
-        seatId: seat.seatId,
-        sentAt: Date.now(),
-      });
-
-      sentCount++;
+        if (result.success) {
+          try {
+            await ctx.runMutation(internal.seatReservations.updateFinalWarningSent, {
+              seatId: seat.seatId,
+              sentAt: Date.now(),
+            });
+            sentCount++;
+          } catch (mutationErr) {
+            console.error(`Failed to mark warning sent for seat ${seat.seatId}:`, mutationErr);
+            failedCount++;
+          }
+        } else {
+          console.warn(`Notification send returned success=false for seat ${seat.seatId}:`, result);
+          failedCount++;
+        }
+      } catch (actionErr) {
+        console.error(`Failed to send notification for seat ${seat.seatId}:`, actionErr);
+        failedCount++;
+      }
     }
 
-    return { success: true, warningsSent: sentCount };
+    return { success: true, warningsSent: sentCount, failedCount };
   },
 });

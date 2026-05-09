@@ -1,4 +1,4 @@
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
@@ -12,8 +12,11 @@ type NotificationSendResult = {
 };
 
 function getBaseUrl(): string {
-  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_URL) {
-    return process.env.NEXT_PUBLIC_URL;
+  if (typeof process !== "undefined" && process.env.APP_URL) {
+    return process.env.APP_URL;
+  }
+  if (typeof process !== "undefined" && process.env.CONVEX_SITE_URL) {
+    return process.env.CONVEX_SITE_URL;
   }
   if (typeof process !== "undefined" && process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`;
@@ -281,70 +284,6 @@ type NotificationPayload = {
   gracePeriodEndsAt?: number;
 };
 
-const sendNotificationInternal = internalMutation({
-  args: {
-    payload: v.object({
-      type: v.union(v.literal("renewal_reminder"), v.literal("final_renewal_reminder"), v.literal("grace_period_final_warning")),
-      userId: v.string(),
-      sessionPackId: v.string(),
-      message: v.string(),
-      sessionNumber: v.optional(v.number()),
-      gracePeriodEndsAt: v.optional(v.number()),
-    }),
-  },
-  handler: async (ctx, args) => {
-    const { payload } = args;
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", payload.userId))
-      .first();
-
-    const emailAddress = user?.email ?? null;
-
-    const [discordIdentity] = await ctx.db
-      .query("userIdentities")
-      .withIndex("by_userId", (q) => q.eq("userId", payload.userId))
-      .filter((q) => q.eq(q.field("provider"), "discord"))
-      .take(1);
-
-    const discordUserId = discordIdentity?.providerUserId ?? null;
-
-    const emailResult = await sendEmailInternal({
-      to: emailAddress ?? "",
-      subject: "Notification",
-      html: "<p>Notification</p>",
-      text: "Notification",
-    });
-
-    const discordResult = discordUserId
-      ? await sendDmInternal({ discordUserId, content: buildNotificationDiscordMessage(payload) }).then(
-          (r) => ({ ok: true as const, messageId: r.messageId }),
-          (err) =>
-            err instanceof DiscordApiError && err.status === 0
-              ? ({ ok: false as const, skipped: true as const, reason: "discord_not_configured" as const })
-              : { ok: false as const, error: err instanceof Error ? err.message : "Unknown error" }
-        )
-      : ({ ok: false as const, skipped: true as const, reason: "missing_discord_identity" as const });
-
-    return {
-      success: emailResult.ok || discordResult.ok,
-      type: payload.type,
-      userId: payload.userId,
-      sessionPackId: payload.sessionPackId,
-      email: {
-        ok: emailResult.ok,
-        skipped: emailResult.ok === false && "skipped" in emailResult ? emailResult.skipped === true : false,
-        reason: emailResult.ok === false && "reason" in emailResult ? emailResult.reason : null,
-      },
-      discord: {
-        ok: discordResult.ok,
-        skipped: discordResult.ok === false && "skipped" in discordResult ? (discordResult as { ok: false; skipped: true }).skipped === true : false,
-      },
-    };
-  },
-});
-
 export const handleNotificationSend = internalAction({
   args: {
     payload: v.object({
@@ -397,7 +336,7 @@ export const handleNotificationSend = internalAction({
         if (err instanceof DiscordApiError && err.status === 0) {
           discordResult = { ok: false, skipped: true, reason: "discord_not_configured" };
         } else {
-          throw err;
+          discordResult = { ok: false, error: err instanceof Error ? err.message : "Unknown error" };
         }
       }
     }
