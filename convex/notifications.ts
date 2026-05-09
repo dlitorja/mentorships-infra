@@ -356,6 +356,7 @@ export const handleNotificationSend = internalAction({
         ok: discordResult.ok,
         skipped: !discordResult.ok && "skipped" in discordResult ? discordResult.skipped === true : false,
         reason: !discordResult.ok && "reason" in discordResult ? discordResult.reason : null,
+        error: !discordResult.ok && "error" in discordResult ? discordResult.error : null,
       },
     };
   },
