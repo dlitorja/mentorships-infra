@@ -10,4 +10,18 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "check-seat-expiration",
+  { hours: 1 },
+  internal.sessions.checkSeatExpiration,
+  {}
+);
+
+crons.interval(
+  "process-discord-action-queue",
+  { minutes: 1 },
+  internal.discordActionQueue.processDiscordActionQueue,
+  {}
+);
+
 export default crons;

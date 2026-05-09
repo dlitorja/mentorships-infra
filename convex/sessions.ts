@@ -1,6 +1,7 @@
-import { query, mutation, internalAction } from "./_generated/server";
+import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 /** Returns a session by its ID. */
 export const getSessionById = query({
@@ -259,6 +260,286 @@ export const handleRenewalReminder = internalAction({
       sessionPackId,
       userId,
       sessionNumber,
+    };
+  },
+});
+
+export const getSessionByIdInternal = internalQuery({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    try {
+      return await ctx.db.get(args.sessionId as Id<"sessions">);
+    } catch {
+      return null;
+    }
+  },
+});
+
+export const getSessionPackByIdInternal = internalQuery({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.sessionPackId);
+  },
+});
+
+export const getCompletedSessionCountInternal = internalQuery({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .collect();
+    return sessions.filter(s => s.status === "completed").length;
+  },
+});
+
+export const decrementRemainingSessions = internalMutation({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const pack = await ctx.db.get(args.sessionPackId);
+    if (!pack) {
+      return null;
+    }
+
+    const newRemaining = Math.max(0, pack.remainingSessions - 1);
+    const newStatus = newRemaining === 0 ? "depleted" : pack.status;
+
+    await ctx.db.patch(args.sessionPackId, {
+      remainingSessions: newRemaining,
+      status: newStatus,
+    });
+
+    return await ctx.db.get(args.sessionPackId);
+  },
+});
+
+export const updateSeatReservationStatusInternal = internalMutation({
+  args: {
+    sessionPackId: v.id("sessionPacks"),
+    status: v.union(v.literal("active"), v.literal("grace"), v.literal("released")),
+    gracePeriodEndsAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const seat = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .first();
+
+    if (!seat) {
+      return null;
+    }
+
+    const updates: Record<string, unknown> = { status: args.status };
+    if (args.gracePeriodEndsAt !== undefined) {
+      updates.gracePeriodEndsAt = args.gracePeriodEndsAt;
+    }
+
+    await ctx.db.patch(seat._id, updates);
+    return await ctx.db.get(seat._id);
+  },
+});
+
+export const updateSessionPackStatusInternal = internalMutation({
+  args: {
+    sessionPackId: v.id("sessionPacks"),
+    status: v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded")),
+    remainingSessions: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const updates: Record<string, unknown> = { status: args.status };
+    if (args.remainingSessions !== undefined) {
+      updates.remainingSessions = args.remainingSessions;
+    }
+
+    await ctx.db.patch(args.sessionPackId, updates);
+    return await ctx.db.get(args.sessionPackId);
+  },
+});
+
+export const listExpiredPacks = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const packs = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_status", (q) => q.eq("status", "depleted"))
+      .collect();
+
+    const expiredPacks = packs.filter(p =>
+      p.expiresAt && p.expiresAt <= now
+    );
+
+    const expiredWithDepletedStatus = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_status", (q) => q.eq("status", "expired"))
+      .collect();
+
+    return [...expiredPacks, ...expiredWithDepletedStatus].map(pack => ({
+      packId: pack._id,
+      userId: pack.userId,
+      mentorId: pack.mentorId,
+      status: pack.status,
+      expiresAt: pack.expiresAt,
+    }));
+  },
+});
+
+export const listExpiredGraceSeats = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const seats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_status", (q) => q.eq("status", "grace"))
+      .collect();
+
+    return seats
+      .filter(seat => seat.gracePeriodEndsAt && seat.gracePeriodEndsAt <= now)
+      .map(seat => ({
+        seatId: seat._id,
+        sessionPackId: seat.sessionPackId,
+        userId: seat.userId,
+        mentorId: seat.mentorId,
+        gracePeriodEndsAt: seat.gracePeriodEndsAt,
+      }));
+  },
+});
+
+export const checkScheduledSessionsForPack = internalQuery({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .collect();
+
+    const hasScheduled = sessions.some(s => s.status === "scheduled");
+    return { hasScheduledSessions: hasScheduled };
+  },
+});
+
+export const handleSessionCompleted = internalAction({
+  args: {
+    sessionId: v.string(),
+    sessionPackId: v.string(),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { sessionId, sessionPackId, userId } = args;
+
+    const sessionDoc = await ctx.runQuery(internal.sessions.getSessionByIdInternal, {
+      sessionId,
+      sessionPackId,
+    });
+
+    if (!sessionDoc) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+
+    if (sessionDoc.status !== "completed") {
+      throw new Error(`Session ${sessionId} is not completed`);
+    }
+
+    const pack = await ctx.runQuery(internal.sessions.getSessionPackByIdInternal, {
+      sessionPackId: sessionPackId as Id<"sessionPacks">,
+    });
+
+    if (!pack) {
+      throw new Error(`Session pack ${sessionPackId} not found`);
+    }
+
+    const updatedPack = await ctx.runMutation(internal.sessions.decrementRemainingSessions, {
+      sessionPackId: pack._id,
+    });
+
+    const completedCount = await ctx.runQuery(internal.sessions.getCompletedSessionCountInternal, {
+      sessionPackId: pack._id,
+    });
+
+    if (updatedPack && updatedPack.remainingSessions === 0) {
+      const gracePeriodEndsAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
+
+      await ctx.runMutation(internal.sessions.updateSeatReservationStatusInternal, {
+        sessionPackId: pack._id,
+        status: "grace",
+        gracePeriodEndsAt,
+      });
+
+      await ctx.runMutation(internal.sessions.updateSessionPackStatusInternal, {
+        sessionPackId: pack._id,
+        status: "depleted",
+        remainingSessions: 0,
+      });
+    }
+
+    if (completedCount === 3) {
+      await ctx.runAction(internal.sessions.handleRenewalReminder, {
+        sessionPackId,
+        userId,
+        sessionNumber: 3,
+        remainingSessions: updatedPack?.remainingSessions ?? 0,
+      });
+    } else if (completedCount === 4) {
+      const gracePeriodEndsAt = Date.now() + (7 * 24 * 60 * 60 * 1000);
+      await ctx.runAction(internal.sessions.handleRenewalReminder, {
+        sessionPackId,
+        userId,
+        sessionNumber: 4,
+        remainingSessions: 0,
+        gracePeriodEndsAt,
+      });
+    }
+
+    return {
+      success: true,
+      sessionId,
+      sessionPackId,
+      remainingSessions: updatedPack?.remainingSessions ?? 0,
+      completedCount,
+    };
+  },
+});
+
+export const checkSeatExpiration = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const expiredPacks = await ctx.runQuery(internal.sessions.listExpiredPacks, {});
+
+    let releasedCount = 0;
+    for (const pack of expiredPacks) {
+      const { hasScheduledSessions } = await ctx.runQuery(
+        internal.sessions.checkScheduledSessionsForPack,
+        { sessionPackId: pack.packId }
+      );
+
+      if (!hasScheduledSessions) {
+        const seat = await ctx.runQuery(
+          internal.seatReservations.getSeatBySessionPackId,
+          { sessionPackId: pack.packId }
+        );
+
+        if (seat) {
+          await ctx.runMutation(internal.seatReservations.releaseSeatById, {
+            seatId: seat._id,
+          });
+          releasedCount++;
+        }
+      }
+    }
+
+    const expiredGraceSeats = await ctx.runQuery(internal.sessions.listExpiredGraceSeats, {});
+
+    for (const seat of expiredGraceSeats) {
+      await ctx.runMutation(internal.seatReservations.releaseSeatById, {
+        seatId: seat.seatId,
+      });
+    }
+
+    return {
+      success: true,
+      expiredPacksChecked: expiredPacks.length,
+      expiredGraceSeatsReleased: expiredGraceSeats.length,
+      seatsReleasedFromExpiredPacks: releasedCount,
     };
   },
 });

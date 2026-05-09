@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
 import {
   getWorkspacesNeedingDeletion,
   getWorkspacesForNotification,
@@ -520,6 +521,65 @@ http.route({
   path: "/seed/instructor",
   method: "POST",
   handler: httpSeedInstructor,
+});
+
+export const httpClerkWebhook = httpAction(async (ctx, request) => {
+  const CLERK_WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
+
+  if (!CLERK_WEBHOOK_SECRET) {
+    console.error("CLERK_WEBHOOK_SECRET is not configured");
+    return new Response(JSON.stringify({ error: "Webhook not configured" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const payloadString = await request.text();
+  const svixHeaders = {
+    "svix-id": request.headers.get("svix-id") ?? "",
+    "svix-timestamp": request.headers.get("svix-timestamp") ?? "",
+    "svix-signature": request.headers.get("svix-signature") ?? "",
+  };
+
+  const body = JSON.parse(payloadString);
+  const eventType = body.type;
+  const eventData = body.data;
+
+  if (!eventData || !eventData.id) {
+    return new Response(JSON.stringify({ error: "Invalid webhook payload" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  switch (eventType) {
+    case "user.created": {
+      const emailAddress = eventData.email_addresses?.[0]?.email_address;
+      if (emailAddress) {
+        await ctx.runAction(internal.instructors.linkClerkUserToInstructor, {
+          userId: eventData.id,
+          email: emailAddress,
+        });
+      }
+      break;
+    }
+    case "user.deleted": {
+      await ctx.runAction(internal.instructors.unlinkClerkUserFromInstructor, {
+        userId: eventData.id,
+      });
+      break;
+    }
+    default:
+      console.log("Ignored Clerk webhook event", eventType);
+  }
+
+  return new Response(null, { status: 200 });
+});
+
+http.route({
+  path: "/webhooks/clerk",
+  method: "POST",
+  handler: httpClerkWebhook,
 });
 
 export default http;

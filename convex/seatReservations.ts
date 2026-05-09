@@ -323,6 +323,24 @@ export const updateFinalWarningSent = internalMutation({
   },
 });
 
+export const getSeatBySessionPackId = internalQuery({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .first();
+  },
+});
+
+export const releaseSeatById = internalMutation({
+  args: { seatId: v.id("seatReservations") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.seatId, { status: "released" });
+    return { success: true };
+  },
+});
+
 export const listSeatsNeedingWarning = internalQuery({
   args: {},
   handler: async (ctx) => {
