@@ -1,30 +1,34 @@
-import { query } from "./_generated/server";
+import { internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
 
-export const getUsersByLegacyId = query({
+/**
+ * Internal queries for legacy ID lookups - server-side only
+ * These expose sensitive data mappings so must only be called from trusted Convex functions
+ */
+
+export const getUsersByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
     const users = await ctx.db
       .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", args.legacyId))
+      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
       .collect();
     return users.length > 0 ? users[0] : null;
   },
 });
 
-export const getInstructorsByLegacyId = query({
+export const getInstructorsByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
     const instructors = await ctx.db
       .query("instructors")
-      .withIndex("by_userId", (q) => q.eq("userId", args.legacyId))
+      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
       .collect();
     return instructors.length > 0 ? instructors[0] : null;
   },
 });
 
-export const getInstructorsByMentorId = query({
+export const getInstructorsByMentorId = internalQuery({
   args: { mentorId: v.string() },
   handler: async (ctx, args) => {
     const instructors = await ctx.db
@@ -35,40 +39,40 @@ export const getInstructorsByMentorId = query({
   },
 });
 
-export const getOrdersByLegacyId = query({
+export const getOrdersByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
     const orders = await ctx.db
       .query("orders")
-      .withIndex("by_userId", (q) => q.eq("userId", args.legacyId))
+      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
       .collect();
     return orders.length > 0 ? orders[0] : null;
   },
 });
 
-export const getPaymentsByLegacyId = query({
+export const getPaymentsByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
     const payments = await ctx.db
       .query("payments")
-      .withIndex("by_orderId", (q) => q.eq("orderId", args.legacyId as Id<"orders">))
+      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
       .collect();
     return payments.length > 0 ? payments[0] : null;
   },
 });
 
-export const getSessionPacksByLegacyId = query({
+export const getSessionPacksByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
     const packs = await ctx.db
       .query("sessionPacks")
-      .withIndex("by_userId", (q) => q.eq("userId", args.legacyId))
+      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
       .collect();
     return packs;
   },
 });
 
-export const getUsersByClerkId = query({
+export const getUsersByClerkId = internalQuery({
   args: { clerkId: v.string() },
   handler: async (ctx, args) => {
     const users = await ctx.db
@@ -79,7 +83,7 @@ export const getUsersByClerkId = query({
   },
 });
 
-export const getAllUsersMappings = query({
+export const getAllUsersMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
     const users = await ctx.db.query("users").collect();
@@ -91,7 +95,7 @@ export const getAllUsersMappings = query({
   },
 });
 
-export const getAllInstructorsMappings = query({
+export const getAllInstructorsMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
     const instructors = await ctx.db.query("instructors").collect();
@@ -103,7 +107,7 @@ export const getAllInstructorsMappings = query({
   },
 });
 
-export const getAllOrdersMappings = query({
+export const getAllOrdersMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
     const orders = await ctx.db.query("orders").collect();
@@ -115,7 +119,7 @@ export const getAllOrdersMappings = query({
   },
 });
 
-export const getAllPaymentsMappings = query({
+export const getAllPaymentsMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
     const payments = await ctx.db.query("payments").collect();
@@ -127,7 +131,7 @@ export const getAllPaymentsMappings = query({
   },
 });
 
-export const getAllSessionPacksMappings = query({
+export const getAllSessionPacksMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
     const packs = await ctx.db.query("sessionPacks").collect();

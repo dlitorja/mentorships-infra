@@ -101,3 +101,48 @@ export const updateMenteeInvitationStatus = mutation({
     return args.id;
   },
 });
+
+export const migrateInvitation = mutation({
+  args: {
+    id: v.string(),
+    email: v.string(),
+    instructorId: v.id("instructors"),
+    clerkInvitationId: v.optional(v.string()),
+    expiresAt: v.number(),
+    status: v.optional(v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled"))),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.toLowerCase();
+
+    const existingByEmailInstructor = await ctx.db
+      .query("menteeInvitations")
+      .withIndex("by_email_instructorId", (q) =>
+        q.eq("email", normalizedEmail).eq("instructorId", args.instructorId)
+      )
+      .first();
+
+    if (existingByEmailInstructor) {
+      const updates: Record<string, unknown> = {};
+      if (args.status) updates.status = args.status;
+      if (args.clerkInvitationId) updates.clerkInvitationId = args.clerkInvitationId;
+      if (args.expiresAt) updates.expiresAt = args.expiresAt;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existingByEmailInstructor._id, updates);
+      }
+      return { action: "updated", id: existingByEmailInstructor._id };
+    }
+
+    const insertResult = await ctx.db.insert("menteeInvitations", {
+      email: normalizedEmail,
+      instructorId: args.instructorId,
+      clerkInvitationId: args.clerkInvitationId ?? undefined,
+      expiresAt: args.expiresAt,
+      status: args.status ?? "pending",
+    });
+
+    return { action: "inserted", id: insertResult };
+  },
+});

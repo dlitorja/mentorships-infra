@@ -156,3 +156,61 @@ export const deleteSession = mutation({
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
+
+export const migrateSession = mutation({
+  args: {
+    id: v.string(),
+    mentorId: v.id("instructors"),
+    studentId: v.string(),
+    sessionPackId: v.id("sessionPacks"),
+    scheduledAt: v.number(),
+    completedAt: v.optional(v.number()),
+    canceledAt: v.optional(v.number()),
+    status: v.optional(v.union(v.literal("scheduled"), v.literal("completed"), v.literal("canceled"), v.literal("no_show"))),
+    recordingConsent: v.optional(v.boolean()),
+    recordingUrl: v.optional(v.string()),
+    recordingExpiresAt: v.optional(v.number()),
+    googleCalendarEventId: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existingByCalendarEvent = args.googleCalendarEventId
+      ? await ctx.db
+          .query("sessions")
+          .withIndex("by_googleCalendarEventId", (q) => q.eq("googleCalendarEventId", args.googleCalendarEventId!))
+          .first()
+      : null;
+
+    if (existingByCalendarEvent) {
+      const updates: Record<string, unknown> = {};
+      if (args.status) updates.status = args.status;
+      if (args.completedAt) updates.completedAt = args.completedAt;
+      if (args.canceledAt) updates.canceledAt = args.canceledAt;
+      if (args.notes) updates.notes = args.notes;
+      if (args.recordingUrl) updates.recordingUrl = args.recordingUrl;
+      if (args.recordingConsent !== undefined) updates.recordingConsent = args.recordingConsent;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existingByCalendarEvent._id, updates);
+      }
+      return { action: "updated", id: existingByCalendarEvent._id };
+    }
+
+    const insertResult = await ctx.db.insert("sessions", {
+      mentorId: args.mentorId,
+      studentId: args.studentId,
+      sessionPackId: args.sessionPackId,
+      scheduledAt: args.scheduledAt,
+      completedAt: args.completedAt ?? undefined,
+      canceledAt: args.canceledAt ?? undefined,
+      status: args.status ?? "scheduled",
+      recordingConsent: args.recordingConsent ?? false,
+      recordingUrl: args.recordingUrl ?? undefined,
+      recordingExpiresAt: args.recordingExpiresAt ?? undefined,
+      googleCalendarEventId: args.googleCalendarEventId ?? undefined,
+      notes: args.notes ?? undefined,
+    });
+
+    return { action: "inserted", id: insertResult };
+  },
+});

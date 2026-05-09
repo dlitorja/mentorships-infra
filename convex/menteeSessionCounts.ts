@@ -178,3 +178,46 @@ export const deleteSessionCount = mutation({
     return true;
   },
 });
+
+export const migrateSessionCount = mutation({
+  args: {
+    id: v.string(),
+    userId: v.string(),
+    instructorId: v.id("instructors"),
+    sessionCount: v.number(),
+    notes: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existingByUserInstructor = await ctx.db
+      .query("menteeSessionCounts")
+      .withIndex("by_userId_instructorId", (q) =>
+        q.eq("userId", args.userId).eq("instructorId", args.instructorId)
+      )
+      .first();
+
+    if (existingByUserInstructor) {
+      const updates: Record<string, unknown> = {};
+      if (args.sessionCount !== undefined) updates.sessionCount = args.sessionCount;
+      if (args.notes !== undefined) updates.notes = args.notes;
+      if (args.updatedAt) updates.updatedAt = args.updatedAt;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existingByUserInstructor._id, updates);
+      }
+      return { action: "updated", id: existingByUserInstructor._id };
+    }
+
+    const insertResult = await ctx.db.insert("menteeSessionCounts", {
+      userId: args.userId,
+      instructorId: args.instructorId,
+      sessionCount: args.sessionCount,
+      notes: args.notes ?? undefined,
+      createdAt: args.createdAt ?? Date.now(),
+      updatedAt: args.updatedAt ?? Date.now(),
+    });
+
+    return { action: "inserted", id: insertResult };
+  },
+});

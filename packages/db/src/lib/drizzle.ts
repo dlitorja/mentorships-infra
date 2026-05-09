@@ -5,6 +5,9 @@ import * as schema from "../schema";
 let _dbInstance: PostgresJsDatabase<typeof schema> | null = null;
 
 export const getDb = (): PostgresJsDatabase<typeof schema> => {
+  // Force new connection each time to avoid cached instance issues
+  _dbInstance = null;
+  
   if (!_dbInstance) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
@@ -12,6 +15,17 @@ export const getDb = (): PostgresJsDatabase<typeof schema> => {
     }
 
     let cleaned = connectionString.replace(/^["']|["']$/g, "");
+
+    // URL-decode the password if it contains encoded characters
+    try {
+      const parsedUrl = new URL(cleaned);
+      const decodedPassword = decodeURIComponent(parsedUrl.password);
+      const newUrl = `${parsedUrl.protocol}//${parsedUrl.username}:${decodedPassword}@${parsedUrl.host}${parsedUrl.pathname}${parsedUrl.search}`;
+      cleaned = newUrl;
+    } catch (e) {
+      console.error("URL decode failed:", e);
+      // If URL parsing fails, use as-is
+    }
 
     let parsedUrl: URL;
     try {

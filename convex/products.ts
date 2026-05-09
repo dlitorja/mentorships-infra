@@ -202,3 +202,65 @@ export const activateProduct = mutation({
     return await ctx.db.get(args.id);
   },
 });
+
+export const migrateProduct = mutation({
+  args: {
+    id: v.string(),
+    mentorId: v.optional(v.string()),
+    title: v.string(),
+    description: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    price: v.string(),
+    currency: v.optional(v.string()),
+    sessionsPerPack: v.optional(v.number()),
+    validityDays: v.optional(v.number()),
+    stripePriceId: v.optional(v.string()),
+    stripeProductId: v.optional(v.string()),
+    paypalProductId: v.optional(v.string()),
+    mentorshipType: v.optional(v.string()),
+    active: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("products")
+      .filter((q) => q.eq(q.field("stripePriceId"), args.stripePriceId ?? ""))
+      .first();
+
+    if (existing && args.stripePriceId) {
+      const updates: Record<string, unknown> = {};
+      if (args.title) updates.title = args.title;
+      if (args.description) updates.description = args.description;
+      if (args.imageUrl) updates.imageUrl = args.imageUrl;
+      if (args.price) updates.price = args.price;
+      if (args.currency) updates.currency = args.currency;
+      if (args.sessionsPerPack) updates.sessionsPerPack = args.sessionsPerPack;
+      if (args.validityDays) updates.validityDays = args.validityDays;
+      if (args.paypalProductId) updates.paypalProductId = args.paypalProductId;
+      if (args.mentorshipType) updates.mentorshipType = args.mentorshipType;
+      if (args.active !== undefined) updates.active = args.active;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existing._id, updates);
+      }
+      return { action: "updated", id: existing._id };
+    }
+
+    const insertResult = await ctx.db.insert("products", {
+      mentorId: args.mentorId ?? undefined,
+      title: args.title,
+      description: args.description ?? undefined,
+      imageUrl: args.imageUrl ?? undefined,
+      price: args.price,
+      currency: args.currency ?? "usd",
+      sessionsPerPack: args.sessionsPerPack ?? 4,
+      validityDays: args.validityDays ?? 30,
+      stripePriceId: args.stripePriceId ?? undefined,
+      stripeProductId: args.stripeProductId ?? undefined,
+      paypalProductId: args.paypalProductId ?? undefined,
+      mentorshipType: args.mentorshipType ?? "one-on-one",
+      active: args.active ?? true,
+    });
+
+    return { action: "inserted", id: insertResult };
+  },
+});
