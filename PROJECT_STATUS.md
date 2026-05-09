@@ -669,13 +669,16 @@ Instead of 16 separate scripts with fragile CLI invocations, we now use:
   - seatReservations (1), discordActionQueue (3), waitlist (7), adminDigestSettings (1)
 - [x] Imported data to Convex via `npx convex import --table <table> --jsonl migration-data/<table>.jsonl`
 - [x] Created mentor-instructor link via `migration-data/mentor-instructor.jsonl`
-- [x] Created `convex/migrateIds.ts` with `resolveAllLegacyIds` mutation
 - [x] Created `convex/migrationQueries.ts` with internal queries for data access
-- [x] Ran `migrateIds:resolveAllLegacyIds` mutation - resolved:
+- [x] Created `convex/legacyMappings.ts` with internal query helpers for legacy ID lookups
+- [x] Ran ID resolution mutation - resolved:
   - 2 payments (orderId → Convex document ID)
   - 2 sessionPacks (mentorId, paymentId → Convex document IDs)
   - 1 seatReservation (mentorId, sessionPackId → Convex document IDs)
-- [x] Restored `convex/schema.ts` to use `v.id()` for all resolved fields (payments.orderId, sessionPacks.mentorId/paymentId, seatReservations.mentorId/sessionPackId)
+- [x] Restored `convex/schema.ts` to use `v.id()` for all resolved fields
+- [x] Fixed security issues: converted public queries to `internalQuery` (no client access)
+- [x] Added `migration-data/` to `.gitignore` (contains Stripe payment IDs)
+- [x] Fixed `packages/db/src/lib/drizzle.ts` connection pool leak and password encoding
 
 **Supabase REST API Export Method**:
 - Used Supabase REST API instead of direct Postgres connection (WSL network issues)
@@ -685,9 +688,11 @@ Instead of 16 separate scripts with fragile CLI invocations, we now use:
 
 **Migration Files Created**:
 - `convex/schema.ts` - Added `legacyId: v.optional(v.string())` to all tables
-- `convex/legacyMappings.ts` - Query helpers to find records by legacyId
-- `scripts/migrate-to-convex/preprocessor.ts` - Node.js script using direct postgres connection
-- `scripts/migrate-to-convex/migrate-all.ts` - Orchestrator for full migration
+- `convex/legacyMappings.ts` - Internal query helpers to find records by legacyId
+- `convex/migrationQueries.ts` - Internal queries for migration data access
+- `scripts/migrate-to-convex/` - Migration scripts (export, import, resolution)
+
+**Reference**: PR #234 - `feat: Convex ID resolution migration for legacy data`
 
 **Migration Order** (respects FK dependencies):
 ```
@@ -759,6 +764,77 @@ Instead of 16 separate scripts with fragile CLI invocations, we now use:
 - Preprocessor: `scripts/migrate-to-convex/preprocessor.ts`
 - Orchestrator: `scripts/migrate-to-convex/migrate-all.ts`
 - Legacy mappings: `convex/legacyMappings.ts`
+
+---
+
+### 📊 SQL/Drizzle vs Convex Current Split (apps/web)
+
+**Completed Migration (Phase 1-2)** ✅:
+- All core data tables migrated to Convex (users, instructors, orders, payments, sessionPacks, seatReservations, etc.)
+- Legacy UUIDs resolved to Convex document IDs
+- Schema restored to use `v.id()` for type-safe foreign keys
+- Internal queries secured with `internalQuery` (no public client access)
+
+**Current Architecture**:
+```
+apps/web/
+├── api/                    # Some routes still use Drizzle for reads
+│   └── admin/              # Complex aggregations, reports
+├── lib/
+│   ├── convex.ts           # Convex client
+│   ├── queries/convex/     # Convex query hooks (REAL-TIME)
+│   └── queries/drizzle.ts  # Drizzle queries for admin analytics
+├── convex/                 # Convex backend (SOURCE OF TRUTH)
+│   ├── schema.ts           # Database schema
+│   ├── users.ts            # User queries/mutations
+│   ├── instructors.ts      # Instructor queries/mutations
+│   ├── orders.ts           # Order queries/mutations
+│   ├── payments.ts         # Payment queries/mutations
+│   └── ...
+└── inngest/
+    └── functions/          # Background jobs
+        ├── payments.ts     # Uses Convex (writes)
+        ├── sessions.ts     # Uses Drizzle ❌
+        ├── onboarding.ts   # Uses Drizzle ❌
+        └── ...
+```
+
+**Remaining Migration Work**:
+1. **Inngest Functions** (Phase 3 - 1-2 weeks):
+   - Migrate `sessions.ts` from Drizzle to Convex
+   - Migrate `onboarding.ts` from Drizzle to Convex
+   - Migrate `clerk-user-linking.ts` from Drizzle to Convex
+   - Migrate `clerk-user-deleted.ts` from Drizzle to Convex
+   - Migrate `discord.ts` from Drizzle to Convex
+   - Migrate `notifications.ts` from Drizzle to Convex
+   - Migrate `booking-emails.ts` from Drizzle to Convex
+
+2. **API Routes** (Estimated 1-2 weeks):
+   - Remaining ~111 imports of `@mentorships/db` need review
+   - Most are reads that can stay on Drizzle (admin analytics)
+   - Writes should migrate to Convex mutations
+
+3. **Event-Driven Sync** (Phase 4 - 3-5 days):
+   - Create Inngest sync handlers to replicate Convex writes to Drizzle
+   - Event flow: Convex Mutation → `inngest.send()` → Inngest handler → Drizzle
+
+4. **Cleanup** (Phase 5 - 2-3 days):
+   - Deprecate Drizzle mutation functions
+   - Document architecture in `ARCHITECTURE.md`
+
+**What's Done For apps/web**:
+- ✅ Checkout routes migrated to Convex
+- ✅ Admin routes migrated (products, orders, refunds)
+- ✅ Session pack routes migrated
+- ✅ Real-time features (workspace, chat) use Convex
+- ✅ Core queries/mutations use Convex
+
+**What Stays on Drizzle**:
+- Admin analytics (complex aggregations, JOINs, revenue calculations)
+- Reporting queries (month-over-month, year-over-year)
+- Paginated lists with complex filtering
+
+**Key Decision**: Convex is source of truth for all app data. Drizzle becomes read-only replica for complex queries only.
 
 ---
 
