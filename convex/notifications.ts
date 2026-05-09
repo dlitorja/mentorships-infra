@@ -8,7 +8,7 @@ type NotificationSendResult = {
   userId: string;
   sessionPackId: string;
   email: { ok: boolean; skipped: boolean; reason: string | null };
-  discord: { ok: boolean; skipped: boolean; reason?: string | null };
+  discord: { ok: boolean; skipped: boolean; reason?: string | null; error?: string | null };
 };
 
 function getBaseUrl(): string {
