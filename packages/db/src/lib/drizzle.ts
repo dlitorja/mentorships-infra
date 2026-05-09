@@ -3,45 +3,63 @@ import postgres from "postgres";
 import * as schema from "../schema";
 
 let _dbInstance: PostgresJsDatabase<typeof schema> | null = null;
+let _client: ReturnType<typeof postgres> | null = null;
+let _cachedConnectionString: string | null = null;
 
 export const getDb = (): PostgresJsDatabase<typeof schema> => {
-  if (!_dbInstance) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error("DATABASE_URL environment variable is required");
-    }
+  const connectionString = process.env.DATABASE_URL;
 
-    let cleaned = connectionString.replace(/^["']|["']$/g, "");
-
-    let parsedUrl: URL;
-    try {
-      parsedUrl = new URL(cleaned);
-    } catch {
-      throw new Error("Invalid DATABASE_URL format");
-    }
-
-    const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    const isLocalConnection =
-      hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
-
-    // Add sslmode to query params if not present
-    if (!isLocalConnection && !parsedUrl.searchParams.has("sslmode")) {
-      const separator = cleaned.includes("?") ? "&" : "?";
-      cleaned = `${cleaned}${separator}sslmode=require`;
-    }
-
-    const client = postgres(cleaned, {
-      max: 10,
-      onnotice: () => {},
-      prepare: false,
-      transform: {
-        undefined: null,
-      },
-      ssl: isLocalConnection ? false : "require",
-    });
-
-    _dbInstance = drizzle(client, { schema });
+  if (_dbInstance && _cachedConnectionString === connectionString) {
+    return _dbInstance;
   }
+
+  if (_client) {
+    void _client.end({ timeout: 5 }).catch(() => {});
+    _client = null;
+    _dbInstance = null;
+  }
+
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is required");
+  }
+
+  let cleaned = connectionString.replace(/^["']|["']$/g, "");
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(cleaned);
+  } catch {
+    throw new Error("Invalid DATABASE_URL format");
+  }
+
+  try {
+    parsedUrl.password = decodeURIComponent(parsedUrl.password);
+    cleaned = parsedUrl.toString();
+  } catch {
+    // If normalization fails, continue with original cleaned URL
+  }
+
+  const hostname = parsedUrl.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const isLocalConnection =
+    hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
+
+  if (!isLocalConnection && !parsedUrl.searchParams.has("sslmode")) {
+    const separator = cleaned.includes("?") ? "&" : "?";
+    cleaned = `${cleaned}${separator}sslmode=require`;
+  }
+
+  _client = postgres(cleaned, {
+    max: 10,
+    onnotice: () => {},
+    prepare: false,
+    transform: {
+      undefined: null,
+    },
+    ssl: isLocalConnection ? false : "require",
+  });
+
+  _dbInstance = drizzle(_client, { schema });
+  _cachedConnectionString = connectionString;
   return _dbInstance;
 };
 

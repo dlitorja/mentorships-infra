@@ -5,11 +5,12 @@ export default defineSchema({
   users: defineTable({
     userId: v.string(),
     email: v.string(),
-    clerkId: v.optional(v.string()),
+    clerkId: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
+    legacyId: v.optional(v.string()),
   }).index("by_email", ["email"])
     .index("by_clerkId", ["clerkId"])
     .index("by_userId", ["userId"]),
@@ -29,7 +30,7 @@ export default defineSchema({
     oneOnOneInventory: v.optional(v.number()),
     groupInventory: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
-    // Legacy fields from existing records
+    legacyId: v.optional(v.string()),
     isActive: v.optional(v.boolean()),
     isNew: v.optional(v.boolean()),
     background: v.optional(v.array(v.string())),
@@ -61,6 +62,7 @@ export default defineSchema({
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_studentId", ["studentId"])
     .index("by_mentorId", ["mentorId"])
     .index("by_sessionPackId", ["sessionPackId"])
@@ -77,6 +79,7 @@ export default defineSchema({
     gracePeriodEndsAt: v.optional(v.number()),
     finalWarningNotificationSentAt: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("grace"), v.literal("released")),
+    legacyId: v.optional(v.string()),
   }).index("by_mentorId", ["mentorId"])
     .index("by_userId", ["userId"])
     .index("by_status", ["status"])
@@ -95,6 +98,7 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded")),
     paymentId: v.id("payments"),
     deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])
     .index("by_mentorId", ["mentorId"])
     .index("by_status", ["status"])
@@ -109,6 +113,7 @@ export default defineSchema({
     totalAmount: v.string(),
     currency: v.string(),
     deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])
     .index("by_status", ["status"])
     .index("by_userId_status", ["userId", "status"]),
@@ -122,6 +127,7 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("completed"), v.literal("refunded"), v.literal("failed")),
     refundedAmount: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_orderId", ["orderId"])
     .index("by_status", ["status"])
     .index("by_provider_providerPaymentId", ["provider", "providerPaymentId"]),
@@ -141,6 +147,7 @@ export default defineSchema({
     mentorshipType: v.string(),
     active: v.boolean(),
     deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_mentorId", ["mentorId"])
     .index("by_stripePriceId", ["stripePriceId"])
     .index("by_active", ["active"]),
@@ -163,6 +170,7 @@ export default defineSchema({
     socials: v.optional(v.any()),
     isActive: v.boolean(),
     isNew: v.optional(v.boolean()),
+    legacyId: v.optional(v.string()),
   }).index("by_slug", ["slug"])
     .index("by_userId", ["userId"])
     .index("by_email", ["email"])
@@ -175,6 +183,7 @@ export default defineSchema({
     text: v.string(),
     role: v.optional(v.string()),
     createdAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_instructorId", ["instructorId"]),
 
   menteeResults: defineTable({
@@ -185,6 +194,7 @@ export default defineSchema({
     studentName: v.optional(v.string()),
     createdBy: v.optional(v.string()),
     createdAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_instructorId", ["instructorId"])
     .index("by_createdBy", ["createdBy"]),
 
@@ -296,6 +306,7 @@ export default defineSchema({
     notes: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])
     .index("by_instructorId", ["instructorId"])
     .index("by_userId_instructorId", ["userId", "instructorId"]),
@@ -305,6 +316,7 @@ export default defineSchema({
     artGoals: v.optional(v.string()),
     source: v.optional(v.string()),
     optedIn: v.optional(v.boolean()),
+    legacyId: v.optional(v.string()),
   }).index("by_email", ["email"]),
 
   menteeInvitations: defineTable({
@@ -314,8 +326,124 @@ export default defineSchema({
     expiresAt: v.number(),
     status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled")),
     deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
   }).index("by_email", ["email"])
     .index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
     .index("by_email_instructorId", ["email", "instructorId"]),
+
+  userIdentities: defineTable({
+    userId: v.string(),
+    provider: v.union(v.literal("discord")),
+    providerUserId: v.string(),
+    connectedAt: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+  }).index("by_userId", ["userId"])
+    .index("by_provider", ["provider"])
+    .index("by_providerUserId", ["providerUserId"])
+    .index("by_userId_provider", ["userId", "provider"]),
+
+  discordActionQueue: defineTable({
+    type: v.union(v.literal("assign_mentee_role"), v.literal("dm_instructor_new_signup")),
+    status: v.union(v.literal("pending"), v.literal("processing"), v.literal("done"), v.literal("failed")),
+    subjectUserId: v.string(),
+    mentorId: v.optional(v.string()),
+    mentorUserId: v.optional(v.string()),
+    payload: v.any(),
+    attempts: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    lockedAt: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+  }).index("by_status", ["status"])
+    .index("by_subjectUserId", ["subjectUserId"])
+    .index("by_mentorId", ["mentorId"])
+    .index("by_status_createdAt", ["status", "createdAt"]),
+
+  videoEditorAssignments: defineTable({
+    videoEditorId: v.string(),
+    instructorId: v.string(),
+    assignedAt: v.optional(v.number()),
+    assignedBy: v.optional(v.string()),
+    legacyId: v.optional(v.string()),
+  }).index("by_videoEditorId", ["videoEditorId"])
+    .index("by_instructorId", ["instructorId"])
+    .index("by_videoEditorId_instructorId", ["videoEditorId", "instructorId"]),
+
+  instructorUploads: defineTable({
+    instructorId: v.string(),
+    filename: v.string(),
+    originalName: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    b2FileId: v.optional(v.string()),
+    b2UploadId: v.optional(v.string()),
+    b2PartEtags: v.optional(v.string()),
+    status: v.union(v.literal("pending"), v.literal("uploading"), v.literal("completed"), v.literal("archived"), v.literal("failed"), v.literal("deleted")),
+    errorMessage: v.optional(v.string()),
+    archivedAt: v.optional(v.number()),
+    s3Key: v.optional(v.string()),
+    s3Url: v.optional(v.string()),
+    transferStatus: v.optional(v.union(v.literal("pending"), v.literal("transferring"), v.literal("completed"), v.literal("failed"))),
+    transferRetryCount: v.optional(v.number()),
+    notifiedAt: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+  }).index("by_instructorId", ["instructorId"])
+    .index("by_status", ["status"])
+    .index("by_transferStatus", ["transferStatus"])
+    .index("by_createdAt", ["createdAt"])
+    .index("by_status_createdAt", ["status", "createdAt"]),
+
+  menteeOnboardingSubmissions: defineTable({
+    userId: v.string(),
+    mentorId: v.id("instructors"),
+    sessionPackId: v.id("sessionPacks"),
+    goals: v.string(),
+    imageObjects: v.optional(v.any()),
+    reviewedAt: v.optional(v.number()),
+    reviewedByUserId: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+  }).index("by_userId", ["userId"])
+    .index("by_mentorId", ["mentorId"])
+    .index("by_sessionPackId", ["sessionPackId"]),
+
+  kajabiOffers: defineTable({
+    instructorSlug: v.string(),
+    type: v.union(v.literal("oneOnOne"), v.literal("group")),
+    createdAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+  }).index("by_instructorSlug", ["instructorSlug"])
+    .index("by_type", ["type"]),
+
+  adminDigestSettings: defineTable({
+    enabled: v.optional(v.boolean()),
+    frequency: v.optional(v.union(v.literal("daily"), v.literal("weekly"), v.literal("monthly"))),
+    adminEmail: v.string(),
+    lastSentAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+  }),
+
+  monthlyStorageCosts: defineTable({
+    month: v.string(),
+    b2StorageCost: v.optional(v.number()),
+    b2DownloadCost: v.optional(v.number()),
+    b2ApiCost: v.optional(v.number()),
+    s3StorageCost: v.optional(v.number()),
+    s3RetrievalCost: v.optional(v.number()),
+    totalCost: v.optional(v.number()),
+    alertSent: v.optional(v.boolean()),
+    alertThreshold: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+    legacyId: v.optional(v.string()),
+  }).index("by_month", ["month"]),
 });

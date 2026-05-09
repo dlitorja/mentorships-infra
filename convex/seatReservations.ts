@@ -252,7 +252,6 @@ export const processExpiredSeats = mutation({
     
     for (const seat of expiredGraceSeats) {
       await ctx.db.patch(seat._id, { status: "released" });
-      // Set endedAt on associated workspace to start 18-month countdown
       const workspaces = await ctx.db
         .query("workspaces")
         .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
@@ -263,5 +262,49 @@ export const processExpiredSeats = mutation({
     }
     
     return expiredSeats;
+  },
+});
+
+export const migrateSeatReservation = mutation({
+  args: {
+    id: v.string(),
+    mentorId: v.id("instructors"),
+    userId: v.string(),
+    sessionPackId: v.id("sessionPacks"),
+    seatExpiresAt: v.number(),
+    gracePeriodEndsAt: v.optional(v.number()),
+    finalWarningNotificationSentAt: v.optional(v.number()),
+    status: v.optional(v.union(v.literal("active"), v.literal("grace"), v.literal("released"))),
+  },
+  handler: async (ctx, args) => {
+    const existingByPack = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
+      .first();
+
+    if (existingByPack) {
+      const updates: Record<string, unknown> = {};
+      if (args.status) updates.status = args.status;
+      if (args.seatExpiresAt) updates.seatExpiresAt = args.seatExpiresAt;
+      if (args.gracePeriodEndsAt) updates.gracePeriodEndsAt = args.gracePeriodEndsAt;
+      if (args.finalWarningNotificationSentAt) updates.finalWarningNotificationSentAt = args.finalWarningNotificationSentAt;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existingByPack._id, updates);
+      }
+      return { action: "updated", id: existingByPack._id };
+    }
+
+    const insertResult = await ctx.db.insert("seatReservations", {
+      mentorId: args.mentorId,
+      userId: args.userId,
+      sessionPackId: args.sessionPackId,
+      seatExpiresAt: args.seatExpiresAt,
+      gracePeriodEndsAt: args.gracePeriodEndsAt ?? undefined,
+      finalWarningNotificationSentAt: args.finalWarningNotificationSentAt ?? undefined,
+      status: args.status ?? "active",
+    });
+
+    return { action: "inserted", id: insertResult };
   },
 });

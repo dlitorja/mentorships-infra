@@ -336,6 +336,102 @@ export const createInstructor = mutation({
   },
 });
 
+export const migrateInstructor = mutation({
+  args: {
+    userId: v.string(),
+    name: v.optional(v.string()),
+    slug: v.optional(v.string()),
+    email: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    tagline: v.optional(v.string()),
+    background: v.optional(v.array(v.string())),
+    specialties: v.optional(v.array(v.string())),
+    portfolioImages: v.optional(v.array(v.string())),
+    socials: v.optional(v.any()),
+    isActive: v.optional(v.boolean()),
+    isNew: v.optional(v.boolean()),
+    profileImageUrl: v.optional(v.string()),
+    profileImageUploadPath: v.optional(v.string()),
+    profileImageStorageId: v.optional(v.string()),
+    mentorId: v.optional(v.string()),
+    googleCalendarId: v.optional(v.string()),
+    googleRefreshToken: v.optional(v.string()),
+    timeZone: v.optional(v.string()),
+    workingHours: v.optional(v.any()),
+    maxActiveStudents: v.optional(v.number()),
+    pricing: v.optional(v.string()),
+    oneOnOneInventory: v.optional(v.number()),
+    groupInventory: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existingByUserId = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (existingByUserId) {
+      const updates: Partial<Doc<"instructors">> = {};
+      if (args.name !== undefined) updates.name = args.name;
+      if (args.slug !== undefined) updates.slug = args.slug;
+      if (args.email !== undefined) updates.email = args.email;
+      if (args.bio !== undefined) updates.bio = args.bio;
+      if (args.tagline !== undefined) updates.tagline = args.tagline;
+      if (args.background !== undefined) updates.background = args.background;
+      if (args.specialties !== undefined) updates.specialties = args.specialties;
+      if (args.portfolioImages !== undefined) updates.portfolioImages = args.portfolioImages;
+      if (args.socials !== undefined) updates.socials = args.socials;
+      if (args.isActive !== undefined) updates.isActive = args.isActive;
+      if (args.isNew !== undefined) updates.isNew = args.isNew;
+      if (args.profileImageUrl !== undefined) updates.profileImageUrl = args.profileImageUrl;
+      if (args.profileImageUploadPath !== undefined) updates.profileImageUploadPath = args.profileImageUploadPath;
+      if (args.profileImageStorageId !== undefined) updates.profileImageStorageId = args.profileImageStorageId;
+      if (args.mentorId !== undefined) updates.mentorId = args.mentorId;
+      if (args.googleCalendarId !== undefined) updates.googleCalendarId = args.googleCalendarId;
+      if (args.googleRefreshToken !== undefined) updates.googleRefreshToken = args.googleRefreshToken;
+      if (args.timeZone !== undefined) updates.timeZone = args.timeZone;
+      if (args.workingHours !== undefined) updates.workingHours = args.workingHours;
+      if (args.maxActiveStudents !== undefined) updates.maxActiveStudents = args.maxActiveStudents;
+      if (args.pricing !== undefined) updates.pricing = args.pricing;
+      if (args.oneOnOneInventory !== undefined) updates.oneOnOneInventory = args.oneOnOneInventory;
+      if (args.groupInventory !== undefined) updates.groupInventory = args.groupInventory;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existingByUserId._id, updates);
+      }
+      return { action: "updated", id: existingByUserId._id };
+    }
+
+    const id = await ctx.db.insert("instructors", {
+      userId: args.userId,
+      name: args.name ?? undefined,
+      slug: args.slug ?? undefined,
+      email: args.email ?? undefined,
+      bio: args.bio ?? undefined,
+      tagline: args.tagline ?? undefined,
+      background: args.background ?? undefined,
+      specialties: args.specialties ?? undefined,
+      portfolioImages: args.portfolioImages ?? undefined,
+      socials: args.socials ?? undefined,
+      isActive: args.isActive ?? true,
+      isNew: args.isNew ?? true,
+      profileImageUrl: args.profileImageUrl ?? undefined,
+      profileImageUploadPath: args.profileImageUploadPath ?? undefined,
+      profileImageStorageId: args.profileImageStorageId ?? undefined,
+      mentorId: args.mentorId ?? undefined,
+      googleCalendarId: args.googleCalendarId ?? undefined,
+      googleRefreshToken: args.googleRefreshToken ?? undefined,
+      timeZone: args.timeZone ?? undefined,
+      workingHours: args.workingHours ?? undefined,
+      maxActiveStudents: args.maxActiveStudents ?? 10,
+      pricing: args.pricing ?? undefined,
+      oneOnOneInventory: args.oneOnOneInventory ?? 0,
+      groupInventory: args.groupInventory ?? 0,
+    });
+
+    return { action: "inserted", id };
+  },
+});
+
 /** Updates the specified instructor fields and returns the updated document. */
 export const updateInstructor = mutation({
   args: {

@@ -155,3 +155,49 @@ export const deletePayment = mutation({
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
+
+export const migratePayment = mutation({
+  args: {
+    id: v.string(),
+    orderId: v.id("orders"),
+    provider: v.union(v.literal("stripe"), v.literal("paypal")),
+    providerPaymentId: v.string(),
+    amount: v.string(),
+    currency: v.optional(v.string()),
+    status: v.optional(v.union(v.literal("pending"), v.literal("completed"), v.literal("refunded"), v.literal("failed"))),
+    refundedAmount: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existingByProviderId = await ctx.db
+      .query("payments")
+      .withIndex("by_provider_providerPaymentId", (q) =>
+        q.eq("provider", args.provider).eq("providerPaymentId", args.providerPaymentId)
+      )
+      .first();
+
+    if (existingByProviderId) {
+      const updates: Record<string, unknown> = {};
+      if (args.status) updates.status = args.status;
+      if (args.refundedAmount) updates.refundedAmount = args.refundedAmount;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existingByProviderId._id, updates);
+      }
+      return { action: "updated", id: existingByProviderId._id };
+    }
+
+    const insertResult = await ctx.db.insert("payments", {
+      orderId: args.orderId,
+      provider: args.provider,
+      providerPaymentId: args.providerPaymentId,
+      amount: args.amount,
+      currency: args.currency ?? "usd",
+      status: args.status ?? "pending",
+      refundedAmount: args.refundedAmount ?? undefined,
+    });
+
+    return { action: "inserted", id: insertResult };
+  },
+});

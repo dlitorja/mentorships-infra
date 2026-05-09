@@ -264,3 +264,52 @@ export const setRemainingSessions = mutation({
     return await ctx.db.get(args.id);
   },
 });
+
+export const migrateSessionPack = mutation({
+  args: {
+    id: v.string(),
+    userId: v.string(),
+    mentorId: v.id("instructors"),
+    totalSessions: v.optional(v.number()),
+    remainingSessions: v.optional(v.number()),
+    purchasedAt: v.optional(v.number()),
+    expiresAt: v.optional(v.number()),
+    status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
+    paymentId: v.id("payments"),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) => q.eq(q.field("paymentId"), args.paymentId))
+      .first();
+
+    if (existing) {
+      const updates: Record<string, unknown> = {};
+      if (args.totalSessions) updates.totalSessions = args.totalSessions;
+      if (args.remainingSessions) updates.remainingSessions = args.remainingSessions;
+      if (args.status) updates.status = args.status;
+      if (args.expiresAt) updates.expiresAt = args.expiresAt;
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existing._id, updates);
+      }
+      return { action: "updated", id: existing._id };
+    }
+
+    const insertResult = await ctx.db.insert("sessionPacks", {
+      userId: args.userId,
+      mentorId: args.mentorId,
+      totalSessions: args.totalSessions ?? 4,
+      remainingSessions: args.remainingSessions ?? 4,
+      purchasedAt: args.purchasedAt ?? Date.now(),
+      expiresAt: args.expiresAt ?? undefined,
+      status: args.status ?? "active",
+      paymentId: args.paymentId,
+    });
+
+    return { action: "inserted", id: insertResult };
+  },
+});
