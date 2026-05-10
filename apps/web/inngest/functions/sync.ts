@@ -273,8 +273,12 @@ export const syncSeatReservationCreated = inngest.createFunction(
             mentorId: seatReservation.mentorId,
             sessionPackId: seatReservation.sessionPackId,
             status: seatReservation.status,
-            seatExpiresAt: seatReservation.seatExpiresAt ? new Date(seatReservation.seatExpiresAt) : null,
-            gracePeriodEndsAt: seatReservation.gracePeriodEndsAt ? new Date(seatReservation.gracePeriodEndsAt) : null,
+            seatExpiresAt: seatReservation.seatExpiresAt
+              ? new Date(seatReservation.seatExpiresAt)
+              : (() => { throw new Error("seatExpiresAt is required for seat reservation sync"); })(),
+            gracePeriodEndsAt: seatReservation.gracePeriodEndsAt
+              ? new Date(seatReservation.gracePeriodEndsAt)
+              : null,
             updatedAt: new Date(seatReservation.updatedAt),
           })
           .where(eq(seatReservations.id, seatReservation.id));
@@ -285,8 +289,12 @@ export const syncSeatReservationCreated = inngest.createFunction(
           mentorId: seatReservation.mentorId,
           sessionPackId: seatReservation.sessionPackId,
           status: seatReservation.status,
-          seatExpiresAt: seatReservation.seatExpiresAt ? new Date(seatReservation.seatExpiresAt) : null,
-          gracePeriodEndsAt: seatReservation.gracePeriodEndsAt ? new Date(seatReservation.gracePeriodEndsAt) : null,
+          seatExpiresAt: seatReservation.seatExpiresAt
+            ? new Date(seatReservation.seatExpiresAt)
+            : (() => { throw new Error("seatExpiresAt is required for seat reservation sync"); })(),
+          gracePeriodEndsAt: seatReservation.gracePeriodEndsAt
+            ? new Date(seatReservation.gracePeriodEndsAt)
+            : null,
           createdAt: new Date(seatReservation.createdAt),
           updatedAt: new Date(seatReservation.updatedAt),
         });

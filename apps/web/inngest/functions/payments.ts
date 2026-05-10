@@ -78,46 +78,9 @@ const completedOrder = await step.run("update-order", async () => {
       });
     });
 
-    await step.run("sync-order-updated", async () => {
-      await inngest.send({
-        name: "data.sync/order.updated",
-        data: {
-          id: completedOrder._id,
-          status: completedOrder.status,
-          updatedAt: Date.now(),
-        },
-      });
-    });
-
-    const payment = await step.run("create-payment", async () => {
-      return await convex.mutation(api.payments.createPayment, {
-        orderId: orderId as Id<"orders">,
-        provider: "paypal",
-        providerPaymentId: captureId,
-        amount: order.totalAmount,
-        currency: (order.currency ?? "USD").toUpperCase(),
-        status: "completed",
-      });
-    });
-
-    await step.run("sync-payment-created", async () => {
-      await inngest.send({
-        name: "data.sync/payment.created",
-        data: {
-          id: payment._id,
-          orderId: payment.orderId,
-          provider: payment.provider,
-          providerPaymentId: payment.providerPaymentId,
-          amount: payment.amount,
-          currency: payment.currency,
-          status: payment.status,
-          refundedAmount: payment.refundedAmount ?? null,
-          createdAt: payment._creationTime,
-          updatedAt: Date.now(),
-        },
-      });
-    });
-    });
+    if (!completedOrder) {
+      throw new Error("Failed to complete order");
+    }
 
     await step.run("sync-order-updated", async () => {
       await inngest.send({
@@ -140,6 +103,10 @@ const completedOrder = await step.run("update-order", async () => {
         status: "completed",
       });
     });
+
+    if (!payment) {
+      throw new Error("Failed to create payment");
+    }
 
     await step.run("sync-payment-created", async () => {
       await inngest.send({
@@ -185,6 +152,10 @@ const completedOrder = await step.run("update-order", async () => {
       });
     });
 
+    if (!sessionPack) {
+      throw new Error("Failed to create session pack");
+    }
+
     await step.run("sync-session-pack-created", async () => {
       await inngest.send({
         name: "data.sync/sessionPack.created",
@@ -228,6 +199,10 @@ const completedOrder = await step.run("update-order", async () => {
         throw error;
       }
     });
+
+    if (!seatReservation) {
+      throw new Error("Failed to create or find seat reservation");
+    }
 
     await step.run("sync-seat-reservation-created", async () => {
       await inngest.send({
@@ -321,6 +296,10 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
       });
     });
 
+    if (!refundedSessionPack) {
+      throw new Error("Failed to refund session pack");
+    }
+
     await step.run("sync-session-pack-updated", async () => {
       await inngest.send({
         name: "data.sync/sessionPack.updated",
@@ -346,6 +325,10 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
       });
     });
 
+    if (!refundedPayment) {
+      throw new Error("Failed to refund payment");
+    }
+
     await step.run("sync-payment-updated", async () => {
       await inngest.send({
         name: "data.sync/payment.updated",
@@ -364,6 +347,10 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
         id: payment.orderId as Id<"orders">,
       });
     });
+
+    if (!refundedOrder) {
+      throw new Error("Failed to refund order");
+    }
 
     await step.run("sync-order-updated", async () => {
       await inngest.send({
@@ -430,6 +417,10 @@ export const processPayPalCheckout = inngest.createFunction(
       });
     });
 
+    if (!payment) {
+      throw new Error("Failed to create payment");
+    }
+
     const product = await step.run("get-product", async () => {
       const productData = await convex.query(api.products.getProductById, {
         id: packId as Id<"products">,
@@ -455,6 +446,10 @@ export const processPayPalCheckout = inngest.createFunction(
         paymentId: payment._id as Id<"payments">,
       });
     });
+
+    if (!sessionPack) {
+      throw new Error("Failed to create session pack");
+    }
 
     await step.run("sync-session-pack-created", async () => {
       await inngest.send({
@@ -499,6 +494,10 @@ export const processPayPalCheckout = inngest.createFunction(
         throw error;
       }
     });
+
+    if (!seatReservation) {
+      throw new Error("Failed to create or find seat reservation");
+    }
 
     await step.run("sync-seat-reservation-created", async () => {
       await inngest.send({
@@ -594,11 +593,15 @@ export const processPayPalRefund = inngest.createFunction(
     const product = instructorProducts.find(p => p.sessionsPerPack === sessionPack.totalSessions);
     const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
 
-    const refundedSessionPack = await step.run("refund-session-pack", async () => {
+const refundedSessionPack = await step.run("refund-session-pack", async () => {
       return await convex.mutation(api.sessionPacks.refundSessionPack, {
         id: sessionPack._id,
       });
     });
+
+    if (!refundedSessionPack) {
+      throw new Error("Failed to refund session pack");
+    }
 
     await step.run("sync-session-pack-updated", async () => {
       await inngest.send({
@@ -625,6 +628,10 @@ export const processPayPalRefund = inngest.createFunction(
       });
     });
 
+    if (!refundedPayment) {
+      throw new Error("Failed to refund payment");
+    }
+
     await step.run("sync-payment-updated", async () => {
       await inngest.send({
         name: "data.sync/payment.updated",
@@ -643,6 +650,10 @@ export const processPayPalRefund = inngest.createFunction(
         id: payment.orderId as Id<"orders">,
       });
     });
+
+    if (!refundedOrder) {
+      throw new Error("Failed to refund order");
+    }
 
     await step.run("sync-order-updated", async () => {
       await inngest.send({

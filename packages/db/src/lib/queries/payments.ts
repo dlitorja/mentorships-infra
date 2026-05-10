@@ -36,6 +36,7 @@ export async function createPayment(
     const [payment] = await db
       .insert(payments)
       .values({
+        id: crypto.randomUUID(),
         orderId,
         provider,
         providerPaymentId,

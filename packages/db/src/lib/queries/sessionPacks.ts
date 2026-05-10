@@ -30,6 +30,7 @@ export async function createSessionPack(
   const [pack] = await db
     .insert(sessionPacks)
     .values({
+      id: crypto.randomUUID(),
       userId,
       mentorId,
       paymentId,
@@ -60,6 +61,7 @@ export async function createSessionPackWithoutPayment(
   const [pack] = await db
     .insert(sessionPacks)
     .values({
+      id: crypto.randomUUID(),
       userId,
       mentorId,
       paymentId: crypto.randomUUID() as any,
@@ -133,6 +135,7 @@ export async function createInstructorMenteeAssociations(
           const [newMentor] = await tx
             .insert(mentors)
             .values({
+              id: crypto.randomUUID(),
               userId: mentorUserId,
               maxActiveStudents: 10,
               oneOnOneInventory: 0,
@@ -145,6 +148,7 @@ export async function createInstructorMenteeAssociations(
         const [pack] = await tx
           .insert(sessionPacks)
           .values({
+            id: crypto.randomUUID(),
             userId: menteeUserId,
             mentorId: mentor[0].id,
             paymentId: crypto.randomUUID() as any,

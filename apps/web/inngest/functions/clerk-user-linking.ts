@@ -50,7 +50,7 @@ export const linkClerkUserToInstructor = inngest.createFunction(
 
         const id =
           existingMentor[0]?.id ??
-          (await tx.insert(mentors).values({ userId }).returning({ id: mentors.id }))[0].id;
+          (await tx.insert(mentors).values({ id: crypto.randomUUID(), userId }).returning({ id: mentors.id }))[0].id;
 
         // Update instructor with both userId and mentorId atomically
         await tx

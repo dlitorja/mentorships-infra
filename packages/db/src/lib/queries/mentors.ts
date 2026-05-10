@@ -43,6 +43,7 @@ export async function getOrCreateMentorByUserId(userId: string) {
   const [newMentor] = await db
     .insert(mentors)
     .values({
+      id: crypto.randomUUID(),
       userId,
       maxActiveStudents: 10,
       oneOnOneInventory: 0,
