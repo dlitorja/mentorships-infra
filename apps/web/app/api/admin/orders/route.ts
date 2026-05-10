@@ -12,10 +12,13 @@ const listOrdersQuerySchema = z.object({
 /**
  * GET /api/admin/orders
  * List orders for admin dashboard
- * 
+ *
  * Query params:
  * - page: Page number (default: 1)
  * - pageSize: Items per page (default: 20, max: 100)
+ *
+ * Note: Uses SQL for reads. Orders are written to Convex during checkout
+ * and synced to SQL via one-time migration. For new orders, use Convex admin.
  */
 export async function GET(req: NextRequest) {
   try {

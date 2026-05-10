@@ -523,6 +523,38 @@ http.route({
   handler: httpSeedInstructor,
 });
 
+async function verifySvixSignature(
+  secret: string,
+  payload: string,
+  timestamp: string,
+  signature: string
+): Promise<boolean> {
+  const [signingString, expectedSig] = signature.split("v1=");
+  if (!expectedSig) return false;
+
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const data = encoder.encode(`${timestamp}.${payload}`);
+  const sigBuffer = await crypto.subtle.sign("HMAC", key, data);
+  const sigArray = new Uint8Array(sigBuffer);
+
+  const expectedBytes = Uint8Array.from(atob(expectedSig), (c) => c.charCodeAt(0));
+  if (sigArray.length !== expectedBytes.length) return false;
+
+  let result = 0;
+  for (let i = 0; i < sigArray.length; i++) {
+    result |= sigArray[i] ^ expectedBytes[i];
+  }
+  return result === 0;
+}
+
 export const httpClerkWebhook = httpAction(async (ctx, request) => {
   const CLERK_WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
 
@@ -535,11 +567,38 @@ export const httpClerkWebhook = httpAction(async (ctx, request) => {
   }
 
   const payloadString = await request.text();
-  const svixHeaders = {
-    "svix-id": request.headers.get("svix-id") ?? "",
-    "svix-timestamp": request.headers.get("svix-timestamp") ?? "",
-    "svix-signature": request.headers.get("svix-signature") ?? "",
-  };
+  const svixId = request.headers.get("svix-id") ?? "";
+  const svixTimestamp = request.headers.get("svix-timestamp") ?? "";
+  const svixSignature = request.headers.get("svix-signature") ?? "";
+
+  if (!svixId || !svixTimestamp || !svixSignature) {
+    return new Response(JSON.stringify({ error: "Missing Svix headers" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const timestampAge = Math.abs(Date.now() - parseInt(svixTimestamp, 10) * 1000);
+  if (timestampAge > 300000) {
+    return new Response(JSON.stringify({ error: "Webhook timestamp too old" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const isValid = await verifySvixSignature(
+    CLERK_WEBHOOK_SECRET,
+    payloadString,
+    svixTimestamp,
+    svixSignature
+  );
+
+  if (!isValid) {
+    return new Response(JSON.stringify({ error: "Invalid signature" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const body = JSON.parse(payloadString);
   const eventType = body.type;

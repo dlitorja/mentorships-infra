@@ -424,12 +424,17 @@ export const handleSessionCompleted = internalAction({
     sessionPackId: v.string(),
     userId: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    success: boolean;
+    sessionId: string;
+    sessionPackId: string;
+    remainingSessions: number;
+    completedCount: number;
+  }> => {
     const { sessionId, sessionPackId, userId } = args;
 
     const sessionDoc: Doc<"sessions"> | null = await ctx.runQuery(internal.sessions.getSessionByIdInternal, {
       sessionId,
-      sessionPackId,
     });
 
     if (!sessionDoc) {
@@ -533,10 +538,18 @@ export const checkSeatExpiration = internalAction({
         );
 
         if (seat) {
-          await ctx.runMutation(internal.seatReservations.releaseSeatById, {
-            seatId: seat._id,
-          });
-          releasedCount++;
+          try {
+            await ctx.runMutation(internal.seatReservations.releaseSeatById, {
+              seatId: seat._id,
+            });
+            await ctx.runMutation(internal.sessions.updateSessionPackStatusInternal, {
+              sessionPackId: pack.packId,
+              status: "refunded",
+            });
+            releasedCount++;
+          } catch (error) {
+            console.error(`Failed to process expired pack ${pack.packId}:`, error);
+          }
         }
       }
     }
