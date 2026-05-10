@@ -13,6 +13,16 @@ import { onboardingFlow } from "@/inngest/functions/onboarding";
 import { linkClerkUserToInstructor } from "@/inngest/functions/clerk-user-linking";
 import { unlinkClerkUserFromInstructor } from "@/inngest/functions/clerk-user-deleted";
 import { syncInstructorInventoryToConvex } from "@/inngest/functions/inventory-sync";
+import {
+  syncPaymentCreated,
+  syncPaymentUpdated,
+  syncOrderCreated,
+  syncOrderUpdated,
+  syncSessionPackCreated,
+  syncSessionPackUpdated,
+  syncSeatReservationCreated,
+  syncSeatReservationUpdated,
+} from "@/inngest/functions/sync";
 
 // SYNC HANDLERS DISABLED - Using Convex-only architecture for simplified payment flow
 // Re-enable after MVP demo if SQL analytics replica is needed
