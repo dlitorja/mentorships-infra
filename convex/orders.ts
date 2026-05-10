@@ -189,11 +189,12 @@ export const createOrder = mutation({
     currency: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("orders", {
+    const id = await ctx.db.insert("orders", {
       ...args,
       status: args.status ?? "pending",
       currency: args.currency ?? "usd",
     });
+    return await ctx.db.get(id);
   },
 });
 

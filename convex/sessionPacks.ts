@@ -198,7 +198,7 @@ export const createSessionPack = mutation({
   },
   handler: async (ctx, args) => {
     const totalSessions = args.totalSessions ?? 4;
-    return await ctx.db.insert("sessionPacks", {
+    const id = await ctx.db.insert("sessionPacks", {
       userId: args.userId,
       mentorId: args.mentorId,
       totalSessions,
@@ -208,6 +208,7 @@ export const createSessionPack = mutation({
       status: "active",
       paymentId: args.paymentId,
     });
+    return await ctx.db.get(id);
   },
 });
 
