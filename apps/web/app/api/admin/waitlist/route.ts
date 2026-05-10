@@ -167,14 +167,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const allEntries = await convex.query(api.waitlist.getWaitlistForInstructor, {
         instructorSlug: validated.instructorSlug,
         mentorshipType: validated.mentorshipType,
-      });
+      }) as any[];
       const idSet = new Set(validated.entryIds);
-      entries = allEntries.filter((e) => idSet.has(e._id));
+      entries = allEntries.filter((e: any) => idSet.has(e._id));
     } else {
       entries = await convex.query(api.waitlist.getWaitlistForInstructor, {
         instructorSlug: validated.instructorSlug,
         mentorshipType: validated.mentorshipType,
-      });
+      }) as any[];
     }
 
     if (entries.length === 0) {
