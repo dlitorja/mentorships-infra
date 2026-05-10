@@ -68,17 +68,43 @@ export default async function DashboardPage() {
       ]);
 
     const allPacks = sessionPacksResult.items;
-    const sessionPacks = allPacks.filter((p) => p.mentor != null && p.mentorUser != null) as typeof allPacks;
+
+    type ValidPack = {
+      id: string;
+      mentorId: string;
+      totalSessions: number;
+      remainingSessions: number;
+      expiresAt: number | undefined;
+      mentor: {
+        id: string;
+        bio: string | null;
+      };
+      mentorUser: {
+        email: string;
+      };
+    };
+
+    const sessionPacks: ValidPack[] = allPacks
+      .filter((p): p is ValidPack => p.mentor != null && p.mentorUser != null)
+      .map((p) => ({
+        id: p.id,
+        mentorId: p.mentorId,
+        totalSessions: p.totalSessions,
+        remainingSessions: p.remainingSessions,
+        expiresAt: p.expiresAt,
+        mentor: { id: p.mentor.id, bio: p.mentor.bio },
+        mentorUser: { email: p.mentorUser.email },
+      }));
 
     // Get unique instructors
     const instructors = Array.from(
       new Map(
         sessionPacks.map((pack) => [
-          pack.mentor!.id,
+          pack.mentor.id,
           {
-            mentorId: pack.mentor!.id,
-            email: pack.mentorUser!.email,
-            bio: pack.mentor!.bio,
+            mentorId: pack.mentor.id,
+            email: pack.mentorUser.email,
+            bio: pack.mentor.bio,
           },
         ])
       ).values()
