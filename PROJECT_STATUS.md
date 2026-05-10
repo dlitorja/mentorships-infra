@@ -2,6 +2,20 @@
 
 ## 🔴 Top Priority
 
+### Fix Payment Flow Reads to Convex (IN PROGRESS)
+
+**Issue**: Payment writes go to Convex, but some reads still go to SQL causing payment flow to fail.
+
+**Impact**: Onboarding emails won't send, student/instructor dashboards won't show purchase data.
+
+**Fix Plan** (in priority order):
+1. **Phase 1**: Fix `onboardingFlow` to read from Convex (CRITICAL - blocks all payment flows)
+2. **Phase 2**: Fix student dashboard reads to Convex
+3. **Phase 3**: Fix instructor dashboard reads to Convex
+4. **Phase 4**: Verify payment flow end-to-end
+
+**Reference**: `PAYMENT_FLOW_TESTING_INSTRUCTIONS.md` for testing guide once complete.
+
 - ~~Migrate instructor image storage to Convex Storage~~ ✅ **COMPLETED April 30, 2026**
   - ~~Replace Supabase Storage usage for instructor profile and portfolio images with Convex `ctx.storage`~~ ✅
   - ~~Store Convex `storageId` in instructor records and resolve URLs with `ctx.storage.getUrl`~~ ✅
@@ -18,7 +32,7 @@
 
 ## 🏗️ Architecture Clarification
 
-This monorepo contains multiple applications with distinct responsibilities:
+### Application Responsibilities
 
 | App | Responsibility |
 |-----|---------------|
@@ -27,19 +41,66 @@ This monorepo contains multiple applications with distinct responsibilities:
 | **apps/bot** | Discord bot (slash commands, automation) |
 | **apps/video** | Video integration (Agora/Amazon Chime) |
 
-**Potential Additions**:
-- None currently
+### Database Architecture - Source of Truth Principle
 
-**Data flow (Current - Migrating)**:
-- apps/marketing reads instructor data from static JSON
-- apps/web manages all user data in Supabase via Drizzle ORM (MIGRATING to Convex)
-- Both apps share the `@mentorships/db` package for database schema (MIGRATING to Convex)
+**CRITICAL**: This architecture must NOT be violated. Straying from this causes repeated work and data inconsistencies.
 
-**Data flow (Target - After Convex Migration)**:
-- apps/marketing reads instructor data from Convex
-- apps/web manages all user data in Convex (real-time queries, built-in reactivity)
-- Auth via Clerk (unchanged), file storage via Convex Storage
-- Video recordings remain on Backblaze B2 with Cloudflare egress
+#### Data Store Selection Rule
+
+| Data Type | Source of Truth | When to Use |
+|-----------|-----------------|-------------|
+| **Payment data** (orders, payments, sessionPacks, mentors, instructors, workspaces) | **Convex** | User-facing reads, real-time reactivity, payment processing |
+| **Analytics/Stats** (aggregations, reports, admin dashboards requiring complex joins) | **SQL/Drizzle** | Admin stats, revenue calculations, seat utilization analytics |
+| **User content** (instructor profiles, testimonials, mentee results) | **Convex** | Real-time updates, admin management |
+| **Historical/migrated data** | **Once to Convex** | One-time migration, never touched again |
+
+#### Why This Separation?
+
+**Convex excels at**:
+- Real-time reactive queries (dashboard auto-refreshes)
+- Complex authorization (row-level security via Convex queries)
+- Payment transaction handling (idempotent mutations)
+- User-facing data that needs consistency across clients
+
+**SQL/Drizzle excels at**:
+- Complex aggregations (SUM, COUNT, GROUP BY across large datasets)
+- Analytics queries that scan many rows for reporting
+- Admin-only dashboards that don't need real-time updates
+
+#### What MUST NOT Happen
+
+- ❌ **Do NOT sync Convex payment data to SQL** - creates failure points, lag, and divergence
+- ❌ **Do NOT read payment data from SQL if it was written to Convex** - will find nothing
+- ❌ **Do NOT write payment data to both** - sync will eventually fail
+- ❌ **Do NOT use SQL for user-facing real-time queries** - loses reactivity benefits
+
+#### Current Migration Status
+
+| Data Type | Source | Status |
+|-----------|--------|--------|
+| Orders | Convex | ✅ Write + Read |
+| Payments | Convex | ✅ Write + Read |
+| Session Packs | Convex | ✅ Write + Read |
+| Instructors/Mentors | Convex | ✅ Write + Read |
+| Products | Convex | ✅ Write + Read |
+| Seat Reservations | Convex | ✅ Write + Read |
+| Workspaces | Convex | ✅ Write + Read |
+| Admin Stats | SQL/Drizzle | ✅ Read (analytics appropriate) |
+| Admin Orders (list) | Convex | ✅ Read (PR #232) |
+| Admin Products (list) | Convex | ✅ Read (PR #232) |
+
+---
+
+### Data Flow
+
+**apps/marketing**:
+- Reads instructor data from **Convex** via `@mentorships/db` queries
+
+**apps/web**:
+- Payment data (orders, payments, sessionPacks): **Convex** (source of truth)
+- Analytics/stats: **SQL/Drizzle** (Supabase)
+- Auth via Clerk, file storage via Convex Storage
+- Video recordings on Backblaze B2 with Cloudflare egress
 
 ---
 

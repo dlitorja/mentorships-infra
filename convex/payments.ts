@@ -41,10 +41,35 @@ export const getPaymentByProviderId = query({
     }
     return await ctx.db
       .query("payments")
-      .withIndex("by_provider_providerPaymentId", (q) => 
+      .withIndex("by_provider_providerPaymentId", (q) =>
         q.eq("provider", args.provider).eq("providerPaymentId", args.providerPaymentId)
       )
       .first();
+  },
+});
+
+/** Finds a completed payment for an order by provider. Used by onboarding flow. */
+export const getCompletedPaymentByOrderAndProvider = query({
+  args: {
+    orderId: v.id("orders"),
+    provider: v.union(v.literal("stripe"), v.literal("paypal")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const payments = await ctx.db
+      .query("payments")
+      .withIndex("by_orderId", (q) => q.eq("orderId", args.orderId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("provider"), args.provider),
+          q.eq(q.field("status"), "completed")
+        )
+      )
+      .first();
+
+    return payments;
   },
 });
 
