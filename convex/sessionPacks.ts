@@ -88,9 +88,10 @@ export const getUserSessionPacksWithMentors = query({
         const mentor = await ctx.db.get(pack.mentorId);
         let mentorUser = null;
         if (mentor?.userId) {
+          const userId = mentor.userId;
           const users = await ctx.db
             .query("users")
-            .withIndex("by_userId", (q) => q.eq("userId", mentor.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
           mentorUser = users;
         }

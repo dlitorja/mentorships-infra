@@ -95,9 +95,10 @@ export const getUpcomingSessionsWithMentor = query({
         const mentor = await ctx.db.get(session.mentorId);
         let mentorUser = null;
         if (mentor?.userId) {
+          const userId = mentor.userId;
           const users = await ctx.db
             .query("users")
-            .withIndex("by_userId", (q) => q.eq("userId", mentor.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
           mentorUser = users;
         }
@@ -154,9 +155,10 @@ export const getRecentSessionsWithMentor = query({
         const mentor = await ctx.db.get(session.mentorId);
         let mentorUser = null;
         if (mentor?.userId) {
+          const userId = mentor.userId;
           const users = await ctx.db
             .query("users")
-            .withIndex("by_userId", (q) => q.eq("userId", mentor.userId))
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
           mentorUser = users;
         }
