@@ -375,63 +375,6 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
         },
       });
     });
-    });
-
-    await step.run("sync-session-pack-updated", async () => {
-      await inngest.send({
-        name: "data.sync/sessionPack.updated",
-        data: {
-          id: refundedSessionPack._id,
-          status: refundedSessionPack.status,
-          updatedAt: Date.now(),
-        },
-      });
-    });
-
-    await step.run("increment-inventory", async () => {
-      await convex.mutation(api.instructors.incrementInventory, {
-        id: sessionPack.mentorId as Id<"instructors">,
-        type: refundInventoryType,
-      });
-    });
-
-    const refundedPayment = await step.run("update-payment-status", async () => {
-      const charge = await stripe.charges.retrieve(event.data.chargeId);
-      return await convex.mutation(api.payments.refundPayment, {
-        id: payment._id,
-        refundedAmount: (charge.amount_refunded / 100).toFixed(2),
-      });
-    });
-
-    await step.run("sync-payment-updated", async () => {
-      await inngest.send({
-        name: "data.sync/payment.updated",
-        data: {
-          id: refundedPayment._id,
-          orderId: refundedPayment.orderId,
-          status: refundedPayment.status,
-          refundedAmount: refundedPayment.refundedAmount ?? null,
-          updatedAt: Date.now(),
-        },
-      });
-    });
-
-    const refundedOrder = await step.run("update-order-status", async () => {
-      return await convex.mutation(api.orders.refundOrder, {
-        id: payment.orderId as Id<"orders">,
-      });
-    });
-
-    await step.run("sync-order-updated", async () => {
-      await inngest.send({
-        name: "data.sync/order.updated",
-        data: {
-          id: refundedOrder._id,
-          status: refundedOrder.status,
-          updatedAt: Date.now(),
-        },
-      });
-    });
 
     return {
       success: true,

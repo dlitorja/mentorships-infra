@@ -1,6 +1,5 @@
 import { inngest } from "../client";
-import { db } from "@mentorships/db";
-import { payments, orders, sessionPacks, seatReservations } from "@mentorships/db/schema";
+import { db, payments, orders, sessionPacks, seatReservations } from "@mentorships/db";
 import { eq } from "drizzle-orm";
 import type {
   PaymentCreatedEvent,
