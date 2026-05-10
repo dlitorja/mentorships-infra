@@ -81,9 +81,9 @@ export async function GET(
     const messages = messagesResult.status === "fulfilled" && messagesResult.value
       ? messagesResult.value
       : [];
-    const auditLogs: any = auditLogsResult.status === "fulfilled" && auditLogsResult.value
+    const auditLogs = (auditLogsResult.status === "fulfilled" && auditLogsResult.value
       ? auditLogsResult.value
-      : emptyPagination;
+      : emptyPagination) as any;
 
     if (clerkUserId) {
       await convex.mutation(api.workspaces.logViewWorkspaceAudit, {
