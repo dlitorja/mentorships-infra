@@ -45,7 +45,7 @@ export function usePublicInstructorBySlug(slug: string) {
 export function useAdminInstructors() {
   return useQuery({
     ...convexQuery(api.instructors.getInstructorsForAdmin, {}),
-  });
+  } as any);
 }
 
 export function useUpdateInstructor() {
