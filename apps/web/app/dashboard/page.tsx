@@ -77,7 +77,7 @@ export default async function DashboardPage() {
       expiresAt: number | undefined;
       mentor: {
         id: string;
-        bio: string | null;
+        bio: string | null | undefined;
       };
       mentorUser: {
         email: string;
