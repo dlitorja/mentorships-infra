@@ -224,7 +224,7 @@ export default async function DashboardPage() {
                             <Calendar className="h-4 w-4" />
                             <span>
                               {pack.expiresAt
-                                ? `Expires ${formatDate(pack.expiresAt)}`
+                                ? `Expires ${formatDate(new Date(pack.expiresAt))}`
                                 : "No expiration"}
                             </span>
                           </div>
