@@ -141,7 +141,7 @@ export default function InventoryPage() {
     );
   };
 
-  const filteredInstructors = instructorsData?.filter((inst) => {
+  const filteredInstructors = (instructorsData as InstructorWithInventory[] | undefined)?.filter((inst) => {
     if (filter === "available") {
       return (inst.oneOnOneInventory ?? 0) > 0 || (inst.groupInventory ?? 0) > 0;
     }
