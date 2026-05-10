@@ -3,10 +3,18 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { z } from "zod";
-import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight, Loader2, Trash2, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 type Mentor = {
   id: string;
@@ -84,6 +92,10 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const pageSize = 20;
 
+  const [productToDelete, setProductToDelete] = useState<ProductInfo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const fetchMentors = async () => {
     try {
       const res = await fetch("/api/admin/instructors/mentors");
@@ -148,6 +160,41 @@ export default function ProductsPage() {
     e.preventDefault();
     setPage(1);
     setSearch(searchInput);
+  };
+
+  const handleDeleteClick = (product: ProductInfo) => {
+    setProductToDelete(product);
+    setDeleteError(null);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!productToDelete) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await fetch(`/api/admin/products/${productToDelete.id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to delete product");
+      }
+
+      setProductToDelete(null);
+      fetchProducts();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete product");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteCancel = () => {
+    setProductToDelete(null);
+    setDeleteError(null);
   };
 
   const totalPages = Math.ceil(total / pageSize);
@@ -407,6 +454,12 @@ export default function ProductsPage() {
                       >
                         Edit
                       </Link>
+                      <button
+                        onClick={() => handleDeleteClick(product)}
+                        className="text-sm text-red-600 hover:text-red-800 hover:underline"
+                      >
+                        Delete
+                      </button>
                       <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
                         {product.id.slice(0, 8)}...
                       </code>
@@ -445,6 +498,63 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!productToDelete} onOpenChange={() => handleDeleteCancel()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              Delete Product
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this product? This action will:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+              <li>Archive the product in Stripe (it cannot be used for new purchases)</li>
+              <li>Archive the associated Stripe price</li>
+              <li>Mark the product as deleted in the database</li>
+            </ul>
+            {productToDelete && (
+              <div className="mt-3 p-3 bg-muted rounded-lg">
+                <p className="font-medium">{productToDelete.title}</p>
+                <p className="text-sm text-muted-foreground">
+                  {productToDelete.stripeProductId && `Stripe Product: ${productToDelete.stripeProductId}`}
+                </p>
+              </div>
+            )}
+            {deleteError && (
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
+                {deleteError}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={handleDeleteCancel} disabled={isDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Product
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
