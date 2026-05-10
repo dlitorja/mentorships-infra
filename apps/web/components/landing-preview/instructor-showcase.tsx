@@ -8,7 +8,7 @@ import { usePublicInstructors, PublicInstructor } from "@/lib/queries/convex/use
 const MAX_SHOWCASE_INSTRUCTORS = 4;
 
 export function InstructorShowcase() {
-  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors();
+  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors() as any;
   const [featured, setFeatured] = useState<PublicInstructor[]>([]);
 
   useEffect(() => {
