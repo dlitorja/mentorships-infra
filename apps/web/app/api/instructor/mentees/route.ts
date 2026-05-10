@@ -27,10 +27,10 @@ export async function GET(req: NextRequest) {
 
     const mentees = await convex.query(api.instructors.getMentorMenteesWithSessionInfo, {
       mentorId: instructor._id,
-    });
+    }) as any[];
 
     return NextResponse.json({
-      items: mentees.map((m) => ({
+      items: mentees.map((m: any) => ({
         userId: m.userId,
         email: m.email,
         sessionPackId: m.sessionPackId,
