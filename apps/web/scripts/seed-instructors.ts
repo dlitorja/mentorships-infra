@@ -8,8 +8,20 @@
  * It checks for existing instructors before creating (idempotent).
  */
 
+import { z } from "zod";
 import { spawn } from "child_process";
 import { instructors as marketingInstructors } from "../../marketing/lib/instructors";
+
+const mentorResponseSchema = z.union([
+  z.string(),
+  z.object({ _id: z.string() }),
+]);
+
+const instructorResponseSchema = z.union([
+  z.string(),
+  z.object({ _id: z.string() }),
+  z.object({ value: z.object({ _id: z.string() }) }),
+]);
 
 function runConvexMutation(functionName: string, args: Record<string, any>): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -81,8 +93,11 @@ async function seedInstructor(instructor: any): Promise<any> {
     const mentorResult = await runConvexMutation("mentors:getOrCreateMentor", {
       userId,
     });
-    // Mutation returns ID directly (string) or object with _id
-    mentorId = typeof mentorResult === 'string' ? mentorResult : mentorResult?._id;
+    const parsed = mentorResponseSchema.safeParse(mentorResult);
+    if (!parsed.success) {
+      throw new Error(`Invalid mentor response from mentors:getOrCreateMentor: ${JSON.stringify(mentorResult)}`);
+    }
+    mentorId = typeof parsed.data === "string" ? parsed.data : parsed.data._id;
   } catch (e: any) {
     if (e.message?.includes("UNIQUE constraint") || e.message?.includes("already exists")) {
       console.log(`  ⏭️  Mentor already exists, skipping`);
@@ -115,7 +130,18 @@ async function seedInstructor(instructor: any): Promise<any> {
     mentorId,
   });
 
-  const instructorId = typeof instructorResult === 'string' ? instructorResult : (instructorResult?._id || instructorResult?.value?._id);
+  const parsedInstructor = instructorResponseSchema.safeParse(instructorResult);
+  if (!parsedInstructor.success) {
+    throw new Error(`Invalid instructor response from instructors:createInstructor: ${JSON.stringify(instructorResult)}`);
+  }
+  let instructorId: string;
+  if (typeof parsedInstructor.data === "string") {
+    instructorId = parsedInstructor.data;
+  } else if ("_id" in parsedInstructor.data) {
+    instructorId = parsedInstructor.data._id;
+  } else {
+    instructorId = parsedInstructor.data.value._id;
+  }
   console.log(`  Instructor ID: ${instructorId}`);
 
   // Create products

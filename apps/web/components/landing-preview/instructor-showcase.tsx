@@ -3,27 +3,17 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePublicInstructors } from "@/lib/queries/convex/use-instructors";
-
-type PublicInstructor = {
-  _id: string;
-  name?: string;
-  slug?: string;
-  tagline?: string;
-  profileImageUrl?: string;
-  specialties?: string[];
-  isHidden?: boolean;
-};
+import { usePublicInstructors, PublicInstructor } from "@/lib/queries/convex/use-instructors";
 
 const MAX_SHOWCASE_INSTRUCTORS = 4;
 
 export function InstructorShowcase() {
-  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors() as any;
+  const { data: instructorsData, isLoading, isError, error } = usePublicInstructors();
   const [featured, setFeatured] = useState<PublicInstructor[]>([]);
 
   useEffect(() => {
     if (!instructorsData) return;
-    const visible = instructorsData.filter((inst: any) => !inst.isHidden);
+    const visible = instructorsData.filter((inst: PublicInstructor) => !inst.isHidden);
     setFeatured(visible.slice(0, MAX_SHOWCASE_INSTRUCTORS));
   }, [instructorsData]);
 

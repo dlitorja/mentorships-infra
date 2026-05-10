@@ -1,12 +1,23 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, UseQueryResult } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 
-export function useCurrentUser() {
+export type CurrentUser = {
+  _id: Id<"users">;
+  userId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role?: "student" | "mentor" | "admin" | "video_editor";
+  timeZone?: string;
+  clerkId: string;
+};
+
+export function useCurrentUser(): UseQueryResult<CurrentUser | null, Error> {
   return useQuery({
     ...convexQuery(api.users.getCurrentUser, {}),
-  });
+  }) as UseQueryResult<CurrentUser | null, Error>;
 }
 
 export function useUserById(id: Id<"users">) {

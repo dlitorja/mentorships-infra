@@ -1,7 +1,23 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, UseQueryResult } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
+
+export type UserWorkspace = {
+  _id: Id<"workspaces">;
+  name: string;
+  description?: string;
+  ownerId: string;
+  mentorId?: Id<"instructors">;
+  imageUrl?: string;
+  isPublic: boolean;
+  deletedAt?: number;
+  seatReservationId?: Id<"seatReservations">;
+  endedAt?: number;
+  menteeImageCount: number;
+  mentorImageCount: number;
+  type?: "mentorship" | "admin_mentee" | "admin_instructor";
+};
 
 export function useWorkspace(id: Id<"workspaces">) {
   return useQuery({
@@ -10,11 +26,11 @@ export function useWorkspace(id: Id<"workspaces">) {
   });
 }
 
-export function useUserWorkspaces(ownerId: string) {
+export function useUserWorkspaces(ownerId: string): UseQueryResult<UserWorkspace[], Error> {
   return useQuery({
     ...convexQuery(api.workspaces.getUserWorkspaces, { ownerId }),
     enabled: !!ownerId,
-  } as any);
+  }) as UseQueryResult<UserWorkspace[], Error>;
 }
 
 export function useInstructorWorkspaces(mentorId: Id<"instructors">) {

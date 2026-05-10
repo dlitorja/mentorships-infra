@@ -15,22 +15,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { usePublicInstructors } from "@/lib/queries/convex/use-instructors";
-
-type PublicInstructor = {
-  _id: string;
-  name: string;
-  slug: string;
-  tagline?: string;
-  profileImageUrl?: string;
-  specialties?: string[];
-  isNew?: boolean;
-  isHidden?: boolean;
-  mentor?: {
-    oneOnOneInventory: number;
-    groupInventory: number;
-  };
-};
+import { usePublicInstructors, PublicInstructor } from "@/lib/queries/convex/use-instructors";
 
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
@@ -42,8 +27,8 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 export function InstructorCarousel(): React.JSX.Element | null {
-  const { data: instructorsData, isLoading } = usePublicInstructors() as any;
-  const [instructors, setInstructors] = useState<any[]>([]);
+  const { data: instructorsData, isLoading } = usePublicInstructors();
+  const [instructors, setInstructors] = useState<PublicInstructor[]>([]);
   const [isClient, setIsClient] = useState(false);
   const [api, setApi] = useState<CarouselApi>();
   const [current, setCurrent] = useState(0);
@@ -53,7 +38,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
   useEffect(() => {
     if (!instructorsData) return;
     
-    const visible = instructorsData.filter((inst: any) => !inst.isHidden);
+    const visible = instructorsData.filter((inst: PublicInstructor) => !inst.isHidden);
     const shuffled = isClient ? shuffleArray(visible) : visible;
     setInstructors(shuffled);
   }, [instructorsData, isClient]);
@@ -159,7 +144,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
                     >
                       <Image
                         src={instructor.profileImageUrl || "/placeholder.jpg"}
-                        alt={instructor.name}
+                        alt={instructor.name || "Instructor"}
                         fill
                         className="object-cover transition-transform hover:scale-105"
                         sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
