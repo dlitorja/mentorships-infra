@@ -14,6 +14,18 @@ import { mutation } from "./_generated/server";
 export const wipePaymentData = mutation({
   args: {},
   handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const user = await ctx.db
+      .query("users")
+      .filter((q) => q.eq(q.field("clerkId"), identity.subject))
+      .first();
+    if (!user || user.role !== "admin") {
+      throw new Error("Forbidden: Admin role required");
+    }
+
     const results: Record<string, number> = {};
 
     // Wipe payment-related tables

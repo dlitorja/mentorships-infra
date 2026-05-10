@@ -277,23 +277,41 @@ export async function DELETE(
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
+    let stripePriceArchived = false;
+    let stripeProductArchived = false;
     const errors: string[] = [];
 
     if (existingProduct.stripePriceId) {
       try {
         await stripe.prices.update(existingProduct.stripePriceId, { active: false });
+        stripePriceArchived = true;
       } catch (stripePriceError) {
         console.error("Failed to archive Stripe price:", stripePriceError);
         errors.push(`Stripe price archival failed: ${stripePriceError instanceof Error ? stripePriceError.message : "Unknown error"}`);
+        return NextResponse.json(
+          {
+            error: "Failed to archive Stripe price",
+            details: { stripePriceId: existingProduct.stripePriceId, error: errors[0] },
+          },
+          { status: 500 }
+        );
       }
     }
 
     if (existingProduct.stripeProductId) {
       try {
         await stripe.products.update(existingProduct.stripeProductId, { active: false });
+        stripeProductArchived = true;
       } catch (stripeProductError) {
         console.error("Failed to archive Stripe product:", stripeProductError);
         errors.push(`Stripe product archival failed: ${stripeProductError instanceof Error ? stripeProductError.message : "Unknown error"}`);
+        return NextResponse.json(
+          {
+            error: "Failed to archive Stripe product",
+            details: { stripeProductId: existingProduct.stripeProductId, error: errors[0] },
+          },
+          { status: 500 }
+        );
       }
     }
 
@@ -305,9 +323,8 @@ export async function DELETE(
       success: true,
       message: "Product deleted successfully",
       details: {
-        stripeProductArchived: !!existingProduct.stripeProductId,
-        stripePriceArchived: !!existingProduct.stripePriceId,
-        warnings: errors.length > 0 ? errors : undefined,
+        stripeProductArchived,
+        stripePriceArchived,
       },
     });
   } catch (error) {
