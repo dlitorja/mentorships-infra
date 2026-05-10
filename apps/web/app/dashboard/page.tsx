@@ -67,8 +67,24 @@ export default async function DashboardPage() {
         }),
       ]);
 
-    const upcomingSessions = upcomingRaw.filter((s) => s.mentorUser != null);
-    const recentSessions = recentRaw.filter((s) => s.mentorUser != null);
+    const upcomingSessions = upcomingRaw
+      .filter((s) => s.mentorUser != null)
+      .map((s) => ({
+        id: s.id,
+        scheduledAt: s.scheduledAt,
+        status: s.status,
+        mentorUser: { email: s.mentorUser!.email },
+      }));
+
+    const recentSessions = recentRaw
+      .filter((s) => s.mentorUser != null)
+      .map((s) => ({
+        id: s.id,
+        scheduledAt: s.scheduledAt,
+        completedAt: s.completedAt,
+        status: s.status,
+        mentorUser: { email: s.mentorUser!.email },
+      }));
 
     const allPacks = sessionPacksResult.items;
 
