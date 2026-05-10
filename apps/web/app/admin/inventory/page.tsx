@@ -331,7 +331,7 @@ export default function InventoryPage() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
-              ) : (waitlistEntries?.length ?? 0) === 0 ? (
+              ) : ((waitlistEntries as WaitlistEntry[] | undefined)?.length ?? 0) === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No waitlist entries
                 </div>
@@ -414,7 +414,7 @@ export default function InventoryPage() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
-              ) : (waitlistEntries?.length ?? 0) === 0 ? (
+              ) : ((waitlistEntries as WaitlistEntry[] | undefined)?.length ?? 0) === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No waitlist entries
                 </div>
