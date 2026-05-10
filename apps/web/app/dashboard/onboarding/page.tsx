@@ -23,10 +23,12 @@ export default async function MenteeOnboardingPage() {
     limit: 100,
     offset: 0,
   });
-  const packs = sessionPacksResult.items.map((p) => ({
-    sessionPackId: p.id,
-    instructorLabel: p.mentorUser?.email,
-  }));
+  const packs = sessionPacksResult.items
+    .filter((p) => p.mentorUser?.email)
+    .map((p) => ({
+      sessionPackId: p.id,
+      instructorLabel: p.mentorUser!.email,
+    }));
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6 max-w-3xl">
