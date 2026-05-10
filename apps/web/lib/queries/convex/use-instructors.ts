@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, UseQueryResult } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
@@ -29,10 +29,42 @@ export function useActiveInstructors() {
   });
 }
 
-export function usePublicInstructors() {
+export type PublicInstructor = {
+  _id: Id<"instructors">;
+  userId?: string;
+  name?: string;
+  slug?: string;
+  email?: string;
+  googleCalendarId?: string;
+  timeZone?: string;
+  workingHours?: any;
+  maxActiveStudents?: number;
+  bio?: string;
+  pricing?: string;
+  oneOnOneInventory?: number;
+  groupInventory?: number;
+  deletedAt?: number;
+  legacyId?: string;
+  isActive?: boolean;
+  isNew?: boolean;
+  isHidden?: boolean;
+  background?: string[];
+  specialties?: string[];
+  portfolioImages?: string[];
+  portfolioImageStorageIds?: string[];
+  profileImageUrl?: string;
+  profileImageStorageId?: string;
+  profileImageUploadPath?: string;
+  socials?: any;
+  mentorId?: string;
+  tagline?: string;
+  updatedAt?: number;
+};
+
+export function usePublicInstructors(): UseQueryResult<PublicInstructor[], Error> {
   return useQuery({
     ...convexQuery(api.instructors.getPublicInstructors, {}),
-  } as any);
+  }) as UseQueryResult<PublicInstructor[], Error>;
 }
 
 export function usePublicInstructorBySlug(slug: string) {
@@ -42,10 +74,12 @@ export function usePublicInstructorBySlug(slug: string) {
   });
 }
 
-export function useAdminInstructors() {
+export type AdminInstructor = PublicInstructor;
+
+export function useAdminInstructors(): UseQueryResult<AdminInstructor[], Error> {
   return useQuery({
     ...convexQuery(api.instructors.getInstructorsForAdmin, {}),
-  } as any);
+  }) as UseQueryResult<AdminInstructor[], Error>;
 }
 
 export function useUpdateInstructor() {

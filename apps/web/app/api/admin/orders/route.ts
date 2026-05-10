@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { getAdminOrders } from "@mentorships/db";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 const listOrdersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -17,8 +26,7 @@ const listOrdersQuerySchema = z.object({
  * - page: Page number (default: 1)
  * - pageSize: Items per page (default: 20, max: 100)
  *
- * Note: Uses SQL for reads. Orders are written to Convex during checkout
- * and synced to SQL via one-time migration. For new orders, use Convex admin.
+ * Uses Convex as source of truth. Orders are written to Convex during checkout.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -36,8 +44,13 @@ export async function GET(req: NextRequest) {
     }
 
     const { page, pageSize } = parsedQuery.data;
+    const offset = (page - 1) * pageSize;
 
-    const result = await getAdminOrders(page, pageSize);
+    const convex = getConvexClient();
+    const result = await convex.query(api.orders.getOrdersForAdmin, {
+      limit: pageSize,
+      offset,
+    });
 
     return NextResponse.json({
       items: result.items.map((order) => ({
@@ -60,8 +73,9 @@ export async function GET(req: NextRequest) {
         })),
       })),
       total: result.total,
-      page: result.page,
-      pageSize: result.pageSize,
+      page,
+      pageSize,
+      hasMore: result.hasMore,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {

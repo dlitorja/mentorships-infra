@@ -4,8 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { useCurrentUser } from '@/lib/queries/convex';
-import { useUserWorkspaces } from '@/lib/queries/convex/use-workspaces';
+import { useCurrentUser, CurrentUser } from '@/lib/queries/convex';
+import { useUserWorkspaces, UserWorkspace } from '@/lib/queries/convex/use-workspaces';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MessageSquare, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
@@ -13,17 +13,6 @@ import WorkspaceChat from '@/components/workspace/chat';
 import WorkspaceNotes from '@/components/workspace/notes';
 import WorkspaceImages from '@/components/workspace/images';
 import { RetentionWarningBanner } from '@/components/workspace/retention-warning-banner';
-
-interface WorkspaceWithMentor {
-  _id: Id<'workspaces'>;
-  name: string;
-  description?: string;
-  ownerId: string;
-  mentorId?: Id<'instructors'>;
-  menteeImageCount: number;
-  mentorImageCount: number;
-  endedAt?: number;
-}
 
 function WorkspaceContent({
   clerkUserId,
@@ -35,7 +24,7 @@ function WorkspaceContent({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<'workspaces'> | null>(null);
   const [activeTab, setActiveTab] = useState('chat');
 
-  const { data: workspaces, isLoading: workspacesLoading } = useUserWorkspaces(dbUserId) as any;
+  const { data: workspaces, isLoading: workspacesLoading } = useUserWorkspaces(dbUserId);
 
   useEffect(() => {
     if (workspaces && workspaces.length > 0 && !selectedWorkspaceId) {
@@ -51,7 +40,7 @@ function WorkspaceContent({
     );
   }
 
-  const selectedWorkspace = workspaces?.find((w: any) => w._id === selectedWorkspaceId);
+  const selectedWorkspace = workspaces?.find((w: UserWorkspace) => w._id === selectedWorkspaceId);
 
   return (
     <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-64px)]">
@@ -65,7 +54,7 @@ function WorkspaceContent({
             <CardContent className="pt-0">
               {workspaces && workspaces.length > 0 ? (
                 <div className="space-y-1">
-                  {(workspaces as any[]).map((workspace: any) => (
+                  {workspaces.map((workspace: UserWorkspace) => (
                     <button
                       key={workspace._id}
                       onClick={() => setSelectedWorkspaceId(workspace._id)}
