@@ -303,7 +303,19 @@ function getBaseUrl(): string {
 export const processDiscordActionQueue = internalAction({
   args: {},
   handler: async (ctx) => {
-    const actions = await ctx.runMutation(internal.discordActionQueue.claimDiscordActions, {
+    type ClaimedAction = {
+      id: string;
+      type: "assign_mentee_role" | "dm_instructor_new_signup";
+      status: string;
+      subjectUserId: string;
+      mentorId: string | null;
+      mentorUserId: string | null;
+      payload: unknown;
+      attempts: number;
+      lastError: string | null;
+      lockedAt: number;
+    };
+    const actions: ClaimedAction[] = await ctx.runMutation(internal.discordActionQueue.claimDiscordActions, {
       limit: 25,
       lockTtlMs: 10 * 60 * 1000,
     });

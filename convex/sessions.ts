@@ -1,7 +1,7 @@
 import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Id, Doc } from "./_generated/dataModel";
 
 /** Returns a session by its ID. */
 export const getSessionById = query({
@@ -427,7 +427,7 @@ export const handleSessionCompleted = internalAction({
   handler: async (ctx, args) => {
     const { sessionId, sessionPackId, userId } = args;
 
-    const sessionDoc = await ctx.runQuery(internal.sessions.getSessionByIdInternal, {
+    const sessionDoc: Doc<"sessions"> | null = await ctx.runQuery(internal.sessions.getSessionByIdInternal, {
       sessionId,
       sessionPackId,
     });
@@ -440,7 +440,7 @@ export const handleSessionCompleted = internalAction({
       throw new Error(`Session ${sessionId} is not completed`);
     }
 
-    const pack = await ctx.runQuery(internal.sessions.getSessionPackByIdInternal, {
+    const pack: Doc<"sessionPacks"> | null = await ctx.runQuery(internal.sessions.getSessionPackByIdInternal, {
       sessionPackId: sessionPackId as Id<"sessionPacks">,
     });
 
@@ -448,11 +448,11 @@ export const handleSessionCompleted = internalAction({
       throw new Error(`Session pack ${sessionPackId} not found`);
     }
 
-    const updatedPack = await ctx.runMutation(internal.sessions.decrementRemainingSessions, {
+    const updatedPack: Doc<"sessionPacks"> | null = await ctx.runMutation(internal.sessions.decrementRemainingSessions, {
       sessionPackId: pack._id,
     });
 
-    const completedCount = await ctx.runQuery(internal.sessions.getCompletedSessionCountInternal, {
+    const completedCount: number = await ctx.runQuery(internal.sessions.getCompletedSessionCountInternal, {
       sessionPackId: pack._id,
     });
 
@@ -503,7 +503,21 @@ export const handleSessionCompleted = internalAction({
 export const checkSeatExpiration = internalAction({
   args: {},
   handler: async (ctx) => {
-    const expiredPacks = await ctx.runQuery(internal.sessions.listExpiredPacks, {});
+    type ExpiredPack = {
+      packId: Id<"sessionPacks">;
+      userId: string;
+      mentorId: string | null;
+      status: string;
+      expiresAt: number | undefined;
+    };
+    type ExpiredGraceSeat = {
+      seatId: Id<"seatReservations">;
+      sessionPackId: Id<"sessionPacks">;
+      userId: string;
+      mentorId: string | null;
+      gracePeriodEndsAt: number | undefined;
+    };
+    const expiredPacks: ExpiredPack[] = await ctx.runQuery(internal.sessions.listExpiredPacks, {});
 
     let releasedCount = 0;
     for (const pack of expiredPacks) {
@@ -527,7 +541,7 @@ export const checkSeatExpiration = internalAction({
       }
     }
 
-    const expiredGraceSeats = await ctx.runQuery(internal.sessions.listExpiredGraceSeats, {});
+    const expiredGraceSeats: ExpiredGraceSeat[] = await ctx.runQuery(internal.sessions.listExpiredGraceSeats, {});
 
     for (const seat of expiredGraceSeats) {
       await ctx.runMutation(internal.seatReservations.releaseSeatById, {

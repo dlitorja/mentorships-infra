@@ -1561,7 +1561,5 @@ export const linkClerkUserToInstructor = internalAction({
       instructorLinking: instructorResult,
       menteeLinking: menteeResult,
     };
-=======
->>>>>>> origin/main
   },
 });
