@@ -47,7 +47,7 @@ export default async function DashboardPage() {
 
     const convex = getConvexClient();
 
-    const [sessionPacksResult, totalSessions, upcomingSessions, recentSessions] =
+    const [sessionPacksResult, totalSessions, upcomingRaw, recentRaw] =
       await Promise.all([
         convex.query(api.sessionPacks.getUserSessionPacksWithMentors, {
           userId: user.id,
@@ -66,6 +66,9 @@ export default async function DashboardPage() {
           limit: 3,
         }),
       ]);
+
+    const upcomingSessions = upcomingRaw.filter((s) => s.mentorUser != null);
+    const recentSessions = recentRaw.filter((s) => s.mentorUser != null);
 
     const allPacks = sessionPacksResult.items;
 
@@ -276,7 +279,7 @@ export default async function DashboardPage() {
                             {session.mentorUser.email}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {formatDateTime(session.scheduledAt)}
+                            {formatDateTime(new Date(session.scheduledAt))}
                           </p>
                         </div>
                         <Badge variant="outline">Scheduled</Badge>
@@ -311,7 +314,7 @@ export default async function DashboardPage() {
                         <p className="text-sm text-muted-foreground">
                           Completed{" "}
                           {session.completedAt &&
-                            formatDateTime(session.completedAt)}
+                            formatDateTime(new Date(session.completedAt))}
                         </p>
                       </div>
                       <Badge variant="default">Completed</Badge>
