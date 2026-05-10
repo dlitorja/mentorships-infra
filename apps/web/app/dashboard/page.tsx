@@ -67,13 +67,12 @@ export default async function DashboardPage() {
         }),
       ]);
 
-    const sessionPacks = sessionPacksResult.items;
+    const sessionPacks = sessionPacksResult.items.filter((p) => p.mentor && p.mentorUser);
 
     // Get unique instructors
-    const validPacks = sessionPacks.filter((p) => p.mentor && p.mentorUser);
     const instructors = Array.from(
       new Map(
-        validPacks.map((pack) => [
+        sessionPacks.map((pack) => [
           pack.mentor!.id,
           {
             mentorId: pack.mentor!.id,
