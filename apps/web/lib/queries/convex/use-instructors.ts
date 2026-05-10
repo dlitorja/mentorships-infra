@@ -32,7 +32,7 @@ export function useActiveInstructors() {
 export function usePublicInstructors() {
   return useQuery({
     ...convexQuery(api.instructors.getPublicInstructors, {}),
-  });
+  } as any);
 }
 
 export function usePublicInstructorBySlug(slug: string) {

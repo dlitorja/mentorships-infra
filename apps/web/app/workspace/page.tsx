@@ -35,7 +35,7 @@ function WorkspaceContent({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<'workspaces'> | null>(null);
   const [activeTab, setActiveTab] = useState('chat');
 
-  const { data: workspaces, isLoading: workspacesLoading } = useUserWorkspaces(dbUserId);
+  const { data: workspaces, isLoading: workspacesLoading } = useUserWorkspaces(dbUserId) as any;
 
   useEffect(() => {
     if (workspaces && workspaces.length > 0 && !selectedWorkspaceId) {
@@ -51,7 +51,7 @@ function WorkspaceContent({
     );
   }
 
-  const selectedWorkspace = workspaces?.find(w => w._id === selectedWorkspaceId);
+  const selectedWorkspace = workspaces?.find((w: any) => w._id === selectedWorkspaceId);
 
   return (
     <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-64px)]">
@@ -65,7 +65,7 @@ function WorkspaceContent({
             <CardContent className="pt-0">
               {workspaces && workspaces.length > 0 ? (
                 <div className="space-y-1">
-                  {workspaces.map((workspace) => (
+                  {(workspaces as any[]).map((workspace: any) => (
                     <button
                       key={workspace._id}
                       onClick={() => setSelectedWorkspaceId(workspace._id)}

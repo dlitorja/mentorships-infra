@@ -11,9 +11,9 @@ import { getConvexClient } from "@/lib/convex";
 export async function GET(req: NextRequest) {
   try {
     const convex = getConvexClient();
-    const products = await convex.query(api.products.getPublicActiveProducts, {});
+    const products = await convex.query(api.products.getPublicActiveProducts, {}) as any[];
 
-    const publicProducts = products.map((product) => ({
+    const publicProducts = products.map((product: any) => ({
       id: product._id,
       title: product.title,
       price: product.price,
