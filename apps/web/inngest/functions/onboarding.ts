@@ -2,7 +2,6 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { api } from "../../../../convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { discordActionQueue } from "@mentorships/db";
 import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
@@ -304,12 +303,11 @@ export const onboardingFlow = inngest.createFunction(
 await step.run("queue-discord-actions", async () => {
       // A lightweight "new purchase" DM can be sent later by the bot (once it's live).
       // Detailed DM with onboarding submission will be queued when the mentee completes the form.
-      await db.insert(discordActionQueue).values({
+      await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
         type: "dm_instructor_new_signup",
-        status: "pending",
         subjectUserId: clerkId,
         mentorId: mentor._id,
-        mentorUserId: mentor.userId,
+        mentorUserId: mentor.userId ?? undefined,
         payload: {
           kind: "purchase",
           orderId,
@@ -320,12 +318,11 @@ await step.run("queue-discord-actions", async () => {
       });
 
       if (discordId) {
-        await db.insert(discordActionQueue).values({
+        await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
           type: "assign_mentee_role",
-          status: "pending",
           subjectUserId: clerkId,
           mentorId: mentor._id,
-          mentorUserId: mentor.userId,
+          mentorUserId: mentor.userId ?? undefined,
           payload: {
             discordId,
             guildId: process.env.DISCORD_GUILD_ID ?? null,
