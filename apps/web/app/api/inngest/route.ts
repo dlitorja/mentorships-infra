@@ -24,32 +24,53 @@ import {
   syncSeatReservationUpdated,
 } from "@/inngest/functions/sync";
 
+// SYNC HANDLERS DISABLED - Using Convex-only architecture for simplified payment flow
+// Re-enable after MVP demo if SQL analytics replica is needed
+// import {
+//   syncPaymentCreated,
+//   syncPaymentUpdated,
+//   syncOrderCreated,
+//   syncOrderUpdated,
+//   syncSessionPackCreated,
+//   syncSessionPackUpdated,
+//   syncSeatReservationCreated,
+//   syncSeatReservationUpdated,
+// } from "@/inngest/functions/sync";
+
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [
+    // Payment processing - Core Stripe/PayPal flow
     processStripeCheckout,
     processStripeRefund,
     processPayPalCheckout,
     processPayPalRefund,
+    // Onboarding - triggered after successful purchase
     onboardingFlow,
+    // Session management
     handleSessionCompleted,
     checkSeatExpiration,
     handleRenewalReminder,
     sendGracePeriodFinalWarning,
+    // Notifications
     handleNotificationSend,
+    // Discord automation
     processDiscordActionQueue,
+    // Clerk user management
     linkClerkUserToInstructor,
     unlinkClerkUserFromInstructor,
+    // Inventory sync from Stripe products
     syncInstructorInventoryToConvex,
-    syncPaymentCreated,
-    syncPaymentUpdated,
-    syncOrderCreated,
-    syncOrderUpdated,
-    syncSessionPackCreated,
-    syncSessionPackUpdated,
-    syncSeatReservationCreated,
-    syncSeatReservationUpdated,
+    // SQL SYNC DISABLED - Convex is source of truth for all payment data
+    // syncPaymentCreated,
+    // syncPaymentUpdated,
+    // syncOrderCreated,
+    // syncOrderUpdated,
+    // syncSessionPackCreated,
+    // syncSessionPackUpdated,
+    // syncSeatReservationCreated,
+    // syncSeatReservationUpdated,
   ],
 });
 
