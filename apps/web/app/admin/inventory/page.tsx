@@ -384,7 +384,7 @@ export default function InventoryPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(waitlistEntries ?? []).map((entry) => (
+                        {((waitlistEntries as WaitlistEntry[] | undefined) ?? []).map((entry) => (
                           <tr key={String(entry._id)} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-3">
                               <Checkbox
@@ -467,7 +467,7 @@ export default function InventoryPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(waitlistEntries ?? []).map((entry) => (
+                        {((waitlistEntries as WaitlistEntry[] | undefined) ?? []).map((entry) => (
                           <tr key={String(entry._id)} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-3">
                               <Checkbox
