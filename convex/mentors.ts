@@ -30,3 +30,20 @@ export const getOrCreateMentor = internalMutation({
     });
   },
 });
+
+export const deleteMentorByUserId = internalMutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const mentor = await ctx.db
+      .query("mentors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (mentor) {
+      await ctx.db.delete(mentor._id);
+      return { success: true, deletedId: mentor._id };
+    }
+
+    return { success: false, deletedId: null };
+  },
+});
