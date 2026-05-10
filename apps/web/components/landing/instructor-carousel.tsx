@@ -42,7 +42,7 @@ function shuffleArray<T>(array: T[]): T[] {
 }
 
 export function InstructorCarousel(): React.JSX.Element | null {
-  const { data: instructorsData, isLoading } = usePublicInstructors();
+  const { data: instructorsData, isLoading } = usePublicInstructors() as any;
   const [instructors, setInstructors] = useState<any[]>([]);
   const [isClient, setIsClient] = useState(false);
   const [api, setApi] = useState<CarouselApi>();

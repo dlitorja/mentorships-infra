@@ -81,9 +81,9 @@ export async function GET(
     const messages = messagesResult.status === "fulfilled" && messagesResult.value
       ? messagesResult.value
       : [];
-    const auditLogs = auditLogsResult.status === "fulfilled" && auditLogsResult.value
+    const auditLogs = (auditLogsResult.status === "fulfilled" && auditLogsResult.value
       ? auditLogsResult.value
-      : emptyPagination;
+      : emptyPagination) as any;
 
     if (clerkUserId) {
       await convex.mutation(api.workspaces.logViewWorkspaceAudit, {
@@ -103,7 +103,7 @@ export async function GET(
       createdAt: m._creationTime,
     }));
 
-    const auditLogItems = auditLogs.page.map((log) => ({
+    const auditLogItems = (auditLogs.page as any[]).map((log: any) => ({
       id: log._id,
       adminId: log.adminId,
       action: log.action,

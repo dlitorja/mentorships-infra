@@ -85,5 +85,5 @@ export function useWaitlistForInstructor(
       mentorshipType,
     }),
     enabled: !!instructorSlug,
-  });
+  } as any);
 }

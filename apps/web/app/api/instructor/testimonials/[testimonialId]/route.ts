@@ -32,9 +32,9 @@ export async function DELETE(
 
     const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, {
       instructorId: instructor._id,
-    });
+    }) as any[];
 
-    const testimonial = testimonials.find(t => t._id === testimonialId);
+    const testimonial = testimonials.find((t: any) => t._id === testimonialId);
 
     if (!testimonial) {
       return NextResponse.json(

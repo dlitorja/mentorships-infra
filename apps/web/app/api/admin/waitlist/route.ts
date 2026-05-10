@@ -42,9 +42,9 @@ export async function GET(
     const entries = await convex.query(api.waitlist.getWaitlistForInstructor, {
       instructorSlug: slug,
       mentorshipType,
-    });
+    }) as any[];
 
-    const formatted = entries.map((entry) => ({
+    const formatted = entries.map((entry: any) => ({
       id: entry._id,
       email: entry.email,
       type: entry.mentorshipType,
@@ -167,14 +167,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const allEntries = await convex.query(api.waitlist.getWaitlistForInstructor, {
         instructorSlug: validated.instructorSlug,
         mentorshipType: validated.mentorshipType,
-      });
+      }) as any[];
       const idSet = new Set(validated.entryIds);
-      entries = allEntries.filter((e) => idSet.has(e._id));
+      entries = allEntries.filter((e: any) => idSet.has(e._id));
     } else {
       entries = await convex.query(api.waitlist.getWaitlistForInstructor, {
         instructorSlug: validated.instructorSlug,
         mentorshipType: validated.mentorshipType,
-      });
+      }) as any[];
     }
 
     if (entries.length === 0) {

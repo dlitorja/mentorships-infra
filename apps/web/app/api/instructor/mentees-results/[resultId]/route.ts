@@ -32,9 +32,9 @@ export async function DELETE(
 
     const results = await convex.query(api.instructors.getMenteeResultsByInstructorId, {
       instructorId: instructor._id,
-    });
+    }) as any[];
 
-    const result = results.find(r => r._id === resultId);
+    const result = results.find((r: any) => r._id === resultId);
 
     if (!result) {
       return NextResponse.json(

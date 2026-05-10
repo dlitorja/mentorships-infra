@@ -141,7 +141,7 @@ export default function InventoryPage() {
     );
   };
 
-  const filteredInstructors = instructorsData?.filter((inst) => {
+  const filteredInstructors = (instructorsData as InstructorWithInventory[] | undefined)?.filter((inst) => {
     if (filter === "available") {
       return (inst.oneOnOneInventory ?? 0) > 0 || (inst.groupInventory ?? 0) > 0;
     }
@@ -331,7 +331,7 @@ export default function InventoryPage() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
-              ) : (waitlistEntries?.length ?? 0) === 0 ? (
+              ) : ((waitlistEntries as WaitlistEntry[] | undefined)?.length ?? 0) === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No waitlist entries
                 </div>
@@ -384,7 +384,7 @@ export default function InventoryPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(waitlistEntries ?? []).map((entry) => (
+                        {((waitlistEntries as WaitlistEntry[] | undefined) ?? []).map((entry) => (
                           <tr key={String(entry._id)} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-3">
                               <Checkbox
@@ -414,7 +414,7 @@ export default function InventoryPage() {
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
-              ) : (waitlistEntries?.length ?? 0) === 0 ? (
+              ) : ((waitlistEntries as WaitlistEntry[] | undefined)?.length ?? 0) === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   No waitlist entries
                 </div>
@@ -467,7 +467,7 @@ export default function InventoryPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(waitlistEntries ?? []).map((entry) => (
+                        {((waitlistEntries as WaitlistEntry[] | undefined) ?? []).map((entry) => (
                           <tr key={String(entry._id)} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-3">
                               <Checkbox

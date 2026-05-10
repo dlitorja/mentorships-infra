@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
 /** Fetches a single order by ID, returning null if unauthenticated. */
@@ -63,6 +63,67 @@ export const getOrdersForAdmin = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    const limit = args.limit ?? 20;
+    const offset = args.offset ?? 0;
+
+    const orders = await ctx.db.query("orders").collect();
+
+    const sortedOrders = orders.sort((a, b) => {
+      const aTime = a._creationTime;
+      const bTime = b._creationTime;
+      return bTime - aTime;
+    });
+
+    const paginatedOrders = sortedOrders.slice(offset, offset + limit);
+
+    const ordersWithDetails = await Promise.all(
+      paginatedOrders.map(async (order) => {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", order.userId))
+          .first();
+
+        const payments = await ctx.db
+          .query("payments")
+          .withIndex("by_orderId", (q) => q.eq("orderId", order._id))
+          .collect();
+
+        return {
+          id: order._id,
+          userId: order.userId,
+          userEmail: user?.email ?? null,
+          status: order.status,
+          provider: order.provider,
+          totalAmount: order.totalAmount,
+          currency: order.currency,
+          createdAt: order._creationTime,
+          payments: payments.map((p) => ({
+            id: p._id,
+            provider: p.provider,
+            providerPaymentId: p.providerPaymentId,
+            amount: p.amount,
+            currency: p.currency,
+            status: p.status,
+            refundedAmount: p.refundedAmount,
+          })),
+        };
+      })
+    );
+
+    return {
+      items: ordersWithDetails,
+      total: orders.length,
+      hasMore: offset + limit < orders.length,
+    };
+  },
+});
+
+export const getOrdersForAdminInternal = internalQuery({
+  args: {
+    limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
     const limit = args.limit ?? 20;
     const offset = args.offset ?? 0;
 

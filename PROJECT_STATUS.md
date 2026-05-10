@@ -11,8 +11,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 9, 2026 (Phase 3A COMPLETE - PR #236)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
+**Last Updated**: May 9, 2026 (Phase 3B COMPLETE - PR pending)
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
 
@@ -916,6 +916,39 @@ export default crons;
 - `convex/crons.ts` - Add new cron interval (or add to existing crons.ts if it exists)
 
 **Estimated time**: 3 hours
+
+---
+
+### Phase 3B: Medium Function Migrations (Week 1, Days 4-5 + Week 2) - ✅ COMPLETE
+
+**Completed May 9, 2026**:
+- [x] Added `mentors` table to Convex schema with `userId` index
+- [x] Added `by_email` index on `instructors` table
+- [x] Created `convex/mentors.ts` with `getMentorByUserId`, `createMentor`, `getOrCreateMentor`
+- [x] Created session internalQueries: `getSessionByIdInternal`, `getSessionPackByIdInternal`, `getCompletedSessionCountInternal`
+- [x] Created session internalMutations: `decrementRemainingSessions`, `updateSeatReservationStatusInternal`, `updateSessionPackStatusInternal`
+- [x] Created `handleSessionCompleted` internalAction (in `convex/sessions.ts`)
+- [x] Created seat expiration internalQueries: `listExpiredPacks`, `listExpiredGraceSeats`, `checkScheduledSessionsForPack`
+- [x] Created seat internalMutations: `getSeatBySessionPackId`, `releaseSeatById` (in `convex/seatReservations.ts`)
+- [x] Created `checkSeatExpiration` internalAction (in `convex/sessions.ts`)
+- [x] Created Discord queue internalQueries: `claimDiscordActions`, `getDiscordIdentityForUserId`
+- [x] Created Discord queue internalMutations: `markDiscordActionDone`, `markDiscordActionFailed`, `requeueDiscordAction`
+- [x] Created `processDiscordActionQueue` internalAction with full Discord API integration (in `convex/discordActionQueue.ts`)
+- [x] Created instructor internalQueries: `getInstructorByEmailInternal`, `getPendingMenteeInvitationsByEmail`
+- [x] Created instructor internalMutations: `linkInstructorToMentor`, `acceptMenteeInvitation`
+- [x] Created `linkClerkUserToInstructor` internalAction (in `convex/instructors.ts`)
+- [x] Added Cron jobs: `check-seat-expiration` (hourly), `process-discord-action-queue` (every minute) to `convex/crons.ts`
+- [x] Created Clerk webhook endpoint: `POST /webhooks/clerk` for user.created/user.deleted events (in `convex/http.ts`)
+
+**Files Modified**:
+- `convex/schema.ts` - Added `mentors` table, `by_email` index on instructors
+- `convex/mentors.ts` - New file with mentor internalQueries/mutations
+- `convex/sessions.ts` - Added session internalQueries/mutations/actions
+- `convex/seatReservations.ts` - Added seat internalQueries/mutations
+- `convex/discordActionQueue.ts` - Added queue processing internalQueries/mutations/actions
+- `convex/instructors.ts` - Added linking internalQueries/mutations/actions
+- `convex/crons.ts` - Added new cron jobs
+- `convex/http.ts` - Added Clerk webhook endpoint
 
 ---
 

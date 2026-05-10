@@ -78,11 +78,8 @@ async function seedInstructor(instructor: any): Promise<any> {
   // Create mentor - try/catch for idempotency
   let mentorId;
   try {
-    const mentorResult = await runConvexMutation("mentors:createMentor", {
+    const mentorResult = await runConvexMutation("mentors:getOrCreateMentor", {
       userId,
-      oneOnOneInventory: 3,
-      groupInventory: instructor.pricing?.group ? 2 : 0,
-      maxActiveStudents: 10,
     });
     // Mutation returns ID directly (string) or object with _id
     mentorId = typeof mentorResult === 'string' ? mentorResult : mentorResult?._id;

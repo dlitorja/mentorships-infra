@@ -33,10 +33,10 @@ export async function GET(req: NextRequest) {
 
     const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, {
       instructorId: instructor._id,
-    });
+    }) as any[];
 
     return NextResponse.json({
-      items: testimonials.map((t) => ({
+      items: testimonials.map((t: any) => ({
         id: t._id,
         name: t.name,
         text: t.text,

@@ -33,10 +33,10 @@ export async function GET(req: NextRequest) {
 
     const results = await convex.query(api.instructors.getMenteeResultsByInstructorId, {
       instructorId: instructor._id,
-    });
+    }) as any[];
 
     return NextResponse.json({
-      items: results.map((r) => ({
+      items: results.map((r: any) => ({
         id: r._id,
         imageUrl: r.imageUrl,
         imageUploadPath: r.imageUploadPath,

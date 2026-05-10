@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation, internalAction } from "./_generated/server";
+import { query, mutation, internalMutation, internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
@@ -1238,6 +1238,31 @@ export const getMentorById = query({
   },
 });
 
+export const getInstructorByEmailInternal = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .collect();
+  },
+});
+
+export const getPendingMenteeInvitationsByEmail = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const invitations = await ctx.db
+      .query("menteeInvitations")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .collect();
+
+    return invitations.filter(
+      inv => inv.status === "pending" && inv.expiresAt > now
+    );
+  },
+});
+
 /** Deletes a testimonial by ID. Requires admin role or instructor ownership. */
 export const deleteTestimonial = mutation({
   args: { id: v.id("instructorTestimonials") },
@@ -1399,5 +1424,142 @@ export const unlinkClerkUserFromInstructor = internalAction({
   handler: async (ctx, args): Promise<UnlinkInstructorResult> => {
     const result = await ctx.runMutation(internal.instructors.unlinkInstructorByUserId, { userId: args.userId });
     return result as UnlinkInstructorResult;
+  },
+});
+
+export const linkInstructorToMentor = internalMutation({
+  args: {
+    instructorId: v.id("instructors"),
+    mentorId: v.id("mentors"),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.instructorId, {
+      userId: args.userId,
+      mentorId: args.mentorId.toString(),
+      updatedAt: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+export const acceptMenteeInvitation = internalMutation({
+  args: {
+    email: v.string(),
+    instructorId: v.id("instructors"),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const invitation = await ctx.db
+      .query("menteeInvitations")
+      .withIndex("by_email_instructorId", (q) =>
+        q.eq("email", args.email.toLowerCase()).eq("instructorId", args.instructorId)
+      )
+      .filter((q) => q.and(
+        q.eq(q.field("status"), "pending"),
+        q.gt(q.field("expiresAt"), now)
+      ))
+      .first();
+
+    if (!invitation) {
+      return { accepted: false, reason: "No pending invitation found" };
+    }
+
+    await ctx.db.patch(invitation._id, {
+      status: "accepted",
+    });
+
+    return { accepted: true, invitationId: invitation._id };
+  },
+});
+
+type LinkResult = {
+  linked: boolean;
+  reason?: string;
+  instructorId?: Id<"instructors">;
+  instructorName?: string | null;
+  mentorId?: string;
+  email?: string;
+  userId?: string;
+  invitationId?: Id<"menteeInvitations">;
+  needsSessionPack?: boolean;
+};
+
+export const linkClerkUserToInstructor = internalAction({
+  args: {
+    userId: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ instructorLinking: LinkResult; menteeLinking: LinkResult }> => {
+    const { userId, email } = args;
+
+    if (!email || typeof email !== "string") {
+      return {
+        instructorLinking: { linked: false, reason: "No email provided" },
+        menteeLinking: { linked: false, reason: "No email provided" },
+      };
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    const instructorsWithEmail = await ctx.runQuery(
+      internal.instructors.getInstructorByEmailInternal,
+      { email: normalizedEmail }
+    );
+
+    let instructorResult: LinkResult = { linked: false, reason: "No instructor found with matching email", email };
+
+    if (instructorsWithEmail.length > 0) {
+      const instructor = instructorsWithEmail[0];
+
+      if (instructor.userId && instructor.userId !== userId) {
+        instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
+      } else {
+        const mentorId = await ctx.runMutation(internal.mentors.getOrCreateMentor, { userId });
+
+        await ctx.runMutation(internal.instructors.linkInstructorToMentor, {
+          instructorId: instructor._id,
+          mentorId,
+          userId,
+        });
+
+        instructorResult = {
+          linked: true,
+          instructorId: instructor._id,
+          instructorName: instructor.name ?? null,
+          userId,
+          mentorId: mentorId.toString(),
+          email,
+        };
+      }
+    }
+
+    const pendingInvitations = await ctx.runQuery(
+      internal.instructors.getPendingMenteeInvitationsByEmail,
+      { email: normalizedEmail }
+    );
+
+    let menteeResult: LinkResult = { linked: false, reason: "No pending mentee invitation found", email };
+
+    if (pendingInvitations.length > 0) {
+      const pendingInvitation = pendingInvitations[0];
+      await ctx.runMutation(internal.instructors.acceptMenteeInvitation, {
+        email: normalizedEmail,
+        instructorId: pendingInvitation.instructorId,
+      });
+
+      menteeResult = {
+        linked: true,
+        invitationId: pendingInvitation._id,
+        mentorId: pendingInvitation.instructorId.toString(),
+        email,
+        needsSessionPack: true,
+      };
+    }
+
+    return {
+      instructorLinking: instructorResult,
+      menteeLinking: menteeResult,
+    };
   },
 });
