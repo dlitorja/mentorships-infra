@@ -70,14 +70,15 @@ export default async function DashboardPage() {
     const sessionPacks = sessionPacksResult.items;
 
     // Get unique instructors
+    const validPacks = sessionPacks.filter((p) => p.mentor && p.mentorUser);
     const instructors = Array.from(
       new Map(
-        sessionPacks.map((pack) => [
-          pack.mentor.id,
+        validPacks.map((pack) => [
+          pack.mentor!.id,
           {
-            mentorId: pack.mentor.id,
-            email: pack.mentorUser.email,
-            bio: pack.mentor.bio,
+            mentorId: pack.mentor!.id,
+            email: pack.mentorUser!.email,
+            bio: pack.mentor!.bio,
           },
         ])
       ).values()
