@@ -822,6 +822,18 @@ Instead of 16 separate scripts with fragile CLI invocations, we now use:
 - **Inngest Payment Functions Updated**: `processStripeCheckout/Refund`, `processPayPalCheckout/Refund` send sync events after Convex mutations
 - **Root Cause Fixed**: Admin stats (`GET /api/admin/stats`) queries SQL `payments` table which was empty after Convex migration - now synced via events
 
+**Phase 4 Build Fixes (May 10, 2026) - PR #241**:
+- Fixed `payments.ts` parsing error (orphaned PayPal code block removed)
+- Added null checks for Convex mutations returning full objects (completedOrder, payment, sessionPack, seatReservation, refundedSessionPack, refundedPayment, refundedOrder)
+- Added required `id: crypto.randomUUID()` to all SQL inserts (mentors, orders, payments, sessionPacks, seatReservations)
+- Fixed `sync.ts`: seatExpiresAt throws error if null (notNull in schema)
+- Fixed checkout routes: `order._id` instead of `order as string` with null checks
+
+**Current Architecture (May 10, 2026)**:
+- **Convex** = Source of truth for payment data (orders, payments, sessionPacks, mentors, instructors, workspaces)
+- **SQL/Drizzle** = Read replica for admin stats/analytics (30-60s sync delay via Inngest events)
+- **Flow**: Stripe/PayPal webhook → Inngest → Convex mutation → Inngest `inngest.send()` → Sync handler → SQL upsert
+
 **Phase 5: Cleanup (2-3 days)**
 - [ ] Deprecate Drizzle mutation functions
 - [ ] Document architecture in `ARCHITECTURE.md`
