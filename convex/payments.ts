@@ -84,11 +84,12 @@ export const createPayment = mutation({
     status: v.optional(v.union(v.literal("pending"), v.literal("completed"), v.literal("refunded"), v.literal("failed"))),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("payments", {
+    const id = await ctx.db.insert("payments", {
       ...args,
       currency: args.currency ?? "usd",
       status: args.status ?? "pending",
     });
+    return await ctx.db.get(id);
   },
 });
 

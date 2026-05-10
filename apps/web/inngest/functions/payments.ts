@@ -72,13 +72,28 @@ export const processStripeCheckout = inngest.createFunction(
       }
     }
 
-    await step.run("update-order", async () => {
-      await convex.mutation(api.orders.completeOrder, {
+const completedOrder = await step.run("update-order", async () => {
+      return await convex.mutation(api.orders.completeOrder, {
         id: orderId as Id<"orders">,
       });
     });
 
-    const paymentId = await step.run("create-payment", async () => {
+    if (!completedOrder) {
+      throw new Error("Failed to complete order");
+    }
+
+    await step.run("sync-order-updated", async () => {
+      await inngest.send({
+        name: "data.sync/order.updated",
+        data: {
+          id: completedOrder._id,
+          status: completedOrder.status,
+          updatedAt: Date.now(),
+        },
+      });
+    });
+
+    const payment = await step.run("create-payment", async () => {
       return await convex.mutation(api.payments.createPayment, {
         orderId: orderId as Id<"orders">,
         provider: "stripe",
@@ -86,6 +101,28 @@ export const processStripeCheckout = inngest.createFunction(
         amount: fullSession.amount_total ? (fullSession.amount_total / 100).toString() : "0",
         currency: fullSession.currency?.toUpperCase() || "USD",
         status: "completed",
+      });
+    });
+
+    if (!payment) {
+      throw new Error("Failed to create payment");
+    }
+
+    await step.run("sync-payment-created", async () => {
+      await inngest.send({
+        name: "data.sync/payment.created",
+        data: {
+          id: payment._id,
+          orderId: payment.orderId,
+          provider: payment.provider,
+          providerPaymentId: payment.providerPaymentId,
+          amount: payment.amount,
+          currency: payment.currency,
+          status: payment.status,
+          refundedAmount: payment.refundedAmount ?? null,
+          createdAt: payment._creationTime,
+          updatedAt: Date.now(),
+        },
       });
     });
 
@@ -111,11 +148,34 @@ export const processStripeCheckout = inngest.createFunction(
         totalSessions: product.sessionsPerPack,
         remainingSessions: product.sessionsPerPack,
         expiresAt,
-        paymentId: paymentId as Id<"payments">,
+        paymentId: payment._id as Id<"payments">,
       });
     });
 
-    await step.run("create-seat-and-workspace", async () => {
+    if (!sessionPack) {
+      throw new Error("Failed to create session pack");
+    }
+
+    await step.run("sync-session-pack-created", async () => {
+      await inngest.send({
+        name: "data.sync/sessionPack.created",
+        data: {
+          id: sessionPack._id,
+          userId: sessionPack.userId,
+          mentorId: sessionPack.mentorId,
+          totalSessions: sessionPack.totalSessions,
+          remainingSessions: sessionPack.remainingSessions,
+          purchasedAt: sessionPack.purchasedAt,
+          expiresAt: sessionPack.expiresAt ?? null,
+          status: sessionPack.status,
+          paymentId: sessionPack.paymentId,
+          createdAt: sessionPack._creationTime,
+          updatedAt: Date.now(),
+        },
+      });
+    });
+
+    const seatReservation = await step.run("create-seat-and-workspace", async () => {
       if (!product.mentorId) {
         throw new Error(`Product has no mentorId: ${packId}`);
       }
@@ -123,14 +183,14 @@ export const processStripeCheckout = inngest.createFunction(
         return await convex.mutation(api.seatReservations.createSeatReservation, {
           mentorId: product.mentorId as Id<"instructors">,
           userId,
-          sessionPackId: sessionPack as Id<"sessionPacks">,
+          sessionPackId: sessionPack._id as Id<"sessionPacks">,
           seatExpiresAt: expiresAt,
           gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
         });
       } catch (error) {
         if (error instanceof Error && error.message.includes("already exists")) {
           const existing = await convex.query(api.seatReservations.getSeatReservationBySessionPack, {
-            sessionPackId: sessionPack as Id<"sessionPacks">,
+            sessionPackId: sessionPack._id as Id<"sessionPacks">,
           });
           if (existing) {
             return existing;
@@ -138,6 +198,27 @@ export const processStripeCheckout = inngest.createFunction(
         }
         throw error;
       }
+    });
+
+    if (!seatReservation) {
+      throw new Error("Failed to create or find seat reservation");
+    }
+
+    await step.run("sync-seat-reservation-created", async () => {
+      await inngest.send({
+        name: "data.sync/seatReservation.created",
+        data: {
+          id: seatReservation._id,
+          userId: seatReservation.userId,
+          mentorId: seatReservation.mentorId,
+          sessionPackId: seatReservation.sessionPackId,
+          status: seatReservation.status,
+          seatExpiresAt: seatReservation.seatExpiresAt ?? null,
+          gracePeriodEndsAt: seatReservation.gracePeriodEndsAt ?? null,
+          createdAt: seatReservation._creationTime,
+          updatedAt: Date.now(),
+        },
+      });
     });
 
     const inventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
@@ -166,8 +247,8 @@ export const processStripeCheckout = inngest.createFunction(
     return {
       success: true,
       orderId,
-      sessionPackId: sessionPack,
-      paymentId: null,
+      sessionPackId: sessionPack._id,
+      paymentId: payment._id,
     };
   }
 );
@@ -209,9 +290,24 @@ export const processStripeRefund = inngest.createFunction(
     const product = instructorProducts.find(p => p.sessionsPerPack === sessionPack.totalSessions);
     const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
 
-    await step.run("refund-session-pack", async () => {
-      await convex.mutation(api.sessionPacks.refundSessionPack, {
+const refundedSessionPack = await step.run("refund-session-pack", async () => {
+      return await convex.mutation(api.sessionPacks.refundSessionPack, {
         id: sessionPack._id,
+      });
+    });
+
+    if (!refundedSessionPack) {
+      throw new Error("Failed to refund session pack");
+    }
+
+    await step.run("sync-session-pack-updated", async () => {
+      await inngest.send({
+        name: "data.sync/sessionPack.updated",
+        data: {
+          id: refundedSessionPack._id,
+          status: refundedSessionPack.status,
+          updatedAt: Date.now(),
+        },
       });
     });
 
@@ -222,17 +318,48 @@ export const processStripeRefund = inngest.createFunction(
       });
     });
 
-    await step.run("update-payment-status", async () => {
-      const charge = await stripe.charges.retrieve(event.data.chargeId);
-      await convex.mutation(api.payments.refundPayment, {
+    const refundedPayment = await step.run("update-payment-status", async () => {
+      return await convex.mutation(api.payments.refundPayment, {
         id: payment._id,
-        refundedAmount: (charge.amount_refunded / 100).toFixed(2),
+        refundedAmount: payment.amount,
       });
     });
 
-    await step.run("update-order-status", async () => {
-      await convex.mutation(api.orders.refundOrder, {
+    if (!refundedPayment) {
+      throw new Error("Failed to refund payment");
+    }
+
+    await step.run("sync-payment-updated", async () => {
+      await inngest.send({
+        name: "data.sync/payment.updated",
+        data: {
+          id: refundedPayment._id,
+          orderId: refundedPayment.orderId,
+          status: refundedPayment.status,
+          refundedAmount: refundedPayment.refundedAmount ?? null,
+          updatedAt: Date.now(),
+        },
+      });
+    });
+
+    const refundedOrder = await step.run("update-order-status", async () => {
+      return await convex.mutation(api.orders.refundOrder, {
         id: payment.orderId as Id<"orders">,
+      });
+    });
+
+    if (!refundedOrder) {
+      throw new Error("Failed to refund order");
+    }
+
+    await step.run("sync-order-updated", async () => {
+      await inngest.send({
+        name: "data.sync/order.updated",
+        data: {
+          id: refundedOrder._id,
+          status: refundedOrder.status,
+          updatedAt: Date.now(),
+        },
       });
     });
 
@@ -290,6 +417,10 @@ export const processPayPalCheckout = inngest.createFunction(
       });
     });
 
+    if (!payment) {
+      throw new Error("Failed to create payment");
+    }
+
     const product = await step.run("get-product", async () => {
       const productData = await convex.query(api.products.getProductById, {
         id: packId as Id<"products">,
@@ -312,11 +443,34 @@ export const processPayPalCheckout = inngest.createFunction(
         totalSessions: product.sessionsPerPack,
         remainingSessions: product.sessionsPerPack,
         expiresAt,
-        paymentId: payment as Id<"payments">,
+        paymentId: payment._id as Id<"payments">,
       });
     });
 
-    await step.run("create-seat-and-workspace", async () => {
+    if (!sessionPack) {
+      throw new Error("Failed to create session pack");
+    }
+
+    await step.run("sync-session-pack-created", async () => {
+      await inngest.send({
+        name: "data.sync/sessionPack.created",
+        data: {
+          id: sessionPack._id,
+          userId: sessionPack.userId,
+          mentorId: sessionPack.mentorId,
+          totalSessions: sessionPack.totalSessions,
+          remainingSessions: sessionPack.remainingSessions,
+          purchasedAt: sessionPack.purchasedAt,
+          expiresAt: sessionPack.expiresAt ?? null,
+          status: sessionPack.status,
+          paymentId: sessionPack.paymentId,
+          createdAt: sessionPack._creationTime,
+          updatedAt: Date.now(),
+        },
+      });
+    });
+
+    const seatReservation = await step.run("create-seat-and-workspace", async () => {
       if (!product.mentorId) {
         throw new Error(`Product has no mentorId: ${packId}`);
       }
@@ -324,14 +478,14 @@ export const processPayPalCheckout = inngest.createFunction(
         return await convex.mutation(api.seatReservations.createSeatReservation, {
           mentorId: product.mentorId as Id<"instructors">,
           userId: order.userId,
-          sessionPackId: sessionPack as Id<"sessionPacks">,
+          sessionPackId: sessionPack._id as Id<"sessionPacks">,
           seatExpiresAt: expiresAt,
           gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),
         });
       } catch (error) {
         if (error instanceof Error && error.message.includes("already exists")) {
           const existing = await convex.query(api.seatReservations.getSeatReservationBySessionPack, {
-            sessionPackId: sessionPack as Id<"sessionPacks">,
+            sessionPackId: sessionPack._id as Id<"sessionPacks">,
           });
           if (existing) {
             return existing;
@@ -339,6 +493,27 @@ export const processPayPalCheckout = inngest.createFunction(
         }
         throw error;
       }
+    });
+
+    if (!seatReservation) {
+      throw new Error("Failed to create or find seat reservation");
+    }
+
+    await step.run("sync-seat-reservation-created", async () => {
+      await inngest.send({
+        name: "data.sync/seatReservation.created",
+        data: {
+          id: seatReservation._id,
+          userId: seatReservation.userId,
+          mentorId: seatReservation.mentorId,
+          sessionPackId: seatReservation.sessionPackId,
+          status: seatReservation.status,
+          seatExpiresAt: seatReservation.seatExpiresAt ?? null,
+          gracePeriodEndsAt: seatReservation.gracePeriodEndsAt ?? null,
+          createdAt: seatReservation._creationTime,
+          updatedAt: Date.now(),
+        },
+      });
     });
 
     const paypalInventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
@@ -367,8 +542,8 @@ export const processPayPalCheckout = inngest.createFunction(
     return {
       success: true,
       orderId,
-      sessionPackId: sessionPack,
-      paymentId: payment,
+      sessionPackId: sessionPack._id,
+      paymentId: payment._id,
     };
   }
 );
@@ -418,9 +593,24 @@ export const processPayPalRefund = inngest.createFunction(
     const product = instructorProducts.find(p => p.sessionsPerPack === sessionPack.totalSessions);
     const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
 
-    await step.run("refund-session-pack", async () => {
-      await convex.mutation(api.sessionPacks.refundSessionPack, {
+const refundedSessionPack = await step.run("refund-session-pack", async () => {
+      return await convex.mutation(api.sessionPacks.refundSessionPack, {
         id: sessionPack._id,
+      });
+    });
+
+    if (!refundedSessionPack) {
+      throw new Error("Failed to refund session pack");
+    }
+
+    await step.run("sync-session-pack-updated", async () => {
+      await inngest.send({
+        name: "data.sync/sessionPack.updated",
+        data: {
+          id: refundedSessionPack._id,
+          status: refundedSessionPack.status,
+          updatedAt: Date.now(),
+        },
       });
     });
 
@@ -431,16 +621,48 @@ export const processPayPalRefund = inngest.createFunction(
       });
     });
 
-    await step.run("update-payment-status", async () => {
-      await convex.mutation(api.payments.refundPayment, {
+    const refundedPayment = await step.run("update-payment-status", async () => {
+      return await convex.mutation(api.payments.refundPayment, {
         id: payment._id,
         refundedAmount: payment.amount,
       });
     });
 
-    await step.run("update-order-status", async () => {
-      await convex.mutation(api.orders.refundOrder, {
+    if (!refundedPayment) {
+      throw new Error("Failed to refund payment");
+    }
+
+    await step.run("sync-payment-updated", async () => {
+      await inngest.send({
+        name: "data.sync/payment.updated",
+        data: {
+          id: refundedPayment._id,
+          orderId: refundedPayment.orderId,
+          status: refundedPayment.status,
+          refundedAmount: refundedPayment.refundedAmount ?? null,
+          updatedAt: Date.now(),
+        },
+      });
+    });
+
+    const refundedOrder = await step.run("update-order-status", async () => {
+      return await convex.mutation(api.orders.refundOrder, {
         id: payment.orderId as Id<"orders">,
+      });
+    });
+
+    if (!refundedOrder) {
+      throw new Error("Failed to refund order");
+    }
+
+    await step.run("sync-order-updated", async () => {
+      await inngest.send({
+        name: "data.sync/order.updated",
+        data: {
+          id: refundedOrder._id,
+          status: refundedOrder.status,
+          updatedAt: Date.now(),
+        },
       });
     });
 

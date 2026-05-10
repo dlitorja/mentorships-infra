@@ -200,3 +200,130 @@ export type InngestEvent =
   | SessionReminderEmailEvent
   | SessionCancelledEmailEvent;
 
+// ============================================================
+// Phase 4: Event-Driven Sync Events (Convex → SQL)
+// ============================================================
+
+export const paymentCreatedEventSchema = z.object({
+  name: z.literal("data.sync/payment.created"),
+  data: z.object({
+    id: z.string(),
+    orderId: z.string(),
+    provider: z.enum(["stripe", "paypal"]),
+    providerPaymentId: z.string(),
+    amount: z.string(),
+    currency: z.string(),
+    status: z.enum(["pending", "completed", "refunded", "failed"]),
+    refundedAmount: z.string().nullable().optional(),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+  }),
+});
+
+export const paymentUpdatedEventSchema = z.object({
+  name: z.literal("data.sync/payment.updated"),
+  data: z.object({
+    id: z.string(),
+    orderId: z.string(),
+    status: z.enum(["pending", "completed", "refunded", "failed"]),
+    refundedAmount: z.string().nullable().optional(),
+    updatedAt: z.number(),
+  }),
+});
+
+export const orderCreatedEventSchema = z.object({
+  name: z.literal("data.sync/order.created"),
+  data: z.object({
+    id: z.string(),
+    userId: z.string(),
+    status: z.enum(["pending", "paid", "refunded", "failed", "canceled"]),
+    provider: z.enum(["stripe", "paypal"]),
+    totalAmount: z.string(),
+    currency: z.string(),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+  }),
+});
+
+export const orderUpdatedEventSchema = z.object({
+  name: z.literal("data.sync/order.updated"),
+  data: z.object({
+    id: z.string(),
+    status: z.enum(["pending", "paid", "refunded", "failed", "canceled"]),
+    updatedAt: z.number(),
+  }),
+});
+
+export const sessionPackCreatedEventSchema = z.object({
+  name: z.literal("data.sync/sessionPack.created"),
+  data: z.object({
+    id: z.string(),
+    userId: z.string(),
+    mentorId: z.string(),
+    totalSessions: z.number(),
+    remainingSessions: z.number(),
+    purchasedAt: z.number(),
+    expiresAt: z.number().nullable().optional(),
+    status: z.enum(["active", "depleted", "expired", "refunded"]),
+    paymentId: z.string(),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+  }),
+});
+
+export const sessionPackUpdatedEventSchema = z.object({
+  name: z.literal("data.sync/sessionPack.updated"),
+  data: z.object({
+    id: z.string(),
+    remainingSessions: z.number().optional(),
+    status: z.enum(["active", "depleted", "expired", "refunded"]).optional(),
+    updatedAt: z.number(),
+  }),
+});
+
+export const seatReservationCreatedEventSchema = z.object({
+  name: z.literal("data.sync/seatReservation.created"),
+  data: z.object({
+    id: z.string(),
+    userId: z.string(),
+    mentorId: z.string(),
+    sessionPackId: z.string(),
+    status: z.enum(["active", "grace", "released"]),
+    seatExpiresAt: z.number().nullable().optional(),
+    gracePeriodEndsAt: z.number().nullable().optional(),
+    createdAt: z.number(),
+    updatedAt: z.number(),
+  }),
+});
+
+export const seatReservationUpdatedEventSchema = z.object({
+  name: z.literal("data.sync/seatReservation.updated"),
+  data: z.object({
+    id: z.string(),
+    status: z.enum(["active", "grace", "released"]).optional(),
+    seatExpiresAt: z.number().nullable().optional(),
+    gracePeriodEndsAt: z.number().nullable().optional(),
+    updatedAt: z.number(),
+  }),
+});
+
+// Sync event type exports
+export type PaymentCreatedEvent = z.infer<typeof paymentCreatedEventSchema>;
+export type PaymentUpdatedEvent = z.infer<typeof paymentUpdatedEventSchema>;
+export type OrderCreatedEvent = z.infer<typeof orderCreatedEventSchema>;
+export type OrderUpdatedEvent = z.infer<typeof orderUpdatedEventSchema>;
+export type SessionPackCreatedEvent = z.infer<typeof sessionPackCreatedEventSchema>;
+export type SessionPackUpdatedEvent = z.infer<typeof sessionPackUpdatedEventSchema>;
+export type SeatReservationCreatedEvent = z.infer<typeof seatReservationCreatedEventSchema>;
+export type SeatReservationUpdatedEvent = z.infer<typeof seatReservationUpdatedEventSchema>;
+
+export type SyncEvent =
+  | PaymentCreatedEvent
+  | PaymentUpdatedEvent
+  | OrderCreatedEvent
+  | OrderUpdatedEvent
+  | SessionPackCreatedEvent
+  | SessionPackUpdatedEvent
+  | SeatReservationCreatedEvent
+  | SeatReservationUpdatedEvent;
+

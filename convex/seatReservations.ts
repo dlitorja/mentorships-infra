@@ -125,6 +125,8 @@ export const createSeatReservation = mutation({
       status: args.status ?? "active",
     });
 
+    const seatReservation = await ctx.db.get(seatId);
+
     const workspaceId = await ctx.db.insert("workspaces", {
       name: `Mentorship Workspace`,
       description: `Workspace for mentorship with ${mentor.userId}`,
@@ -136,7 +138,7 @@ export const createSeatReservation = mutation({
       mentorImageCount: 0,
     });
 
-    return { seatId, workspaceId };
+    return seatReservation;
   },
 });
 

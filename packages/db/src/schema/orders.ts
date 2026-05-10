@@ -18,10 +18,8 @@ export type PaymentProvider = "stripe" | "paypal";
 export const orders = pgTable(
   "orders",
   {
-    id: uuid("id")
-      .primaryKey()
-      .defaultRandom(),
-    // References Clerk user ID from users table
+    id: text("id").primaryKey(),
+    convexId: text("convex_id"),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -31,14 +29,12 @@ export const orders = pgTable(
     currency: text("currency").notNull().default("usd"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
-    // Soft deletion for audit trails (financial records)
     deletedAt: timestamp("deleted_at"),
   },
   (t) => ({
     userIdIdx: index("orders_user_id_idx").on(t.userId),
     statusIdx: index("orders_status_idx").on(t.status),
     createdAtIdx: index("orders_created_at_idx").on(t.createdAt),
-    // Composite index for common query pattern: get user orders by status
     userIdStatusIdx: index("orders_user_id_status_idx").on(t.userId, t.status),
   })
 );

@@ -63,7 +63,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       currency: "usd",
     });
 
-    orderId = order as string;
+    if (!order) {
+      return NextResponse.json({ error: "Failed to create order" }, { status: 500 });
+    }
+
+    orderId = order._id;
 
     let baseUrl: string;
     if (process.env.NEXT_PUBLIC_URL) {

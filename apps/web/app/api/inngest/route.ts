@@ -13,6 +13,16 @@ import { onboardingFlow } from "@/inngest/functions/onboarding";
 import { linkClerkUserToInstructor } from "@/inngest/functions/clerk-user-linking";
 import { unlinkClerkUserFromInstructor } from "@/inngest/functions/clerk-user-deleted";
 import { syncInstructorInventoryToConvex } from "@/inngest/functions/inventory-sync";
+import {
+  syncPaymentCreated,
+  syncPaymentUpdated,
+  syncOrderCreated,
+  syncOrderUpdated,
+  syncSessionPackCreated,
+  syncSessionPackUpdated,
+  syncSeatReservationCreated,
+  syncSeatReservationUpdated,
+} from "@/inngest/functions/sync";
 
 // Export all functions for Inngest to serve
 export const { GET, POST, PUT } = serve({
@@ -32,6 +42,14 @@ export const { GET, POST, PUT } = serve({
     linkClerkUserToInstructor,
     unlinkClerkUserFromInstructor,
     syncInstructorInventoryToConvex,
+    syncPaymentCreated,
+    syncPaymentUpdated,
+    syncOrderCreated,
+    syncOrderUpdated,
+    syncSessionPackCreated,
+    syncSessionPackUpdated,
+    syncSeatReservationCreated,
+    syncSeatReservationUpdated,
   ],
 });
 

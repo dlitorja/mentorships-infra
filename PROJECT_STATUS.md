@@ -11,8 +11,8 @@
 **Fix Plan** (in priority order):
 1. ~~**Phase 1**: Fix `onboardingFlow` to read from Convex (CRITICAL - blocks all payment flows)~~ ✅ COMPLETED
 2. ~~**Phase 2**: Fix student dashboard reads to Convex~~ ✅ COMPLETED
-3. **Phase 3**: Fix instructor dashboard reads to Convex
-4. **Phase 4**: Verify payment flow end-to-end
+3. ~~**Phase 4**: Implement Event-Driven Sync (Convex → SQL for admin stats)~~ ✅ COMPLETED
+4. **Phase 5**: Verify payment flow end-to-end
 
 **Reference**: `PAYMENT_FLOW_TESTING_INSTRUCTIONS.md` for testing guide once complete.
 
@@ -25,7 +25,8 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 10, 2026 (Phase 2 COMPLETE - Student dashboard + onboarding now use Convex)
+**Last Updated**: May 10, 2026 (Phase 4 Event-Driven Sync IMPLEMENTED)
+**PR**: https://github.com/dlitorja/mentorships-infra/pull/240 (Phase 1+2), new PR pending (Phase 4)
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
@@ -808,8 +809,18 @@ Instead of 16 separate scripts with fragile CLI invocations, we now use:
 - [ ] Migrate `booking-emails.ts` to Convex
 
 **Phase 4: Event-Driven Sync (3-5 days)**
-- [ ] Create Inngest sync handlers for Drizzle replica
-- [ ] Event flow: Convex Mutation → `inngest.send()` → Inngest handler → Drizzle
+- [x] Create Inngest sync handlers for Drizzle replica ✅ COMPLETED
+- [x] Event flow: Inngest payment function → Convex mutation → `inngest.send()` → Inngest handler → Drizzle ✅ IMPLEMENTED
+- [ ] Event-driven sync for refunds (partial implementation complete)
+- [ ] Event-driven sync for order status changes (partial implementation complete)
+
+**Phase 4 Implementation Details (May 10, 2026)**:
+- **Sync Event Schemas**: 8 events (`data.sync/payment.created/updated`, `data.sync/order.created/updated`, `data.sync/sessionPack.created/updated`, `data.sync/seatReservation.created/updated`)
+- **Sync Handlers**: 8 Inngest functions in `apps/web/inngest/functions/sync.ts` with 3 retries + upsert logic
+- **SQL Schema Updates**: Changed `id` and FK columns from UUID to TEXT to store Convex string IDs (payments, orders, sessionPacks, seatReservations, mentors)
+- **Convex Mutations Updated**: `createPayment`, `createOrder`, `createSessionPack`, `createSeatReservation` now return full objects
+- **Inngest Payment Functions Updated**: `processStripeCheckout/Refund`, `processPayPalCheckout/Refund` send sync events after Convex mutations
+- **Root Cause Fixed**: Admin stats (`GET /api/admin/stats`) queries SQL `payments` table which was empty after Convex migration - now synced via events
 
 **Phase 5: Cleanup (2-3 days)**
 - [ ] Deprecate Drizzle mutation functions

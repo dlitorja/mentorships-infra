@@ -1,5 +1,5 @@
 import { pgTable, uuid, text, numeric, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
-import { orders, paymentProviderEnum, type PaymentProvider } from "./orders";
+import { paymentProviderEnum, type PaymentProvider } from "./orders";
 
 export const paymentStatusEnum = pgEnum("payment_status", [
   "pending",
@@ -14,12 +14,10 @@ export type PaymentStatus = "pending" | "completed" | "refunded" | "failed";
 export const payments = pgTable(
   "payments",
   {
-    id: uuid("id")
-      .primaryKey()
-      .defaultRandom(),
-    orderId: uuid("order_id")
-      .notNull()
-      .references(() => orders.id, { onDelete: "cascade" }),
+    id: text("id")
+      .primaryKey(),
+    convexId: text("convex_id"),
+    orderId: text("order_id").notNull(),
     provider: paymentProviderEnum("provider").notNull(),
     providerPaymentId: text("provider_payment_id").notNull(),
     amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
@@ -28,13 +26,11 @@ export const payments = pgTable(
     refundedAmount: numeric("refunded_amount", { precision: 10, scale: 2 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
-    // Soft deletion for audit trails (financial records)
     deletedAt: timestamp("deleted_at"),
   },
   (t) => ({
     orderIdIdx: index("payments_order_id_idx").on(t.orderId),
     statusIdx: index("payments_status_idx").on(t.status),
-    // Composite index for getPaymentByProviderId query pattern
     providerPaymentIdIdx: index("payments_provider_payment_id_idx").on(t.provider, t.providerPaymentId),
   })
 );

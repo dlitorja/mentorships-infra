@@ -61,6 +61,7 @@ export async function reserveSeat(
   const [seat] = await db
     .insert(seatReservations)
     .values({
+      id: crypto.randomUUID(),
       mentorId,
       userId,
       sessionPackId,

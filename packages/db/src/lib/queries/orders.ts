@@ -23,6 +23,7 @@ export async function createOrder(
   const [order] = await db
     .insert(orders)
     .values({
+      id: crypto.randomUUID(),
       userId,
       provider,
       totalAmount,
