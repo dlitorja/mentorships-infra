@@ -122,4 +122,3 @@ export const wipePaymentData = mutation({
     return { success: true, deleted: results };
   },
 });
-
