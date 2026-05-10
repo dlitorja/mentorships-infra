@@ -42,9 +42,9 @@ export async function GET(
     const entries = await convex.query(api.waitlist.getWaitlistForInstructor, {
       instructorSlug: slug,
       mentorshipType,
-    });
+    }) as any[];
 
-    const formatted = entries.map((entry) => ({
+    const formatted = entries.map((entry: any) => ({
       id: entry._id,
       email: entry.email,
       type: entry.mentorshipType,
