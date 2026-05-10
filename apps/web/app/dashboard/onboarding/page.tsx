@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { requireDbUser, getUser } from "@/lib/auth";
-import { getUserSessionPacksWithMentors } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { MenteeOnboardingForm } from "@/components/dashboard/mentee-onboarding-form";
@@ -16,10 +17,15 @@ export default async function MenteeOnboardingPage() {
   const clerkUser = await getUser();
   const discordConnected = hasDiscordConnected(clerkUser);
 
-  const sessionPacksResult = await getUserSessionPacksWithMentors(dbUser.id);
+  const convex = getConvexClient();
+  const sessionPacksResult = await convex.query(api.sessionPacks.getUserSessionPacksWithMentors, {
+    userId: dbUser.id,
+    limit: 100,
+    offset: 0,
+  });
   const packs = sessionPacksResult.items.map((p) => ({
     sessionPackId: p.id,
-    instructorLabel: p.mentorUser.email,
+    instructorLabel: p.mentorUser?.email,
   }));
 
   return (

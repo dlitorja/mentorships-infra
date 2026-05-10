@@ -3,12 +3,8 @@ export const dynamic = "force-dynamic";
 import { getUser, requireDbUser } from "@/lib/auth";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
-import {
-  getUserSessionPacksWithMentors,
-  getUserTotalRemainingSessions,
-  getUserUpcomingSessions,
-  getUserRecentSessions,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, User, BookOpen, CheckCircle2 } from "lucide-react";
@@ -49,13 +45,26 @@ export default async function DashboardPage() {
       clerkUser?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
     );
 
-    // Fetch all dashboard data in parallel
+    const convex = getConvexClient();
+
     const [sessionPacksResult, totalSessions, upcomingSessions, recentSessions] =
       await Promise.all([
-        getUserSessionPacksWithMentors(user.id),
-        getUserTotalRemainingSessions(user.id),
-        getUserUpcomingSessions(user.id, 5),
-        getUserRecentSessions(user.id, 3),
+        convex.query(api.sessionPacks.getUserSessionPacksWithMentors, {
+          userId: user.id,
+          limit: 100,
+          offset: 0,
+        }),
+        convex.query(api.sessionPacks.getUserTotalRemainingSessions, {
+          userId: user.id,
+        }),
+        convex.query(api.sessions.getUpcomingSessionsWithMentor, {
+          studentId: user.id,
+          limit: 5,
+        }),
+        convex.query(api.sessions.getRecentSessionsWithMentor, {
+          studentId: user.id,
+          limit: 3,
+        }),
       ]);
 
     const sessionPacks = sessionPacksResult.items;

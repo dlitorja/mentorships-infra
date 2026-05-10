@@ -56,12 +56,126 @@ export const getUpcomingSessions = query({
     const now = Date.now();
     return await ctx.db
       .query("sessions")
-      .withIndex("by_studentId_status_scheduledAt", (q) => 
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
         q.eq("studentId", args.studentId)
           .eq("status", "scheduled")
       )
       .filter((q) => q.gt(q.field("scheduledAt"), now))
       .collect();
+  },
+});
+
+/** Returns upcoming scheduled sessions for a student with mentor information. Used by student dashboard. */
+export const getUpcomingSessionsWithMentor = query({
+  args: {
+    studentId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const limit = args.limit ?? 5;
+    const now = Date.now();
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
+        q.eq("studentId", args.studentId)
+          .eq("status", "scheduled")
+      )
+      .filter((q) => q.gt(q.field("scheduledAt"), now))
+      .collect();
+
+    const sortedSessions = sessions.sort((a, b) => a.scheduledAt - b.scheduledAt);
+    const limitedSessions = sortedSessions.slice(0, limit);
+
+    const sessionsWithMentor = await Promise.all(
+      limitedSessions.map(async (session) => {
+        const mentor = await ctx.db.get(session.mentorId);
+        let mentorUser = null;
+        if (mentor?.userId) {
+          const users = await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", mentor.userId))
+            .first();
+          mentorUser = users;
+        }
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          status: session.status,
+          mentorId: session.mentorId,
+          mentorUser: mentorUser ? {
+            email: mentorUser.email,
+          } : null,
+        };
+      })
+    );
+
+    return sessionsWithMentor;
+  },
+});
+
+/** Returns recent completed/canceled sessions for a student with mentor information. Used by student dashboard. */
+export const getRecentSessionsWithMentor = query({
+  args: {
+    studentId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const limit = args.limit ?? 3;
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId", (q) => q.eq("studentId", args.studentId))
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("status"), "completed"),
+          q.eq(q.field("status"), "canceled"),
+          q.eq(q.field("status"), "no_show")
+        )
+      )
+      .collect();
+
+    const sortedSessions = sessions.sort((a, b) => {
+      const aTime = a.completedAt || a.canceledAt || a._creationTime;
+      const bTime = b.completedAt || b.canceledAt || b._creationTime;
+      return bTime - aTime;
+    });
+    const limitedSessions = sortedSessions.slice(0, limit);
+
+    const sessionsWithMentor = await Promise.all(
+      limitedSessions.map(async (session) => {
+        const mentor = await ctx.db.get(session.mentorId);
+        let mentorUser = null;
+        if (mentor?.userId) {
+          const users = await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", mentor.userId))
+            .first();
+          mentorUser = users;
+        }
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          completedAt: session.completedAt,
+          canceledAt: session.canceledAt,
+          status: session.status,
+          mentorId: session.mentorId,
+          mentorUser: mentorUser ? {
+            email: mentorUser.email,
+          } : null,
+        };
+      })
+    );
+
+    return sessionsWithMentor;
   },
 });
 

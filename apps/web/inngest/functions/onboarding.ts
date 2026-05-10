@@ -143,6 +143,9 @@ export const onboardingFlow = inngest.createFunction(
 
     const clerkMentor = await step.run("get-mentor-clerk-user", async () => {
       const clerk = await getClerkApi();
+      if (!mentor.userId) {
+        throw new Error(`Instructor ${pack.mentorId} has no linked Clerk user`);
+      }
       return await clerk.users.getUser(mentor.userId);
     });
 
