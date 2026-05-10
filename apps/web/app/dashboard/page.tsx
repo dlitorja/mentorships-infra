@@ -67,7 +67,8 @@ export default async function DashboardPage() {
         }),
       ]);
 
-    const sessionPacks = sessionPacksResult.items.filter((p) => p.mentor && p.mentorUser);
+    const allPacks = sessionPacksResult.items;
+    const sessionPacks = allPacks.filter((p) => p.mentor != null && p.mentorUser != null) as typeof allPacks;
 
     // Get unique instructors
     const instructors = Array.from(
