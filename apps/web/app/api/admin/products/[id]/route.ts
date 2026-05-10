@@ -254,3 +254,91 @@ export async function PUT(
     );
   }
 }
+
+/**
+ * DELETE /api/admin/products/[id]
+ * Soft-delete a product and archive its Stripe/PayPal products
+ */
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    await requireRoleForApi("admin");
+    const { id } = await params;
+
+    const convex = getConvexClient();
+
+    const existingProduct = await convex.query(api.products.getProductById, {
+      id: id as Id<"products">,
+    });
+
+    if (!existingProduct) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    }
+
+    let stripePriceArchived = false;
+    let stripeProductArchived = false;
+    const errors: string[] = [];
+
+    if (existingProduct.stripePriceId) {
+      try {
+        await stripe.prices.update(existingProduct.stripePriceId, { active: false });
+        stripePriceArchived = true;
+      } catch (stripePriceError) {
+        console.error("Failed to archive Stripe price:", stripePriceError);
+        errors.push(`Stripe price archival failed: ${stripePriceError instanceof Error ? stripePriceError.message : "Unknown error"}`);
+        return NextResponse.json(
+          {
+            error: "Failed to archive Stripe price",
+            details: { stripePriceId: existingProduct.stripePriceId, error: errors[0] },
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    if (existingProduct.stripeProductId) {
+      try {
+        await stripe.products.update(existingProduct.stripeProductId, { active: false });
+        stripeProductArchived = true;
+      } catch (stripeProductError) {
+        console.error("Failed to archive Stripe product:", stripeProductError);
+        errors.push(`Stripe product archival failed: ${stripeProductError instanceof Error ? stripeProductError.message : "Unknown error"}`);
+        return NextResponse.json(
+          {
+            error: "Failed to archive Stripe product",
+            details: { stripeProductId: existingProduct.stripeProductId, error: errors[0] },
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    await convex.mutation(api.products.deleteProduct, {
+      id: id as Id<"products">,
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "Product deleted successfully",
+      details: {
+        stripeProductArchived,
+        stripePriceArchived,
+      },
+    });
+  } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    }
+
+    console.error("Error deleting product:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to delete product" },
+      { status: 500 }
+    );
+  }
+}
