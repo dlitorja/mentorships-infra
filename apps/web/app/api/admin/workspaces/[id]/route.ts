@@ -81,8 +81,8 @@ export async function GET(
     const messages = messagesResult.status === "fulfilled" && messagesResult.value
       ? messagesResult.value
       : [];
-    const auditLogs = auditLogsResult.status === "fulfilled" && auditLogsResult.value
-      ? auditLogsResult.value as any
+    const auditLogs: any = auditLogsResult.status === "fulfilled" && auditLogsResult.value
+      ? auditLogsResult.value
       : emptyPagination;
 
     if (clerkUserId) {
