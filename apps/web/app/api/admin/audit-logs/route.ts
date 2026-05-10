@@ -35,7 +35,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
 
     return NextResponse.json({
-      items: result.page.map((log) => ({
+      items: (result.page as any[]).map((log: any) => ({
         id: log._id,
         workspaceId: log.workspaceId,
         adminId: log.adminId,
