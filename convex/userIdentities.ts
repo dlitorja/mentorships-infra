@@ -59,6 +59,35 @@ export const migrateUserIdentity = mutation({
   },
 });
 
+export const upsertUserIdentity = mutation({
+  args: {
+    userId: v.string(),
+    provider: v.union(v.literal("discord")),
+    providerUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("userIdentities")
+      .withIndex("by_userId_provider", (q) =>
+        q.eq("userId", args.userId).eq("provider", args.provider)
+      )
+      .first();
+
+    if (existing) {
+      return existing;
+    }
+
+    const insertResult = await ctx.db.insert("userIdentities", {
+      userId: args.userId,
+      provider: args.provider,
+      providerUserId: args.providerUserId,
+      connectedAt: Date.now(),
+    });
+
+    return { _id: insertResult, userId: args.userId, provider: args.provider, providerUserId: args.providerUserId };
+  },
+});
+
 export const getByUserIdAndProvider = internalQuery({
   args: {
     userId: v.string(),

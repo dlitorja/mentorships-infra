@@ -39,16 +39,120 @@ export const getUserActiveSessionPacks = query({
     const now = Date.now();
     return await ctx.db
       .query("sessionPacks")
-      .withIndex("by_userId_status_expiresAt", (q) => 
+      .withIndex("by_userId_status_expiresAt", (q) =>
         q.eq("userId", args.userId).eq("status", "active")
       )
-      .filter((q) => 
+      .filter((q) =>
         q.or(
           q.eq(q.field("expiresAt"), undefined),
           q.gt(q.field("expiresAt"), now)
         )
       )
       .collect();
+  },
+});
+
+/** Returns active session packs for a user with mentor information included. Used by student dashboard. */
+export const getUserSessionPacksWithMentors = query({
+  args: {
+    userId: v.string(),
+    limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const limit = args.limit ?? 100;
+    const offset = args.offset ?? 0;
+    const now = Date.now();
+
+    const packs = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId_status_expiresAt", (q) =>
+        q.eq("userId", args.userId).eq("status", "active")
+      )
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("expiresAt"), undefined),
+          q.gt(q.field("expiresAt"), now)
+        )
+      )
+      .collect();
+
+    const sortedPacks = packs.sort((a, b) => b._creationTime - a._creationTime);
+    const paginatedPacks = sortedPacks.slice(offset, offset + limit);
+
+    const packsWithMentors = await Promise.all(
+      paginatedPacks.map(async (pack) => {
+        const mentor = await ctx.db.get(pack.mentorId);
+        let mentorUser = null;
+        if (mentor?.userId) {
+          const userId = mentor.userId;
+          const users = await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", userId))
+            .first();
+          mentorUser = users;
+        }
+
+        return {
+          id: pack._id,
+          userId: pack.userId,
+          mentorId: pack.mentorId,
+          totalSessions: pack.totalSessions,
+          remainingSessions: pack.remainingSessions,
+          status: pack.status,
+          purchasedAt: pack.purchasedAt,
+          expiresAt: pack.expiresAt,
+          paymentId: pack.paymentId,
+          mentor: mentor ? {
+            id: mentor._id,
+            userId: mentor.userId,
+            name: mentor.name,
+            bio: mentor.bio,
+            tagline: mentor.tagline,
+            profileImageUrl: mentor.profileImageUrl,
+          } : null,
+          mentorUser: mentorUser ? {
+            email: mentorUser.email,
+          } : null,
+        };
+      })
+    );
+
+    return {
+      items: packsWithMentors,
+      total: packs.length,
+      limit,
+      offset,
+    };
+  },
+});
+
+/** Returns the total remaining sessions for a user across all active packs. Used by student dashboard stats. */
+export const getUserTotalRemainingSessions = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const now = Date.now();
+    const packs = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId_status_expiresAt", (q) =>
+        q.eq("userId", args.userId).eq("status", "active")
+      )
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("expiresAt"), undefined),
+          q.gt(q.field("expiresAt"), now)
+        )
+      )
+      .collect();
+
+    const total = packs.reduce((sum, pack) => sum + (pack.remainingSessions || 0), 0);
+    return total;
   },
 });
 

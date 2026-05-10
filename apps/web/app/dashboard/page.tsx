@@ -3,12 +3,8 @@ export const dynamic = "force-dynamic";
 import { getUser, requireDbUser } from "@/lib/auth";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
-import {
-  getUserSessionPacksWithMentors,
-  getUserTotalRemainingSessions,
-  getUserUpcomingSessions,
-  getUserRecentSessions,
-} from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, User, BookOpen, CheckCircle2 } from "lucide-react";
@@ -49,16 +45,60 @@ export default async function DashboardPage() {
       clerkUser?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
     );
 
-    // Fetch all dashboard data in parallel
-    const [sessionPacksResult, totalSessions, upcomingSessions, recentSessions] =
+    const convex = getConvexClient();
+
+    const [sessionPacksResult, totalSessions, upcomingRaw, recentRaw] =
       await Promise.all([
-        getUserSessionPacksWithMentors(user.id),
-        getUserTotalRemainingSessions(user.id),
-        getUserUpcomingSessions(user.id, 5),
-        getUserRecentSessions(user.id, 3),
+        convex.query(api.sessionPacks.getUserSessionPacksWithMentors, {
+          userId: user.id,
+          limit: 100,
+          offset: 0,
+        }),
+        convex.query(api.sessionPacks.getUserTotalRemainingSessions, {
+          userId: user.id,
+        }),
+        convex.query(api.sessions.getUpcomingSessionsWithMentor, {
+          studentId: user.id,
+          limit: 5,
+        }),
+        convex.query(api.sessions.getRecentSessionsWithMentor, {
+          studentId: user.id,
+          limit: 3,
+        }),
       ]);
 
-    const sessionPacks = sessionPacksResult.items;
+    const upcomingSessions = upcomingRaw
+      .filter((s) => s.mentorUser != null)
+      .map((s) => ({
+        id: s.id,
+        scheduledAt: s.scheduledAt,
+        status: s.status,
+        mentorUser: { email: s.mentorUser!.email },
+      }));
+
+    const recentSessions = recentRaw
+      .filter((s) => s.mentorUser != null)
+      .map((s) => ({
+        id: s.id,
+        scheduledAt: s.scheduledAt,
+        completedAt: s.completedAt,
+        status: s.status,
+        mentorUser: { email: s.mentorUser!.email },
+      }));
+
+    const allPacks = sessionPacksResult.items;
+
+    const sessionPacks = allPacks
+      .filter((p) => p.mentor != null && p.mentorUser != null)
+      .map((p) => ({
+        id: p.id,
+        mentorId: p.mentorId,
+        totalSessions: p.totalSessions,
+        remainingSessions: p.remainingSessions,
+        expiresAt: p.expiresAt,
+        mentor: { id: p.mentor!.id, bio: p.mentor!.bio },
+        mentorUser: { email: p.mentorUser!.email },
+      }));
 
     // Get unique instructors
     const instructors = Array.from(
@@ -203,7 +243,7 @@ export default async function DashboardPage() {
                             <Calendar className="h-4 w-4" />
                             <span>
                               {pack.expiresAt
-                                ? `Expires ${formatDate(pack.expiresAt)}`
+                                ? `Expires ${formatDate(new Date(pack.expiresAt))}`
                                 : "No expiration"}
                             </span>
                           </div>
@@ -255,7 +295,7 @@ export default async function DashboardPage() {
                             {session.mentorUser.email}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {formatDateTime(session.scheduledAt)}
+                            {formatDateTime(new Date(session.scheduledAt))}
                           </p>
                         </div>
                         <Badge variant="outline">Scheduled</Badge>
@@ -290,7 +330,7 @@ export default async function DashboardPage() {
                         <p className="text-sm text-muted-foreground">
                           Completed{" "}
                           {session.completedAt &&
-                            formatDateTime(session.completedAt)}
+                            formatDateTime(new Date(session.completedAt))}
                         </p>
                       </div>
                       <Badge variant="default">Completed</Badge>

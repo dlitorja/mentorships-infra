@@ -1,17 +1,7 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import {
-  and,
-  db,
-  desc,
-  discordActionQueue,
-  getMentorById,
-  getOrderById,
-  payments,
-  sessionPacks,
-  userIdentities,
-  users,
-  eq,
-} from "@mentorships/db";
+import { api } from "../../../../convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+import { Id } from "../../../../convex/_generated/dataModel";
 import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
@@ -19,6 +9,14 @@ import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboardi
 import { buildAdminPurchaseEmail } from "@/lib/emails/admin-purchase-notification-email";
 import { purchaseMentorshipEventSchema } from "../types";
 import { inngest } from "../client";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 type ClerkExternalAccountLike = {
   provider?: unknown;
@@ -72,9 +70,12 @@ export const onboardingFlow = inngest.createFunction(
     });
 
     const { orderId, clerkId, provider } = parsed.data;
+    const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
-      return await getOrderById(orderId);
+      return await convex.query(api.orders.getOrderById, {
+        id: orderId as Id<"orders">,
+      });
     });
 
     if (!order) {
@@ -82,13 +83,10 @@ export const onboardingFlow = inngest.createFunction(
     }
 
     const payment = await step.run("get-completed-payment", async () => {
-      const [p] = await db
-        .select()
-        .from(payments)
-        .where(and(eq(payments.orderId, orderId), eq(payments.status, "completed"), eq(payments.provider, provider)))
-        .orderBy(desc(payments.createdAt))
-        .limit(1);
-      return p ?? null;
+      return await convex.query(api.payments.getCompletedPaymentByOrderAndProvider, {
+        orderId: orderId as Id<"orders">,
+        provider: provider as "stripe" | "paypal",
+      });
     });
 
     if (!payment) {
@@ -96,24 +94,23 @@ export const onboardingFlow = inngest.createFunction(
     }
 
     const pack = await step.run("get-session-pack", async () => {
-      const [p] = await db
-        .select()
-        .from(sessionPacks)
-        .where(eq(sessionPacks.paymentId, payment.id))
-        .limit(1);
-      return p ?? null;
+      return await convex.query(api.sessionPacks.getSessionPackByPaymentId, {
+        paymentId: payment._id,
+      });
     });
 
     if (!pack) {
-      throw new Error(`Session pack not found for payment ${payment.id}`);
+      throw new Error(`Session pack not found for payment ${payment._id}`);
     }
 
     const mentor = await step.run("get-mentor", async () => {
-      return await getMentorById(pack.mentorId);
+      return await convex.query(api.instructors.getInstructorById, {
+        id: pack.mentorId,
+      });
     });
 
     if (!mentor) {
-      throw new Error(`Mentor ${pack.mentorId} not found for session pack ${pack.id}`);
+      throw new Error(`Mentor ${pack.mentorId} not found for session pack ${pack._id}`);
     }
 
     const clerkStudent = await step.run("get-student-clerk-user", async () => {
@@ -135,15 +132,7 @@ export const onboardingFlow = inngest.createFunction(
 
     if (discordId) {
       await step.run("persist-discord-identity", async () => {
-        const existing = await db
-          .select()
-          .from(userIdentities)
-          .where(and(eq(userIdentities.userId, clerkId), eq(userIdentities.provider, "discord")))
-          .limit(1);
-
-        if (existing.length > 0) return;
-
-        await db.insert(userIdentities).values({
+        return await convex.mutation(api.userIdentities.upsertUserIdentity, {
           userId: clerkId,
           provider: "discord",
           providerUserId: discordId,
@@ -153,6 +142,9 @@ export const onboardingFlow = inngest.createFunction(
 
     const clerkMentor = await step.run("get-mentor-clerk-user", async () => {
       const clerk = await getClerkApi();
+      if (!mentor.userId) {
+        throw new Error(`Instructor ${pack.mentorId} has no linked Clerk user`);
+      }
       return await clerk.users.getUser(mentor.userId);
     });
 
@@ -184,8 +176,8 @@ export const onboardingFlow = inngest.createFunction(
         headers: {
           ...emailContent.headers,
           "X-Order-Id": orderId,
-          "X-Session-Pack-Id": pack.id,
-          "X-Mentor-Id": mentor.id,
+          "X-Session-Pack-Id": pack._id,
+          "X-Mentor-Id": mentor._id,
         },
       });
     });
@@ -204,8 +196,8 @@ export const onboardingFlow = inngest.createFunction(
         context: {
           orderId,
           clerkId,
-          sessionPackId: pack.id,
-          mentorId: mentor.id,
+          sessionPackId: pack._id,
+          mentorId: mentor._id,
           discordConnected,
           resendId: sendResult.ok ? sendResult.id : null,
         },
@@ -229,7 +221,7 @@ export const onboardingFlow = inngest.createFunction(
 
       if (!instructorEmail) {
         // Log warning but don't fail - instructor may need to add email
-        console.warn(`No email found for instructor ${mentor.id} (userId: ${mentor.userId})`);
+        console.warn(`No email found for instructor ${mentor._id} (userId: ${mentor.userId})`);
         return { sent: false, reason: "no_instructor_email" };
       }
 
@@ -251,8 +243,8 @@ export const onboardingFlow = inngest.createFunction(
         headers: {
           ...instructorEmailContent.headers,
           "X-Order-Id": orderId,
-          "X-Session-Pack-Id": pack.id,
-          "X-Mentor-Id": mentor.id,
+          "X-Session-Pack-Id": pack._id,
+          "X-Mentor-Id": mentor._id,
         },
       });
 
@@ -293,8 +285,8 @@ export const onboardingFlow = inngest.createFunction(
             headers: {
               ...adminEmailContent.headers,
               "X-Order-Id": orderId,
-              "X-Session-Pack-Id": pack.id,
-              "X-Mentor-Id": mentor.id,
+              "X-Session-Pack-Id": pack._id,
+              "X-Mentor-Id": mentor._id,
             },
           })
         )
@@ -308,31 +300,29 @@ export const onboardingFlow = inngest.createFunction(
       };
     });
 
-    await step.run("queue-discord-actions", async () => {
-      // A lightweight “new purchase” DM can be sent later by the bot (once it’s live).
+await step.run("queue-discord-actions", async () => {
+      // A lightweight "new purchase" DM can be sent later by the bot (once it's live).
       // Detailed DM with onboarding submission will be queued when the mentee completes the form.
-      await db.insert(discordActionQueue).values({
+      await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
         type: "dm_instructor_new_signup",
-        status: "pending",
         subjectUserId: clerkId,
-        mentorId: mentor.id,
-        mentorUserId: mentor.userId,
+        mentorId: mentor._id,
+        mentorUserId: mentor.userId ?? undefined,
         payload: {
           kind: "purchase",
           orderId,
-          sessionPackId: pack.id,
+          sessionPackId: pack._id,
           dashboardUrl,
           onboardingUrl,
         },
       });
 
       if (discordId) {
-        await db.insert(discordActionQueue).values({
+        await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
           type: "assign_mentee_role",
-          status: "pending",
           subjectUserId: clerkId,
-          mentorId: mentor.id,
-          mentorUserId: mentor.userId,
+          mentorId: mentor._id,
+          mentorUserId: mentor.userId ?? undefined,
           payload: {
             discordId,
             guildId: process.env.DISCORD_GUILD_ID ?? null,
@@ -346,8 +336,8 @@ export const onboardingFlow = inngest.createFunction(
       success: true,
       orderId,
       clerkId,
-      sessionPackId: pack.id,
-      mentorId: mentor.id,
+      sessionPackId: pack._id,
+      mentorId: mentor._id,
       discordConnected,
       emailSent: sendResult.ok,
     };
