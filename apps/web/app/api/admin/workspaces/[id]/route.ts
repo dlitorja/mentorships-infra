@@ -82,7 +82,7 @@ export async function GET(
       ? messagesResult.value
       : [];
     const auditLogs = auditLogsResult.status === "fulfilled" && auditLogsResult.value
-      ? auditLogsResult.value
+      ? auditLogsResult.value as any
       : emptyPagination;
 
     if (clerkUserId) {
