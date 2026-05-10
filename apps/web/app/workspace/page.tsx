@@ -170,7 +170,7 @@ function WorkspaceContent({
 
 function AuthenticatedWorkspace() {
   const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
-  const { data: dbUser, isLoading: dbLoading } = useCurrentUser();
+  const { data: dbUser, isLoading: dbLoading } = useCurrentUser() as any;
   const router = useRouter();
   const hasCheckedAuth = useRef(false);
 
