@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 
 // List all active instructors
@@ -217,7 +218,7 @@ export const listAll = query({
 // Get all instructors with stats for admin dashboard
 export const getInstructorsForAdmin = query({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<Array<Doc<"instructors"> & { activeMenteeCount: number }>> => {
     const instructors = await ctx.db.query("instructors").collect();
 
     const allWorkspaces = await ctx.db
