@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 
 // List all active instructors
@@ -211,6 +212,32 @@ export const listAll = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("instructors").collect();
+  },
+});
+
+// Get all instructors with stats for admin dashboard
+export const getInstructorsForAdmin = query({
+  args: {},
+  handler: async (ctx): Promise<Array<Doc<"instructors"> & { activeMenteeCount: number }>> => {
+    const instructors = await ctx.db.query("instructors").collect();
+
+    const allWorkspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_endedAt", (q) => q.eq("endedAt", undefined))
+      .collect();
+
+    const instructorStats = new Map<string, number>();
+
+    for (const workspace of allWorkspaces) {
+      if (workspace.deletedAt !== undefined) continue;
+      const current = instructorStats.get(workspace.instructorId) || 0;
+      instructorStats.set(workspace.instructorId, current + 1);
+    }
+
+    return instructors.map((instructor) => ({
+      ...instructor,
+      activeMenteeCount: instructorStats.get(instructor._id) || 0,
+    }));
   },
 });
 

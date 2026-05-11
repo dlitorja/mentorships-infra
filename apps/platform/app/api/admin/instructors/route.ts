@@ -28,7 +28,7 @@ export async function GET(): Promise<NextResponse> {
         oneOnOneInventory: instructor.oneOnOneInventory || 0,
         groupInventory: instructor.groupInventory || 0,
         maxActiveStudents: instructor.maxActiveStudents || 0,
-        activeMenteeCount: 0,
+        activeMenteeCount: instructor.activeMenteeCount || 0,
         createdAt: instructor.createdAt
           ? new Date(instructor.createdAt).toISOString()
           : new Date(instructor._creationTime).toISOString(),
