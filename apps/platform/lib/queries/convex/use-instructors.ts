@@ -1,10 +1,21 @@
 "use client";
 
-import { useQuery } from "@convex-dev/react-query";
-import { useMemo } from "react";
+import { useQuery, useMutation, useQueryClient, useMemo } from "@tanstack/react-query";
+import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
+
+export function useInstructor(id: string) {
+  return useQuery({
+    ...convexQuery(api.instructors.getById, { id: id as Id<"instructors"> }),
+    enabled: !!id,
+  });
+}
 
 export function useInstructors() {
-  const instructors = useQuery("instructors:list");
+  const instructors = useQuery({
+    ...convexQuery(api.instructors.list, {}),
+  });
 
   return useMemo(() => {
     if (!instructors) return [];
@@ -15,21 +26,149 @@ export function useInstructors() {
 }
 
 export function useInstructorBySlug(slug: string) {
-  return useQuery("instructors:getBySlug", { slug });
-}
-
-export function useInstructor(id: string) {
-  return useQuery("instructors:getById", { id: id as any });
-}
-
-export function useInstructorTestimonials(instructorId: string) {
-  return useQuery("instructors:getTestimonials", { instructorId: instructorId as any });
-}
-
-export function useInstructorMenteeResults(instructorId: string) {
-  return useQuery("instructors:getMenteeResults", { instructorId: instructorId as any });
+  return useQuery({
+    ...convexQuery(api.instructors.getBySlug, { slug }),
+    enabled: !!slug,
+  });
 }
 
 export function useAllInstructors() {
-  return useQuery("instructors:listAll");
+  return useQuery({
+    ...convexQuery(api.instructors.listAll, {}),
+  });
+}
+
+export function useInstructorTestimonials(instructorId: string) {
+  return useQuery({
+    ...convexQuery(api.instructors.getTestimonials, { instructorId: instructorId as Id<"instructors"> }),
+    enabled: !!instructorId,
+  });
+}
+
+export function useInstructorMenteeResults(instructorId: string) {
+  return useQuery({
+    ...convexQuery(api.instructors.getMenteeResults, { instructorId: instructorId as Id<"instructors"> }),
+    enabled: !!instructorId,
+  });
+}
+
+export function useUpdateInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.update),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+export function useCreateInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.create),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+export function useDeleteInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.remove),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+export function useCreateTestimonial() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.createTestimonial),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructorTestimonials"] });
+    },
+  });
+}
+
+export function useDeleteTestimonial() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.deleteTestimonial),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructorTestimonials"] });
+    },
+  });
+}
+
+export function useCreateMenteeResult() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.createMenteeResult),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["menteeResults"] });
+    },
+  });
+}
+
+export function useDeleteMenteeResult() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.deleteMenteeResult),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["menteeResults"] });
+    },
+  });
+}
+
+export function useUpdateInstructorInventory() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.updateInventory),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+export function useLinkUserToInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.linkUser),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+export function useUploadInstructorProfileImage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.uploadProfileImage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+export function useAddInstructorPortfolioImage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.addPortfolioImage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
 }
