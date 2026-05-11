@@ -23,6 +23,37 @@ export const getByEmail = query({
   },
 });
 
+// Get current user from auth identity
+export const getCurrentUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+    
+    const clerkId = identity.subject;
+    return await ctx.db
+      .query("users")
+      .filter((q) => q.eq(q.field("clerkId"), clerkId))
+      .first();
+  },
+});
+
+// Get user by ID
+export const getUserById = query({
+  args: { id: v.id("users") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+// List all users
+export const listUsers = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("users").collect();
+  },
+});
+
 // Create or update user from Clerk
 export const upsertFromClerk = mutation({
   args: {
