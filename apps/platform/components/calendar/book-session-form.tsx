@@ -124,7 +124,7 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
     if (!selectedPack || !userId) return;
     try {
       await createSession.mutateAsync({
-        instructorId: selectedPack.mentorId as any,
+        mentorId: selectedPack.mentorId as any,
         studentId: userId,
         sessionPackId: selectedPack.id as any,
         scheduledAt: new Date(scheduledAtIso).getTime(),

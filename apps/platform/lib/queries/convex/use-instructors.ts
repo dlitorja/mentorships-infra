@@ -8,13 +8,13 @@ import { Id } from "@/convex/_generated/dataModel";
 
 export type PublicInstructor = {
   _id: Id<"instructors">;
-  name: string;
-  slug: string;
+  name?: string;
+  slug?: string;
   tagline?: string;
   bio?: string;
   profileImageUrl?: string;
   specialties?: string[];
-  isActive: boolean;
+  isActive?: boolean;
   isHidden?: boolean;
   deletedAt?: number;
 };

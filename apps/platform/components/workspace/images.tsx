@@ -90,6 +90,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
         await createImage.mutateAsync({
           workspaceId,
           storageId: "", // Placeholder - real implementation needs Convex storage.store()
+          imageUrl: "", // Placeholder
           createdBy: currentUserId,
         });
       } catch (error) {

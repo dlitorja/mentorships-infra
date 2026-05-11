@@ -14,9 +14,9 @@ import WorkspaceImages from "@/components/workspace/images";
 
 type UserWorkspace = {
   _id: Id<"workspaces">;
-  name: string;
+  name?: string;
   description?: string;
-  instructorId: Id<"instructors">;
+  mentorId?: Id<"instructors">;
   sessionPackId?: Id<"sessionPacks">;
   endedAt?: number;
 };
