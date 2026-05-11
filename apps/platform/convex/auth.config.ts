@@ -1,6 +1,10 @@
-import { clerkClient } from "@clerk/nextjs/server";
-import { ConvexAuthConfiguration } from "convex-auth";
+import type { AuthConfig } from "convex/server";
 
 export default {
-  client: clerkClient,
-} satisfies ConvexAuthConfiguration;
+  providers: [
+    {
+      domain: process.env.CLERK_JWT_ISSUER_DOMAIN || process.env.CLERK_FRONTEND_API_URL || "https://clerk.mentorships.huckleberry.art",
+      applicationID: "convex",
+    },
+  ],
+} satisfies AuthConfig;

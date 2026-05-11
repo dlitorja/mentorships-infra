@@ -36,6 +36,12 @@
    - ✅ Admin instructor create page (`/admin/instructors/create/page.tsx`)
    - ✅ Student dashboard (`/dashboard/page.tsx`) - rewritten to use Convex hooks
    - ✅ Workspace page (`/workspace/page.tsx`) - using `useWorkspacesByOwner`
+7. **Configuration Fixes (May 10, 2026)**:
+   - ✅ Fixed `convex.config.ts` - Updated from old `defineApp` to modern `defineConfig` format
+   - ✅ Fixed `convex/auth.config.ts` - Removed direct Clerk import (caused node:async_hooks bundling error), using env var pattern
+   - ✅ Fixed `convex/storage.ts` - Added missing `import { v } from "convex/values"`
+   - ✅ Added `CLERK_JWT_ISSUER_DOMAIN` to `.env.local`
+   - ✅ Convex dev server running successfully with deployment `acoustic-kiwi-522`
 
 ### In Progress 🚧
 

@@ -3,15 +3,28 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  deploy-platform:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to Vercel
+      - name: Deploy Platform to Vercel
         uses: amondnet/vercel-action@v25
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+          vercel-args: '--prod'
+
+  deploy-marketing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy Marketing to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_MARKETING_PROJECT_ID }}
           vercel-args: '--prod'
