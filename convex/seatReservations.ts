@@ -48,7 +48,7 @@ export const getUserSeatReservations = query({
 
 /** Returns all seat reservations for a given instructor ID. */
 export const getInstructorSeatReservations = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -56,14 +56,14 @@ export const getInstructorSeatReservations = query({
     }
     return await ctx.db
       .query("seatReservations")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
   },
 });
 
 /** Returns all active seat reservations for a given instructor ID. */
 export const getInstructorActiveSeats = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -71,8 +71,8 @@ export const getInstructorActiveSeats = query({
     }
     return await ctx.db
       .query("seatReservations")
-      .withIndex("by_mentorId_status", (q) => 
-        q.eq("mentorId", args.mentorId).eq("status", "active")
+      .withIndex("by_instructorId_status", (q) =>
+        q.eq("instructorId", args.instructorId).eq("status", "active")
       )
       .collect();
   },
@@ -80,7 +80,7 @@ export const getInstructorActiveSeats = query({
 
 /** Returns the seat reservation for a specific user-instructor pair, or null if unauthenticated. */
 export const getUserInstructorSeat = query({
-  args: { userId: v.string(), mentorId: v.id("instructors") },
+  args: { userId: v.string(), instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -88,8 +88,8 @@ export const getUserInstructorSeat = query({
     }
     return await ctx.db
       .query("seatReservations")
-      .withIndex("by_userId_mentorId", (q) => 
-        q.eq("userId", args.userId).eq("mentorId", args.mentorId)
+      .withIndex("by_userId_instructorId", (q) =>
+        q.eq("userId", args.userId).eq("instructorId", args.instructorId)
       )
       .first();
   },
@@ -98,7 +98,7 @@ export const getUserInstructorSeat = query({
 /** Creates a new seat reservation and associated workspace, returning both IDs. */
 export const createSeatReservation = mutation({
   args: {
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     userId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     seatExpiresAt: v.number(),
@@ -110,14 +110,14 @@ export const createSeatReservation = mutation({
       .query("seatReservations")
       .withIndex("by_sessionPackId", (q) => q.eq("sessionPackId", args.sessionPackId))
       .first();
-    
+
     if (existing) {
       throw new Error("Seat reservation already exists for this session pack");
     }
 
-    const mentor = await ctx.db.get(args.mentorId);
-    if (!mentor) {
-      throw new Error("Mentor not found");
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      throw new Error("Instructor not found");
     }
 
     const seatId = await ctx.db.insert("seatReservations", {
@@ -129,13 +129,13 @@ export const createSeatReservation = mutation({
 
     const workspaceId = await ctx.db.insert("workspaces", {
       name: `Mentorship Workspace`,
-      description: `Workspace for mentorship with ${mentor.userId}`,
+      description: `Workspace for mentorship with ${instructor.userId}`,
       ownerId: args.userId,
-      mentorId: args.mentorId,
+      instructorId: args.instructorId,
       isPublic: false,
       seatReservationId: seatId,
       menteeImageCount: 0,
-      mentorImageCount: 0,
+      instructorImageCount: 0,
     });
 
     return seatReservation;
@@ -214,21 +214,20 @@ export const deleteSeatReservation = mutation({
 
 /** Transitions expired active seats to grace period, and releases seats whose grace period has ended, ending associated workspaces. */
 export const processExpiredSeats = mutation({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const now = Date.now();
     const expiredSeats = await ctx.db
       .query("seatReservations")
-      .withIndex("by_mentorId_status", (q) => 
-        q.eq("mentorId", args.mentorId).eq("status", "active")
+      .withIndex("by_instructorId_status", (q) =>
+        q.eq("instructorId", args.instructorId).eq("status", "active")
       )
       .filter((q) => q.lt(q.field("seatExpiresAt"), now))
       .collect();
-    
+
     for (const seat of expiredSeats) {
       if (seat.gracePeriodEndsAt && now >= seat.gracePeriodEndsAt) {
         await ctx.db.patch(seat._id, { status: "released" });
-        // Set endedAt on associated workspace to start 18-month countdown
         const workspaces = await ctx.db
           .query("workspaces")
           .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
@@ -238,21 +237,21 @@ export const processExpiredSeats = mutation({
         }
       } else if (!seat.gracePeriodEndsAt) {
         const gracePeriodEnd = now + (7 * 24 * 60 * 60 * 1000);
-        await ctx.db.patch(seat._id, { 
+        await ctx.db.patch(seat._id, {
           status: "grace",
           gracePeriodEndsAt: gracePeriodEnd,
         });
       }
     }
-    
+
     const expiredGraceSeats = await ctx.db
       .query("seatReservations")
-      .withIndex("by_mentorId_status", (q) => 
-        q.eq("mentorId", args.mentorId).eq("status", "grace")
+      .withIndex("by_instructorId_status", (q) =>
+        q.eq("instructorId", args.instructorId).eq("status", "grace")
       )
       .filter((q) => q.lt(q.field("gracePeriodEndsAt"), now))
       .collect();
-    
+
     for (const seat of expiredGraceSeats) {
       await ctx.db.patch(seat._id, { status: "released" });
       const workspaces = await ctx.db
@@ -263,7 +262,7 @@ export const processExpiredSeats = mutation({
         await ctx.db.patch(ws._id, { endedAt: now });
       }
     }
-    
+
     return expiredSeats;
   },
 });
@@ -271,7 +270,7 @@ export const processExpiredSeats = mutation({
 export const migrateSeatReservation = mutation({
   args: {
     id: v.string(),
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     userId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     seatExpiresAt: v.number(),
@@ -299,7 +298,7 @@ export const migrateSeatReservation = mutation({
     }
 
     const insertResult = await ctx.db.insert("seatReservations", {
-      mentorId: args.mentorId,
+      instructorId: args.instructorId,
       userId: args.userId,
       sessionPackId: args.sessionPackId,
       seatExpiresAt: args.seatExpiresAt,

@@ -1,6 +1,12 @@
 import { internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * @deprecated This module is deprecated. The mentors table is no longer used for Clerk user linking.
+ * Instructors are now directly linked to Clerk users via the `userId` field on the instructors table.
+ * This file is retained for potential historical data migration purposes only.
+ */
+
 export const getMentorByUserId = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, args) => {

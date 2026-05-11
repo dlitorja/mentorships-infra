@@ -15,7 +15,7 @@ export const getProductById = query({
 
 /** Returns all products belonging to a specific instructor. */
 export const getInstructorProducts = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -23,7 +23,7 @@ export const getInstructorProducts = query({
     }
     return await ctx.db
       .query("products")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
   },
 });
@@ -69,11 +69,11 @@ export const getPublicActiveProducts = query({
 
 /** Returns products for a given instructor without requiring authentication. */
 export const getProductsByInstructorId = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     return await ctx.db
       .query("products")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
   },
 });
@@ -81,13 +81,13 @@ export const getProductsByInstructorId = query({
 /** Returns products for an instructor, optionally filtered by mentorship type (no auth). */
 export const getProductsByInstructorAndType = query({
   args: {
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     mentorshipType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const products = await ctx.db
       .query("products")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
 
     if (args.mentorshipType) {
@@ -108,11 +108,8 @@ export const getProductForAdmin = query({
     if (!product) return null;
 
     let instructorName = "Unknown Instructor";
-    if (product.mentorId) {
-      const instructor = await ctx.db
-        .query("instructors")
-        .filter((q) => q.eq(q.field("mentorId"), product.mentorId))
-        .first();
+    if (product.instructorId) {
+      const instructor = await ctx.db.get(product.instructorId);
       if (instructor?.name) {
         instructorName = instructor.name;
       }
@@ -128,7 +125,7 @@ export const getProductForAdmin = query({
 /** Creates a new product with the given details. */
 export const createProduct = mutation({
   args: {
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
@@ -206,7 +203,7 @@ export const activateProduct = mutation({
 export const migrateProduct = mutation({
   args: {
     id: v.string(),
-    mentorId: v.optional(v.string()),
+    instructorId: v.optional(v.string()),
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
@@ -246,7 +243,7 @@ export const migrateProduct = mutation({
     }
 
     const insertResult = await ctx.db.insert("products", {
-      mentorId: args.mentorId ?? undefined,
+      instructorId: args.instructorId ?? undefined,
       title: args.title,
       description: args.description ?? undefined,
       imageUrl: args.imageUrl ?? undefined,

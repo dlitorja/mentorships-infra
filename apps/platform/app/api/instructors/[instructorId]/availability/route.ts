@@ -164,15 +164,15 @@ export async function GET(
       );
     }
 
-    const mentor = await convex.query(api.instructors.getMentorById, {
+    const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
     });
 
-    if (!mentor) {
+    if (!instructor) {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
-    const refreshToken = decryptMentorRefreshToken(mentor);
+    const refreshToken = decryptMentorRefreshToken(instructor);
     if (!refreshToken) {
       return NextResponse.json(
         { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
@@ -180,7 +180,7 @@ export async function GET(
       );
     }
 
-    const calendarId = mentor.googleCalendarId || "primary";
+    const calendarId = instructor.googleCalendarId || "primary";
     const calendar = await getGoogleCalendarClient(refreshToken);
 
     const fb = await calendar.freebusy.query({

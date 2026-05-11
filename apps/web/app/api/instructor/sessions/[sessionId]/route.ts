@@ -24,7 +24,7 @@ export async function PATCH(
   { params }: { params: Promise<{ sessionId: string }> }
 ): Promise<NextResponse> {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const mentor = await convex.query(api.instructors.getInstructorByUserId, {
@@ -33,7 +33,7 @@ export async function PATCH(
 
     if (!mentor) {
       return NextResponse.json(
-        { error: "Mentor profile not found" },
+        { error: "Instructor profile not found" },
         { status: 404 }
       );
     }
@@ -50,9 +50,9 @@ export async function PATCH(
       );
     }
 
-    if (session.mentorId !== mentor._id) {
+    if (session.instructorId !== mentor._id) {
       return NextResponse.json(
-        { error: "Unauthorized: Session does not belong to this mentor" },
+        { error: "Unauthorized: Session does not belong to this instructor" },
         { status: 403 }
       );
     }
@@ -117,18 +117,18 @@ export async function PATCH(
       }
 
       if (session.googleCalendarEventId) {
-        const mentorDoc = await convex.query(api.instructors.getMentorById, {
-          id: session.mentorId,
+        const instructorDoc = await convex.query(api.instructors.getInstructorById, {
+          id: session.instructorId,
         });
 
-        if (!mentorDoc) {
-          console.error("Mentor not found for calendar cleanup");
+        if (!instructorDoc) {
+          console.error("Instructor not found for calendar cleanup");
         } else {
-          const decryptedToken = decryptMentorRefreshToken(mentorDoc);
+          const decryptedToken = decryptMentorRefreshToken(instructorDoc);
           if (decryptedToken) {
             try {
               const calendar = await getGoogleCalendarClient(decryptedToken);
-              const calendarId = mentorDoc.googleCalendarId || "primary";
+              const calendarId = instructorDoc.googleCalendarId || "primary";
               await calendar.events.delete({
                 calendarId,
                 eventId: session.googleCalendarEventId,

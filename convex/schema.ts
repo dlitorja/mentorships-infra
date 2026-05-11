@@ -8,7 +8,7 @@ export default defineSchema({
     clerkId: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
+    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
     legacyId: v.optional(v.string()),
   }).index("by_email", ["email"])
@@ -41,7 +41,7 @@ export default defineSchema({
     profileImageStorageId: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     socials: v.optional(v.any()),
-    mentorId: v.optional(v.string()),
+    legacyMentorId: v.optional(v.string()),
     tagline: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"])
@@ -59,7 +59,7 @@ export default defineSchema({
   }).index("by_userId", ["userId"]),
 
   sessions: defineTable({
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     studentId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     scheduledAt: v.number(),
@@ -74,7 +74,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_studentId", ["studentId"])
-    .index("by_mentorId", ["mentorId"])
+    .index("by_instructorId", ["instructorId"])
     .index("by_sessionPackId", ["sessionPackId"])
     .index("by_status", ["status"])
     .index("by_scheduledAt", ["scheduledAt"])
@@ -82,7 +82,7 @@ export default defineSchema({
     .index("by_googleCalendarEventId", ["googleCalendarEventId"]),
 
   seatReservations: defineTable({
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     userId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     seatExpiresAt: v.number(),
@@ -90,17 +90,17 @@ export default defineSchema({
     finalWarningNotificationSentAt: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("grace"), v.literal("released")),
     legacyId: v.optional(v.string()),
-  }).index("by_mentorId", ["mentorId"])
+  }).index("by_instructorId", ["instructorId"])
     .index("by_userId", ["userId"])
     .index("by_status", ["status"])
     .index("by_seatExpiresAt", ["seatExpiresAt"])
-    .index("by_mentorId_status", ["mentorId", "status"])
-    .index("by_userId_mentorId", ["userId", "mentorId"])
+    .index("by_instructorId_status", ["instructorId", "status"])
+    .index("by_userId_instructorId", ["userId", "instructorId"])
     .index("by_sessionPackId", ["sessionPackId"]),
 
   sessionPacks: defineTable({
     userId: v.string(),
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     totalSessions: v.number(),
     remainingSessions: v.number(),
     purchasedAt: v.number(),
@@ -110,7 +110,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])
-    .index("by_mentorId", ["mentorId"])
+    .index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
     .index("by_expiresAt", ["expiresAt"])
     .index("by_paymentId", ["paymentId"])
@@ -143,7 +143,7 @@ export default defineSchema({
     .index("by_provider_providerPaymentId", ["provider", "providerPaymentId"]),
 
   products: defineTable({
-    mentorId: v.optional(v.string()), // Using string for backward compatibility; migrate to instructor IDs
+    instructorId: v.optional(v.string()),
     title: v.string(),
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
@@ -158,13 +158,13 @@ export default defineSchema({
     active: v.boolean(),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
-  }).index("by_mentorId", ["mentorId"])
+  }).index("by_instructorId", ["instructorId"])
     .index("by_stripePriceId", ["stripePriceId"])
     .index("by_active", ["active"]),
 
   instructorProfiles: defineTable({
     userId: v.optional(v.string()),
-    mentorId: v.optional(v.string()),
+    legacyMentorId: v.optional(v.string()),
     email: v.optional(v.string()),
     name: v.string(),
     slug: v.string(),
@@ -184,7 +184,7 @@ export default defineSchema({
   }).index("by_slug", ["slug"])
     .index("by_userId", ["userId"])
     .index("by_email", ["email"])
-    .index("by_mentorId", ["mentorId"])
+    .index("by_legacyMentorId", ["legacyMentorId"])
     .index("by_isActive", ["isActive"]),
 
   instructorTestimonials: defineTable({
@@ -212,17 +212,17 @@ export default defineSchema({
     name: v.string(),
     description: v.optional(v.string()),
     ownerId: v.string(),
-    mentorId: v.optional(v.id("instructors")),
+    instructorId: v.optional(v.id("instructors")),
     imageUrl: v.optional(v.string()),
     isPublic: v.boolean(),
     deletedAt: v.optional(v.number()),
     seatReservationId: v.optional(v.id("seatReservations")),
     endedAt: v.optional(v.number()),
     menteeImageCount: v.number(),
-    mentorImageCount: v.number(),
+    instructorImageCount: v.number(),
     type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_mentee"), v.literal("admin_instructor"))),
   }).index("by_ownerId", ["ownerId"])
-    .index("by_mentorId", ["mentorId"])
+    .index("by_instructorId", ["instructorId"])
     .index("by_seatReservationId", ["seatReservationId"])
     .index("by_endedAt", ["endedAt"])
     .index("by_type", ["type"]),
@@ -258,7 +258,7 @@ export default defineSchema({
     userId: v.string(),
     content: v.string(),
     type: v.union(v.literal("text"), v.literal("image"), v.literal("file")),
-    senderRole: v.optional(v.union(v.literal("mentor"), v.literal("mentee"), v.literal("admin"))),
+    senderRole: v.optional(v.union(v.literal("instructor"), v.literal("mentee"), v.literal("admin"))),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"]),
@@ -359,8 +359,8 @@ export default defineSchema({
     type: v.union(v.literal("assign_mentee_role"), v.literal("dm_instructor_new_signup")),
     status: v.union(v.literal("pending"), v.literal("processing"), v.literal("done"), v.literal("failed")),
     subjectUserId: v.string(),
-    mentorId: v.optional(v.string()),
-    mentorUserId: v.optional(v.string()),
+    instructorId: v.optional(v.string()),
+    instructorUserId: v.optional(v.string()),
     payload: v.any(),
     attempts: v.optional(v.number()),
     lastError: v.optional(v.string()),
@@ -370,7 +370,7 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
   }).index("by_status", ["status"])
     .index("by_subjectUserId", ["subjectUserId"])
-    .index("by_mentorId", ["mentorId"])
+    .index("by_instructorId", ["instructorId"])
     .index("by_status_createdAt", ["status", "createdAt"]),
 
   videoEditorAssignments: defineTable({
@@ -412,7 +412,7 @@ export default defineSchema({
 
   menteeOnboardingSubmissions: defineTable({
     userId: v.string(),
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     sessionPackId: v.id("sessionPacks"),
     goals: v.string(),
     imageObjects: v.optional(v.any()),
@@ -422,7 +422,7 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])
-    .index("by_mentorId", ["mentorId"])
+    .index("by_instructorId", ["instructorId"])
     .index("by_sessionPackId", ["sessionPackId"]),
 
   kajabiOffers: defineTable({

@@ -354,7 +354,7 @@ export const migrateInstructor = mutation({
     profileImageUrl: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
-    mentorId: v.optional(v.string()),
+    legacyMentorId: v.optional(v.string()),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     timeZone: v.optional(v.string()),
@@ -386,7 +386,7 @@ export const migrateInstructor = mutation({
       if (args.profileImageUrl !== undefined) updates.profileImageUrl = args.profileImageUrl;
       if (args.profileImageUploadPath !== undefined) updates.profileImageUploadPath = args.profileImageUploadPath;
       if (args.profileImageStorageId !== undefined) updates.profileImageStorageId = args.profileImageStorageId;
-      if (args.mentorId !== undefined) updates.mentorId = args.mentorId;
+      if (args.legacyMentorId !== undefined) updates.legacyMentorId = args.legacyMentorId;
       if (args.googleCalendarId !== undefined) updates.googleCalendarId = args.googleCalendarId;
       if (args.googleRefreshToken !== undefined) updates.googleRefreshToken = args.googleRefreshToken;
       if (args.timeZone !== undefined) updates.timeZone = args.timeZone;
@@ -418,7 +418,7 @@ export const migrateInstructor = mutation({
       profileImageUrl: args.profileImageUrl ?? undefined,
       profileImageUploadPath: args.profileImageUploadPath ?? undefined,
       profileImageStorageId: args.profileImageStorageId ?? undefined,
-      mentorId: args.mentorId ?? undefined,
+      legacyMentorId: args.legacyMentorId ?? undefined,
       googleCalendarId: args.googleCalendarId ?? undefined,
       googleRefreshToken: args.googleRefreshToken ?? undefined,
       timeZone: args.timeZone ?? undefined,
@@ -459,7 +459,7 @@ export const updateInstructor = mutation({
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
     specialties: v.optional(v.array(v.string())),
-    mentorId: v.optional(v.string()),
+    legacyMentorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
@@ -1089,8 +1089,8 @@ export const getMenteeResultById = query({
   },
 });
 
-/** Updates mentor scheduling settings (timeZone and workingHours). Requires admin role or self. */
-export const updateMentorSchedulingSettings = mutation({
+/** Updates instructor scheduling settings (timeZone and workingHours). Requires admin role or self. */
+export const updateInstructorSchedulingSettings = mutation({
   args: {
     id: v.id("instructors"),
     timeZone: v.optional(v.string()),
@@ -1105,11 +1105,11 @@ export const updateMentorSchedulingSettings = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     
-    if (!user || (user.role !== "admin" && user.role !== "mentor")) {
+    if (!user || (user.role !== "admin" && user.role !== "instructor")) {
       throw new Error("Forbidden");
     }
     
-    if (user.role === "mentor") {
+    if (user.role === "instructor") {
       const instructor = await ctx.db.get(args.id);
       if (!instructor || instructor.userId !== identity.subject) {
         throw new Error("Forbidden");
@@ -1122,9 +1122,9 @@ export const updateMentorSchedulingSettings = mutation({
   },
 });
 
-/** Returns mentees with session pack info for a mentor. */
-export const getMentorMenteesWithSessionInfo = query({
-  args: { mentorId: v.id("instructors") },
+/** Returns students with session pack info for an instructor. */
+export const getInstructorStudentsWithSessionInfo = query({
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -1133,7 +1133,7 @@ export const getMentorMenteesWithSessionInfo = query({
     
     const sessionPacks = await ctx.db
       .query("sessionPacks")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
     
     const menteesMap = new Map<string, {
@@ -1168,7 +1168,7 @@ export const getMentorMenteesWithSessionInfo = query({
         const sessions = await ctx.db
           .query("sessions")
           .withIndex("by_studentId", (q) => q.eq("studentId", m.userId))
-          .filter((q) => q.eq(q.field("mentorId"), args.mentorId))
+.filter((q) => q.eq(q.field("instructorId"), args.instructorId))
           .collect();
         
         const completedSessions = sessions.filter(s => s.status === "completed");
@@ -1194,9 +1194,9 @@ export const getMentorMenteesWithSessionInfo = query({
   },
 });
 
-/** Returns the session count for a user's session pack with a mentor. */
-export const getUserSessionCountForMentor = query({
-  args: { userId: v.string(), mentorId: v.id("instructors") },
+/** Returns the session count for a user's session pack with an instructor. */
+export const getUserSessionCountForInstructor = query({
+  args: { userId: v.string(), instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -1206,7 +1206,7 @@ export const getUserSessionCountForMentor = query({
     const sessionPacks = await ctx.db
       .query("sessionPacks")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .filter((q) => q.eq(q.field("mentorId"), args.mentorId))
+      .filter((q) => q.eq(q.field("instructorId"), args.instructorId))
       .collect();
     
     if (sessionPacks.length === 0) {
@@ -1223,18 +1223,6 @@ export const getUserSessionCountForMentor = query({
       expiresAt: pack.expiresAt ?? null,
       status: pack.status,
     };
-  },
-});
-
-/** Returns an instructor by ID (mentorId style lookup). */
-export const getMentorById = query({
-  args: { id: v.id("instructors") },
-  handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
-      return null;
-    }
-    return await ctx.db.get(args.id);
   },
 });
 
@@ -1275,14 +1263,14 @@ export const deleteTestimonial = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     
-    if (!user || (user.role !== "admin" && user.role !== "mentor")) {
+    if (!user || (user.role !== "admin" && user.role !== "instructor")) {
       throw new Error("Forbidden");
     }
     
     const testimonial = await ctx.db.get(args.id);
     if (!testimonial) throw new Error("Testimonial not found");
     
-    if (user.role === "mentor") {
+    if (user.role === "instructor") {
       const instructor = await ctx.db
         .query("instructors")
         .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
@@ -1309,14 +1297,14 @@ export const deleteMenteeResult = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     
-    if (!user || (user.role !== "admin" && user.role !== "mentor")) {
+    if (!user || (user.role !== "admin" && user.role !== "instructor")) {
       throw new Error("Forbidden");
     }
     
     const menteeResult = await ctx.db.get(args.id);
     if (!menteeResult) throw new Error("Mentee result not found");
     
-    if (user.role === "mentor") {
+    if (user.role === "instructor") {
       const instructor = await ctx.db
         .query("instructors")
         .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
@@ -1331,19 +1319,19 @@ export const deleteMenteeResult = mutation({
   },
 });
 
-/** Checks seat availability for a mentor (public endpoint). */
+/** Checks seat availability for an instructor (public endpoint). */
 export const checkSeatAvailability = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
-    const instructor = await ctx.db.get(args.mentorId);
+    const instructor = await ctx.db.get(args.instructorId);
     if (!instructor) {
       throw new Error("Instructor not found");
     }
 
     const activeSeats = await ctx.db
       .query("seatReservations")
-      .withIndex("by_mentorId_status", (q) =>
-        q.eq("mentorId", args.mentorId).eq("status", "active")
+      .withIndex("by_instructorId_status", (q) =>
+        q.eq("instructorId", args.instructorId).eq("status", "active")
       )
       .collect();
 
@@ -1427,18 +1415,21 @@ export const unlinkClerkUserFromInstructor = internalAction({
   },
 });
 
-export const linkInstructorToMentor = internalMutation({
+export const linkInstructorToLegacyMentor = internalMutation({
   args: {
     instructorId: v.id("instructors"),
-    mentorId: v.id("mentors"),
+    legacyMentorId: v.optional(v.string()),
     userId: v.string(),
   },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.instructorId, {
+    const updates: Record<string, any> = {
       userId: args.userId,
-      mentorId: args.mentorId.toString(),
       updatedAt: Date.now(),
-    });
+    };
+    if (args.legacyMentorId) {
+      updates.legacyMentorId = args.legacyMentorId;
+    }
+    await ctx.db.patch(args.instructorId, updates);
     return { success: true };
   },
 });
@@ -1478,7 +1469,7 @@ type LinkResult = {
   reason?: string;
   instructorId?: Id<"instructors">;
   instructorName?: string | null;
-  mentorId?: string;
+  legacyMentorId?: string;
   email?: string;
   userId?: string;
   invitationId?: Id<"menteeInvitations">;
@@ -1515,11 +1506,9 @@ export const linkClerkUserToInstructor = internalAction({
       if (instructor.userId && instructor.userId !== userId) {
         instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
       } else {
-        const mentorId = await ctx.runMutation(internal.mentors.getOrCreateMentor, { userId });
-
-        await ctx.runMutation(internal.instructors.linkInstructorToMentor, {
+        await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
           instructorId: instructor._id,
-          mentorId,
+          legacyMentorId: instructor.legacyMentorId,
           userId,
         });
 
@@ -1528,7 +1517,7 @@ export const linkClerkUserToInstructor = internalAction({
           instructorId: instructor._id,
           instructorName: instructor.name ?? null,
           userId,
-          mentorId: mentorId.toString(),
+          legacyMentorId: instructor.legacyMentorId ?? undefined,
           email,
         };
       }
@@ -1551,7 +1540,7 @@ export const linkClerkUserToInstructor = internalAction({
       menteeResult = {
         linked: true,
         invitationId: pendingInvitation._id,
-        mentorId: pendingInvitation.instructorId.toString(),
+        legacyMentorId: pendingInvitation.instructorId.toString(),
         email,
         needsSessionPack: true,
       };

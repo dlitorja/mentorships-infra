@@ -9,7 +9,7 @@ const WORKSPACE_IMAGE_CAPS = {
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 
-type WorkspaceRole = "mentor" | "mentee" | "admin" | null;
+type WorkspaceRole = "instructor" | "mentee" | "admin" | null;
 
 async function isAdmin(ctx: any, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -21,7 +21,7 @@ async function isAdmin(ctx: any, userId: string): Promise<boolean> {
 
 async function getWorkspaceRole(
   ctx: any,
-  workspace: { mentorId?: any; ownerId: string; type?: string },
+  workspace: { instructorId?: any; ownerId: string; type?: string },
   userId: string
 ): Promise<WorkspaceRole> {
   const userIsAdmin = await isAdmin(ctx, userId);
@@ -34,35 +34,35 @@ async function getWorkspaceRole(
   }
 
   if (workspace.type === "admin_instructor") {
-    if (workspace.mentorId) {
+    if (workspace.instructorId) {
       const instructor = await ctx.db
         .query("instructors")
         .withIndex("by_userId", (q: any) => q.eq("userId", userId))
         .first();
-      if (instructor && instructor._id === workspace.mentorId) {
-        return "mentor";
+      if (instructor && instructor._id === workspace.instructorId) {
+        return "instructor";
       }
     }
     return null;
   }
 
-  if (workspace.mentorId) {
-    const mentor = await ctx.db
+  if (workspace.instructorId) {
+    const instructor = await ctx.db
       .query("instructors")
       .withIndex("by_userId", (q: any) => q.eq("userId", userId))
       .first();
-    if (mentor && mentor._id === workspace.mentorId) {
-      return "mentor";
+    if (instructor && instructor._id === workspace.instructorId) {
+      return "instructor";
     }
   }
   if (workspace.ownerId === userId) {
     return "mentee";
   }
-  if (workspace.mentorId) {
+  if (workspace.instructorId) {
     const seatReservation = await ctx.db
       .query("seatReservations")
       .withIndex("by_userId", (q: any) => q.eq("userId", userId))
-      .filter((q: any) => q.eq(q.field("mentorId"), workspace.mentorId))
+      .filter((q: any) => q.eq(q.field("instructorId"), workspace.instructorId))
       .first();
     if (seatReservation) {
       return "mentee";
@@ -132,7 +132,7 @@ export const getUserWorkspaces = query({
 
 /** Returns all workspaces assigned to an instructor. Requires auth. */
 export const getInstructorWorkspaces = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -140,7 +140,7 @@ export const getInstructorWorkspaces = query({
     }
     return await ctx.db
       .query("workspaces")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
   },
 });
@@ -209,7 +209,7 @@ export const getWorkspacesForRetentionNotification = query({
   },
 });
 
-/** Returns the authenticated user's role (mentor/mentee/admin) in a workspace. Requires auth. */
+/** Returns the authenticated user's role (instructor/mentee/admin) in a workspace. Requires auth. */
 export const getUserWorkspaceRole = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -221,18 +221,18 @@ export const getUserWorkspaceRole = query({
     if (!workspace) {
       return null;
     }
-    const role = await getWorkspaceRole(ctx, { mentorId: workspace.mentorId, ownerId: workspace.ownerId, type: workspace.type }, user.subject);
+    const role = await getWorkspaceRole(ctx, { instructorId: workspace.instructorId, ownerId: workspace.ownerId, type: workspace.type }, user.subject);
     return role;
   },
 });
 
-/** Creates a new workspace with the given owner, mentor, and settings. */
+/** Creates a new workspace with the given owner, instructor, and settings. */
 export const createWorkspace = mutation({
   args: {
     name: v.string(),
     description: v.optional(v.string()),
     ownerId: v.string(),
-    mentorId: v.optional(v.id("instructors")),
+    instructorId: v.optional(v.id("instructors")),
     imageUrl: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
     seatReservationId: v.optional(v.id("seatReservations")),
@@ -242,7 +242,7 @@ export const createWorkspace = mutation({
       ...args,
       isPublic: args.isPublic ?? false,
       menteeImageCount: 0,
-      mentorImageCount: 0,
+      instructorImageCount: 0,
     });
   },
 });
@@ -360,7 +360,7 @@ export const deleteWorkspaceLink = mutation({
   },
 });
 
-/** Returns images for a workspace, filtered by role (mentors see all, mentees see own and mentor's). Requires auth. */
+/** Returns images for a workspace, filtered by role (instructors see all, mentees see own and instructor's). Requires auth. */
 export const getWorkspaceImages = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -378,20 +378,19 @@ export const getWorkspaceImages = query({
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
 
-    if (role === "mentor") {
+    if (role === "instructor") {
       return images;
     }
 
-    if (!workspace.mentorId) {
+    if (!workspace.instructorId) {
       return images.filter((img) => img.createdBy === user.subject);
     }
 
-    // Get the mentor's userId so mentee can see mentor's images
-    const mentor = await ctx.db.get(workspace.mentorId);
-    const mentorUserId = mentor?.userId;
+    const instructor = await ctx.db.get(workspace.instructorId);
+    const instructorUserId = instructor?.userId;
 
     return images.filter(
-      (img) => img.createdBy === user.subject || img.createdBy === mentorUserId
+      (img) => img.createdBy === user.subject || img.createdBy === instructorUserId
     );
   },
 });
@@ -419,7 +418,7 @@ export const createWorkspaceImage = mutation({
     const isAdmin = role === "admin";
     const currentCount = isMentee
       ? (workspace.menteeImageCount ?? 0)
-      : (workspace.mentorImageCount ?? 0);
+      : (workspace.instructorImageCount ?? 0);
     const cap = isMentee
       ? WORKSPACE_IMAGE_CAPS.mentee
       : isAdmin
@@ -438,9 +437,9 @@ export const createWorkspaceImage = mutation({
       menteeImageCount: isMentee
         ? (workspace.menteeImageCount ?? 0) + 1
         : workspace.menteeImageCount ?? 0,
-      mentorImageCount: !isMentee
-        ? (workspace.mentorImageCount ?? 0) + 1
-        : workspace.mentorImageCount ?? 0,
+      instructorImageCount: !isMentee
+        ? (workspace.instructorImageCount ?? 0) + 1
+        : workspace.instructorImageCount ?? 0,
     });
 
     return imageId;
@@ -503,21 +502,20 @@ export const deleteWorkspaceImage = mutation({
 
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
 
-    // Determine if the image was created by mentee or mentor and decrement counter
     const workspace = await ctx.db.get(image.workspaceId);
     if (!workspace) return;
 
     const isMentee = image.createdBy === workspace.ownerId;
-    const mentor = workspace.mentorId ? await ctx.db.get(workspace.mentorId) : null;
-    const isMentor = mentor && image.createdBy === mentor.userId;
+    const instructor = workspace.instructorId ? await ctx.db.get(workspace.instructorId) : null;
+    const isInstructor = instructor && image.createdBy === instructor.userId;
 
     if (isMentee) {
       await ctx.db.patch(workspace._id, {
         menteeImageCount: Math.max(0, (workspace.menteeImageCount ?? 1) - 1),
       });
-    } else if (isMentor) {
+    } else if (isInstructor) {
       await ctx.db.patch(workspace._id, {
-        mentorImageCount: Math.max(0, (workspace.mentorImageCount ?? 1) - 1),
+        instructorImageCount: Math.max(0, (workspace.instructorImageCount ?? 1) - 1),
       });
     }
   },
@@ -559,17 +557,17 @@ export const createWorkspaceMessage = mutation({
     }
 
     const isUserAdmin = await isAdmin(ctx, user.subject);
-    let senderRole: "mentor" | "mentee" | "admin" | undefined;
+    let senderRole: "instructor" | "mentee" | "admin" | undefined;
 
     if (isUserAdmin) {
       senderRole = "admin";
-    } else if (workspace.mentorId) {
+    } else if (workspace.instructorId) {
       const instructor = await ctx.db
         .query("instructors")
         .withIndex("by_userId", (q: any) => q.eq("userId", user.subject))
         .first();
-      if (instructor && instructor._id === workspace.mentorId) {
-        senderRole = "mentor";
+      if (instructor && instructor._id === workspace.instructorId) {
+        senderRole = "instructor";
       } else if (workspace.ownerId === user.subject) {
         senderRole = "mentee";
       }
@@ -780,7 +778,7 @@ export const deleteAllWorkspaceContent = mutation({
 
     await ctx.db.patch(args.workspaceId, {
       menteeImageCount: 0,
-      mentorImageCount: 0,
+      instructorImageCount: 0,
     });
 
     return { deleted: { notes: notes.length, links: links.length, images: images.length, messages: messages.length } };
