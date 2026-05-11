@@ -131,6 +131,29 @@ export default function DashboardPage() {
     return uniqueIds.size;
   }, [sessionPacks]);
 
+  const isAdmin = user?.publicMetadata?.role === "admin";
+  const hasRedirected = useRef(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    if (!isAdmin) {
+      sessionStorage.removeItem("admin_redirect_attempted");
+    }
+  }, [user?.id, isAdmin]);
+
+  useEffect(() => {
+    if (!isLoaded || !user || hasRedirected.current) return;
+    if (isAdmin) {
+      const hasAttemptedRedirect = sessionStorage.getItem("admin_redirect_attempted");
+      if (hasAttemptedRedirect) {
+        return;
+      }
+      hasRedirected.current = true;
+      sessionStorage.setItem("admin_redirect_attempted", "true");
+      router.push("/admin");
+    }
+  }, [isLoaded, user, isAdmin, router]);
+
   if (!isLoaded) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
@@ -139,18 +162,7 @@ export default function DashboardPage() {
     );
   }
 
-  const isAdmin = user?.publicMetadata?.role === "admin";
-
-  const hasRedirected = useRef(false);
-  useEffect(() => {
-    if (!isLoaded || !user || hasRedirected.current) return;
-    if (isAdmin) {
-      hasRedirected.current = true;
-      router.push("/admin");
-    }
-  }, [isLoaded, user, isAdmin, router]);
-
-  if (!isLoaded || !user || isAdmin) {
+  if (!user || isAdmin) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />

@@ -44,6 +44,11 @@ export async function requireDbUser(): Promise<DbUser> {
 }
 
 export async function getDbUser(): Promise<DbUser> {
-  const userId = await requireAuth();
-  return { id: userId, role: "student", timeZone: undefined };
+  const { userId, sessionClaims } = await auth();
+  if (!userId) {
+    throw new UnauthorizedError();
+  }
+  const metadata = sessionClaims?.publicMetadata as { role?: string } | undefined;
+  const role = typeof metadata?.role === "string" ? metadata.role : "student";
+  return { id: userId, role, timeZone: undefined };
 }

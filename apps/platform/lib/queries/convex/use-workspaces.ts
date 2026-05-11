@@ -192,8 +192,11 @@ export function useCreateWorkspaceExport() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (vars: { workspaceId: string; userId: string; format: string }) => {
-      console.log("useCreateWorkspaceExport stub called with:", vars);
+    mutationFn: async (vars: { workspaceId: string; userId: string; format: "pdf" | "markdown" | "zip" }) => {
+      throw new Error("Not implemented: createWorkspaceExport not available in platform Convex API");
+    },
+    onError: (error) => {
+      console.error("useCreateWorkspaceExport error:", error);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceExports"] });
@@ -216,7 +219,10 @@ export function useAcknowledgeRetentionNotification() {
 
   return useMutation({
     mutationFn: async (vars: { id: string }) => {
-      console.log("useAcknowledgeRetentionNotification stub called with:", vars);
+      throw new Error("Not implemented");
+    },
+    onError: (error) => {
+      console.error("useAcknowledgeRetentionNotification error:", error);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["retentionNotifications"] });

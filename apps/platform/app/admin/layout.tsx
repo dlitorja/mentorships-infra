@@ -1,19 +1,20 @@
 import { redirect } from "next/navigation";
-import { auth } from "@clerk/nextjs/server";
-import { getDbUser } from "@/lib/auth";
+import { getDbUser, UnauthorizedError } from "@/lib/auth";
 import { ClientAdminLayout } from "./client-admin-layout";
 
 export const dynamic = "force-dynamic";
 
 async function checkAdminAccess(): Promise<void> {
-  const { userId } = await auth();
-  if (!userId) {
-    redirect("/sign-in?redirect_url=/admin");
-  }
-  
-  const user = await getDbUser();
-  if (user.role !== "admin") {
-    redirect("/dashboard?error=unauthorized");
+  try {
+    const user = await getDbUser();
+    if (user.role !== "admin") {
+      redirect("/dashboard?error=unauthorized");
+    }
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      redirect("/sign-in?redirect_url=/admin");
+    }
+    throw error;
   }
 }
 

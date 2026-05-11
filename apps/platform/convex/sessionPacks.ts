@@ -163,6 +163,21 @@ export const getWorkspaceBySessionPack = query({
   },
 });
 
+// List all session packs (for admin)
+export const listAll = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+    return await ctx.db.query("sessionPacks").collect();
+  },
+});
+
 // Process expired session packs
 export const processExpired = mutation({
   args: {},
