@@ -10,7 +10,7 @@ import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/li
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
 
 function formatDate(date: number): string {
   return new Date(date).toLocaleDateString("en-US", {
@@ -139,15 +139,23 @@ export default function DashboardPage() {
     );
   }
 
-  if (!user) {
-    router.push("/sign-in");
-    return null;
-  }
+  const isAdmin = user?.publicMetadata?.role === "admin";
 
-  const isAdmin = user.publicMetadata?.role === "admin";
-  if (isAdmin) {
-    router.push("/admin");
-    return null;
+  const hasRedirected = useRef(false);
+  useEffect(() => {
+    if (!isLoaded || !user || hasRedirected.current) return;
+    if (isAdmin) {
+      hasRedirected.current = true;
+      router.push("/admin");
+    }
+  }, [isLoaded, user, isAdmin, router]);
+
+  if (!isLoaded || !user || isAdmin) {
+    return (
+      <div className="container mx-auto p-4 md:p-8 flex justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
   }
 
   return (
