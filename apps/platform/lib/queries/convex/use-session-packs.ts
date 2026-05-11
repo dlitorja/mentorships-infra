@@ -28,7 +28,7 @@ export function useActiveSessionPacksByUser(userId: string) {
 
 export function useSessionPacksByInstructor(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.sessionPacks.getInstructorSessionPacks, { mentorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.sessionPacks.getInstructorSessionPacks, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }

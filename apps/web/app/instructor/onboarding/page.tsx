@@ -20,7 +20,7 @@ type PageProps = {
 };
 
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
-  const user = await requireRole("mentor");
+  const user = await requireRole("instructor");
   const mentor = await getMentorByUserId(user.id);
 
   if (!mentor) {

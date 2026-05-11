@@ -64,14 +64,14 @@ export default async function CalendarPage() {
   // Fetch active session packs with remaining sessions
   const activePacks: {
     id: string;
-    mentorId: string;
+    instructorId: string;
     remainingSessions: number;
     expiresAt: Date | null;
     status: string;
   }[] = await db
     .select({
       id: sessionPacks.id,
-      mentorId: sessionPacks.mentorId,
+      instructorId: sessionPacks.mentorId,
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,

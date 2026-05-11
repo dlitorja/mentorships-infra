@@ -36,7 +36,7 @@ function formatDateTime(date: Date | string): string {
 }
 
 export default async function InstructorDashboardPage() {
-  const user = await requireRole("mentor");
+  const user = await requireRole("instructor");
   const mentor = await getMentorByUserId(user.id);
 
   if (!mentor) {

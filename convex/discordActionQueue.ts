@@ -9,8 +9,8 @@ export const migrateDiscordAction = mutation({
       v.literal("dm_instructor_new_signup")
     ),
     subjectUserId: v.string(),
-    mentorId: v.optional(v.string()),
-    mentorUserId: v.optional(v.string()),
+    instructorId: v.optional(v.string()),
+    instructorUserId: v.optional(v.string()),
     payload: v.optional(v.any()),
     status: v.optional(v.union(v.literal("pending"), v.literal("processing"), v.literal("done"), v.literal("failed"))),
     attempts: v.optional(v.number()),
@@ -30,8 +30,8 @@ export const migrateDiscordAction = mutation({
     if (existingBySubjectUserId) {
       const updates: Record<string, unknown> = {};
       if (args.type) updates.type = args.type;
-      if (args.mentorId !== undefined) updates.mentorId = args.mentorId;
-      if (args.mentorUserId !== undefined) updates.mentorUserId = args.mentorUserId;
+      if (args.instructorId !== undefined) updates.instructorId = args.instructorId;
+      if (args.instructorUserId !== undefined) updates.instructorUserId = args.instructorUserId;
       if (args.payload !== undefined) updates.payload = args.payload;
       if (args.status) updates.status = args.status;
       if (args.attempts !== undefined) updates.attempts = args.attempts;
@@ -48,8 +48,8 @@ export const migrateDiscordAction = mutation({
     const insertResult = await ctx.db.insert("discordActionQueue", {
       type: args.type,
       subjectUserId: args.subjectUserId,
-      mentorId: args.mentorId ?? undefined,
-      mentorUserId: args.mentorUserId ?? undefined,
+      instructorId: args.instructorId ?? undefined,
+      instructorUserId: args.instructorUserId ?? undefined,
       payload: args.payload ?? undefined,
       status: args.status ?? "pending",
       attempts: args.attempts ?? 0,
@@ -90,8 +90,8 @@ export const claimDiscordActions = internalMutation({
       type: "assign_mentee_role" | "dm_instructor_new_signup";
       status: string;
       subjectUserId: string;
-      mentorId: string | null;
-      mentorUserId: string | null;
+      instructorId: string | null;
+      instructorUserId: string | null;
       payload: unknown;
       attempts: number;
       lastError: string | null;
@@ -110,8 +110,8 @@ export const claimDiscordActions = internalMutation({
         type: action.type,
         status: "processing",
         subjectUserId: action.subjectUserId,
-        mentorId: action.mentorId ?? null,
-        mentorUserId: action.mentorUserId ?? null,
+        instructorId: action.instructorId ?? null,
+        instructorUserId: action.instructorUserId ?? null,
         payload: action.payload,
         attempts: (action.attempts ?? 0) + 1,
         lastError: action.lastError ?? null,
@@ -308,8 +308,8 @@ export const processDiscordActionQueue = internalAction({
       type: "assign_mentee_role" | "dm_instructor_new_signup";
       status: string;
       subjectUserId: string;
-      mentorId: string | null;
-      mentorUserId: string | null;
+      instructorId: string | null;
+      instructorUserId: string | null;
       payload: unknown;
       attempts: number;
       lastError: string | null;
@@ -373,17 +373,17 @@ export const processDiscordActionQueue = internalAction({
             onboardingUrl: string;
           };
 
-          if (!action.mentorUserId) {
-            throw new Error("Missing mentorUserId for dm_instructor_new_signup");
+          if (!action.instructorUserId) {
+            throw new Error("Missing instructorUserId for dm_instructor_new_signup");
           }
 
-          const mentorDiscordId = await ctx.runQuery(
+          const instructorDiscordId = await ctx.runQuery(
             internal.discordActionQueue.getDiscordIdentityForUserId,
-            { userId: action.mentorUserId }
+            { userId: action.instructorUserId }
           );
 
-          if (!mentorDiscordId) {
-            throw new Error("Mentor Discord identity not connected");
+          if (!instructorDiscordId) {
+            throw new Error("Instructor Discord identity not connected");
           }
 
           const content =
@@ -393,7 +393,7 @@ export const processDiscordActionQueue = internalAction({
             `Dashboard: ${payload.dashboardUrl}\n` +
             `Onboarding: ${payload.onboardingUrl}`;
 
-          await sendDmMessage({ discordUserId: mentorDiscordId, content });
+          await sendDmMessage({ discordUserId: instructorDiscordId, content });
 
           await ctx.runMutation(internal.discordActionQueue.markDiscordActionDone, {
             actionId: action.id as any,

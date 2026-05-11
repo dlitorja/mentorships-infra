@@ -37,7 +37,7 @@ export async function GET(
 ) {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
 
     const mentor = await getMentorByUserId(user.id);
     if (!mentor) {
@@ -93,7 +93,7 @@ export async function POST(
 ) {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
 
     const mentor = await getMentorByUserId(user.id);
     if (!mentor) {
@@ -156,7 +156,7 @@ export async function PATCH(
 ) {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
 
     const mentor = await getMentorByUserId(user.id);
     if (!mentor) {

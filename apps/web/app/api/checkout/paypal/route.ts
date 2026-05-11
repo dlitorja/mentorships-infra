@@ -77,7 +77,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         "usd",
         {
           userId,
-          mentorId: pack.mentorId || "",
+          instructorId: pack.instructorId || "",
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },

@@ -33,14 +33,14 @@ export function useProductByStripePriceId(stripePriceId: string) {
 
 export function useProductsByInstructor(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.products.getProductsByInstructorId, { mentorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.products.getProductsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }
 
 export function useProductsByMentorId(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.products.getProductsByInstructorId, { mentorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.products.getProductsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }

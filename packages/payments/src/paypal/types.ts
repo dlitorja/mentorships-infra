@@ -4,7 +4,7 @@
  */
 export interface PayPalOrderMetadata {
   userId: string; // Clerk user ID
-  mentorId: string; // Mentor UUID
+  instructorId: string; // Instructor UUID
   productId?: string; // Mentorship product UUID (optional)
   orderId?: string; // Order UUID (optional, if order created before checkout)
 }

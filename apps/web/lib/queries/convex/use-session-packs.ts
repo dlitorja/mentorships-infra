@@ -17,10 +17,10 @@ export function useUserActiveSessionPacks(userId: string) {
   });
 }
 
-export function useInstructorSessionPacks(mentorId: Id<"instructors">) {
+export function useInstructorSessionPacks(instructorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.sessionPacks.getInstructorSessionPacks, { mentorId }),
-    enabled: !!mentorId,
+    ...convexQuery(api.sessionPacks.getInstructorSessionPacks, { instructorId }),
+    enabled: !!instructorId,
   });
 }
 

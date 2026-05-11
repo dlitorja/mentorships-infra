@@ -32,7 +32,7 @@ export const getStudentSessions = query({
 
 /** Returns all sessions for a given instructor. */
 export const getInstructorSessions = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -40,7 +40,7 @@ export const getInstructorSessions = query({
     }
     return await ctx.db
       .query("sessions")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
   },
 });
@@ -65,8 +65,8 @@ export const getUpcomingSessions = query({
   },
 });
 
-/** Returns upcoming scheduled sessions for a student with mentor information. Used by student dashboard. */
-export const getUpcomingSessionsWithMentor = query({
+/** Returns upcoming scheduled sessions for a student with instructor information. Used by student dashboard. */
+export const getUpcomingSessionsWithInstructor = query({
   args: {
     studentId: v.string(),
     limit: v.optional(v.number()),
@@ -90,37 +90,37 @@ export const getUpcomingSessionsWithMentor = query({
     const sortedSessions = sessions.sort((a, b) => a.scheduledAt - b.scheduledAt);
     const limitedSessions = sortedSessions.slice(0, limit);
 
-    const sessionsWithMentor = await Promise.all(
+    const sessionsWithInstructor = await Promise.all(
       limitedSessions.map(async (session) => {
-        const mentor = await ctx.db.get(session.mentorId);
-        let mentorUser = null;
-        if (mentor?.userId) {
-          const userId = mentor.userId;
+        const instructor = await ctx.db.get(session.instructorId);
+        let instructorUser = null;
+        if (instructor?.userId) {
+          const userId = instructor.userId;
           const users = await ctx.db
             .query("users")
             .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
-          mentorUser = users;
+          instructorUser = users;
         }
 
         return {
           id: session._id,
           scheduledAt: session.scheduledAt,
           status: session.status,
-          mentorId: session.mentorId,
-          mentorUser: mentorUser ? {
-            email: mentorUser.email,
+          instructorId: session.instructorId,
+          instructorUser: instructorUser ? {
+            email: instructorUser.email,
           } : null,
         };
       })
     );
 
-    return sessionsWithMentor;
+    return sessionsWithInstructor;
   },
 });
 
-/** Returns recent completed/canceled sessions for a student with mentor information. Used by student dashboard. */
-export const getRecentSessionsWithMentor = query({
+/** Returns recent completed/canceled sessions for a student with instructor information. Used by student dashboard. */
+export const getRecentSessionsWithInstructor = query({
   args: {
     studentId: v.string(),
     limit: v.optional(v.number()),
@@ -150,17 +150,17 @@ export const getRecentSessionsWithMentor = query({
     });
     const limitedSessions = sortedSessions.slice(0, limit);
 
-    const sessionsWithMentor = await Promise.all(
+    const sessionsWithInstructor = await Promise.all(
       limitedSessions.map(async (session) => {
-        const mentor = await ctx.db.get(session.mentorId);
-        let mentorUser = null;
-        if (mentor?.userId) {
-          const userId = mentor.userId;
+        const instructor = await ctx.db.get(session.instructorId);
+        let instructorUser = null;
+        if (instructor?.userId) {
+          const userId = instructor.userId;
           const users = await ctx.db
             .query("users")
             .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
-          mentorUser = users;
+          instructorUser = users;
         }
 
         return {
@@ -169,15 +169,15 @@ export const getRecentSessionsWithMentor = query({
           completedAt: session.completedAt,
           canceledAt: session.canceledAt,
           status: session.status,
-          mentorId: session.mentorId,
-          mentorUser: mentorUser ? {
-            email: mentorUser.email,
+          instructorId: session.instructorId,
+          instructorUser: instructorUser ? {
+            email: instructorUser.email,
           } : null,
         };
       })
     );
 
-    return sessionsWithMentor;
+    return sessionsWithInstructor;
   },
 });
 
@@ -199,7 +199,7 @@ export const getSessionByCalendarEventId = query({
 /** Creates a new session with scheduled status. */
 export const createSession = mutation({
   args: {
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     studentId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     scheduledAt: v.number(),
@@ -278,7 +278,7 @@ export const deleteSession = mutation({
 export const migrateSession = mutation({
   args: {
     id: v.string(),
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     studentId: v.string(),
     sessionPackId: v.id("sessionPacks"),
     scheduledAt: v.number(),
@@ -315,7 +315,7 @@ export const migrateSession = mutation({
     }
 
     const insertResult = await ctx.db.insert("sessions", {
-      mentorId: args.mentorId,
+      instructorId: args.instructorId,
       studentId: args.studentId,
       sessionPackId: args.sessionPackId,
       scheduledAt: args.scheduledAt,
@@ -493,7 +493,7 @@ export const listExpiredPacks = internalQuery({
     return [...expiredPacks, ...expiredWithDepletedStatus].map(pack => ({
       packId: pack._id,
       userId: pack.userId,
-      mentorId: pack.mentorId,
+      instructorId: pack.instructorId,
       status: pack.status,
       expiresAt: pack.expiresAt,
     }));
@@ -515,7 +515,7 @@ export const listExpiredGraceSeats = internalQuery({
         seatId: seat._id,
         sessionPackId: seat.sessionPackId,
         userId: seat.userId,
-        mentorId: seat.mentorId,
+        instructorId: seat.instructorId,
         gracePeriodEndsAt: seat.gracePeriodEndsAt,
       }));
   },
@@ -627,7 +627,7 @@ export const checkSeatExpiration = internalAction({
     type ExpiredPack = {
       packId: Id<"sessionPacks">;
       userId: string;
-      mentorId: string | null;
+      instructorId: string | null;
       status: string;
       expiresAt: number | undefined;
     };
@@ -635,7 +635,7 @@ export const checkSeatExpiration = internalAction({
       seatId: Id<"seatReservations">;
       sessionPackId: Id<"sessionPacks">;
       userId: string;
-      mentorId: string | null;
+      instructorId: string | null;
       gracePeriodEndsAt: number | undefined;
     };
     const expiredPacks: ExpiredPack[] = await ctx.runQuery(internal.sessions.listExpiredPacks, {});

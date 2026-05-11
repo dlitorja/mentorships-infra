@@ -11,7 +11,7 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   return user?.role === "admin";
 }
 
-type MentorWithEmail = {
+type InstructorWithEmail = {
   id: Id<"instructors">;
   userId: string | null;
   email: string | null;
@@ -21,7 +21,7 @@ type MentorWithEmail = {
   createdAt: number | null;
 };
 
-export const getAllMentors = query({
+export const getAllInstructors = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -31,7 +31,7 @@ export const getAllMentors = query({
 
     const instructors = await ctx.db.query("instructors").collect();
 
-    const results: MentorWithEmail[] = await Promise.all(
+    const results: InstructorWithEmail[] = await Promise.all(
       instructors.map(async (instructor) => {
         let email: string | null = null;
         if (instructor.userId) {
@@ -156,7 +156,7 @@ type MenteeWithSessionInfo = {
   id: string;
   userId: string;
   email: string | null;
-  mentorId: Id<"instructors">;
+  instructorId: Id<"instructors">;
   instructorName: string | null;
   instructorSlug: string | null;
   totalSessions: number;
@@ -183,7 +183,7 @@ export const getAllMenteesForAdmin = query({
     let sessionPacks = await ctx.db.query("sessionPacks").collect();
 
     if (args.instructorId) {
-      sessionPacks = sessionPacks.filter(sp => sp.mentorId === args.instructorId);
+      sessionPacks = sessionPacks.filter(sp => sp.instructorId === args.instructorId);
     }
 
     if (args.search) {
@@ -217,13 +217,13 @@ export const getAllMenteesForAdmin = query({
           .first();
         email = user?.email ?? null;
 
-        const instructor = await ctx.db.get(pack.mentorId);
+        const instructor = await ctx.db.get(pack.instructorId);
 
         return {
           id: pack._id,
           userId: pack.userId,
           email,
-          mentorId: pack.mentorId,
+          instructorId: pack.instructorId,
           instructorName: instructor?.name ?? null,
           instructorSlug: instructor?.slug ?? null,
           totalSessions: pack.totalSessions,

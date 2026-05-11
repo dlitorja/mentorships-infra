@@ -18,16 +18,16 @@ export default async function MenteeOnboardingPage() {
   const discordConnected = hasDiscordConnected(clerkUser);
 
   const convex = getConvexClient();
-  const sessionPacksResult = await convex.query(api.sessionPacks.getUserSessionPacksWithMentors, {
+  const sessionPacksResult = await convex.query(api.sessionPacks.getUserSessionPacksWithInstructors, {
     userId: dbUser.id,
     limit: 100,
     offset: 0,
   });
   const packs = sessionPacksResult.items
-    .filter((p) => p.mentorUser?.email)
-    .map((p) => ({
+    .filter((p: any) => p.instructorUser?.email)
+    .map((p: any) => ({
       sessionPackId: p.id,
-      instructorLabel: p.mentorUser!.email,
+      instructorLabel: p.instructorUser!.email,
     }));
 
   return (

@@ -11,7 +11,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
  */
 export async function GET(req: NextRequest) {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
@@ -20,13 +20,13 @@ export async function GET(req: NextRequest) {
 
     if (!instructor) {
       return NextResponse.json(
-        { error: "Mentor profile not found" },
+        { error: "Instructor profile not found" },
         { status: 404 }
       );
     }
 
-    const mentees = await convex.query(api.instructors.getMentorMenteesWithSessionInfo, {
-      mentorId: instructor._id,
+    const mentees = await convex.query(api.instructors.getInstructorStudentsWithSessionInfo, {
+      instructorId: instructor._id,
     }) as any[];
 
     return NextResponse.json({
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
     console.error("Error fetching instructor mentees:", error);

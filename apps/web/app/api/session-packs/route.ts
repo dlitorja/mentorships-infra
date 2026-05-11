@@ -55,7 +55,7 @@ export async function POST(request: Request) {
     const convex = getConvexClient();
     const packId = await convex.mutation(api.sessionPacks.createSessionPack, {
       userId,
-      mentorId: mentorId as Id<"instructors">,
+      instructorId: mentorId as Id<"instructors">,
       paymentId: paymentId as Id<"payments">,
       totalSessions: totalSessions ?? 4,
       expiresAt: expiresDate.getTime(),

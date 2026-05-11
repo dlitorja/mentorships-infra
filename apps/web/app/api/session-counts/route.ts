@@ -41,7 +41,7 @@ async function requireAdminOrMentor(convex: ReturnType<typeof getConvexClient>, 
     throw new UnauthorizedError("Mentor access required");
   }
 
-  if (instructor._id !== pack.mentorId) {
+  if (instructor._id !== pack.instructorId) {
     throw new UnauthorizedError("You can only modify session packs for your own mentees");
   }
 

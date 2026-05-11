@@ -33,7 +33,7 @@ export const getInstructorsByMentorId = internalQuery({
   handler: async (ctx, args) => {
     const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("mentorId"), args.mentorId))
+      .filter((q) => q.eq(q.field("legacyMentorId"), args.mentorId))
       .collect();
     return instructors.length > 0 ? instructors[0] : null;
   },
@@ -100,7 +100,7 @@ export const getAllInstructorsMappings = internalQuery({
   handler: async (ctx) => {
     const instructors = await ctx.db.query("instructors").collect();
     return instructors.map((i) => ({
-      legacyId: i.legacyId ?? i.mentorId,
+      legacyId: i.legacyId ?? i.legacyMentorId,
       userId: i.userId,
       convexId: i._id,
     }));
@@ -138,7 +138,7 @@ export const getAllSessionPacksMappings = internalQuery({
     return packs.map((p) => ({
       legacyId: p.legacyId ?? p._id,
       userId: p.userId,
-      mentorId: p.mentorId,
+      instructorId: p.instructorId,
       paymentId: p.paymentId,
       convexId: p._id,
     }));

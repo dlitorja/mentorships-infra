@@ -52,8 +52,8 @@ export const getUserActiveSessionPacks = query({
   },
 });
 
-/** Returns active session packs for a user with mentor information included. Used by student dashboard. */
-export const getUserSessionPacksWithMentors = query({
+/** Returns active session packs for a user with instructor information included. Used by student dashboard. */
+export const getUserSessionPacksWithInstructors = query({
   args: {
     userId: v.string(),
     limit: v.optional(v.number()),
@@ -83,46 +83,46 @@ export const getUserSessionPacksWithMentors = query({
     const sortedPacks = packs.sort((a, b) => b._creationTime - a._creationTime);
     const paginatedPacks = sortedPacks.slice(offset, offset + limit);
 
-    const packsWithMentors = await Promise.all(
+    const packsWithInstructors = await Promise.all(
       paginatedPacks.map(async (pack) => {
-        const mentor = await ctx.db.get(pack.mentorId);
-        let mentorUser = null;
-        if (mentor?.userId) {
-          const userId = mentor.userId;
+        const instructor = await ctx.db.get(pack.instructorId);
+        let instructorUser = null;
+        if (instructor?.userId) {
+          const userId = instructor.userId;
           const users = await ctx.db
             .query("users")
             .withIndex("by_userId", (q) => q.eq("userId", userId))
             .first();
-          mentorUser = users;
+          instructorUser = users;
         }
 
         return {
           id: pack._id,
           userId: pack.userId,
-          mentorId: pack.mentorId,
+          instructorId: pack.instructorId,
           totalSessions: pack.totalSessions,
           remainingSessions: pack.remainingSessions,
           status: pack.status,
           purchasedAt: pack.purchasedAt,
           expiresAt: pack.expiresAt,
           paymentId: pack.paymentId,
-          mentor: mentor ? {
-            id: mentor._id,
-            userId: mentor.userId,
-            name: mentor.name,
-            bio: mentor.bio,
-            tagline: mentor.tagline,
-            profileImageUrl: mentor.profileImageUrl,
+          instructor: instructor ? {
+            id: instructor._id,
+            userId: instructor.userId,
+            name: instructor.name,
+            bio: instructor.bio,
+            tagline: instructor.tagline,
+            profileImageUrl: instructor.profileImageUrl,
           } : null,
-          mentorUser: mentorUser ? {
-            email: mentorUser.email,
+          instructorUser: instructorUser ? {
+            email: instructorUser.email,
           } : null,
         };
       })
     );
 
     return {
-      items: packsWithMentors,
+      items: packsWithInstructors,
       total: packs.length,
       limit,
       offset,
@@ -158,7 +158,7 @@ export const getUserTotalRemainingSessions = query({
 
 /** Returns all session packs associated with a given instructor. */
 export const getInstructorSessionPacks = query({
-  args: { mentorId: v.id("instructors") },
+  args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -166,7 +166,7 @@ export const getInstructorSessionPacks = query({
     }
     return await ctx.db
       .query("sessionPacks")
-      .withIndex("by_mentorId", (q) => q.eq("mentorId", args.mentorId))
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
   },
 });
@@ -186,11 +186,11 @@ export const getSessionPackByPaymentId = query({
   },
 });
 
-/** Creates a new session pack for a user and mentor. */
+/** Creates a new session pack for a user and instructor. */
 export const createSessionPack = mutation({
   args: {
     userId: v.string(),
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     totalSessions: v.optional(v.number()),
     remainingSessions: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
@@ -200,7 +200,7 @@ export const createSessionPack = mutation({
     const totalSessions = args.totalSessions ?? 4;
     const id = await ctx.db.insert("sessionPacks", {
       userId: args.userId,
-      mentorId: args.mentorId,
+      instructorId: args.instructorId,
       totalSessions,
       remainingSessions: args.remainingSessions ?? totalSessions,
       purchasedAt: Date.now(),
@@ -374,7 +374,7 @@ export const migrateSessionPack = mutation({
   args: {
     id: v.string(),
     userId: v.string(),
-    mentorId: v.id("instructors"),
+    instructorId: v.id("instructors"),
     totalSessions: v.optional(v.number()),
     remainingSessions: v.optional(v.number()),
     purchasedAt: v.optional(v.number()),
@@ -406,7 +406,7 @@ export const migrateSessionPack = mutation({
 
     const insertResult = await ctx.db.insert("sessionPacks", {
       userId: args.userId,
-      mentorId: args.mentorId,
+      instructorId: args.instructorId,
       totalSessions: args.totalSessions ?? 4,
       remainingSessions: args.remainingSessions ?? 4,
       purchasedAt: args.purchasedAt ?? Date.now(),

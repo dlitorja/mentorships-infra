@@ -92,7 +92,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const updated = await convex.mutation(api.instructors.updateMentorSchedulingSettings, {
+    const updated = await convex.mutation(api.instructors.updateInstructorSchedulingSettings, {
       id: mentor._id,
       ...(parsed.data.timeZone !== undefined && parsed.data.timeZone !== null && { timeZone: parsed.data.timeZone }),
       ...(parsed.data.workingHours !== undefined && { workingHours: parsed.data.workingHours }),

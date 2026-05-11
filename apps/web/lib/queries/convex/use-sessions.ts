@@ -17,10 +17,10 @@ export function useUpcomingSessions(studentId: string) {
   });
 }
 
-export function useInstructorSessions(mentorId: Id<"instructors">) {
+export function useInstructorSessions(instructorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.sessions.getInstructorSessions, { mentorId }),
-    enabled: !!mentorId,
+    ...convexQuery(api.sessions.getInstructorSessions, { instructorId }),
+    enabled: !!instructorId,
   });
 }
 

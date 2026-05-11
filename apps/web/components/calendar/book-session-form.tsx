@@ -13,7 +13,7 @@ import { z } from "zod";
 
 type PackOption = {
   id: string;
-  mentorId: string;
+  instructorId: string;
   remainingSessions: number;
   expiresAt: string | Date | null;
   status: string;
@@ -67,13 +67,13 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
     error: availabilityError,
   } = useQuery({
     queryKey: queryKeys.mentors.availability(
-      selectedPack?.mentorId || "",
+      selectedPack?.instructorId || "",
       dateRange?.start || "",
       dateRange?.end || ""
     ),
     queryFn: () =>
       fetchInstructorAvailability(
-        selectedPack!.mentorId,
+        selectedPack!.instructorId,
         dateRange!.start,
         dateRange!.end,
         60
@@ -124,7 +124,7 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
     if (!selectedPack || !userId) return;
     try {
       await createSession.mutateAsync({
-        mentorId: selectedPack.mentorId as any,
+        instructorId: selectedPack.instructorId as any,
         studentId: userId,
         sessionPackId: selectedPack.id as any,
         scheduledAt: new Date(scheduledAtIso).getTime(),

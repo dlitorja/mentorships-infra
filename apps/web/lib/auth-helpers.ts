@@ -20,7 +20,7 @@ export async function requireAuthRedirect() {
  * Check if user has a specific role
  * Returns true if user has the role, false otherwise
  */
-export async function hasRole(role: "student" | "mentor" | "admin") {
+export async function hasRole(role: "student" | "instructor" | "admin") {
   const { userId } = await auth();
   if (!userId) return false;
 
@@ -37,7 +37,7 @@ export async function hasRole(role: "student" | "mentor" | "admin") {
  * ⚠️ WARNING: This function redirects, which doesn't work in API routes.
  * For API routes, use requireRoleForApi() instead.
  */
-export async function requireRole(role: "student" | "mentor" | "admin") {
+export async function requireRole(role: "student" | "instructor" | "admin") {
   const userId = await requireAuthRedirect();
   
   const { getDbUser } = await import("./auth");
@@ -58,7 +58,7 @@ export async function requireRole(role: "student" | "mentor" | "admin") {
  * @throws UnauthorizedError if not authenticated
  * @throws ForbiddenError if role check fails
  */
-export async function requireRoleForApi(role: "student" | "mentor" | "admin") {
+export async function requireRoleForApi(role: "student" | "instructor" | "admin") {
   const { auth } = await import("@clerk/nextjs/server");
   const { userId } = await auth();
   

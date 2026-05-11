@@ -14,7 +14,7 @@ export const getWorkspacesNeedingDeletion = query({
       .filter((q) => q.or(q.eq(q.field("deletedAt"), undefined), q.gt(q.field("deletedAt"), cutoff)))
       .collect();
 
-    return workspaces.map(w => ({ id: w._id, endedAt: w.endedAt, ownerId: w.ownerId, mentorId: w.mentorId }));
+    return workspaces.map(w => ({ id: w._id, endedAt: w.endedAt, ownerId: w.ownerId, instructorId: w.instructorId }));
   },
 });
 
@@ -36,12 +36,12 @@ export const getWorkspacesForNotification = query({
       .query("seatReservations")
       .collect();
     const seatSet = new Set(
-      allSeats.map((s) => `${String(s.mentorId)}:${s.userId}`)
+      allSeats.map((s) => `${String(s.instructorId)}:${s.userId}`)
     );
 
     for (const workspace of workspaces) {
       if (!workspace.endedAt) continue;
-      if (!workspace.mentorId) continue;
+      if (!workspace.instructorId) continue;
 
       const daysUntilDeletion = Math.floor(
         (workspace.endedAt! + EIGHTEEN_MONTHS_MS - now) / dayMs
@@ -53,7 +53,7 @@ export const getWorkspacesForNotification = query({
         (days >= 6 && days <= 8);
 
       if (inWindow(daysUntilDeletion)) {
-        const key = `${String(workspace.mentorId)}:${workspace.ownerId}`;
+        const key = `${String(workspace.instructorId)}:${workspace.ownerId}`;
         if (seatSet.has(key)) {
           notifications.push({
             workspaceId: String(workspace._id),

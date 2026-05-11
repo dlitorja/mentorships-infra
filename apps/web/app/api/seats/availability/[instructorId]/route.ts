@@ -4,8 +4,8 @@ import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 
 /**
- * GET /api/seats/availability/:mentorId
- * Check seat availability for a mentor
+ * GET /api/seats/availability/:instructorId
+ * Check seat availability for an instructor
  * 
  * Public endpoint - no authentication required
  * 
@@ -20,21 +20,21 @@ import { Id } from "@/convex/_generated/dataModel";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ mentorId: string }> }
+  { params }: { params: Promise<{ instructorId: string }> }
 ): Promise<NextResponse> {
   try {
-    const { mentorId } = await params;
+    const { instructorId } = await params;
 
-    if (!mentorId) {
+    if (!instructorId) {
       return NextResponse.json(
-        { error: "Mentor ID is required" },
+        { error: "Instructor ID is required" },
         { status: 400 }
       );
     }
 
     const convex = getConvexClient();
     const availability = await convex.query(api.instructors.checkSeatAvailability, {
-      mentorId: mentorId as Id<"instructors">,
+      instructorId: instructorId as Id<"instructors">,
     });
 
     return NextResponse.json({

@@ -49,7 +49,7 @@ export default async function DashboardPage() {
 
     const [sessionPacksResult, totalSessions, upcomingRaw, recentRaw] =
       await Promise.all([
-        convex.query(api.sessionPacks.getUserSessionPacksWithMentors, {
+        convex.query(api.sessionPacks.getUserSessionPacksWithInstructors, {
           userId: user.id,
           limit: 100,
           offset: 0,
@@ -57,58 +57,58 @@ export default async function DashboardPage() {
         convex.query(api.sessionPacks.getUserTotalRemainingSessions, {
           userId: user.id,
         }),
-        convex.query(api.sessions.getUpcomingSessionsWithMentor, {
+        convex.query(api.sessions.getUpcomingSessionsWithInstructor, {
           studentId: user.id,
           limit: 5,
         }),
-        convex.query(api.sessions.getRecentSessionsWithMentor, {
+        convex.query(api.sessions.getRecentSessionsWithInstructor, {
           studentId: user.id,
           limit: 3,
         }),
       ]);
 
     const upcomingSessions = upcomingRaw
-      .filter((s) => s.mentorUser != null)
-      .map((s) => ({
+      .filter((s: any) => s.instructorUser != null)
+      .map((s: any) => ({
         id: s.id,
         scheduledAt: s.scheduledAt,
         status: s.status,
-        mentorUser: { email: s.mentorUser!.email },
+        instructorUser: { email: s.instructorUser!.email },
       }));
 
     const recentSessions = recentRaw
-      .filter((s) => s.mentorUser != null)
-      .map((s) => ({
+      .filter((s: any) => s.instructorUser != null)
+      .map((s: any) => ({
         id: s.id,
         scheduledAt: s.scheduledAt,
         completedAt: s.completedAt,
         status: s.status,
-        mentorUser: { email: s.mentorUser!.email },
+        instructorUser: { email: s.instructorUser!.email },
       }));
 
     const allPacks = sessionPacksResult.items;
 
     const sessionPacks = allPacks
-      .filter((p) => p.mentor != null && p.mentorUser != null)
-      .map((p) => ({
+      .filter((p: any) => p.instructor != null && p.instructorUser != null)
+      .map((p: any) => ({
         id: p.id,
-        mentorId: p.mentorId,
+        instructorId: p.instructorId,
         totalSessions: p.totalSessions,
         remainingSessions: p.remainingSessions,
         expiresAt: p.expiresAt,
-        mentor: { id: p.mentor!.id, bio: p.mentor!.bio },
-        mentorUser: { email: p.mentorUser!.email },
+        instructor: { id: p.instructor!.id, bio: p.instructor!.bio },
+        instructorUser: { email: p.instructorUser!.email },
       }));
 
     // Get unique instructors
     const instructors = Array.from(
       new Map(
-        sessionPacks.map((pack) => [
-          pack.mentor.id,
+        sessionPacks.map((pack: any) => [
+          pack.instructor.id,
           {
-            mentorId: pack.mentor.id,
-            email: pack.mentorUser.email,
-            bio: pack.mentor.bio,
+            instructorId: pack.instructor.id,
+            email: pack.instructorUser.email,
+            bio: pack.instructor.bio,
           },
         ])
       ).values()
@@ -218,7 +218,7 @@ export default async function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {sessionPacks.map((pack) => (
+                  {sessionPacks.map((pack: any) => (
                     <div
                       key={pack.id}
                       className="border rounded-lg p-4 space-y-2"
@@ -226,11 +226,11 @@ export default async function DashboardPage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="font-semibold">
-                            {pack.mentorUser.email}
+                            {pack.instructorUser.email}
                           </p>
-                          {pack.mentor.bio && (
+                          {pack.instructor.bio && (
                             <p className="text-sm text-muted-foreground mt-1">
-                              {pack.mentor.bio}
+                              {pack.instructor.bio}
                             </p>
                           )}
                         </div>
@@ -284,7 +284,7 @@ export default async function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {upcomingSessions.map((session) => (
+                  {upcomingSessions.map((session: any) => (
                     <div
                       key={session.id}
                       className="border rounded-lg p-4 space-y-2"
@@ -292,7 +292,7 @@ export default async function DashboardPage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="font-semibold">
-                            {session.mentorUser.email}
+                            {session.instructorUser.email}
                           </p>
                           <p className="text-sm text-muted-foreground">
                             {formatDateTime(new Date(session.scheduledAt))}
@@ -317,7 +317,7 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {recentSessions.map((session) => (
+                {recentSessions.map((session: any) => (
                   <div
                     key={session.id}
                     className="border rounded-lg p-4 space-y-2"
@@ -325,7 +325,7 @@ export default async function DashboardPage() {
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="font-semibold">
-                          {session.mentorUser.email}
+                          {session.instructorUser.email}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           Completed{" "}

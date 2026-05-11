@@ -21,7 +21,7 @@ function getConvexClient() {
 }
 
 const createProductSchema = z.object({
-  mentorId: z.string().min(1, "Mentor ID is required"),
+  instructorId: z.string().min(1, "Instructor ID is required"),
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().optional().default(""),
   imageUrl: z.string().url().optional().or(z.literal("")),
@@ -50,7 +50,7 @@ type CreateProductInput = z.infer<typeof createProductSchema>;
 
 const listProductsQuerySchema = z.object({
   search: z.string().trim().default(""),
-  mentorId: z.string().optional(),
+  instructorId: z.string().optional(),
   mentorshipType: z.enum(["one-on-one", "group"]).optional(),
   active: z
     .enum(["true", "false"])
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
     }
 
     const {
-      mentorId,
+      instructorId,
       title,
       description,
       imageUrl,
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
 
     const convex = getConvexClient();
 
-    const instructor = await convex.query(api.instructors.getInstructorById, { id: mentorId as any });
+    const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId as any });
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -161,7 +161,7 @@ export async function POST(req: NextRequest) {
 
     try {
       convexProductId = await convex.mutation(api.products.createProduct, {
-        mentorId: mentorId as Id<"instructors">,
+        instructorId: instructorId as Id<"instructors">,
         title,
         description: description || undefined,
         imageUrl: imageUrl || undefined,
@@ -282,11 +282,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { search, mentorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
+    const { search, instructorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
 
     const result = await getAdminProducts(
       search,
-      mentorId,
+      instructorId,
       mentorshipType,
       active,
       page,

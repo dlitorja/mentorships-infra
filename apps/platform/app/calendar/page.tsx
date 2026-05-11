@@ -62,13 +62,7 @@ export default async function CalendarPage() {
     .limit(10);
 
   // Fetch active session packs with remaining sessions
-  const activePacks: {
-    id: string;
-    mentorId: string;
-    remainingSessions: number;
-    expiresAt: Date | null;
-    status: string;
-  }[] = await db
+  const activePacksRaw = await db
     .select({
       id: sessionPacks.id,
       mentorId: sessionPacks.mentorId,
@@ -83,6 +77,14 @@ export default async function CalendarPage() {
         eq(sessionPacks.status, "active")
       )
     );
+
+  const activePacks = activePacksRaw.map((p) => ({
+    id: p.id,
+    instructorId: p.mentorId,
+    remainingSessions: p.remainingSessions,
+    expiresAt: p.expiresAt,
+    status: p.status,
+  }));
 
   return (
     <ProtectedLayout currentPath="/calendar">

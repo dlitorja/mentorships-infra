@@ -5,7 +5,7 @@ import { SchedulingSettingsForm } from "@/components/instructor/scheduling-setti
 import type { MentorWorkingHours } from "@mentorships/db";
 
 export default async function InstructorSettingsPage() {
-  const user = await requireRole("mentor");
+  const user = await requireRole("instructor");
   const mentor = await getMentorByUserId(user.id);
 
   if (!mentor) {

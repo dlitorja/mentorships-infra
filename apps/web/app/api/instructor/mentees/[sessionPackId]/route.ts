@@ -21,7 +21,7 @@ export async function PATCH(
   { params }: { params: Promise<{ sessionPackId: string }> }
 ) {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const rawParams = await params;
@@ -50,7 +50,7 @@ export async function PATCH(
       );
     }
 
-    if (sessionPack.mentorId !== mentor._id) {
+    if (sessionPack.instructorId !== mentor._id) {
       return NextResponse.json(
         { error: "You do not have permission to modify this session pack" },
         { status: 403 }
