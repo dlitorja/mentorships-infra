@@ -7,7 +7,8 @@ export const store = mutation({
     contentType: v.string(),
   },
   handler: async (ctx, args) => {
-    const storageId = await (ctx.storage as any).store(args.body, args.contentType);
+    const blob = new Blob([args.body], { type: args.contentType });
+    const storageId = await ctx.storage.store(blob);
     return storageId;
   },
 });
