@@ -132,25 +132,13 @@ export default function DashboardPage() {
   }, [sessionPacks]);
 
   const isAdmin = user?.publicMetadata?.role === "admin";
-  const hasRedirected = useRef(false);
+  const hasRedirectedRef = useRef(false);
 
   useEffect(() => {
-    if (!user?.id) return;
-    if (!isAdmin) {
-      sessionStorage.removeItem("admin_redirect_attempted");
-    }
-  }, [user?.id, isAdmin]);
-
-  useEffect(() => {
-    if (!isLoaded || !user || hasRedirected.current) return;
-    if (isAdmin) {
-      const hasAttemptedRedirect = sessionStorage.getItem("admin_redirect_attempted");
-      if (hasAttemptedRedirect) {
-        return;
-      }
-      hasRedirected.current = true;
-      sessionStorage.setItem("admin_redirect_attempted", "true");
-      router.push("/admin");
+    if (!isLoaded || !user) return;
+    if (isAdmin && !hasRedirectedRef.current) {
+      hasRedirectedRef.current = true;
+      router.replace("/admin");
     }
   }, [isLoaded, user, isAdmin, router]);
 
@@ -162,7 +150,15 @@ export default function DashboardPage() {
     );
   }
 
-  if (!user || isAdmin) {
+  if (!user) {
+    return (
+      <div className="container mx-auto p-4 md:p-8 flex justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (isAdmin) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />

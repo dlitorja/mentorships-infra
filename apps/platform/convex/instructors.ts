@@ -214,6 +214,31 @@ export const listAll = query({
   },
 });
 
+// Get all instructors with stats for admin dashboard
+export const getInstructorsForAdmin = query({
+  args: {},
+  handler: async (ctx) => {
+    const instructors = await ctx.db.query("instructors").collect();
+    const workspaces = await ctx.db.query("workspaces").collect();
+
+    const activeWorkspaces = workspaces.filter(
+      (w) => w.endedAt === undefined && w.deletedAt === undefined
+    );
+
+    const instructorStats = new Map<string, number>();
+
+    for (const workspace of activeWorkspaces) {
+      const current = instructorStats.get(workspace.instructorId) || 0;
+      instructorStats.set(workspace.instructorId, current + 1);
+    }
+
+    return instructors.map((instructor) => ({
+      ...instructor,
+      activeMenteeCount: instructorStats.get(instructor._id) || 0,
+    }));
+  },
+});
+
 // Update inventory for instructor
 export const updateInventory = mutation({
   args: {
