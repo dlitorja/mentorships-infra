@@ -82,8 +82,8 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const oneOnOneProduct = activeProducts.find((p: any) => p.mentorshipType === "one-on-one");
   const groupProduct = activeProducts.find((p: any) => p.mentorshipType === "group");
 
-  const oneOnOneInventory = instructor?.oneOnOneInventory ?? 0;
-  const groupInventory = instructor?.groupInventory ?? 0;
+  const oneOnOneInventory = (instructor as any)?.oneOnOneInventory ?? 0;
+  const groupInventory = (instructor as any)?.groupInventory ?? 0;
 
   const renderSpotsAvailable = (spots: number) => {
     if (spots === 0) {
@@ -129,7 +129,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
     );
   }
 
-  if (!instructor.isActive || instructor.deletedAt) {
+  if (!instructor.isActive || (instructor as any).deletedAt) {
     notFound();
   }
 

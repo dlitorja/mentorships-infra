@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 
 interface Instructor {
   _id: string;
-  name: string;
-  slug: string;
+  name?: string;
+  slug?: string;
   tagline?: string;
   bio?: string;
   profileImageUrl?: string;

@@ -20,13 +20,13 @@ import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 
 type Instructor = {
   _id: Id<"instructors">;
-  name: string;
-  slug: string;
+  name?: string;
+  slug?: string;
   tagline?: string;
   specialties?: string[];
-  isActive: boolean;
-  createdAt: number;
+  isActive?: boolean;
   deletedAt?: number;
+  _creationTime?: number;
 };
 
 export default function InstructorsPage() {
@@ -46,8 +46,8 @@ export default function InstructorsPage() {
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
       filtered = filtered.filter((i: Instructor) =>
-        i.name.toLowerCase().includes(searchLower) ||
-        i.slug.toLowerCase().includes(searchLower) ||
+        i.name?.toLowerCase().includes(searchLower) ||
+        i.slug?.toLowerCase().includes(searchLower) ||
         i.specialties?.some(s => s.toLowerCase().includes(searchLower))
       );
     }
@@ -145,7 +145,7 @@ export default function InstructorsPage() {
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
-                        {new Date(instructor.createdAt).toLocaleDateString()}
+                        {instructor._creationTime ? new Date(instructor._creationTime).toLocaleDateString() : 'N/A'}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex justify-end gap-2">

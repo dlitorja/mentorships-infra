@@ -3,25 +3,25 @@
 import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
-import { api } from "../../../convex/_generated/api";
-import { Id } from "../../../convex/_generated/dataModel";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 
 export type PublicInstructor = {
   _id: Id<"instructors">;
-  name: string;
-  slug: string;
+  name?: string;
+  slug?: string;
   tagline?: string;
   bio?: string;
   profileImageUrl?: string;
   specialties?: string[];
-  isActive: boolean;
+  isActive?: boolean;
   isHidden?: boolean;
   deletedAt?: number;
 };
 
 export function usePublicInstructors() {
   const { data, isLoading, isError, error } = useQuery({
-    ...convexQuery(api.instructors.list, {}),
+    ...convexQuery(api.instructors.getPublicInstructors, {}),
   });
 
   const filteredData = useMemo(() => {
@@ -39,14 +39,14 @@ export function usePublicInstructors() {
 
 export function useInstructor(id: string) {
   return useQuery({
-    ...convexQuery(api.instructors.getById, { id: id as Id<"instructors"> }),
+    ...convexQuery(api.instructors.getInstructorById, { id: id as Id<"instructors"> }),
     enabled: !!id,
   });
 }
 
 export function useInstructors() {
   const instructors = useQuery({
-    ...convexQuery(api.instructors.list, {}),
+    ...convexQuery(api.instructors.listInstructors, {}),
   });
 
   return useMemo(() => {
@@ -59,34 +59,34 @@ export function useInstructors() {
 
 export function usePublicInstructorBySlug(slug: string) {
   return useQuery({
-    ...convexQuery(api.instructors.getBySlug, { slug }),
+    ...convexQuery(api.instructors.getInstructorBySlug, { slug }),
     enabled: !!slug,
   });
 }
 
 export function useInstructorBySlug(slug: string) {
   return useQuery({
-    ...convexQuery(api.instructors.getBySlug, { slug }),
+    ...convexQuery(api.instructors.getInstructorBySlug, { slug }),
     enabled: !!slug,
   });
 }
 
 export function useAllInstructors() {
   return useQuery({
-    ...convexQuery(api.instructors.listAll, {}),
+    ...convexQuery(api.instructors.getInstructorsForAdmin, {}),
   });
 }
 
 export function useInstructorTestimonials(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.instructors.getTestimonials, { instructorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.instructors.getTestimonialsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }
 
 export function useInstructorMenteeResults(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.instructors.getMenteeResults, { instructorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.instructors.getMenteeResultsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }
@@ -95,7 +95,7 @@ export function useUpdateInstructor() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.update),
+    mutationFn: useConvexMutation(api.instructors.updateInstructor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructors"] });
     },
@@ -106,7 +106,7 @@ export function useCreateInstructor() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.create),
+    mutationFn: useConvexMutation(api.instructors.createInstructor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructors"] });
     },
@@ -117,7 +117,7 @@ export function useDeleteInstructor() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.remove),
+    mutationFn: useConvexMutation(api.instructors.deleteInstructor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructors"] });
     },
@@ -172,18 +172,7 @@ export function useUpdateInstructorInventory() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.updateInventory),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
-    },
-  });
-}
-
-export function useLinkUserToInstructor() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: useConvexMutation(api.instructors.linkUser),
+    mutationFn: useConvexMutation(api.instructors.updateInstructorInventory),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructors"] });
     },
@@ -194,7 +183,7 @@ export function useUploadInstructorProfileImage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.uploadProfileImage),
+    mutationFn: useConvexMutation(api.instructors.uploadInstructorProfileImage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructors"] });
     },
@@ -205,7 +194,7 @@ export function useAddInstructorPortfolioImage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.addPortfolioImage),
+    mutationFn: useConvexMutation(api.instructors.uploadInstructorPortfolioImage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructors"] });
     },
