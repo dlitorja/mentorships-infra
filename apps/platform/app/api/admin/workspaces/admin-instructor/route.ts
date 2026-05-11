@@ -56,7 +56,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       name: workspace.name,
       description: workspace.description,
       type: workspace.type,
-      mentorId: workspace.mentorId,
+      instructorId: workspace.instructorId,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create workspace";

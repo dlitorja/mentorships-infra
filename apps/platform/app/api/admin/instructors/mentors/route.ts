@@ -25,7 +25,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       groupInventory: number | null;
       createdAt: number | null;
     };
-    const result = await convex.query(api.admin.getAllMentors, {}) as MentorResult[];
+    const result = await convex.query(api.admin.getAllInstructors, {}) as MentorResult[];
 
     const formattedMentors = result
       .filter((mentor): mentor is MentorResult & { userId: string } => mentor.userId !== null)
