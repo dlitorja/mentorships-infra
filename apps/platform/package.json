@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:turbo": "next dev --turbo",
-    "build": "npx convex codegen && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint ."
   },
