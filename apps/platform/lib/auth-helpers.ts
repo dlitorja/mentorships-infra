@@ -45,5 +45,9 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor" | "
     throw new Error("Forbidden - Instructor required");
   }
 
+  if (requiredRole === "mentor" && role !== "instructor" && role !== "mentor" && role !== "admin") {
+    throw new Error("Forbidden - Mentor required");
+  }
+
   return { id: userId, role };
 }

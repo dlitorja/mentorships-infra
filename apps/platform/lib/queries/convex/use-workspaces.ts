@@ -192,12 +192,13 @@ export function useCreateWorkspaceExport() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    // @ts-ignore - api.workspaces.create is a stub, types not generated properly
-    mutationFn: useConvexMutation(api.workspaces.create as any) as any,
+    mutationFn: async (vars: { workspaceId: string; userId: string; format: string }) => {
+      console.log("useCreateWorkspaceExport stub called with:", vars);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceExports"] });
     },
-  } as any) as any;
+  });
 }
 
 interface RetentionNotification {
@@ -211,8 +212,14 @@ export function useUnacknowledgedRetentionNotifications() {
 }
 
 export function useAcknowledgeRetentionNotification() {
+  const queryClient = useQueryClient();
+
   return useMutation({
-    // @ts-ignore - stub mutation, types not generated properly
-    mutationFn: useConvexMutation(api.workspaces.create as any) as any,
-  } as any) as any;
+    mutationFn: async (vars: { id: string }) => {
+      console.log("useAcknowledgeRetentionNotification stub called with:", vars);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["retentionNotifications"] });
+    },
+  });
 }

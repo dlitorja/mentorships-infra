@@ -1,14 +1,11 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
-export const store = mutation({
-  args: {
-    body: v.bytes(),
-    contentType: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const storageId = await (ctx.storage as any).store(args.body, args.contentType);
-    return storageId;
+export const generateUploadUrl = mutation({
+  args: {},
+  returns: v.string(),
+  handler: async (ctx) => {
+    return await ctx.storage.generateUploadUrl();
   },
 });
 
