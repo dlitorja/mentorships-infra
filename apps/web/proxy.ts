@@ -172,6 +172,14 @@ const isProtectedRoute = createRouteMatcher([
 ]);
 
 /**
+ * Define admin routes that require admin role
+ * Routes matching these patterns will require the user to have admin role
+ */
+const isAdminRoute = createRouteMatcher([
+  "/admin(.*)",
+]);
+
+/**
  * Define public API routes that don't require authentication
  * (e.g., webhooks, public endpoints)
  */
@@ -207,7 +215,10 @@ const hasClerkKey = Boolean(
 
 // Create middleware function that handles both cases
 async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
-  const { userId } = await auth();
+  const authResult = await auth();
+  const userId = authResult.userId;
+  const sessionClaims = authResult.sessionClaims;
+  const userRole = (sessionClaims?.publicMetadata as Record<string, unknown>)?.role as string | undefined;
 
   const pathname = req.nextUrl.pathname;
   const method = req.method;
@@ -309,6 +320,13 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       const signInUrl = new URL("/sign-in", req.url);
       signInUrl.searchParams.set("redirect_url", req.url);
       return NextResponse.redirect(signInUrl);
+    }
+
+    // Check admin role for admin routes
+    if (isAdminRoute(req) && userRole !== "admin") {
+      const dashboardUrl = new URL("/dashboard", req.url);
+      dashboardUrl.searchParams.set("error", "unauthorized");
+      return NextResponse.redirect(dashboardUrl);
     }
   }
 

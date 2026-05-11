@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { 
   Users,
@@ -200,6 +200,7 @@ function InstructorRow({
 }
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [instructors, setInstructors] = useState<InstructorWithStats[]>([]);
   const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
@@ -218,7 +219,7 @@ export default function AdminDashboard() {
         ]);
 
         if (!statsRes.ok || !instructorsRes.ok) {
-          const status = statsRes.status || instructorsRes.status;
+          const status = !statsRes.ok ? statsRes.status : instructorsRes.status;
           console.error(`Auth check failed - status: ${status}`);
           setError(status === 401 ? "Session expired. Please refresh." : "Failed to load admin data.");
           return;
@@ -310,7 +311,7 @@ export default function AdminDashboard() {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
         <div className="text-muted-foreground">{error}</div>
-        <Button variant="outline" onClick={() => window.location.reload()}>
+        <Button variant="outline" onClick={() => router.refresh()}>
           Refresh Page
         </Button>
       </div>

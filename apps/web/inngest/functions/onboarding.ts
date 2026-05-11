@@ -141,17 +141,16 @@ export const onboardingFlow = inngest.createFunction(
     }
 
     const clerkInstructor = await step.run("get-instructor-clerk-user", async () => {
+      if (!instructor.userId) return null;
       const clerk = await getClerkApi();
-      if (!instructor.userId) {
-        throw new Error(`Instructor ${pack.instructorId} has no linked Clerk user`);
-      }
       return await clerk.users.getUser(instructor.userId);
     });
 
-    const instructorName =
-      (clerkInstructor.firstName || clerkInstructor.lastName
-        ? `${clerkInstructor.firstName ?? ""} ${clerkInstructor.lastName ?? ""}`.trim()
-        : null) ?? clerkInstructor.username ?? "your instructor";
+    const instructorName = clerkInstructor
+      ? ((clerkInstructor.firstName || clerkInstructor.lastName
+          ? `${clerkInstructor.firstName ?? ""} ${clerkInstructor.lastName ?? ""}`.trim()
+          : null) ?? clerkInstructor.username ?? "your instructor")
+      : "your instructor";
 
     const baseUrl = getBaseUrl();
     const dashboardUrl = `${baseUrl}/dashboard`;
@@ -221,7 +220,7 @@ export const onboardingFlow = inngest.createFunction(
 
       if (!instructorEmail) {
         // Log warning but don't fail - instructor may need to add email
-        console.warn(`No email found for instructor ${instructor._id} (userId: ${instructor.userId})`);
+        console.warn(`No email found for instructor ${instructor._id}`);
         return { sent: false, reason: "no_instructor_email" };
       }
 
