@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 async function checkAdminAccess(): Promise<void> {
   const { userId } = await auth();
   if (!userId) {
-    redirect("/sign-in?redirect_url=/admin");
+    redirect("/admin/sign-in");
   }
   
   const user = await getDbUser();
