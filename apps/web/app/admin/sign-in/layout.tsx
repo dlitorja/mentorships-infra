@@ -1,5 +1,3 @@
-import { SignIn } from "@clerk/nextjs";
-
 export default function AdminSignInLayout({
   children,
 }: {
@@ -7,12 +5,7 @@ export default function AdminSignInLayout({
 }) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30">
-      <SignIn
-        routing="path"
-        path="/admin/sign-in"
-        signUpUrl="/sign-up"
-        fallbackRedirectUrl="/admin"
-      />
+      {children}
     </div>
   );
 }
