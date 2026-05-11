@@ -300,40 +300,6 @@ background: ["Gaming", "Indie"],
     ],
   },
   {
-    id: "amanda-kiefer",
-    name: "Amanda Kiefer",
-    slug: "amanda-kiefer",
-    tagline: "Senior-Level Concept Artist",
-    bio: "Amanda Kiefer is a senior-level concept artist with 7+ years of games industry experience creating original characters, environments, weapons and prop concept art for various projects and problem-solving design challenges.",
-    specialties: ["Concept Art", "Character Design", "Environment Art", "Prop Design"],
-    background: ["Gaming"],
-    socials: [
-      {
-        platform: "Instagram",
-        url: "https://www.instagram.com/amanda_kiefer_art/?hl=en"
-      }
-    ],
-    profileImage: "/instructors/amanda-kiefer/profile.jpg",
-    workImages: [
-      "/instructors/amanda-kiefer/work-1.jpg",
-      "/instructors/amanda-kiefer/work-2.jpg",
-    ],
-    pricing: { oneOnOne: 375 },
-    offers: [
-      {
-        kind: "oneOnOne",
-        label: "Buy 1-on-1 mentorship",
-        url: "https://home.huckleberry.art/offers/caWkx6z7/checkout",
-      },
-    ],
-    testimonials: [
-      {
-        text: "Amanda provided clarity at a time when I truly needed it as an artist. Her capacity to see me, my work, and my aspirations, gave me the confidence to show up week after week. My mentorship assignments provided steady, yet manageable challenge and Amanda authored flexible assignments to meet that pace. I'd encourage anyone looking to sharpen their artistic selves to be Amanda's mentee.",
-        author: "Joshua",
-      },
-    ],
-  },
-  {
     id: "neil-gray",
     name: "Neil Gray",
     slug: "neil-gray",
