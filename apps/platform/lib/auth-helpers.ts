@@ -16,7 +16,7 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "mentor
     throw new Error("Unauthorized");
   }
 
-  const role = (sessionClaims?.publicMetadata?.role as string) || "student";
+  const role = (sessionClaims?.publicMetadata as any)?.role as string || "student";
 
   if (requiredRole === "admin" && role !== "admin") {
     throw new Error("Forbidden - Admin required");
@@ -35,7 +35,7 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor" | "
     throw new Error("Unauthorized");
   }
 
-  const role = (sessionClaims?.publicMetadata?.role as string) || "student";
+  const role = (sessionClaims?.publicMetadata as any)?.role as string || "student";
 
   if (requiredRole === "admin" && role !== "admin") {
     throw new Error("Forbidden - Admin required");

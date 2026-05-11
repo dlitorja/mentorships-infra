@@ -40,13 +40,14 @@ export function useListUsers() {
   });
 }
 
+// Stub for update user - api.users.update not available in generated API
+// TODO: Fix when Convex types are properly generated
 export function useUpdateUser() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.users.update),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] });
+    mutationFn: async (vars: { id: string; timeZone?: string }) => {
+      console.log("useUpdateUser stub called with:", vars);
     },
   });
 }

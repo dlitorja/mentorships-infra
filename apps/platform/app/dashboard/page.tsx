@@ -31,8 +31,8 @@ function formatDateTime(date: number): string {
 }
 
 function InstructorBadge({ instructorId }: { instructorId: string }) {
-  const instructor = useInstructor(instructorId);
-  if (!instructor) return null;
+  const { data: instructor, isLoading } = useInstructor(instructorId);
+  if (isLoading || !instructor) return null;
   return (
     <div>
       <span className="font-medium">{instructor.name}</span>

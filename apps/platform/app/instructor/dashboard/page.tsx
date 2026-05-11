@@ -72,7 +72,7 @@ export default async function InstructorDashboardPage() {
           <div>
             <h1 className="text-3xl font-bold">Instructor Dashboard</h1>
             <p className="text-muted-foreground mt-1">
-              Welcome back, {user.email}
+              Welcome back, Instructor
             </p>
           </div>
           <UserButton />

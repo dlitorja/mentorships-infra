@@ -106,7 +106,11 @@ export const update = mutation({
     timeZone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { id, ...updates } = args;
+    const { id, role, ...rest } = args;
+    const updates: Record<string, any> = { ...rest };
+    if (role !== undefined) {
+      updates.role = role as "instructor" | "student" | "admin" | "video_editor";
+    }
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
   },

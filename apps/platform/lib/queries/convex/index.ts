@@ -4,5 +4,4 @@ export * from "./use-products";
 export * from "./use-sessions";
 export * from "./use-workspaces";
 export * from "./use-users";
-export * from "./use-mutations";
 export * from "./use-waitlist";

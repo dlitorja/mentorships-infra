@@ -50,11 +50,11 @@ export function useInstructors() {
   });
 
   return useMemo(() => {
-    if (!instructors) return [];
-    return instructors
+    if (!instructors.data) return [];
+    return instructors.data
       .filter((i) => i.isActive && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
-  }, [instructors]);
+  }, [instructors.data]);
 }
 
 export function usePublicInstructorBySlug(slug: string) {

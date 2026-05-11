@@ -73,12 +73,12 @@ function SocialLink({ url, platform }: { url: string; platform: string }) {
 }
 
 function InstructorProfileContent({ slug }: { slug: string }) {
-  const instructor = useInstructorBySlug(slug);
-  const testimonials = useInstructorTestimonials(instructor?._id as string);
-  const menteeResults = useInstructorMenteeResults(instructor?._id as string);
-  const products = useProductsByInstructor(instructor?._id as string);
+  const { data: instructor } = useInstructorBySlug(slug);
+  const { data: testimonialsData } = useInstructorTestimonials(instructor?._id as string);
+  const { data: menteeResultsData } = useInstructorMenteeResults(instructor?._id as string);
+  const { data: productsData } = useProductsByInstructor(instructor?._id as string);
 
-  const activeProducts = products?.filter((p: any) => p.active) || [];
+  const activeProducts = productsData?.filter((p: any) => p.active) || [];
   const oneOnOneProduct = activeProducts.find((p: any) => p.mentorshipType === "one-on-one");
   const groupProduct = activeProducts.find((p: any) => p.mentorshipType === "group");
 
@@ -263,11 +263,11 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             )}
 
-            {testimonials && testimonials.length > 0 && (
+            {testimonialsData && testimonialsData.length > 0 && (
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {(testimonials as Array<{_id: string; name: string; text: string}>).map((testimonial) => (
+                  {(testimonialsData as Array<{_id: string; name: string; text: string}>).map((testimonial) => (
                     <div key={testimonial._id} className="rounded-lg border bg-card p-6 shadow-sm">
                       <Quote className="h-6 w-6 text-muted-foreground mb-4" />
                       <div className="text-base leading-relaxed mb-4 italic">{testimonial.text}</div>
@@ -280,10 +280,10 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             )}
 
-            {menteeResults && menteeResults.length > 0 && (
+            {menteeResultsData && menteeResultsData.length > 0 && (
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Mentee Success Stories</h2>
-                <PortfolioGallery images={(menteeResults as Array<{imageUrl?: string}>).map((r) => r.imageUrl).filter((url): url is string => Boolean(url))} instructorName={instructor.name} />
+                <PortfolioGallery images={(menteeResultsData as Array<{imageUrl?: string}>).map((r) => r.imageUrl).filter((url): url is string => Boolean(url))} instructorName={instructor.name} />
               </div>
             )}
           </div>

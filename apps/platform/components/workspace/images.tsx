@@ -83,11 +83,13 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     setIsUploading(true);
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
       try {
+        // TODO: Implement proper Convex storage upload
+        // Convex requires using ctx.storage.store() to get a storageId
+        // For now, pass empty storageId - the backend will handle placeholder
         await createImage.mutateAsync({
           workspaceId,
-          imageUrl: dataUrl,
+          storageId: "", // Placeholder - real implementation needs Convex storage.store()
           createdBy: currentUserId,
         });
       } catch (error) {

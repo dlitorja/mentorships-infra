@@ -1,8 +1,5 @@
-import { defineConfig } from "convex/server";
-import underscore from "lodash";
+import { defineApp } from "convex/server";
 
-export default defineConfig({
-  extensions: [
-    underscore,
-  ],
-});
+const app = defineApp();
+
+export default app;
