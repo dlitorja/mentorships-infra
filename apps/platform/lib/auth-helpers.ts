@@ -10,21 +10,40 @@ export async function requireAuth() {
   return userId;
 }
 
-export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
+export async function requireRole(requiredRole: "admin" | "instructor" | "mentor" | "student") {
   const { userId, sessionClaims } = await auth();
   if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    throw new Error("Unauthorized");
   }
 
-  const role = (sessionClaims?.publicMetadata?.role as string) || "student";
+  const role = (sessionClaims?.publicMetadata as any)?.role as string || "student";
 
   if (requiredRole === "admin" && role !== "admin") {
-    return NextResponse.json({ error: "Forbidden - Admin required" }, { status: 403 });
+    throw new Error("Forbidden - Admin required");
+  }
+
+  if ((requiredRole === "instructor" || requiredRole === "mentor") && role !== "instructor" && role !== "admin") {
+    throw new Error("Forbidden - Instructor required");
+  }
+
+  return { id: userId, role };
+}
+
+export async function requireRoleForApi(requiredRole: "admin" | "instructor" | "mentor") {
+  const { userId, sessionClaims } = await auth();
+  if (!userId) {
+    throw new Error("Unauthorized");
+  }
+
+  const role = (sessionClaims?.publicMetadata as any)?.role as string || "student";
+
+  if (requiredRole === "admin" && role !== "admin") {
+    throw new Error("Forbidden - Admin required");
   }
 
   if (requiredRole === "instructor" && role !== "instructor" && role !== "admin") {
-    return NextResponse.json({ error: "Forbidden - Instructor required" }, { status: 403 });
+    throw new Error("Forbidden - Instructor required");
   }
 
-  return { userId, role };
+  return { id: userId, role };
 }

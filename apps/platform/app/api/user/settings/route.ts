@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireDbUser, getUser } from "@/lib/auth";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError } from "@/lib/errors";
@@ -11,8 +12,13 @@ const updateTimeZoneSchema = z.object({
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
-    const clerkUser = await getUser();
-    const email = clerkUser?.emailAddresses?.[0]?.emailAddress;
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const clerk = await clerkClient();
+    const clerkUser = await clerk.users.getUser(userId);
+    const email = clerkUser.emailAddresses[0]?.emailAddress;
     if (!email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -70,17 +76,29 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const user = await requireDbUser();
-    const clerkUser = await getUser();
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    const discordConnected = clerkUser?.externalAccounts?.some(
+    const clerk = await clerkClient();
+    const clerkUser = await clerk.users.getUser(userId);
+
+    const email = clerkUser.emailAddresses[0]?.emailAddress;
+    const discordConnected = clerkUser.externalAccounts?.some(
       (a) => a.provider?.toLowerCase?.().includes("discord")
     ) ?? false;
 
+    const convex = getConvexClient();
+
+    const convexUser = await convex.query(api.users.getUserByEmail, {
+      email: email!,
+    });
+
     return NextResponse.json({
-      userId: user.id,
-      email: user.email,
-      timeZone: user.timeZone,
+      userId,
+      email,
+      timeZone: convexUser?.timeZone,
       discordConnected,
     });
   } catch (error) {

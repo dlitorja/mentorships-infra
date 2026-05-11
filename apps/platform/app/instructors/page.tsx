@@ -1,3 +1,5 @@
+'use client';
+
 import { InstructorGrid } from './instructor-grid';
 import { useInstructors } from '@/lib/queries/convex';
 

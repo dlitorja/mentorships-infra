@@ -259,7 +259,7 @@ export const uploadProfileImage = mutation({
   handler: async (ctx, args) => {
     const url = await ctx.storage.getUrl(args.storageId);
     await ctx.db.patch(args.instructorId, {
-      profileImageUrl: url,
+      profileImageUrl: url ?? undefined,
       profileImageStorageId: args.storageId,
       updatedAt: Date.now(),
     });
@@ -278,6 +278,7 @@ export const addPortfolioImage = mutation({
     if (!instructor) throw new Error("Instructor not found");
 
     const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) throw new Error("Failed to get URL for storage");
     const currentImages = instructor.portfolioImages || [];
     const currentStorageIds = instructor.portfolioImageStorageIds || [];
 

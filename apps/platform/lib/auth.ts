@@ -29,7 +29,21 @@ export async function getUser() {
   return { id: userId };
 }
 
-export async function requireDbUser() {
+export type DbUser = {
+  id: string;
+  role: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  timeZone?: string;
+};
+
+export async function requireDbUser(): Promise<DbUser> {
   const userId = await requireAuth();
-  return { id: userId, role: "student" } as { id: string; role: string };
+  return { id: userId, role: "student", timeZone: undefined };
+}
+
+export async function getDbUser(): Promise<DbUser> {
+  const userId = await requireAuth();
+  return { id: userId, role: "student", timeZone: undefined };
 }

@@ -203,6 +203,7 @@ export const uploadImage = mutation({
     }
 
     const url = await ctx.storage.getUrl(args.storageId);
+    if (!url) throw new Error("Failed to get URL for storage");
     const imageId = await ctx.db.insert("workspaceImages", {
       workspaceId: args.workspaceId,
       imageUrl: url,
@@ -275,8 +276,7 @@ export const create = mutation({
     )),
   },
   handler: async (ctx, args) => {
-    const workspaceId = await ctx.db.insert("workspaces", {
-      sessionPackId: args.sessionPackId,
+    const workspaceData: { [key: string]: any } = {
       instructorId: args.instructorId,
       ownerId: args.ownerId,
       name: args.name,
@@ -285,7 +285,11 @@ export const create = mutation({
       type: args.type,
       menteeImageCount: 0,
       mentorImageCount: 0,
-    });
+    };
+    if (args.sessionPackId !== undefined) {
+      workspaceData.sessionPackId = args.sessionPackId;
+    }
+    const workspaceId = await ctx.db.insert("workspaces", workspaceData as any);
     return workspaceId;
   },
 });

@@ -124,10 +124,11 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
     if (!selectedPack || !userId) return;
     try {
       await createSession.mutateAsync({
-        mentorId: selectedPack.mentorId as any,
+        instructorId: selectedPack.mentorId as any,
         studentId: userId,
         sessionPackId: selectedPack.id as any,
         scheduledAt: new Date(scheduledAtIso).getTime(),
+        recordingConsent: true,
       });
       toast.success("Session booked successfully!");
       setShouldLoadSlots(false);

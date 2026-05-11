@@ -2,19 +2,48 @@
 
 ## 🔴 Top Priority
 
-### Fix Payment Flow Reads to Convex (IN PROGRESS)
+### NEW: Build apps/platform (Convex-Only Architecture) - STARTING MAY 2026
 
-**Issue**: Payment writes go to Convex, but some reads still go to SQL causing payment flow to fail.
+**Decision**: Build a fresh `apps/platform` by copying and stripping `apps/web`, then rebuilding with a clean Convex-only schema. SQL/Drizzle will be deferred for future analytics use.
 
-**Impact**: Onboarding emails won't send, student/instructor dashboards won't show purchase data.
+**Why**:
+- apps/web has accumulated significant complexity from Convex-SQL dual-database architecture
+- 8 Inngest sync handlers, 25+ tables, and confusing mentor/instructor duplication
+- Pain points from PR history: schema duality, sync failures, terminology confusion
+- Goal: simplify by having ONE source of truth (Convex) and ONE terminology (instructor)
 
-**Fix Plan** (in priority order):
-1. ~~**Phase 1**: Fix `onboardingFlow` to read from Convex (CRITICAL - blocks all payment flows)~~ ✅ COMPLETED
-2. ~~**Phase 2**: Fix student dashboard reads to Convex~~ ✅ COMPLETED
-3. ~~**Phase 4**: Implement Event-Driven Sync (Convex → SQL for admin stats)~~ ✅ COMPLETED
-4. **Phase 5**: Verify payment flow end-to-end
+**Scope**:
+- Fresh Next.js app in monorepo: `apps/platform`
+- Reuse styling, components, and structure from `apps/web`
+- Strip: SQL/Drizzle sync, Kajabi integration, Inngest sync handlers, duplicate tables
+- Keep: Stripe/PayPal checkout, Clerk auth, Trigger.dev scheduled tasks, workspace features
+- Build: Convex file storage for ALL images (profile, portfolio, workspace, mentee results)
+- Terminology: ALL references to "mentor" → "instructor" in schema and code
 
-**Reference**: `PAYMENT_FLOW_TESTING_INSTRUCTIONS.md` for testing guide once complete.
+**Reference**: `docs/implementation/apps-platform-impl.md` for detailed step-by-step plan
+
+**Quick Summary**:
+- 17-table simplified schema (no `mentors`, no `seatReservations`, no duplicate tables)
+- Workspace linked directly to `sessionPack` (no seat reservation intermediation)
+- All images to Convex file storage (no B2/S3 for this app)
+- Payment flow kept intact (Stripe/PayPal with Convex mutations)
+
+**Target**: MVP by May 11, 2026 with working instructor listing, admin dashboard, student dashboard, workspace, and checkout
+
+**Status**: 🚧 IN PROGRESS - Convex Dev Server Running (May 10, 2026)
+
+**Latest Progress (May 10, 2026)**:
+- ✅ Fixed `convex.config.ts` - Updated from old `defineApp` format to modern `defineConfig`
+- ✅ Fixed `convex/auth.config.ts` - Removed direct Clerk import (caused node:async_hooks error), using env var pattern instead
+- ✅ Fixed `convex/storage.ts` - Added missing `import { v } from "convex/values"`
+- ✅ Added `CLERK_JWT_ISSUER_DOMAIN` to `.env.local`
+- ✅ Convex dev server running successfully at `acoustic-kiwi-522` deployment
+
+---
+
+**Earlier Priority (DEPRECATED)**: Fix Payment Flow Reads to Convex
+
+This has been superseded by the apps/platform decision. The new architecture will avoid the Convex-SQL sync complexity entirely.
 
 - ~~Migrate instructor image storage to Convex Storage~~ ✅ **COMPLETED April 30, 2026**
   - ~~Replace Supabase Storage usage for instructor profile and portfolio images with Convex `ctx.storage`~~ ✅
@@ -25,7 +54,7 @@
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 10, 2026 (Phase 4 Event-Driven Sync IMPLEMENTED)
+**Last Updated**: May 10, 2026 (apps/platform Convex Dev Server Running, Phase 4 Event-Driven Sync IMPLEMENTED)
 **PR**: https://github.com/dlitorja/mentorships-infra/pull/240 (Phase 1+2), new PR pending (Phase 4)
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
@@ -38,9 +67,11 @@
 | App | Responsibility |
 |-----|---------------|
 | **apps/marketing** | Public-facing marketing site, instructor profiles (`/instructors`), landing pages |
-| **apps/web** | Dashboards (admin, instructor, mentee), payment flow (Stripe/PayPal), calendar booking |
+| **apps/platform** | NEW (May 2026): Fresh rebuild with clean Convex-only architecture. Dashboards, payment flow, workspace. See `docs/implementation/apps-platform-impl.md` |
+| **apps/web** | Legacy (superseded by apps/platform). Kept for reference during transition. |
 | **apps/bot** | Discord bot (slash commands, automation) |
 | **apps/video** | Video integration (Agora/Amazon Chime) |
+| **apps/huckleberry-drive** | File storage (B2/S3) - NOT for platform images |
 
 ### Database Architecture - Source of Truth Principle
 
@@ -74,6 +105,17 @@
 - ❌ **Do NOT read payment data from SQL if it was written to Convex** - will find nothing
 - ❌ **Do NOT write payment data to both** - sync will eventually fail
 - ❌ **Do NOT use SQL for user-facing real-time queries** - loses reactivity benefits
+
+#### apps/platform Exception
+
+**apps/platform** (May 2026 rebuild) uses **Convex ONLY** - no SQL/Drizzle. This simplifies the architecture by removing the sync layer entirely. SQL/Drizzle may be added later for read-only analytics.
+
+**apps/platform principles**:
+- Convex = single source of truth for ALL data
+- No Inngest sync handlers (Convex → SQL removed)
+- No Kajabi integration
+- All images → Convex file storage
+- Terminology: "instructor" only (no "mentor" in schema/code)
 
 #### Current Migration Status
 

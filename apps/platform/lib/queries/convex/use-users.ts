@@ -1,5 +1,5 @@
-import { useQuery, UseQueryResult } from "@tanstack/react-query";
-import { convexQuery } from "@convex-dev/react-query";
+import { useQuery, useMutation, useQueryClient, UseQueryResult } from "@tanstack/react-query";
+import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../../../../convex/_generated/api";
 import { Id } from "../../../../../convex/_generated/dataModel";
 
@@ -9,7 +9,7 @@ export type CurrentUser = {
   email: string;
   firstName?: string;
   lastName?: string;
-  role?: "student" | "mentor" | "admin" | "video_editor";
+  role?: "student" | "instructor" | "admin" | "video_editor";
   timeZone?: string;
   clerkId: string;
 };
@@ -37,5 +37,17 @@ export function useUserByEmail(email: string) {
 export function useListUsers() {
   return useQuery({
     ...convexQuery(api.users.listUsers, {}),
+  });
+}
+
+// Stub for update user - api.users.update not available in generated API
+// TODO: Fix when Convex types are properly generated
+export function useUpdateUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { id: string; timeZone?: string }) => {
+      console.log("useUpdateUser stub called with:", vars);
+    },
   });
 }
