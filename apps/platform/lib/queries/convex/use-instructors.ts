@@ -1,9 +1,41 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient, useMemo } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "../../../convex/_generated/api";
 import { Id } from "../../../convex/_generated/dataModel";
+
+export type PublicInstructor = {
+  _id: Id<"instructors">;
+  name: string;
+  slug: string;
+  tagline?: string;
+  bio?: string;
+  profileImageUrl?: string;
+  specialties?: string[];
+  isActive: boolean;
+  isHidden?: boolean;
+  deletedAt?: number;
+};
+
+export function usePublicInstructors() {
+  const { data, isLoading, isError, error } = useQuery({
+    ...convexQuery(api.instructors.list, {}),
+  });
+
+  const filteredData = useMemo(() => {
+    if (!data) return [];
+    return data.filter((i: any) => i.isActive && !i.deletedAt && !i.isHidden);
+  }, [data]);
+
+  return {
+    data: filteredData,
+    isLoading,
+    isError,
+    error,
+  };
+}
 
 export function useInstructor(id: string) {
   return useQuery({
@@ -23,6 +55,13 @@ export function useInstructors() {
       .filter((i) => i.isActive && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
   }, [instructors]);
+}
+
+export function usePublicInstructorBySlug(slug: string) {
+  return useQuery({
+    ...convexQuery(api.instructors.getBySlug, { slug }),
+    enabled: !!slug,
+  });
 }
 
 export function useInstructorBySlug(slug: string) {

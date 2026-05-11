@@ -38,6 +38,13 @@ export function useProductsByInstructor(instructorId: string) {
   });
 }
 
+export function useProductsByMentorId(instructorId: string) {
+  return useQuery({
+    ...convexQuery(api.products.listByInstructor, { instructorId: instructorId as Id<"instructors"> }),
+    enabled: !!instructorId,
+  });
+}
+
 export function useCreateProduct() {
   const queryClient = useQueryClient();
 

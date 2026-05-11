@@ -33,3 +33,8 @@ export async function requireDbUser() {
   const userId = await requireAuth();
   return { id: userId, role: "student" } as { id: string; role: string };
 }
+
+export async function getDbUser() {
+  const userId = await requireAuth();
+  return { id: userId, role: "student" } as { id: string; role: string };
+}
