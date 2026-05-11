@@ -139,12 +139,12 @@ const completedOrder = await step.run("update-order", async () => {
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
 
     const sessionPack = await step.run("create-session-pack", async () => {
-      if (!product.mentorId) {
-        throw new Error(`Product has no mentorId: ${packId}`);
+      if (!product.instructorId) {
+        throw new Error(`Product has no instructorId: ${packId}`);
       }
       return await convex.mutation(api.sessionPacks.createSessionPack, {
         userId,
-        mentorId: product.mentorId as Id<"instructors">,
+        instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
         remainingSessions: product.sessionsPerPack,
         expiresAt,
@@ -162,7 +162,7 @@ const completedOrder = await step.run("update-order", async () => {
         data: {
           id: sessionPack._id,
           userId: sessionPack.userId,
-          mentorId: sessionPack.mentorId,
+          instructorId: sessionPack.instructorId,
           totalSessions: sessionPack.totalSessions,
           remainingSessions: sessionPack.remainingSessions,
           purchasedAt: sessionPack.purchasedAt,
@@ -176,12 +176,12 @@ const completedOrder = await step.run("update-order", async () => {
     });
 
     const seatReservation = await step.run("create-seat-and-workspace", async () => {
-      if (!product.mentorId) {
-        throw new Error(`Product has no mentorId: ${packId}`);
+      if (!product.instructorId) {
+        throw new Error(`Product has no instructorId: ${packId}`);
       }
       try {
         return await convex.mutation(api.seatReservations.createSeatReservation, {
-          mentorId: product.mentorId as Id<"instructors">,
+          instructorId: product.instructorId as Id<"instructors">,
           userId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
           seatExpiresAt: expiresAt,
@@ -210,7 +210,7 @@ const completedOrder = await step.run("update-order", async () => {
         data: {
           id: seatReservation._id,
           userId: seatReservation.userId,
-          mentorId: seatReservation.mentorId,
+          instructorId: seatReservation.instructorId as Id<"instructors">,
           sessionPackId: seatReservation.sessionPackId,
           status: seatReservation.status,
           seatExpiresAt: seatReservation.seatExpiresAt ?? null,
@@ -223,11 +223,11 @@ const completedOrder = await step.run("update-order", async () => {
 
     const inventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
     await step.run("decrement-inventory", async () => {
-      if (!product.mentorId) {
-        throw new Error(`Product has no mentorId: ${packId}`);
+      if (!product.instructorId) {
+        throw new Error(`Product has no instructorId: ${packId}`);
       }
       await convex.mutation(api.instructors.decrementInventory, {
-        id: product.mentorId as Id<"instructors">,
+        id: product.instructorId as Id<"instructors">,
         type: inventoryType,
       });
     });
@@ -283,7 +283,7 @@ export const processStripeRefund = inngest.createFunction(
 
     const instructorProducts = await step.run("get-instructor-products", async () => {
       return await convex.query(api.products.getProductsByInstructorId, {
-        mentorId: sessionPack.mentorId as Id<"instructors">,
+        instructorId: sessionPack.instructorId as Id<"instructors">,
       });
     });
 
@@ -313,7 +313,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
 
     await step.run("increment-inventory", async () => {
       await convex.mutation(api.instructors.incrementInventory, {
-        id: sessionPack.mentorId as Id<"instructors">,
+        id: sessionPack.instructorId as Id<"instructors">,
         type: refundInventoryType,
       });
     });
@@ -434,12 +434,12 @@ export const processPayPalCheckout = inngest.createFunction(
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
 
     const sessionPack = await step.run("create-session-pack", async () => {
-      if (!product.mentorId) {
-        throw new Error(`Product has no mentorId: ${packId}`);
+      if (!product.instructorId) {
+        throw new Error(`Product has no instructorId: ${packId}`);
       }
       return await convex.mutation(api.sessionPacks.createSessionPack, {
         userId: order.userId,
-        mentorId: product.mentorId as Id<"instructors">,
+        instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
         remainingSessions: product.sessionsPerPack,
         expiresAt,
@@ -457,7 +457,7 @@ export const processPayPalCheckout = inngest.createFunction(
         data: {
           id: sessionPack._id,
           userId: sessionPack.userId,
-          mentorId: sessionPack.mentorId,
+          instructorId: sessionPack.instructorId,
           totalSessions: sessionPack.totalSessions,
           remainingSessions: sessionPack.remainingSessions,
           purchasedAt: sessionPack.purchasedAt,
@@ -471,12 +471,12 @@ export const processPayPalCheckout = inngest.createFunction(
     });
 
     const seatReservation = await step.run("create-seat-and-workspace", async () => {
-      if (!product.mentorId) {
-        throw new Error(`Product has no mentorId: ${packId}`);
+      if (!product.instructorId) {
+        throw new Error(`Product has no instructorId: ${packId}`);
       }
       try {
         return await convex.mutation(api.seatReservations.createSeatReservation, {
-          mentorId: product.mentorId as Id<"instructors">,
+          instructorId: product.instructorId as Id<"instructors">,
           userId: order.userId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
           seatExpiresAt: expiresAt,
@@ -505,7 +505,7 @@ export const processPayPalCheckout = inngest.createFunction(
         data: {
           id: seatReservation._id,
           userId: seatReservation.userId,
-          mentorId: seatReservation.mentorId,
+          instructorId: seatReservation.instructorId as Id<"instructors">,
           sessionPackId: seatReservation.sessionPackId,
           status: seatReservation.status,
           seatExpiresAt: seatReservation.seatExpiresAt ?? null,
@@ -518,11 +518,11 @@ export const processPayPalCheckout = inngest.createFunction(
 
     const paypalInventoryType = product.mentorshipType === "group" ? "group" : "oneOnOne";
     await step.run("decrement-inventory", async () => {
-      if (!product.mentorId) {
-        throw new Error(`Product has no mentorId: ${packId}`);
+      if (!product.instructorId) {
+        throw new Error(`Product has no instructorId: ${packId}`);
       }
       await convex.mutation(api.instructors.decrementInventory, {
-        id: product.mentorId as Id<"instructors">,
+        id: product.instructorId as Id<"instructors">,
         type: paypalInventoryType,
       });
     });
@@ -586,7 +586,7 @@ export const processPayPalRefund = inngest.createFunction(
 
     const instructorProducts = await step.run("get-instructor-products", async () => {
       return await convex.query(api.products.getProductsByInstructorId, {
-        mentorId: sessionPack.mentorId as Id<"instructors">,
+        instructorId: sessionPack.instructorId as Id<"instructors">,
       });
     });
 
@@ -616,7 +616,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
 
     await step.run("increment-inventory", async () => {
       await convex.mutation(api.instructors.incrementInventory, {
-        id: sessionPack.mentorId as Id<"instructors">,
+        id: sessionPack.instructorId as Id<"instructors">,
         type: refundInventoryType,
       });
     });

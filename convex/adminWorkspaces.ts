@@ -34,13 +34,13 @@ type WorkspaceListItem = {
   type: string;
   ownerId: string;
   owner: { userId: string | undefined; email: string | undefined; firstName: string | undefined; lastName: string | undefined } | null;
-  mentorId: Doc<"instructors">["_id"] | undefined;
-  mentor: { userId: string | undefined; bio: string | undefined; pricing: string | undefined } | null;
+  instructorId: Doc<"instructors">["_id"] | undefined;
+  instructor: { userId: string | undefined; bio: string | undefined; pricing: string | undefined } | null;
   isPublic: boolean;
   endedAt: number | undefined;
   createdAt: number;
   menteeImageCount: number;
-  mentorImageCount: number;
+  instructorImageCount: number;
 };
 
 async function enrichWorkspaces(
@@ -48,7 +48,7 @@ async function enrichWorkspaces(
   workspaces: Doc<"workspaces">[]
 ): Promise<WorkspaceListItem[]> {
   const ownerIds = [...new Set(workspaces.map((w) => w.ownerId))];
-  const instructorIds = [...new Set(workspaces.map((w) => w.mentorId).filter((id): id is Id<"instructors"> => id !== undefined))];
+  const instructorIds = [...new Set(workspaces.map((w) => w.instructorId).filter((id): id is Id<"instructors"> => id !== undefined))];
 
   const ownerDocs = await Promise.all(
     ownerIds.map((id) =>
@@ -78,10 +78,10 @@ async function enrichWorkspaces(
           return { userId: o.userId, email: o.email, firstName: o.firstName ?? undefined, lastName: o.lastName ?? undefined };
         })()
       : null,
-    mentorId: w.mentorId,
-    mentor: w.mentorId && instructorsMap.has(w.mentorId)
+    instructorId: w.instructorId,
+    instructor: w.instructorId && instructorsMap.has(w.instructorId)
       ? (() => {
-          const m = instructorsMap.get(w.mentorId)!;
+          const m = instructorsMap.get(w.instructorId)!;
           return { userId: m.userId, bio: m.bio ?? undefined, pricing: m.pricing ?? undefined };
         })()
       : null,
@@ -89,7 +89,7 @@ async function enrichWorkspaces(
     endedAt: w.endedAt,
     createdAt: w._creationTime,
     menteeImageCount: w.menteeImageCount,
-    mentorImageCount: w.mentorImageCount,
+    instructorImageCount: w.instructorImageCount,
   }));
 }
 
@@ -197,7 +197,7 @@ export const createAdminMenteeWorkspace = mutation({
       ownerId: args.menteeUserId,
       isPublic: false,
       menteeImageCount: 0,
-      mentorImageCount: 0,
+      instructorImageCount: 0,
       type: "admin_mentee",
     });
 
@@ -227,7 +227,7 @@ export const createAdminInstructorWorkspace = mutation({
       .query("workspaces")
       .filter((q) =>
         q.and(
-          q.eq(q.field("mentorId"), args.instructorId),
+          q.eq(q.field("instructorId"), args.instructorId),
           q.eq(q.field("type"), "admin_instructor")
         )
       )
@@ -242,10 +242,10 @@ export const createAdminInstructorWorkspace = mutation({
       name: "Admin Communication - Instructor",
       description: "Private workspace for admin-instructor communication",
       ownerId: user.subject,
-      mentorId: args.instructorId,
+      instructorId: args.instructorId,
       isPublic: false,
       menteeImageCount: 0,
-      mentorImageCount: 0,
+      instructorImageCount: 0,
       type: "admin_instructor",
     });
 

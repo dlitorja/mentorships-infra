@@ -30,7 +30,7 @@ export async function createCheckoutSession(
     ],
     metadata: {
       userId: metadata.userId,
-      mentorId: metadata.mentorId,
+      instructorId: metadata.instructorId,
       ...(metadata.productId && { productId: metadata.productId }),
       ...(metadata.orderId && { orderId: metadata.orderId }),
     },
@@ -81,13 +81,13 @@ export function parseCheckoutSessionMetadata(
 ): CheckoutSessionMetadata | null {
   const metadata = session.metadata;
 
-  if (!metadata || !metadata.userId || !metadata.mentorId) {
+  if (!metadata || !metadata.userId || !metadata.instructorId) {
     return null;
   }
 
   return {
     userId: metadata.userId,
-    mentorId: metadata.mentorId,
+    instructorId: metadata.instructorId,
     productId: metadata.productId,
     orderId: metadata.orderId,
   };

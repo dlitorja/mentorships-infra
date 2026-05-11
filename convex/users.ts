@@ -110,7 +110,7 @@ export const createUser = mutation({
     clerkId: v.optional(v.string()),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
+    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -137,7 +137,7 @@ export const updateUser = mutation({
     id: v.id("users"),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
+    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -159,7 +159,7 @@ export const syncUser = mutation({
   args: {
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
+    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -208,7 +208,7 @@ export const migrateUser = mutation({
   args: {
     userId: v.string(),
     email: v.string(),
-    role: v.optional(v.union(v.literal("student"), v.literal("mentor"), v.literal("admin"), v.literal("video_editor"))),
+    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),

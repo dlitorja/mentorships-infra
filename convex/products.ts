@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { Id } from "./_generated/dataModel";
 
 /** Returns a single product by ID, or null if not authenticated. */
 export const getProductById = query({
@@ -109,7 +110,7 @@ export const getProductForAdmin = query({
 
     let instructorName = "Unknown Instructor";
     if (product.instructorId) {
-      const instructor = await ctx.db.get(product.instructorId);
+      const instructor = await ctx.db.get(product.instructorId as Id<"instructors">);
       if (instructor?.name) {
         instructorName = instructor.name;
       }

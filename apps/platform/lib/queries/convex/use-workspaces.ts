@@ -21,7 +21,7 @@ export function useWorkspacesByOwner(ownerId: string) {
 
 export function useWorkspacesByInstructor(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.getInstructorWorkspaces, { mentorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.workspaces.getInstructorWorkspaces, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }

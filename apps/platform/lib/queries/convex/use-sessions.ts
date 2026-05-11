@@ -28,7 +28,7 @@ export function useUpcomingStudentSessions(studentId: string) {
 
 export function useInstructorSessions(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.sessions.getInstructorSessions, { mentorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.sessions.getInstructorSessions, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }

@@ -393,7 +393,7 @@ export const processDiscordActionQueue = internalAction({
             `Dashboard: ${payload.dashboardUrl}\n` +
             `Onboarding: ${payload.onboardingUrl}`;
 
-          await sendDmMessage({ discordUserId: mentorDiscordId, content });
+          await sendDmMessage({ discordUserId: instructorDiscordId, content });
 
           await ctx.runMutation(internal.discordActionQueue.markDiscordActionDone, {
             actionId: action.id as any,

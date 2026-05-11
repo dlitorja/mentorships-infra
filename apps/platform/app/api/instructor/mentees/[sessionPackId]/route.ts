@@ -21,20 +21,20 @@ export async function PATCH(
   { params }: { params: Promise<{ sessionPackId: string }> }
 ) {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const rawParams = await params;
     const rawSessionPackId = sessionPackIdSchema.parse(rawParams.sessionPackId);
     const sessionPackId = rawSessionPackId as Id<"sessionPacks">;
 
-    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
 
-    if (!mentor) {
+    if (!instructor) {
       return NextResponse.json(
-        { error: "Mentor profile not found" },
+        { error: "Instructor profile not found" },
         { status: 404 }
       );
     }
@@ -50,7 +50,7 @@ export async function PATCH(
       );
     }
 
-    if (sessionPack.mentorId !== mentor._id) {
+    if (sessionPack.instructorId !== instructor._id) {
       return NextResponse.json(
         { error: "You do not have permission to modify this session pack" },
         { status: 403 }

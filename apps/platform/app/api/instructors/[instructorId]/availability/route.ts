@@ -214,14 +214,14 @@ export async function GET(
 
       if (!overlaps) {
         if (
-          mentor.timeZone &&
-          mentor.workingHours &&
-          isWithinWorkingHours(cursor, mentor.timeZone, mentor.workingHours as WorkingHours)
+          instructor.timeZone &&
+          instructor.workingHours &&
+          isWithinWorkingHours(cursor, instructor.timeZone, instructor.workingHours as WorkingHours)
         ) {
           availableSlots.push(cursor.toISOString());
-        } else if (!mentor.workingHours) {
+        } else if (!instructor.workingHours) {
           availableSlots.push(cursor.toISOString());
-        } else if (!mentor.timeZone) {
+        } else if (!instructor.timeZone) {
           availableSlots.push(cursor.toISOString());
         }
         if (availableSlots.length >= 500) break;
@@ -240,8 +240,8 @@ export async function GET(
       busy,
       availableSlots,
       truncated: availableSlots.length >= 500,
-      mentorTimeZone: mentor.timeZone ?? null,
-      workingHoursConfigured: Boolean(mentor.workingHours),
+      mentorTimeZone: instructor.timeZone ?? null,
+      workingHoursConfigured: Boolean(instructor.workingHours),
     });
   } catch (error) {
     console.error("Instructor availability error:", error);

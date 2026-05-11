@@ -101,7 +101,7 @@ export async function PATCH(
             sessionId,
             sessionPackId: session.sessionPackId,
             studentId: session.studentId,
-            mentorId: session.mentorId,
+            instructorId: session.instructorId,
             scheduledAt: session.scheduledAt,
             cancelledBy: "instructor" as const,
           },
@@ -111,7 +111,7 @@ export async function PATCH(
           sessionId,
           sessionPackId: session.sessionPackId,
           studentId: session.studentId,
-          mentorId: session.mentorId,
+          instructorId: session.instructorId,
           scheduledAt: session.scheduledAt,
         });
       }

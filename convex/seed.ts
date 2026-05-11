@@ -571,7 +571,7 @@ export const seedInstructorsWithProducts = mutation({
       }
 
       const oneOnOneProductId = await ctx.db.insert("products", {
-        mentorId: instructorId,
+        instructorId: instructorId,
         title: "1-on-1 Mentorship",
         description: `${instructor.name} - 4-session 1-on-1 mentorship pack`,
         price: instructor.pricing.oneOnOne.toString(),
@@ -585,7 +585,7 @@ export const seedInstructorsWithProducts = mutation({
       let groupProductId: any = null;
       if (instructor.pricing.group) {
         groupProductId = await ctx.db.insert("products", {
-          mentorId: instructorId,
+          instructorId: instructorId,
           title: "Group Mentorship",
           description: `${instructor.name} - 4-session group mentorship pack`,
           price: instructor.pricing.group.toString(),
@@ -620,7 +620,7 @@ export const backfillInstructorProfileMentorIds = mutation({
   args: {},
   handler: async (ctx) => {
     const profiles = await ctx.db.query("instructorProfiles").collect();
-    const results: { slug: string; mentorId: string | null }[] = [];
+    const results: { slug: string; legacyMentorId: string | null }[] = [];
 
     for (const profile of profiles) {
       const instructor = await ctx.db
@@ -630,11 +630,11 @@ export const backfillInstructorProfileMentorIds = mutation({
 
       if (instructor) {
         await ctx.db.patch(profile._id, {
-          mentorId: instructor._id.toString(),
+          legacyMentorId: instructor._id.toString(),
         });
-        results.push({ slug: profile.slug, mentorId: instructor._id.toString() });
+        results.push({ slug: profile.slug, legacyMentorId: instructor._id.toString() });
       } else {
-        results.push({ slug: profile.slug, mentorId: null });
+        results.push({ slug: profile.slug, legacyMentorId: null });
       }
     }
 
