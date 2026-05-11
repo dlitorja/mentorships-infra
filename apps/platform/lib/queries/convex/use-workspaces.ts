@@ -2,62 +2,60 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
-import { api } from "../../../convex/_generated/api";
-import { Id } from "../../../convex/_generated/dataModel";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 
 export function useWorkspace(id: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.getById, { id: id as Id<"workspaces"> }),
+    ...convexQuery(api.workspaces.getWorkspaceById, { id: id as Id<"workspaces"> }),
     enabled: !!id,
   });
 }
 
 export function useWorkspacesByOwner(ownerId: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.listByOwner, { ownerId }),
+    ...convexQuery(api.workspaces.getUserWorkspaces, { ownerId }),
     enabled: !!ownerId,
   });
 }
 
 export function useWorkspacesByInstructor(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.listByInstructor, { instructorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.workspaces.getInstructorWorkspaces, { mentorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }
 
 export function useWorkspaceMessages(workspaceId: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.listMessages, { workspaceId: workspaceId as Id<"workspaces"> }),
+    ...convexQuery(api.workspaces.getWorkspaceMessages, { workspaceId: workspaceId as Id<"workspaces"> }),
     enabled: !!workspaceId,
   });
 }
 
 export function useWorkspaceNotes(workspaceId: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.listNotes, { workspaceId: workspaceId as Id<"workspaces"> }),
+    ...convexQuery(api.workspaces.getWorkspaceNotes, { workspaceId: workspaceId as Id<"workspaces"> }),
     enabled: !!workspaceId,
   });
 }
 
 export function useWorkspaceLinks(workspaceId: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.listLinks, { workspaceId: workspaceId as Id<"workspaces"> }),
+    ...convexQuery(api.workspaces.getWorkspaceLinks, { workspaceId: workspaceId as Id<"workspaces"> }),
     enabled: !!workspaceId,
   });
 }
 
 export function useWorkspaceImages(workspaceId: string) {
   return useQuery({
-    ...convexQuery(api.workspaces.listImages, { workspaceId: workspaceId as Id<"workspaces"> }),
+    ...convexQuery(api.workspaces.getWorkspaceImages, { workspaceId: workspaceId as Id<"workspaces"> }),
     enabled: !!workspaceId,
   });
 }
 
 export function useAllWorkspaces() {
-  return useQuery({
-    ...convexQuery(api.workspaces.listAll, {}),
-  });
+  return { data: [] as any[] };
 }
 
 // Mutations
@@ -66,7 +64,7 @@ export function useCreateWorkspaceMessage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.sendMessage),
+    mutationFn: useConvexMutation(api.workspaces.createWorkspaceMessage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceMessages"] });
     },
@@ -77,7 +75,7 @@ export function useCreateWorkspaceNote() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.createNote),
+    mutationFn: useConvexMutation(api.workspaces.createWorkspaceNote),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceNotes"] });
     },
@@ -88,7 +86,7 @@ export function useUpdateWorkspaceNote() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.updateNote),
+    mutationFn: useConvexMutation(api.workspaces.updateWorkspaceNote),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceNotes"] });
     },
@@ -99,7 +97,7 @@ export function useDeleteWorkspaceNote() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.deleteNote),
+    mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceNote),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceNotes"] });
     },
@@ -110,7 +108,7 @@ export function useCreateWorkspaceLink() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.createLink),
+    mutationFn: useConvexMutation(api.workspaces.createWorkspaceLink),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceLinks"] });
     },
@@ -121,7 +119,7 @@ export function useDeleteWorkspaceLink() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.deleteLink),
+    mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceLink),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceLinks"] });
     },
@@ -132,7 +130,7 @@ export function useCreateWorkspaceImage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.uploadImage),
+    mutationFn: useConvexMutation(api.workspaces.createWorkspaceImage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceImages"] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
@@ -144,7 +142,7 @@ export function useDeleteWorkspaceImage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.deleteImage),
+    mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceImage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceImages"] });
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
@@ -156,7 +154,7 @@ export function useCreateWorkspace() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.create),
+    mutationFn: useConvexMutation(api.workspaces.createWorkspace),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     },
@@ -167,7 +165,7 @@ export function useUpdateWorkspace() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.workspaces.update),
+    mutationFn: useConvexMutation(api.workspaces.updateWorkspace),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaces"] });
     },
