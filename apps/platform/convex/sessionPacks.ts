@@ -163,6 +163,14 @@ export const getWorkspaceBySessionPack = query({
   },
 });
 
+// List all session packs (for admin)
+export const listAll = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("sessionPacks").collect();
+  },
+});
+
 // Process expired session packs
 export const processExpired = mutation({
   args: {},

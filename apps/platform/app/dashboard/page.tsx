@@ -145,7 +145,12 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isLoaded || !user || hasRedirected.current) return;
     if (isAdmin) {
+      const hasAttemptedRedirect = sessionStorage.getItem("admin_redirect_attempted");
+      if (hasAttemptedRedirect) {
+        return;
+      }
       hasRedirected.current = true;
+      sessionStorage.setItem("admin_redirect_attempted", "true");
       router.push("/admin");
     }
   }, [isLoaded, user, isAdmin, router]);
