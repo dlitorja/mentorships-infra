@@ -1,0 +1,239 @@
+"use client";
+
+import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { queryKeys } from "@/lib/queries/query-keys";
+import { toast } from "sonner";
+import { fetchInstructorAvailability } from "@/lib/queries/api-client";
+import { useCreateSession } from "@/lib/queries/convex";
+import { useForm } from "@tanstack/react-form";
+import { z } from "zod";
+
+type PackOption = {
+  id: string;
+  mentorId: string;
+  remainingSessions: number;
+  expiresAt: string | Date | null;
+  status: string;
+};
+
+function addDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+
+const bookSessionSchema = z.object({
+  selectedPackId: z.string().min(1, "Please select a pack"),
+});
+
+export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId: string }) {
+  const form = useForm({
+    defaultValues: {
+      selectedPackId: "",
+    },
+    validators: {
+      onChange: bookSessionSchema,
+    },
+  });
+
+  const now = Date.now();
+
+  const eligiblePacks = React.useMemo(
+    () => packs.filter((p) => {
+      const isActive = p.status === "active";
+      const hasSessions = p.remainingSessions > 0;
+      const notExpired = !p.expiresAt || new Date(p.expiresAt).getTime() > now;
+      return isActive && hasSessions && notExpired;
+    }),
+    [packs, now]
+  );
+
+  const selectedPackId = form.getFieldValue("selectedPackId") as string;
+  const selectedPack = eligiblePacks.find((p) => p.id === selectedPackId) ?? null;
+
+  const [shouldLoadSlots, setShouldLoadSlots] = useState(false);
+
+  const dateRange = React.useMemo(() => {
+    if (!selectedPack || !shouldLoadSlots) return null;
+    const start = new Date();
+    const end = addDays(start, 7);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }, [selectedPack, shouldLoadSlots]);
+
+  const {
+    data: availabilityData,
+    isLoading: loadingSlots,
+    error: availabilityError,
+  } = useQuery({
+    queryKey: queryKeys.mentors.availability(
+      selectedPack?.mentorId || "",
+      dateRange?.start || "",
+      dateRange?.end || ""
+    ),
+    queryFn: () =>
+      fetchInstructorAvailability(
+        selectedPack!.mentorId,
+        dateRange!.start,
+        dateRange!.end,
+        60
+      ),
+    enabled: !!selectedPack && !!dateRange,
+  });
+
+  const availableSlots = availabilityData?.availableSlots ?? [];
+  const error =
+    availabilityError instanceof Error ? availabilityError.message : null;
+  const info = React.useMemo(() => {
+    if (availabilityData?.truncated) {
+      return "Showing the first 500 available slots (range truncated).";
+    }
+    if (availableSlots.length === 0 && !loadingSlots && shouldLoadSlots) {
+      return "No available slots in the next 7 days.";
+    }
+    return null;
+  }, [availabilityData, availableSlots.length, loadingSlots, shouldLoadSlots]);
+
+  const availabilityErrorMessage = React.useMemo(() => {
+    if (
+      availabilityError &&
+      availabilityError instanceof Error &&
+      ((availabilityError as Error & { code?: string }).code === "GOOGLE_CALENDAR_NOT_CONNECTED" ||
+        availabilityError.message.includes("GOOGLE_CALENDAR_NOT_CONNECTED"))
+    ) {
+      return null;
+    }
+    return error;
+  }, [error, availabilityError]);
+
+  const availabilityInfo = React.useMemo(() => {
+    if (
+      availabilityError &&
+      availabilityError instanceof Error &&
+      ((availabilityError as Error & { code?: string }).code === "GOOGLE_CALENDAR_NOT_CONNECTED" ||
+        availabilityError.message.includes("GOOGLE_CALENDAR_NOT_CONNECTED"))
+    ) {
+      return "This instructor hasn't connected Google Calendar yet.";
+    }
+    return info;
+  }, [error, info, availabilityError]);
+
+  const createSession = useCreateSession();
+
+  const handleBookSession = async (scheduledAtIso: string) => {
+    if (!selectedPack || !userId) return;
+    try {
+      await createSession.mutateAsync({
+        mentorId: selectedPack.mentorId as any,
+        studentId: userId,
+        sessionPackId: selectedPack.id as any,
+        scheduledAt: new Date(scheduledAtIso).getTime(),
+      });
+      toast.success("Session booked successfully!");
+      setShouldLoadSlots(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to book session");
+    }
+  };
+
+  const booking = createSession.isPending;
+
+  function loadSlots() {
+    setShouldLoadSlots(true);
+  }
+
+  function handlePackChange(packId: string) {
+    form.setFieldValue("selectedPackId", packId);
+    setShouldLoadSlots(false);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Book a Session</CardTitle>
+        <CardDescription>
+          Availability is checked against the instructor's Google Calendar before booking.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {eligiblePacks.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            You don't have any active packs with remaining sessions.
+          </p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Session pack</label>
+                <select
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  value={selectedPackId}
+                  onChange={(e) => handlePackChange(e.target.value)}
+                >
+                  <option value="">Select a pack...</option>
+                  {eligiblePacks.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.remainingSessions} remaining
+                      {p.expiresAt && ` (expires ${new Date(p.expiresAt).toLocaleDateString()})`}
+                    </option>
+                  ))}
+                </select>
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!selectedPack || loadingSlots}
+                onClick={loadSlots}
+              >
+                {loadingSlots ? "Loading…" : "Load available slots (next 7 days)"}
+              </Button>
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              Slots are generated in 60-minute increments.
+            </div>
+
+            {availabilityInfo && <p className="text-sm text-amber-600">{availabilityInfo}</p>}
+            {availabilityErrorMessage && (
+              <p className="text-sm text-red-600">{availabilityErrorMessage}</p>
+            )}
+
+            {availableSlots.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Available times</div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {availableSlots.slice(0, 60).map((slot: string) => {
+                    const d = new Date(slot);
+                    return (
+                      <Button
+                        key={slot}
+                        type="button"
+                        variant="outline"
+                        disabled={booking}
+                        onClick={() => handleBookSession(slot)}
+                      >
+                        {d.toLocaleString("en-US", {
+                          weekday: "short",
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </Button>
+                    );
+                  })}
+                </div>
+                {availableSlots.length > 60 && (
+                  <p className="text-xs text-muted-foreground">
+                    Showing first 60 slots. (We can add paging/filters next.)
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
