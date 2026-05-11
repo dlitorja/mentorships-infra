@@ -219,15 +219,16 @@ export const getInstructorsForAdmin = query({
   args: {},
   handler: async (ctx) => {
     const instructors = await ctx.db.query("instructors").collect();
-    const workspaces = await ctx.db.query("workspaces").collect();
 
-    const activeWorkspaces = workspaces.filter(
-      (w) => w.endedAt === undefined && w.deletedAt === undefined
-    );
+    const allWorkspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_endedAt", (q) => q.eq("endedAt", undefined))
+      .collect();
 
     const instructorStats = new Map<string, number>();
 
-    for (const workspace of activeWorkspaces) {
+    for (const workspace of allWorkspaces) {
+      if (workspace.deletedAt !== undefined) continue;
       const current = instructorStats.get(workspace.instructorId) || 0;
       instructorStats.set(workspace.instructorId, current + 1);
     }

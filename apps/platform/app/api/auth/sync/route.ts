@@ -27,7 +27,11 @@ export async function GET() {
       ? rawRole as typeof validRoles[number]
       : undefined;
 
-    const user = await convex.mutation(api.users.syncUser, { role });
+    const user = await convex.mutation(api.users.syncUser, {
+      firstName: clerkUser.firstName ?? undefined,
+      lastName: clerkUser.lastName ?? undefined,
+      role: role ?? undefined,
+    });
 
     if (!user) {
       return NextResponse.json({ error: "Failed to sync user" }, { status: 500 });
