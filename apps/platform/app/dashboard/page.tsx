@@ -1,7 +1,6 @@
 "use client";
 
 import { useUser, UserButton } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +9,7 @@ import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/li
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
-import { useMemo, useRef, useEffect } from "react";
+import { useMemo } from "react";
 
 function formatDate(date: number): string {
   return new Date(date).toLocaleDateString("en-US", {
@@ -113,7 +112,6 @@ function UpcomingSessionCard({ session }: { session: any }) {
 
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
-  const router = useRouter();
   const userId = user?.id;
 
   const { data: sessionPacks, isLoading: packsLoading } = useActiveSessionPacksByUser(userId || "");
@@ -131,17 +129,6 @@ export default function DashboardPage() {
     return uniqueIds.size;
   }, [sessionPacks]);
 
-  const isAdmin = user?.publicMetadata?.role === "admin";
-  const hasRedirectedRef = useRef(false);
-
-  useEffect(() => {
-    if (!isLoaded || !user) return;
-    if (isAdmin && !hasRedirectedRef.current) {
-      hasRedirectedRef.current = true;
-      router.replace("/admin");
-    }
-  }, [isLoaded, user, isAdmin, router]);
-
   if (!isLoaded) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
@@ -151,14 +138,6 @@ export default function DashboardPage() {
   }
 
   if (!user) {
-    return (
-      <div className="container mx-auto p-4 md:p-8 flex justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
-  if (isAdmin) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />

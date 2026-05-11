@@ -207,6 +207,7 @@ export default function AdminDashboard() {
   const [expandedMentees, setExpandedMentees] = useState<{ [key: string]: MenteeWithSessionInfo[] }>({});
   const [_loadingMentees, setLoadingMentees] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
@@ -217,8 +218,9 @@ export default function AdminDashboard() {
         ]);
 
         if (!statsRes.ok || !instructorsRes.ok) {
-          console.error("Auth check failed - not authorized");
-          redirect("/dashboard?error=unauthorized");
+          const status = statsRes.status || instructorsRes.status;
+          console.error(`Auth check failed - status: ${status}`);
+          setError(status === 401 ? "Session expired. Please refresh." : "Failed to load admin data.");
           return;
         }
 
@@ -232,8 +234,9 @@ export default function AdminDashboard() {
         if (instructorsData.instructors) {
           setInstructors(instructorsData.instructors);
         }
-      } catch (error) {
-        console.error("Error fetching dashboard data:", error);
+      } catch (err) {
+        console.error("Error fetching dashboard data:", err);
+        setError("Failed to load admin data. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -299,6 +302,17 @@ export default function AdminDashboard() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+        <div className="text-muted-foreground">{error}</div>
+        <Button variant="outline" onClick={() => window.location.reload()}>
+          Refresh Page
+        </Button>
       </div>
     );
   }
