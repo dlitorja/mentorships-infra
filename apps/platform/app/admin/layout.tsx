@@ -12,7 +12,7 @@ async function checkAdminAccess(): Promise<void> {
     }
   } catch (error) {
     if (error instanceof UnauthorizedError) {
-      redirect("/admin/sign-in");
+      redirect("/sign-in");
     }
     throw error;
   }
