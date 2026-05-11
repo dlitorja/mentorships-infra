@@ -161,6 +161,7 @@ async function validateCSRFOrigin(req: NextRequest): Promise<NextResponse | null
  */
 const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
+  "/admin(.*)",
   "/sessions(.*)",
   "/calendar(.*)",
   "/settings(.*)",
