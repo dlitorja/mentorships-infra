@@ -6,7 +6,7 @@ import { ProfileForm } from "./profile-form";
 export const dynamic = "force-dynamic";
 
 async function getProfileData() {
-  const user = await requireRole("mentor");
+  const user = await requireRole("instructor");
   const instructor = await getInstructorByUserId(user.id);
 
   if (!instructor) {

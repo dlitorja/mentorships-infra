@@ -18,7 +18,7 @@ export function useProductById(id: Id<"products">) {
 
 export function useInstructorProducts(instructorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.products.getInstructorProducts, { mentorId: instructorId }),
+    ...convexQuery(api.products.getInstructorProducts, { instructorId }),
     enabled: !!instructorId,
   });
 }
@@ -40,14 +40,14 @@ export function usePublicActiveProducts() {
 
 export function useProductsByInstructorId(instructorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.products.getProductsByInstructorId, { mentorId: instructorId }),
+    ...convexQuery(api.products.getProductsByInstructorId, { instructorId }),
     enabled: !!instructorId,
   });
 }
 
 export function useProductsByInstructorAndType(instructorId: Id<"instructors">, mentorshipType?: string) {
   return useQuery({
-    ...convexQuery(api.products.getProductsByInstructorAndType, { mentorId: instructorId, mentorshipType }),
+    ...convexQuery(api.products.getProductsByInstructorAndType, { instructorId, mentorshipType }),
     enabled: !!instructorId,
   });
 }

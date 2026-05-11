@@ -105,12 +105,12 @@ export const onboardingFlow = inngest.createFunction(
 
     const mentor = await step.run("get-mentor", async () => {
       return await convex.query(api.instructors.getInstructorById, {
-        id: pack.mentorId,
+        id: pack.instructorId,
       });
     });
 
     if (!mentor) {
-      throw new Error(`Mentor ${pack.mentorId} not found for session pack ${pack._id}`);
+      throw new Error(`Mentor ${pack.instructorId} not found for session pack ${pack._id}`);
     }
 
     const clerkStudent = await step.run("get-student-clerk-user", async () => {
@@ -143,7 +143,7 @@ export const onboardingFlow = inngest.createFunction(
     const clerkMentor = await step.run("get-mentor-clerk-user", async () => {
       const clerk = await getClerkApi();
       if (!mentor.userId) {
-        throw new Error(`Instructor ${pack.mentorId} has no linked Clerk user`);
+        throw new Error(`Instructor ${pack.instructorId} has no linked Clerk user`);
       }
       return await clerk.users.getUser(mentor.userId);
     });
@@ -306,8 +306,8 @@ await step.run("queue-discord-actions", async () => {
       await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
         type: "dm_instructor_new_signup",
         subjectUserId: clerkId,
-        mentorId: mentor._id,
-        mentorUserId: mentor.userId ?? undefined,
+        instructorId: mentor._id,
+        instructorUserId: mentor.userId ?? undefined,
         payload: {
           kind: "purchase",
           orderId,
@@ -321,8 +321,8 @@ await step.run("queue-discord-actions", async () => {
         await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
           type: "assign_mentee_role",
           subjectUserId: clerkId,
-          mentorId: mentor._id,
-          mentorUserId: mentor.userId ?? undefined,
+          instructorId: mentor._id,
+          instructorUserId: mentor.userId ?? undefined,
           payload: {
             discordId,
             guildId: process.env.DISCORD_GUILD_ID ?? null,

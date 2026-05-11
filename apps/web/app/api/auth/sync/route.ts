@@ -22,7 +22,7 @@ export async function GET() {
     const client = await clerkClient();
     const clerkUser = await client.users.getUser(clerkUserId);
     const rawRole = clerkUser.publicMetadata?.role;
-    const validRoles = ["student", "mentor", "admin", "video_editor"] as const;
+    const validRoles = ["student", "instructor", "admin", "video_editor"] as const;
     const role = typeof rawRole === "string" && validRoles.includes(rawRole as typeof validRoles[number])
       ? rawRole as typeof validRoles[number]
       : undefined;

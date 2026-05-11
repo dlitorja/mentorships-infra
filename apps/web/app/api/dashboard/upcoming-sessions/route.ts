@@ -10,7 +10,7 @@ export async function GET() {
     const user = await requireDbUser();
     const convex = getConvexClient();
 
-    const sessions = await convex.query(api.sessions.getUpcomingSessionsWithMentor, {
+    const sessions = await convex.query(api.sessions.getUpcomingSessionsWithInstructor, {
       studentId: user.id,
       limit: 5,
     });

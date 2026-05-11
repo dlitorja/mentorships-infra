@@ -35,7 +35,7 @@ function getStatusBadgeVariant(status: string) {
 }
 
 export default async function InstructorSessionsPage() {
-  const user = await requireRole("mentor");
+  const user = await requireRole("instructor");
   const mentor = await getMentorByUserId(user.id);
 
   if (!mentor) {

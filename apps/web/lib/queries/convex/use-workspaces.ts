@@ -8,14 +8,14 @@ export type UserWorkspace = {
   name: string;
   description?: string;
   ownerId: string;
-  mentorId?: Id<"instructors">;
+  instructorId?: Id<"instructors">;
   imageUrl?: string;
   isPublic: boolean;
   deletedAt?: number;
   seatReservationId?: Id<"seatReservations">;
   endedAt?: number;
   menteeImageCount: number;
-  mentorImageCount: number;
+  instructorImageCount: number;
   type?: "mentorship" | "admin_mentee" | "admin_instructor";
 };
 
@@ -33,10 +33,10 @@ export function useUserWorkspaces(ownerId: string): UseQueryResult<UserWorkspace
   }) as UseQueryResult<UserWorkspace[], Error>;
 }
 
-export function useInstructorWorkspaces(mentorId: Id<"instructors">) {
+export function useInstructorWorkspaces(instructorId: Id<"instructors">) {
   return useQuery({
-    ...convexQuery(api.workspaces.getInstructorWorkspaces, { mentorId }),
-    enabled: !!mentorId,
+    ...convexQuery(api.workspaces.getInstructorWorkspaces, { instructorId }),
+    enabled: !!instructorId,
   });
 }
 

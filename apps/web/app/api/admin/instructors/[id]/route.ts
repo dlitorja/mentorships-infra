@@ -83,7 +83,7 @@ export async function GET(
       socials: instructor.socials,
       isActive: instructor.isActive,
       userId: instructor.userId,
-      mentorId: instructor.mentorId,
+      instructorId: instructor._id,
       createdAt: new Date(instructor._creationTime).toISOString(),
       updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : null,
       testimonials: testimonials.map((t: any) => ({
@@ -208,7 +208,7 @@ export async function PUT(
         socials: updated.socials,
         isActive: updated.isActive,
         userId: updated.userId,
-        mentorId: updated.mentorId,
+        instructorId: updated._id,
         updatedAt: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : null,
       },
     });

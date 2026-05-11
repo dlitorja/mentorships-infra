@@ -65,7 +65,7 @@ function WorkspaceContent({
                       }`}
                     >
                       <div className="font-medium truncate">{workspace.name}</div>
-                      {workspace.mentorId && (
+                      {workspace.instructorId && (
                         <div className="text-xs opacity-70 truncate">
                           Mentor workspace
                         </div>

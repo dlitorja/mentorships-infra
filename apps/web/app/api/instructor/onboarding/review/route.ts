@@ -11,7 +11,7 @@ const schema = z.object({
 export async function POST(request: Request): Promise<NextResponse> {
   const errorId = randomUUID();
   try {
-    const user = await requireRole("mentor");
+    const user = await requireRole("instructor");
     const mentor = await getMentorByUserId(user.id);
     if (!mentor) {
       return NextResponse.json({ error: "Mentor profile not found", errorId }, { status: 404 });

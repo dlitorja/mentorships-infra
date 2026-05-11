@@ -11,7 +11,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
  */
 export async function GET(req: NextRequest) {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
@@ -25,8 +25,8 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const mentees = await convex.query(api.instructors.getMentorMenteesWithSessionInfo, {
-      mentorId: instructor._id,
+    const mentees = await convex.query(api.instructors.getInstructorStudentsWithSessionInfo, {
+      instructorId: instructor._id,
     }) as any[];
 
     return NextResponse.json({

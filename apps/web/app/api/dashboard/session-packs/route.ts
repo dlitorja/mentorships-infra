@@ -10,7 +10,7 @@ export async function GET() {
     const user = await requireDbUser();
     const convex = getConvexClient();
 
-    const result = await convex.query(api.sessionPacks.getUserSessionPacksWithMentors, {
+    const result = await convex.query(api.sessionPacks.getUserSessionPacksWithInstructors, {
       userId: user.id,
       limit: 100,
       offset: 0,

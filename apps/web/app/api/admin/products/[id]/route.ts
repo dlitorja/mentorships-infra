@@ -53,7 +53,7 @@ export async function GET(
 
     return NextResponse.json({
       id: product._id,
-      mentorId: product.mentorId,
+      instructorId: product.instructorId,
       mentorName: product.instructorName,
       title: product.title,
       description: product.description,
@@ -211,7 +211,7 @@ export async function PUT(
       message: "Product updated successfully",
       product: {
         id: updatedProduct._id,
-        mentorId: updatedProduct.mentorId,
+        instructorId: updatedProduct.instructorId,
         title: updatedProduct.title,
         description: updatedProduct.description ?? null,
         imageUrl: updatedProduct.imageUrl ?? null,
