@@ -127,7 +127,7 @@ export default function DashboardPage() {
 
   const uniqueInstructorCount = useMemo(() => {
     if (!sessionPacks) return 0;
-    const uniqueIds = new Set((sessionPacks as Array<{mentorId: string}>).map(p => p.mentorId));
+    const uniqueIds = new Set((sessionPacks as Array<{instructorId: string}>).map(p => p.instructorId));
     return uniqueIds.size;
   }, [sessionPacks]);
 
