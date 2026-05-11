@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { redirect } from "next/navigation";
 import Link from "next/link";
 import { 
   Users,
@@ -218,7 +217,7 @@ export default function AdminDashboard() {
         ]);
 
         if (!statsRes.ok || !instructorsRes.ok) {
-          const status = statsRes.status || instructorsRes.status;
+          const status = !statsRes.ok ? statsRes.status : instructorsRes.status;
           console.error(`Auth check failed - status: ${status}`);
           setError(status === 401 ? "Session expired. Please refresh." : "Failed to load admin data.");
           return;
