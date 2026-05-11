@@ -23,7 +23,8 @@ export async function GET(): Promise<NextResponse> {
       return {
         mentorId: instructor._id,
         userId: instructor.userId || "",
-        email: instructor.email || instructor.name || "",
+        email: instructor.email || "",
+        displayName: instructor.name || instructor.email || "",
         oneOnOneInventory: instructor.oneOnOneInventory || 0,
         groupInventory: instructor.groupInventory || 0,
         maxActiveStudents: instructor.maxActiveStudents || 0,

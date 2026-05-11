@@ -135,6 +135,13 @@ export default function DashboardPage() {
   const hasRedirected = useRef(false);
 
   useEffect(() => {
+    if (!user?.id) return;
+    if (!isAdmin) {
+      sessionStorage.removeItem("admin_redirect_attempted");
+    }
+  }, [user?.id, isAdmin]);
+
+  useEffect(() => {
     if (!isLoaded || !user || hasRedirected.current) return;
     if (isAdmin) {
       const hasAttemptedRedirect = sessionStorage.getItem("admin_redirect_attempted");

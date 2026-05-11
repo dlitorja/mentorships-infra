@@ -48,6 +48,7 @@ export async function getDbUser(): Promise<DbUser> {
   if (!userId) {
     throw new UnauthorizedError();
   }
-  const role = (sessionClaims?.publicMetadata as any)?.role as string || "student";
+  const metadata = sessionClaims?.publicMetadata as { role?: string } | undefined;
+  const role = typeof metadata?.role === "string" ? metadata.role : "student";
   return { id: userId, role, timeZone: undefined };
 }
