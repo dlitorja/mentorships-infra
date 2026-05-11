@@ -131,17 +131,9 @@ export default function DashboardPage() {
     return uniqueIds.size;
   }, [sessionPacks]);
 
-  if (!isLoaded) {
-    return (
-      <div className="container mx-auto p-4 md:p-8 flex justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
   const isAdmin = user?.publicMetadata?.role === "admin";
-
   const hasRedirected = useRef(false);
+
   useEffect(() => {
     if (!isLoaded || !user || hasRedirected.current) return;
     if (isAdmin) {
@@ -155,7 +147,15 @@ export default function DashboardPage() {
     }
   }, [isLoaded, user, isAdmin, router]);
 
-  if (!isLoaded || !user || isAdmin) {
+  if (!isLoaded) {
+    return (
+      <div className="container mx-auto p-4 md:p-8 flex justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user || isAdmin) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
         <Loader2 className="h-8 w-8 animate-spin" />

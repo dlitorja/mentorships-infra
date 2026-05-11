@@ -24,7 +24,7 @@ export async function GET(): Promise<NextResponse> {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch stats" },
+      { error: "Internal server error" },
       { status: 500 }
     );
   }
