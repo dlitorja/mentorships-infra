@@ -11,7 +11,7 @@ describe("Stripe Checkout", () => {
     const priceId = "price_test_123";
     const metadata = {
       userId: "user_123",
-      mentorId: "mentor_123",
+      instructorId: "instructor_123",
       productId: "product_123",
     };
     const successUrl = "https://example.com/success";
@@ -34,7 +34,7 @@ describe("Stripe Checkout", () => {
       id: "cs_test",
       metadata: {
         userId: "user_123",
-        mentorId: "mentor_123",
+        instructorId: "instructor_123",
         productId: "product_123",
         orderId: "order_123",
       },
@@ -43,7 +43,7 @@ describe("Stripe Checkout", () => {
     const parsed = parseCheckoutSessionMetadata(mockSession);
     expect(parsed).toBeTruthy();
     expect(parsed?.userId).toBe("user_123");
-    expect(parsed?.mentorId).toBe("mentor_123");
+    expect(parsed?.instructorId).toBe("instructor_123");
     expect(parsed?.productId).toBe("product_123");
     expect(parsed?.orderId).toBe("order_123");
   });
@@ -52,7 +52,7 @@ describe("Stripe Checkout", () => {
     const mockSession: Stripe.Checkout.Session = {
       id: "cs_test",
       metadata: {
-        // Missing userId and mentorId
+        // Missing userId and instructorId
         productId: "product_123",
       },
     } as Stripe.Checkout.Session;
