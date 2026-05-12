@@ -76,16 +76,16 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 
 **Goal**: Update `packages/db` to use `instructorId` internally.
 
-### Status: Partial Complete
+### Status: Mostly Complete (core fixes committed)
 
 ### Steps
 
 - [x] **2.1** Update Drizzle schema definitions (both old/new columns during transition) — done in Phase 1
-- [x] **2.2** Update `packages/db/src/lib/queries/` — COMPLETED:
+- [x] **2.2** Update `packages/db/src/lib/queries/` — COMPLETED (core fixes):
+  - `sessions.ts` — Correct join path: `instructorId → instructors.id → instructors.mentorId → mentors.id`
+  - `products.ts` — Correct join path: same instructor→mentor bridge resolution
+  - `sessionPacks.ts` — Duplicate-check now catches backfilled rows where `instructorId` contains a mentor UUID (not instructors UUID)
   - `seatsReservations.ts` — reads use `instructorId`, writes use both columns
-  - `sessions.ts` — all session queries use `instructorId`
-  - `products.ts` — product queries and creates use `instructorId`
-  - `sessionPacks.ts` — reads use `instructorId`, writes use both columns
   - `admin.ts` — main queries updated to use `instructorId`; `getAdminInstructors` subqueries still use mentorId bridge (requires separate review)
 - [ ] **2.3** Migrate `mentors.ts` query functions to `instructors.ts` — pending (mentors table still in use for mentor-specific fields like Google Calendar auth)
 - [ ] **2.4** Update `packages/payments/` — no changes needed (mentorId only appears in JSDoc comments, not code)
@@ -100,11 +100,24 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 | `packages/db/src/lib/queries/products.ts` | Product queries and `createProduct` use `instructorId` |
 | `packages/db/src/lib/queries/sessionPacks.ts` | All reads use `instructorId`, writes use both columns; return types updated |
 | `packages/db/src/lib/queries/admin.ts` | `getAllInstructorsWithStats`, `getInstructorWithMentees`, `getInstructorMenteesForCsv`, `getFullAdminCsvData`, `getAdminMentees`, `getAdminProducts` updated |
+| `packages/db/src/schema/products.ts` | Added `instructorIdIdx` index (PR #259 fix) |
+| `packages/db/src/schema/menteeOnboardingSubmissions.ts` | Fixed indentation in column definitions (PR #259 fix) |
+| `packages/db/src/schema/sessions.ts` | Added `instructorId` column with FK and index |
+| `packages/db/src/schema/discordActionQueue.ts` | Added `instructorId` column with FK and index |
+| `packages/db/src/schema/menteeOnboardingSubmissions.ts` | Added `instructorId` column with FK and index |
+
+### Type Note: `AdminMenteeItem.instructorId` Nullability
+`AdminMenteeItem.instructorId` is typed as nullable (`string | null`) — this is intentional. `sessionPacks.instructorId` is nullable in the schema, and consumers must handle null. The type accurately reflects the underlying schema.
 
 ### Remaining Phase 2 Work
 
 - `admin.ts` `getAdminInstructors`: Subqueries at lines 690-702 use `instructors.mentorId` (bridge FK to mentors.id) combined with `seatReservations.mentorId`/`sessionPacks.mentorId` (text/Convex IDs). This pattern requires careful migration due to type mismatches (UUID vs text).
 - `mentors.ts`: Functions like `updateMentorGoogleCalendarAuth` query the `mentors` table directly for mentor-specific fields. These remain valid until mentors table is deprecated in Phase 5.
+
+### PR #259 Status
+- Core issues flagged by greptile are **resolved** and **committed**
+- Vercel platforms & web deployments: **still pending** (CI must confirm)
+- greptile review decision still shows `CHANGES_REQUESTED` — will update once CI passes
 
 ---
 
@@ -112,7 +125,7 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 
 **Goal**: Update API contracts from `mentorId` → `instructorId`.
 
-### Status: Pending
+### Status: Next (planned)
 
 ### Steps
 
@@ -122,6 +135,45 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 - [ ] **3.4** Marketing API routes (~5 files)
 - [ ] **3.5** Merge/remove `convex/mentors.ts`
 
+### Detailed Plan
+
+#### 3.1 Convex `http.ts` — Priority first
+Work from `convex/http.ts` (25 mentor refs, 14 mentorId refs). Strategy:
+
+1. Add new `instructorId` param variants alongside `mentorId` params (backward compat)
+2. Internally route to same handlers — only the param name changes
+3. Keep `mentorId` in signatures until all consumers are updated (Phase 3.2-3.3)
+4. Return `instructorId` in response payloads — this is the new canonical field
+
+Key handlers to update:
+- Session creation/update handlers
+- Product listing by instructor
+- Booking confirmation handlers
+
+#### 3.2 Platform API Routes
+~24 files, ~100 mentor refs, ~25 mentorId refs. High-value targets:
+- `app/api/admin/instructors/` — admin instructor management endpoints
+- `app/api/sessions/` — session CRUD
+- `app/api/products/` — product management
+
+Strategy: Add backward compat shim — accept both `mentorId` and `instructorId`, prefer `instructorId`.
+
+#### 3.3 Web API Routes
+~36 files, ~150 mentor refs, ~40 mentorId refs. High-value targets:
+- `app/api/bookings/` — booking flow endpoints
+- `app/api/instructors/` — public instructor endpoints
+- `inngest/functions/booking-emails.ts` — email triggers
+
+#### 3.4 Marketing API Routes
+~5 files. Lower volume, mostly display/content endpoints.
+
+#### 3.5 Convex `convex/mentors.ts`
+This file has 12 mentor refs and 0 mentorId refs — it's the source definition file. Tasks:
+1. Audit which functions are still actively used vs deprecated
+2. Migrate active functions to `convex/instructors.ts` (or `convex/http.ts`)
+3. Functions still needing `mentors` table (Google Calendar auth, etc.) — keep but mark deprecated
+4. Remove `convex/mentors.ts` once all consumers migrated
+
 ### Files Affected
 
 | Location | Files | mentor refs | mentorId refs |
@@ -130,6 +182,12 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 | `convex/mentors.ts` | 1 | 12 | 0 |
 | Platform API routes | ~24 | ~100 | ~25 |
 | Web API routes | ~36 | ~150 | ~40 |
+
+### Risk: API Contract Breaking Changes
+API changes in Phase 3 are **breaking** for external callers. Mitigation:
+- Support both `mentorId` and `instructorId` params during transition
+- Emit deprecation headers in responses
+- Coordinate with frontend team (Phase 4) to switch first — internal consumers before external
 
 ---
 

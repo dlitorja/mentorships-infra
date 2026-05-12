@@ -21,7 +21,7 @@ export async function GET(): Promise<NextResponse> {
 
     const instructorsWithStats = (instructors as any[]).map((instructor) => {
       return {
-        mentorId: instructor._id,
+        instructorId: instructor._id,
         userId: instructor.userId || "",
         email: instructor.email || "",
         displayName: instructor.name || instructor.email || "",

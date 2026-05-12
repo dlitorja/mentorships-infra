@@ -7,14 +7,15 @@ import { Id } from "@/convex/_generated/dataModel";
 /**
  * POST /api/session-packs
  * Create a new session pack (internal, typically called by webhook)
- * 
+ *
  * Body:
  * - userId: string (Clerk user ID)
- * - mentorId: string (UUID)
+ * - instructorId: string (UUID) - preferred
+ * - mentorId: string (UUID) - deprecated, use instructorId
  * - paymentId: string (UUID)
  * - expiresAt: string (ISO date string)
  * - totalSessions?: number (default: 4)
- * 
+ *
  * Note: This endpoint requires authentication but can be called internally
  * by webhook handlers that have verified webhook signatures.
  */
@@ -24,12 +25,14 @@ export async function POST(request: Request) {
     await requireAuth();
 
     const body = await request.json();
-    const { userId, mentorId, paymentId, expiresAt, totalSessions } = body;
+    const { userId, instructorId, mentorId, paymentId, expiresAt, totalSessions } = body;
+
+    const resolvedInstructorId = instructorId || mentorId;
 
     // Validate required fields
-    if (!userId || !mentorId || !paymentId || !expiresAt) {
+    if (!userId || !resolvedInstructorId || !paymentId || !expiresAt) {
       return NextResponse.json(
-        { error: "Missing required fields: userId, mentorId, paymentId, expiresAt" },
+        { error: "Missing required fields: userId, instructorId (or mentorId), paymentId, expiresAt" },
         { status: 400 }
       );
     }
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
     const convex = getConvexClient();
     const packId = await convex.mutation(api.sessionPacks.createSessionPack, {
       userId,
-      instructorId: mentorId as Id<"instructors">,
+      instructorId: resolvedInstructorId as Id<"instructors">,
       paymentId: paymentId as Id<"payments">,
       totalSessions: totalSessions ?? 4,
       expiresAt: expiresDate.getTime(),

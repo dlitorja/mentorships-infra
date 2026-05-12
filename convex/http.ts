@@ -169,14 +169,23 @@ const typeMap: Record<string, "oneOnOne" | "group"> = {
 export const httpDecrementInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const { mentorId, type } = await request.json();
+  const body = await request.json();
+  const { mentorId, instructorId, type } = body;
+
+  const resolvedId = instructorId || mentorId;
+  if (!resolvedId) {
+    return new Response(JSON.stringify({ success: false, error: "Missing instructorId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const normalizedType = typeMap[type] || type;
-  const mentorIdTyped = mentorId as any;
+  const resolvedIdTyped = resolvedId as any;
 
   try {
     const result = await ctx.runMutation(decrementInventory as any, {
-      id: mentorIdTyped,
+      id: resolvedIdTyped,
       type: normalizedType,
     });
     return new Response(JSON.stringify({ success: true, inventory: result }), {
@@ -195,17 +204,26 @@ export const httpDecrementInventory = httpAction(async (ctx, request) => {
 export const httpIncrementInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const { mentorId, type, quantity } = await request.json();
+  const body = await request.json();
+  const { mentorId, instructorId, type, quantity } = body;
+
+  const resolvedId = instructorId || mentorId;
+  if (!resolvedId) {
+    return new Response(JSON.stringify({ success: false, error: "Missing instructorId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const normalizedType = typeMap[type] || type;
-  const mentorIdTyped = mentorId as any;
+  const resolvedIdTyped = resolvedId as any;
   const qty = quantity || 1;
 
   try {
     let result;
     for (let i = 0; i < qty; i++) {
       result = await ctx.runMutation(incrementInventory as any, {
-        id: mentorIdTyped,
+        id: resolvedIdTyped,
         type: normalizedType,
       });
     }
@@ -225,8 +243,18 @@ export const httpIncrementInventory = httpAction(async (ctx, request) => {
 export const httpSetInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const { mentorId, oneOnOneInventory, groupInventory } = await request.json();
-  const mentorIdTyped = mentorId as any;
+  const body = await request.json();
+  const { mentorId, instructorId, oneOnOneInventory, groupInventory } = body;
+
+  const resolvedId = instructorId || mentorId;
+  if (!resolvedId) {
+    return new Response(JSON.stringify({ success: false, error: "Missing instructorId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const resolvedIdTyped = resolvedId as any;
 
   try {
     const updates: Record<string, any> = {};
@@ -238,7 +266,7 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
     }
 
     const result = await ctx.runMutation(updateInstructor as any, {
-      id: mentorIdTyped,
+      id: resolvedIdTyped,
       ...updates,
     });
     return new Response(JSON.stringify({ success: true, inventory: result }), {
@@ -435,16 +463,8 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
   const oneOnOneInventory = 3;
   const groupInventory = pricing?.group ? 2 : 0;
 
-  // Create instructor using runMutation
-  const mentorId = await ctx.runMutation(api.instructors.createInstructor, {
-    userId: `seed-${slug}`,
-    oneOnOneInventory,
-    groupInventory,
-    maxActiveStudents: 10,
-  });
-
-  // Create instructor using runMutation
   const instructorId = await ctx.runMutation(api.instructors.createInstructor as any, {
+    userId: `seed-${slug}`,
     name,
     slug,
     tagline,
@@ -456,12 +476,14 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
     socials,
     isActive: true,
     isNew: isNew || false,
-    mentorId,
+    oneOnOneInventory,
+    groupInventory,
+    maxActiveStudents: 10,
   });
 
   if (pricing?.oneOnOne) {
     await ctx.runMutation(api.products.createProduct as any, {
-      mentorId,
+      instructorId,
       title: "1-on-1 Mentorship",
       description: `4-session mentorship with ${name}`,
       price: pricing.oneOnOne.toString(),
@@ -474,7 +496,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
 
   if (pricing?.group) {
     await ctx.runMutation(api.products.createProduct as any, {
-      mentorId,
+      instructorId,
       title: "Group Mentorship",
       description: `4-session group mentorship with ${name}`,
       price: pricing.group.toString(),
@@ -509,7 +531,6 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
     skipped: false,
     message: "Instructor seeded successfully",
     instructorId,
-    mentorId,
     oneOnOneInventory,
     groupInventory,
   }), {
