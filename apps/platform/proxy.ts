@@ -225,7 +225,8 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
 
   if (userId) {
     try {
-      const clerkUser = await clerkClient().users.getUser(userId);
+      const clerk = await clerkClient();
+      const clerkUser = await clerk.users.getUser(userId);
       userRole = clerkUser.publicMetadata?.role as string | undefined;
     } catch (clerkError) {
       console.warn("Failed to fetch user role from Clerk API:", clerkError);
