@@ -27,7 +27,14 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { userId, instructorId, mentorId, paymentId, expiresAt, totalSessions } = body;
 
-    const resolvedInstructorId = instructorId || mentorId;
+    if (instructorId && mentorId && instructorId !== mentorId) {
+      return NextResponse.json(
+        { error: "instructorId and mentorId must match when both are provided" },
+        { status: 400 }
+      );
+    }
+
+    const resolvedInstructorId = instructorId ?? mentorId;
 
     // Validate required fields
     if (!userId || !resolvedInstructorId || !paymentId || !expiresAt) {
