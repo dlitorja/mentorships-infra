@@ -32,7 +32,7 @@ export async function getUserUpcomingSessions(
     })
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
-    .innerJoin(mentors, eq(sessions.mentorId, mentors.id))
+    .innerJoin(mentors, eq(sessions.instructorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(
@@ -68,7 +68,7 @@ export async function getUserRecentSessions(
     })
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
-    .innerJoin(mentors, eq(sessions.mentorId, mentors.id))
+    .innerJoin(mentors, eq(sessions.instructorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(
@@ -125,10 +125,10 @@ export async function getSessionById(
 }
 
 /**
- * Get mentor's upcoming sessions (scheduled, not completed/canceled)
+ * Get instructor's upcoming sessions (scheduled, not completed/canceled)
  */
 export async function getMentorUpcomingSessions(
-  mentorId: string,
+  instructorId: string,
   limit: number = 50
 ): Promise<SessionWithStudent[]> {
   const now = new Date();
@@ -144,7 +144,7 @@ export async function getMentorUpcomingSessions(
     .innerJoin(users, eq(sessions.studentId, users.id))
     .where(
       and(
-        eq(sessions.mentorId, mentorId),
+        eq(sessions.instructorId, instructorId),
         eq(sessions.status, "scheduled"),
         gte(sessions.scheduledAt, now)
       )
@@ -160,10 +160,10 @@ export async function getMentorUpcomingSessions(
 }
 
 /**
- * Get mentor's past sessions (completed, canceled, or no_show)
+ * Get instructor's past sessions (completed, canceled, or no_show)
  */
 export async function getMentorPastSessions(
-  mentorId: string,
+  instructorId: string,
   limit: number = 50
 ): Promise<SessionWithStudent[]> {
   const results = await db
@@ -177,7 +177,7 @@ export async function getMentorPastSessions(
     .innerJoin(users, eq(sessions.studentId, users.id))
     .where(
       and(
-        eq(sessions.mentorId, mentorId),
+        eq(sessions.instructorId, instructorId),
         inArray(sessions.status, ["completed", "canceled", "no_show"])
       )
     )
@@ -192,10 +192,10 @@ export async function getMentorPastSessions(
 }
 
 /**
- * Get all mentor's sessions (all statuses)
+ * Get all instructor's sessions (all statuses)
  */
 export async function getMentorSessions(
-  mentorId: string,
+  instructorId: string,
   limit: number = 100
 ): Promise<SessionWithStudent[]> {
   const results = await db
@@ -207,7 +207,7 @@ export async function getMentorSessions(
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
     .innerJoin(users, eq(sessions.studentId, users.id))
-    .where(eq(sessions.mentorId, mentorId))
+    .where(eq(sessions.instructorId, instructorId))
     .orderBy(desc(sessions.scheduledAt))
     .limit(limit);
 

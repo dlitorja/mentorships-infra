@@ -1,6 +1,6 @@
 import { eq, desc, sql, and, gte, lte, gt, isNull, or } from "drizzle-orm";
 import { db } from "../drizzle";
-import { sessionPacks, seatReservations, sessions, mentors, users } from "../../schema";
+import { sessionPacks, seatReservations, sessions, mentors, users, instructors } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 
 type SessionPack = typeof sessionPacks.$inferSelect;
@@ -14,7 +14,7 @@ type SessionPackWithMentor = SessionPack & {
  * Create a new session pack after payment
  * 
  * @param userId - Clerk user ID of the purchaser
- * @param mentorId - UUID of the mentor
+ * @param instructorId - UUID of the instructor
  * @param paymentId - UUID of the payment record
  * @param expiresAt - When the pack expires (nullable for no expiration)
  * @param totalSessions - Number of sessions in the pack (default: 4)
@@ -22,7 +22,7 @@ type SessionPackWithMentor = SessionPack & {
  */
 export async function createSessionPack(
   userId: string,
-  mentorId: string,
+  instructorId: string,
   paymentId: string,
   expiresAt: Date | null,
   totalSessions: number = 4
@@ -32,7 +32,8 @@ export async function createSessionPack(
     .values({
       id: crypto.randomUUID(),
       userId,
-      mentorId,
+      mentorId: instructorId,
+      instructorId,
       paymentId,
       expiresAt,
       totalSessions,
@@ -55,7 +56,7 @@ export async function createSessionPack(
  */
 export async function createSessionPackWithoutPayment(
   userId: string,
-  mentorId: string,
+  instructorId: string,
   totalSessions: number = 4
 ): Promise<SessionPack> {
   const [pack] = await db
@@ -63,7 +64,8 @@ export async function createSessionPackWithoutPayment(
     .values({
       id: crypto.randomUUID(),
       userId,
-      mentorId,
+      mentorId: instructorId,
+      instructorId,
       paymentId: crypto.randomUUID() as any,
       expiresAt: null,
       totalSessions,
@@ -84,8 +86,8 @@ export type InstructorMenteeAssociation = {
   sessionPackId: string;
   userId: string;
   email: string;
-  mentorId: string;
-  mentorEmail: string;
+  instructorId: string;
+  instructorEmail: string;
   totalSessions: number;
   remainingSessions: number;
   status: SessionPackStatus;
@@ -111,11 +113,11 @@ export async function createInstructorMenteeAssociations(
         const existingPack = await tx
           .select()
           .from(sessionPacks)
-          .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+          .innerJoin(instructors, eq(sessionPacks.instructorId, instructors.id))
           .where(
             and(
               eq(sessionPacks.userId, menteeUserId),
-              eq(mentors.userId, mentorUserId)
+              eq(instructors.userId, mentorUserId)
             )
           )
           .limit(1);
@@ -125,24 +127,15 @@ export async function createInstructorMenteeAssociations(
           continue;
         }
 
-        let mentor = await tx
+        let instructor = await tx
           .select()
-          .from(mentors)
-          .where(eq(mentors.userId, mentorUserId))
+          .from(instructors)
+          .where(eq(instructors.userId, mentorUserId))
           .limit(1);
 
-        if (mentor.length === 0) {
-          const [newMentor] = await tx
-            .insert(mentors)
-            .values({
-              id: crypto.randomUUID(),
-              userId: mentorUserId,
-              maxActiveStudents: 10,
-              oneOnOneInventory: 0,
-              groupInventory: 0,
-            })
-            .returning();
-          mentor = [newMentor];
+        if (instructor.length === 0) {
+          errors.push(`Instructor with userId ${mentorUserId} not found`);
+          continue;
         }
 
         const [pack] = await tx
@@ -150,7 +143,8 @@ export async function createInstructorMenteeAssociations(
           .values({
             id: crypto.randomUUID(),
             userId: menteeUserId,
-            mentorId: mentor[0].id,
+            mentorId: instructor[0].id,
+            instructorId: instructor[0].id,
             paymentId: crypto.randomUUID() as any,
             expiresAt: null,
             totalSessions: sessionsPerPack,
@@ -166,7 +160,7 @@ export async function createInstructorMenteeAssociations(
           .where(eq(users.id, menteeUserId))
           .limit(1);
 
-        const [mentorUser] = await tx
+        const [instructorUser] = await tx
           .select()
           .from(users)
           .where(eq(users.id, mentorUserId))
@@ -176,8 +170,8 @@ export async function createInstructorMenteeAssociations(
           sessionPackId: pack.id,
           userId: menteeUserId,
           email: menteeUser?.email || "Unknown",
-          mentorId: mentor[0].id,
-          mentorEmail: mentorUser?.email || "Unknown",
+          instructorId: instructor[0].id,
+          instructorEmail: instructorUser?.email || "Unknown",
           totalSessions: pack.totalSessions,
           remainingSessions: pack.remainingSessions,
           status: pack.status,
@@ -456,7 +450,7 @@ export async function getUserSessionPacksWithMentors(
       count: sql<number>`count(*)`,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(
@@ -478,7 +472,7 @@ export async function getUserSessionPacksWithMentors(
       mentorUser: users,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(
@@ -654,12 +648,12 @@ export type MenteeWithSessions = {
 };
 
 /**
- * Get all mentees for a mentor with their session pack information
+ * Get all mentees for an instructor with their session pack information
  * Includes last completed session date and session counts
  * Includes packs with null expiresAt (no expiration)
  */
 export async function getMentorMenteesWithSessionInfo(
-  mentorId: string
+  instructorId: string
 ): Promise<MenteeWithSessions[]> {
   const now = new Date();
 
@@ -684,7 +678,7 @@ export async function getMentorMenteesWithSessionInfo(
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .where(
       and(
-        eq(sessionPacks.mentorId, mentorId),
+        eq(sessionPacks.instructorId, instructorId),
         eq(sessionPacks.status, "active"),
         or(
           isNull(sessionPacks.expiresAt),
@@ -712,7 +706,7 @@ export async function getMentorMenteesWithSessionInfo(
  * Includes packs with null expiresAt (no expiration)
  */
 export async function getMentorMenteesWithLowSessions(
-  mentorId: string,
+  instructorId: string,
   threshold: number = 1
 ): Promise<MenteeWithSessions[]> {
   const now = new Date();
@@ -738,7 +732,7 @@ export async function getMentorMenteesWithLowSessions(
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .where(
       and(
-        eq(sessionPacks.mentorId, mentorId),
+        eq(sessionPacks.instructorId, instructorId),
         eq(sessionPacks.status, "active"),
         or(
           isNull(sessionPacks.expiresAt),
@@ -767,10 +761,10 @@ export async function getMentorMenteesWithLowSessions(
  * Used by mentees to view all their instructors
  */
 export type InstructorWithSessions = {
-  mentorId: string;
-  mentorUserId: string;
+  instructorId: string;
+  instructorUserId: string;
   instructorEmail: string;
-  mentorBio: string | null;
+  instructorBio: string | null;
   sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
@@ -792,10 +786,10 @@ export async function getUserInstructorsWithSessionInfo(
 
   const results = await db
     .select({
-      mentorId: mentors.id,
-      mentorUserId: users.id,
+      instructorId: mentors.id,
+      instructorUserId: users.id,
       instructorEmail: users.email,
-      mentorBio: mentors.bio,
+      instructorBio: mentors.bio,
       sessionPackId: sessionPacks.id,
       totalSessions: sessionPacks.totalSessions,
       remainingSessions: sessionPacks.remainingSessions,
@@ -810,7 +804,7 @@ export async function getUserInstructorsWithSessionInfo(
       completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(
@@ -825,10 +819,10 @@ export async function getUserInstructorsWithSessionInfo(
     .orderBy(desc(sessionPacks.createdAt));
 
   return results.map((r: typeof results[number]) => ({
-    mentorId: r.mentorId,
-    mentorUserId: r.mentorUserId,
+    instructorId: r.instructorId,
+    instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
-    mentorBio: r.mentorBio,
+    instructorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
@@ -851,10 +845,10 @@ export async function getUserLowSessionPacks(
 
   const results = await db
     .select({
-      mentorId: mentors.id,
-      mentorUserId: users.id,
+      instructorId: mentors.id,
+      instructorUserId: users.id,
       instructorEmail: users.email,
-      mentorBio: mentors.bio,
+      instructorBio: mentors.bio,
       sessionPackId: sessionPacks.id,
       totalSessions: sessionPacks.totalSessions,
       remainingSessions: sessionPacks.remainingSessions,
@@ -869,7 +863,7 @@ export async function getUserLowSessionPacks(
       completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.mentorId, mentors.id))
+    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(
@@ -885,10 +879,10 @@ export async function getUserLowSessionPacks(
     .orderBy(desc(sessionPacks.createdAt));
 
   return results.map((r: typeof results[number]) => ({
-    mentorId: r.mentorId,
-    mentorUserId: r.mentorUserId,
+    instructorId: r.instructorId,
+    instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
-    mentorBio: r.mentorBio,
+    instructorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
