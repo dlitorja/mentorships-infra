@@ -6,20 +6,6 @@
 
 **Scope**: ~2,500 references across ~280 files
 
-## What's Next: Phase 2 — Query & Package Layer
-
-**Next step**: Update `packages/db/src/lib/queries/` to read/write `instructorId` instead of `mentorId`.
-
-**Key files to update**:
-- `packages/db/src/lib/queries/admin.ts` (142 refs)
-- `packages/db/src/lib/queries/sessionPacks.ts` (87 refs)
-- `packages/db/src/lib/queries/products.ts` (63 refs)
-- `packages/db/src/lib/queries/seatReservations.ts` (34 refs)
-- `packages/db/src/lib/queries/sessions.ts` (38 refs)
-- `packages/db/src/lib/queries/mentors.ts` (52 refs)
-
-**Pattern**: During transition, write to both `mentorId` (old) and `instructorId` (new) columns. Read from `instructorId` only.
-
 **Current State**:
 - Convex: `mentorId` removed from most tables, `instructorId` used instead. `mentors` table still exists but is largely unused.
 - Postgres/Drizzle: **Phase 1 complete** — `instructor_id` columns added and backfilled across 6 tables. Columns are nullable (NOT NULL enforcement deferred to before Phase 1.5). Both `mentor_id` and `instructor_id` columns exist. `mentors` table still exists.
