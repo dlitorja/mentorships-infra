@@ -4,6 +4,9 @@ import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
 import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
+import { clerkClient } from "@clerk/nextjs/server";
 
 /**
  * Allowed origins for CSRF protection
@@ -217,8 +220,31 @@ const hasClerkKey = Boolean(
 async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   const authResult = await auth();
   const userId = authResult.userId;
-  const sessionClaims = authResult.sessionClaims;
-  const userRole = (sessionClaims?.publicMetadata as Record<string, unknown>)?.role as string | undefined;
+
+  let userRole: string | undefined;
+
+  if (userId) {
+    try {
+      const convex = getConvexClient();
+      const convexToken = await authResult.getToken({ template: "convex" });
+      if (convexToken) {
+        convex.setAuth(convexToken);
+      }
+      const convexUser = await convex.query(api.users.getUserByClerkId, { userId });
+      userRole = convexUser?.role;
+    } catch (error) {
+      console.warn("Failed to fetch user role from Convex:", error);
+    }
+
+    if (!userRole) {
+      try {
+        const clerkUser = await clerkClient().users.getUser(userId);
+        userRole = clerkUser.publicMetadata?.role as string | undefined;
+      } catch (clerkError) {
+        console.warn("Failed to fetch user role from Clerk API:", clerkError);
+      }
+    }
+  }
 
   const pathname = req.nextUrl.pathname;
   const method = req.method;
