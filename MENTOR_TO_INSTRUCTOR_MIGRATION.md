@@ -125,32 +125,37 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 
 **Goal**: Update API contracts from `mentorId` → `instructorId`.
 
-### Status: ✅ COMPLETE (PR #261 merged)
+### Status: In Progress
 
-### PR
-**PR #261**: `feat: Phase 3 - Convex http.ts and API routes use instructorId` — Merged
+### Branch
+`feat/add-instructor-id-columns` (current)
+
+### Commits Made
+- `6b85721` — Phase 3 start: Convex http.ts and key API routes use instructorId
+- `3447d78` — Phase 3: Web admin products route accepts instructorId
+- `40ddad8` — docs: Update migration doc with Phase 3 progress
 
 ### Steps
 
 - [x] **3.1** Convex `http.ts`: ✅ DONE — Inventory endpoints accept both `instructorId` (preferred) and `mentorId` (deprecated). Seed function fixed to use single createInstructor with proper params.
-- [x] **3.2** Platform API routes: ✅ DONE — admin/instructors (response uses `instructorId`), admin/products (schema cleaned up)
-- [x] **3.3** Web API routes: ✅ DONE — session-packs (Zod schema with conflict check), admin/products (schema cleaned up)
-- [x] **3.4** Marketing API routes: N/A — no `mentorId` in API contracts
-- [x] **3.5** `convex/mentors.ts`: ✅ Deferred to Phase 5 (file already marked deprecated)
+- [ ] **3.2** Platform API routes (~36 files) — partially done (admin/instructors, admin/products)
+- [ ] **3.3** Web API routes (~36 files) — partially done (session-packs, admin/products)
+- [ ] **3.4** Marketing API routes (~5 files)
+- [ ] **3.5** Merge/remove `convex/mentors.ts` — deferred (file already marked deprecated, serves legacy migration purpose)
 
 ### Completed in Phase 3
 
 **convex/http.ts:**
-- `httpDecrementInventory`, `httpIncrementInventory`, `httpSetInventory`: Accept `{ instructorId?, mentorId? }` — prefer `instructorId` if both present, error if both provided with different values
+- `httpDecrementInventory`, `httpIncrementInventory`, `httpSetInventory`: Accept `{ instructorId?, mentorId? }` — prefer `instructorId` if both present
 - `httpSeedInstructor`: Fixed to use single createInstructor call with correct `instructorId` param (was passing `mentorId` which createProduct doesn't accept)
 
 **Platform API routes:**
 - `admin/instructors/route.ts`: Response now returns `instructorId` instead of `mentorId`
-- `admin/products/[id]/route.ts`: Schema cleaned up (instructorId/mentorId not used in update flow — updateProduct only handles product fields, not instructor association)
+- `admin/products/[id]/route.ts`: Schema updated to accept `instructorId` (primary) and `mentorId` (deprecated alias)
 
 **Web API routes:**
-- `session-packs/route.ts`: Zod schema with `superRefine` conflict check — rejects if both `instructorId` and `mentorId` provided with different values, accepts either with `??` fallback
-- `admin/products/[id]/route.ts`: Schema cleaned up (same as platform)
+- `session-packs/route.ts`: Accepts both `instructorId` (preferred) and `mentorId` (deprecated)
+- `admin/products/[id]/route.ts`: Schema updated to accept `instructorId` (primary) and `mentorId` (deprecated alias)
 
 ### Detailed Plan
 
@@ -212,49 +217,25 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 
 **Goal**: Update all frontend code.
 
-### Status: 🔄 IN PROGRESS
+### Status: Pending
 
-### Completed Work
+### Steps
 
-**Inngest Event Types (both platforms):**
-- `apps/web/inngest/types.ts` — Updated `sessionBookingEmailEventSchema`, `sessionReminderEmailEventSchema`, `sessionCancelledEmailEventSchema` (mentorId → instructorId), `booking_notification_mentor` → `booking_notification_instructor`
-- `apps/platform/inngest/types.ts` — Same updates
-- `apps/web/inngest/functions/booking-emails.ts` — Updated to use `getInstructorById` instead of `getMentorById`, renamed function references (buildMentorNotificationEmail → buildInstructorNotificationEmail)
-- `apps/platform/lib/emails/booking-email.ts` — Renamed `buildMentorNotificationEmail` → `buildInstructorNotificationEmail`, updated parameter names (mentorName → instructorName, mentorTimeZone → instructorTimeZone)
-- `apps/web/lib/emails/booking-email.ts` — Same updates as platform
-
-**Product Form Components (both platforms):**
-- `apps/platform/app/admin/products/_components/product-form.tsx` — Type `Mentor` → `Instructor`, `mentorId` field → `instructorId`, props `mentors` → `instructors`, `isLoadingMentors` → `isLoadingInstructors`, UI labels "Mentor" → "Instructor"
-- `apps/web/app/admin/products/_components/product-form.tsx` — Same updates as platform
-
-**Admin Dashboard Pages (both platforms):**
-- `apps/platform/app/admin/page.tsx` — `InstructorWithStats.mentorId` → `instructorId`, state `expandedMentorId` → `expandedInstructorId`, API URLs updated
-- `apps/web/app/admin/page.tsx` — Same updates as platform
-
-**Instructor Edit Pages:**
-- `apps/platform/app/admin/instructors/[id]/edit/page.tsx` — `InstructorFormData.mentorId` → `instructorId`, response type updated, form field "Booking record" → "Instructor ID", conditional rendering updated
-
-### Remaining Work
-
-- [ ] **4.1** `apps/web/app/admin/instructors/[id]/edit/page.tsx` — Apply same changes as platform version
-- [ ] **4.2** `apps/web/` (741 refs, 85 mentorId) — Remaining web frontend files
+- [ ] **4.1** `apps/platform/` (517 refs, 71 mentorId)
+- [ ] **4.2** `apps/web/` (741 refs, 85 mentorId)
 - [ ] **4.3** `apps/marketing/` (242 refs, 12 mentorId)
 - [ ] **4.4** `apps/home/` (31 refs, 0 mentorId — mostly display strings)
 
-### Key Files Status
+### Key Files
 
-| File | Status | Notes |
-|------|--------|-------|
-| `app/admin/products/_components/product-form.tsx` (platform) | ✅ Complete | |
-| `app/admin/products/_components/product-form.tsx` (web) | ✅ Complete | |
-| `app/admin/page.tsx` (platform) | ✅ Complete | |
-| `app/admin/page.tsx` (web) | ✅ Complete | |
-| `app/admin/instructors/[id]/edit/page.tsx` (platform) | ✅ Complete | |
-| `app/admin/instructors/[id]/edit/page.tsx` (web) | 🔄 Pending | Apply same changes as platform |
-| `lib/emails/booking-email.ts` (platform) | ✅ Complete | |
-| `lib/emails/booking-email.ts` (web) | ✅ Complete | |
-| `inngest/functions/booking-emails.ts` (web) | ✅ Complete | |
-| `inngest/types.ts` (both platforms) | ✅ Complete | |
+| File | mentor refs | mentorId refs |
+|------|------------|---------------|
+| `app/admin/products/_components/product-form.tsx` (both platforms) | 120 | 24 |
+| `app/admin/page.tsx` (both platforms) | 42 | 32 |
+| `app/admin/instructors/[id]/edit/page.tsx` (both platforms) | 42 | 20 |
+| `lib/emails/booking-email.ts` (both platforms) | 48 | 0 |
+| `lib/instructors.ts` (marketing) | 40 | 0 |
+| `inngest/functions/booking-emails.ts` (web) | 46 | 13 |
 
 ---
 
