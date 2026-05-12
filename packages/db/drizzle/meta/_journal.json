@@ -141,6 +141,13 @@
       "when": 1776449708478,
       "tag": "0019_overjoyed_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1778560132698,
+      "tag": "0026_add_instructor_id_columns",
+      "breakpoints": true
     }
   ]
 }

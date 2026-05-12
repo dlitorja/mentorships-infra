@@ -11,6 +11,7 @@ export const seatReservations = pgTable(
     id: text("id").primaryKey(),
     convexId: text("convex_id"),
     mentorId: text("mentor_id").notNull(),
+    instructorId: text("instructor_id"),
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -24,6 +25,7 @@ export const seatReservations = pgTable(
   },
   (t) => ({
     mentorIdIdx: index("seat_reservations_mentor_id_idx").on(t.mentorId),
+    instructorIdIdx: index("seat_reservations_instructor_id_idx").on(t.instructorId),
     userIdIdx: index("seat_reservations_user_id_idx").on(t.userId),
     statusIdx: index("seat_reservations_status_idx").on(t.status),
     seatExpiresAtIdx: index("seat_reservations_seat_expires_at_idx").on(t.seatExpiresAt),
