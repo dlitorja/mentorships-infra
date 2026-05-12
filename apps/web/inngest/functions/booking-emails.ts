@@ -56,9 +56,9 @@ export const handleSessionBookingEmails = inngest.createFunction(
 
     const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId)),
+      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
       step.run("get-student-email", () => getUserEmail(studentId)),
-      step.run("get-instructor-email", () => getUserEmail(instructor.userId)),
+      step.run("get-instructor-email", () => getUserEmail(instructor.userId || "")),
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
@@ -172,7 +172,7 @@ export const handleSessionReminderEmails = inngest.createFunction(
 
     const [studentName, instructorName, studentEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId)),
+      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
       step.run("get-student-email", () => getUserEmail(studentId)),
     ]);
 
@@ -240,9 +240,9 @@ export const handleSessionCancellationEmails = inngest.createFunction(
 
     const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId)),
+      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
       step.run("get-student-email", () => getUserEmail(studentId)),
-      step.run("get-instructor-email", () => getUserEmail(instructor.userId)),
+      step.run("get-instructor-email", () => getUserEmail(instructor.userId || "")),
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
