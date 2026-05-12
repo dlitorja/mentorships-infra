@@ -7,6 +7,7 @@ import type { OrderStatus } from "../../schema/orders";
 const instructorUsers = aliasedTable(users, "instructor_users");
 
 export type InstructorWithStats = {
+  mentorId: string;
   instructorId: string;
   userId: string;
   email: string;
@@ -85,6 +86,7 @@ export async function getAllInstructorsWithStats(
 
       return {
         instructors: results.map((r: typeof results[number]) => ({
+          mentorId: r.instructorId,
           instructorId: r.instructorId,
           userId: r.userId,
           email: r.email,
@@ -136,6 +138,7 @@ export async function getAllInstructorsWithStats(
 
     return {
       instructors: results.map((r: typeof results[number]) => ({
+        mentorId: r.instructorId,
         instructorId: r.instructorId,
         userId: r.userId,
         email: r.email,
@@ -223,6 +226,7 @@ export async function getInstructorWithMentees(
   }));
 
   return {
+    mentorId: instructor.instructorId,
     instructorId: instructor.instructorId,
     userId: instructor.userId,
     email: instructor.email,

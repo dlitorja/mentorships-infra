@@ -765,6 +765,7 @@ export type InstructorWithSessions = {
   instructorUserId: string;
   instructorEmail: string;
   instructorBio: string | null;
+  mentorBio: string | null;
   sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
@@ -823,6 +824,7 @@ export async function getUserInstructorsWithSessionInfo(
     instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
     instructorBio: r.instructorBio,
+    mentorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
@@ -883,6 +885,7 @@ export async function getUserLowSessionPacks(
     instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
     instructorBio: r.instructorBio,
+    mentorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
