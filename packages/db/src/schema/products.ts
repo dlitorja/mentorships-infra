@@ -1,13 +1,17 @@
-import { pgTable, uuid, text, integer, numeric, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, numeric, boolean, timestamp, index } from "drizzle-orm/pg-core";
 import { mentors } from "./mentors";
+import { instructors } from "./instructors";
 
-export const mentorshipProducts = pgTable("mentorship_products", {
-  id: uuid("id")
-    .primaryKey()
-    .defaultRandom(),
-  mentorId: uuid("mentor_id")
-    .notNull()
-    .references(() => mentors.id, { onDelete: "cascade" }),
+export const mentorshipProducts = pgTable(
+  "mentorship_products",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .defaultRandom(),
+    mentorId: uuid("mentor_id")
+      .notNull()
+      .references(() => mentors.id, { onDelete: "cascade" }),
+    instructorId: uuid("instructor_id").references(() => instructors.id, { onDelete: "set null" }),
   title: text("title").notNull(),
   description: text("description"),
   imageUrl: text("image_url"),

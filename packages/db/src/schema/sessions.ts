@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, timestamp, pgEnum, boolean, index } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { mentors } from "./mentors";
+import { instructors } from "./instructors";
 import { sessionPacks } from "./sessionPacks";
 
 export const sessionStatusEnum = pgEnum("session_status", [
@@ -19,6 +20,7 @@ export const sessions = pgTable(
     mentorId: uuid("mentor_id")
       .notNull()
       .references(() => mentors.id, { onDelete: "cascade" }),
+    instructorId: uuid("instructor_id").references(() => instructors.id, { onDelete: "set null" }),
     // References Clerk user ID from users table
     studentId: text("student_id")
       .notNull()
@@ -46,6 +48,7 @@ export const sessions = pgTable(
   (t) => ({
     studentIdIdx: index("sessions_student_id_idx").on(t.studentId),
     mentorIdIdx: index("sessions_mentor_id_idx").on(t.mentorId),
+    instructorIdIdx: index("sessions_instructor_id_idx").on(t.instructorId),
     sessionPackIdIdx: index("sessions_session_pack_id_idx").on(t.sessionPackId),
     statusIdx: index("sessions_status_idx").on(t.status),
     scheduledAtIdx: index("sessions_scheduled_at_idx").on(t.scheduledAt),
