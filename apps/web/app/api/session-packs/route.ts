@@ -1,20 +1,43 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireAuth, isUnauthorizedError } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 
+const createSessionPackSchema = z
+  .object({
+    userId: z.string().min(1),
+    instructorId: z.string().min(1).optional(),
+    mentorId: z.string().min(1).optional(),
+    paymentId: z.string().min(1),
+    expiresAt: z.string().min(1),
+    totalSessions: z.number().int().positive().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.instructorId && data.mentorId && data.instructorId !== data.mentorId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "instructorId and mentorId must match when both are provided",
+        path: ["instructorId"],
+      });
+    }
+  });
+
+type CreateSessionPackInput = z.infer<typeof createSessionPackSchema>;
+
 /**
  * POST /api/session-packs
  * Create a new session pack (internal, typically called by webhook)
- * 
+ *
  * Body:
  * - userId: string (Clerk user ID)
- * - mentorId: string (UUID)
+ * - instructorId: string (UUID) - preferred
+ * - mentorId: string (UUID) - deprecated, use instructorId
  * - paymentId: string (UUID)
  * - expiresAt: string (ISO date string)
  * - totalSessions?: number (default: 4)
- * 
+ *
  * Note: This endpoint requires authentication but can be called internally
  * by webhook handlers that have verified webhook signatures.
  */
@@ -23,16 +46,16 @@ export async function POST(request: Request) {
     // Require authentication (webhook handlers should use service auth)
     await requireAuth();
 
-    const body = await request.json();
-    const { userId, mentorId, paymentId, expiresAt, totalSessions } = body;
-
-    // Validate required fields
-    if (!userId || !mentorId || !paymentId || !expiresAt) {
+    const parsed = createSessionPackSchema.safeParse(await request.json());
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Missing required fields: userId, mentorId, paymentId, expiresAt" },
+        { error: "Invalid request body", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
+
+    const { userId, instructorId, mentorId, paymentId, expiresAt, totalSessions } = parsed.data;
+    const resolvedInstructorId = instructorId ?? mentorId;
 
     // Validate expiresAt is a valid date
     const expiresDate = new Date(expiresAt);
@@ -43,19 +66,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate totalSessions if provided
-    if (totalSessions !== undefined && (totalSessions < 1 || !Number.isInteger(totalSessions))) {
-      return NextResponse.json(
-        { error: "totalSessions must be a positive integer" },
-        { status: 400 }
-      );
-    }
-
     // Create session pack via Convex
     const convex = getConvexClient();
     const packId = await convex.mutation(api.sessionPacks.createSessionPack, {
       userId,
-      instructorId: mentorId as Id<"instructors">,
+      instructorId: resolvedInstructorId as Id<"instructors">,
       paymentId: paymentId as Id<"payments">,
       totalSessions: totalSessions ?? 4,
       expiresAt: expiresDate.getTime(),
@@ -115,4 +130,3 @@ export async function GET() {
     );
   }
 }
-

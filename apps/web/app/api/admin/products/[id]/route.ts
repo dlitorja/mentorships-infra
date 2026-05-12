@@ -8,7 +8,6 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { stripe } from "@/lib/stripe";
 
 const updateProductSchema = z.object({
-  mentorId: z.string().optional(),
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().optional().default(""),
   imageUrl: z.string().url().optional().or(z.literal("")),
@@ -112,7 +111,6 @@ export async function PUT(
     }
 
     const {
-      mentorId,
       title,
       description,
       imageUrl,
