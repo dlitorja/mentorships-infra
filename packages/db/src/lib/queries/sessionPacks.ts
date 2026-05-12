@@ -110,24 +110,7 @@ export async function createInstructorMenteeAssociations(
   await db.transaction(async (tx: typeof db) => {
     for (const menteeUserId of menteeUserIds) {
       try {
-        const existingPack = await tx
-          .select()
-          .from(sessionPacks)
-          .innerJoin(instructors, eq(sessionPacks.instructorId, instructors.id))
-          .where(
-            and(
-              eq(sessionPacks.userId, menteeUserId),
-              eq(instructors.userId, mentorUserId)
-            )
-          )
-          .limit(1);
-
-        if (existingPack.length > 0) {
-          errors.push(`Mentee ${menteeUserId} already associated with this instructor`);
-          continue;
-        }
-
-        let instructor = await tx
+        const instructor = await tx
           .select()
           .from(instructors)
           .where(eq(instructors.userId, mentorUserId))
@@ -135,6 +118,26 @@ export async function createInstructorMenteeAssociations(
 
         if (instructor.length === 0) {
           errors.push(`Instructor with userId ${mentorUserId} not found`);
+          continue;
+        }
+
+        const conditions = [
+          eq(sessionPacks.userId, menteeUserId),
+          eq(sessionPacks.instructorId, instructor[0].id),
+        ];
+
+        if (instructor[0].mentorId !== null) {
+          conditions.push(eq(sessionPacks.mentorId, instructor[0].mentorId));
+        }
+
+        const existingPack = await tx
+          .select()
+          .from(sessionPacks)
+          .where(and(...conditions))
+          .limit(1);
+
+        if (existingPack.length > 0) {
+          errors.push(`Mentee ${menteeUserId} already associated with this instructor`);
           continue;
         }
 

@@ -1,6 +1,6 @@
 import { eq, and, gte, desc, sql, asc, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
-import { sessions, sessionPacks, mentors, users } from "../../schema";
+import { sessions, sessionPacks, mentors, users, instructors } from "../../schema";
 
 type Session = typeof sessions.$inferSelect;
 type SessionWithMentor = Session & {
@@ -32,7 +32,8 @@ export async function getUserUpcomingSessions(
     })
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
-    .innerJoin(mentors, eq(sessions.instructorId, mentors.id))
+    .innerJoin(instructors, eq(sessions.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(
@@ -68,7 +69,8 @@ export async function getUserRecentSessions(
     })
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
-    .innerJoin(mentors, eq(sessions.instructorId, mentors.id))
+    .innerJoin(instructors, eq(sessions.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .innerJoin(users, eq(mentors.userId, users.id))
     .where(
       and(

@@ -1,6 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentorshipProducts, mentors, sessionPacks, payments } from "../../schema";
+import { mentorshipProducts, mentors, instructors, sessionPacks, payments } from "../../schema";
 
 type Product = typeof mentorshipProducts.$inferSelect;
 type ProductWithMentor = Product & { mentor: typeof mentors.$inferSelect };
@@ -23,7 +23,8 @@ export async function getProductById(
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.instructorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(eq(mentorshipProducts.id, productId))
     .limit(1);
 
@@ -42,7 +43,8 @@ export async function getProductsByMentorId(
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.instructorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(
       and(
         eq(mentorshipProducts.instructorId, instructorId),
@@ -60,7 +62,8 @@ export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.instructorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(eq(mentorshipProducts.active, true));
 
   return products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor }));
@@ -106,7 +109,8 @@ export async function getAllActiveProductsPaginated(
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.instructorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(eq(mentorshipProducts.active, true))
     .limit(validatedPageSize)
     .offset(offset);
