@@ -4,8 +4,6 @@ import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
 import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
-import { getConvexClient } from "@/lib/convex";
-import { api } from "@/convex/_generated/api";
 import { clerkClient } from "@clerk/nextjs/server";
 
 /**
@@ -227,7 +225,8 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
     try {
       const clerk = await clerkClient();
       const clerkUser = await clerk.users.getUser(userId);
-      userRole = clerkUser.publicMetadata?.role as string | undefined;
+      const role = clerkUser.publicMetadata?.role;
+      userRole = typeof role === "string" ? role : undefined;
     } catch (clerkError) {
       console.warn("Failed to fetch user role from Clerk API:", clerkError);
     }

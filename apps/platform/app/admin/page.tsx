@@ -451,7 +451,7 @@ export default function AdminDashboard() {
                 variant="outline" 
                 size="sm"
                 onClick={collapseAll}
-                disabled={!expandedMentorId}
+                disabled={!expandedMentorId && !isAllExpanded}
               >
                 Collapse All
               </Button>
