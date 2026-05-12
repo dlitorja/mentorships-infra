@@ -1,8 +1,30 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireAuth, isUnauthorizedError } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
+
+const createSessionPackSchema = z
+  .object({
+    userId: z.string().min(1),
+    instructorId: z.string().min(1).optional(),
+    mentorId: z.string().min(1).optional(),
+    paymentId: z.string().min(1),
+    expiresAt: z.string().min(1),
+    totalSessions: z.number().int().positive().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.instructorId && data.mentorId && data.instructorId !== data.mentorId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "instructorId and mentorId must match when both are provided",
+        path: ["instructorId"],
+      });
+    }
+  });
+
+type CreateSessionPackInput = z.infer<typeof createSessionPackSchema>;
 
 /**
  * POST /api/session-packs
@@ -24,39 +46,22 @@ export async function POST(request: Request) {
     // Require authentication (webhook handlers should use service auth)
     await requireAuth();
 
-    const body = await request.json();
-    const { userId, instructorId, mentorId, paymentId, expiresAt, totalSessions } = body;
-
-    if (instructorId && mentorId && instructorId !== mentorId) {
+    const parsed = createSessionPackSchema.safeParse(await request.json());
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "instructorId and mentorId must match when both are provided" },
+        { error: "Invalid request body", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
 
+    const { userId, instructorId, mentorId, paymentId, expiresAt, totalSessions } = parsed.data;
     const resolvedInstructorId = instructorId ?? mentorId;
-
-    // Validate required fields
-    if (!userId || !resolvedInstructorId || !paymentId || !expiresAt) {
-      return NextResponse.json(
-        { error: "Missing required fields: userId, instructorId (or mentorId), paymentId, expiresAt" },
-        { status: 400 }
-      );
-    }
 
     // Validate expiresAt is a valid date
     const expiresDate = new Date(expiresAt);
     if (isNaN(expiresDate.getTime())) {
       return NextResponse.json(
         { error: "Invalid expiresAt date format" },
-        { status: 400 }
-      );
-    }
-
-    // Validate totalSessions if provided
-    if (totalSessions !== undefined && (totalSessions < 1 || !Number.isInteger(totalSessions))) {
-      return NextResponse.json(
-        { error: "totalSessions must be a positive integer" },
         { status: 400 }
       );
     }
@@ -125,4 +130,3 @@ export async function GET() {
     );
   }
 }
-
