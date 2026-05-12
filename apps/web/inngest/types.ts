@@ -130,12 +130,12 @@ export const sessionBookingEmailEventSchema = z.object({
   data: z.object({
     type: z.enum([
       "booking_confirmation_student",
-      "booking_notification_mentor",
+      "booking_notification_instructor",
     ]),
     sessionId: z.string().uuid(),
     sessionPackId: z.string().uuid(),
     studentId: z.string(),
-    mentorId: z.string().uuid(),
+    instructorId: z.string().uuid(),
     scheduledAt: z.coerce.date(),
   }),
 });
@@ -147,7 +147,7 @@ export const sessionReminderEmailEventSchema = z.object({
     sessionId: z.string().uuid(),
     sessionPackId: z.string().uuid(),
     studentId: z.string(),
-    mentorId: z.string().uuid(),
+    instructorId: z.string().uuid(),
     scheduledAt: z.coerce.date(),
   }),
 });
@@ -158,7 +158,7 @@ export const sessionCancelledEmailEventSchema = z.object({
     sessionId: z.string().uuid(),
     sessionPackId: z.string().uuid(),
     studentId: z.string(),
-    mentorId: z.string().uuid(),
+    instructorId: z.string().uuid(),
     scheduledAt: z.coerce.date(),
     cancelledBy: z.enum(["instructor", "student"]),
   }),
@@ -259,7 +259,7 @@ export const sessionPackCreatedEventSchema = z.object({
   data: z.object({
     id: z.string(),
     userId: z.string(),
-    mentorId: z.string(),
+    instructorId: z.string(),
     totalSessions: z.number(),
     remainingSessions: z.number(),
     purchasedAt: z.number(),
@@ -286,7 +286,7 @@ export const seatReservationCreatedEventSchema = z.object({
   data: z.object({
     id: z.string(),
     userId: z.string(),
-    mentorId: z.string(),
+    instructorId: z.string(),
     sessionPackId: z.string(),
     status: z.enum(["active", "grace", "released"]),
     seatExpiresAt: z.number().nullable().optional(),

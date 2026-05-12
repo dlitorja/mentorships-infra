@@ -1,22 +1,28 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { fetchMentors } from "@/lib/queries/api-client";
 import { ProductForm } from "../_components/product-form";
 
 export default function CreateProductPage() {
-  const { data: mentorsData, isLoading: isLoadingMentors } = useQuery({
-    queryKey: ["mentors"],
-    queryFn: fetchMentors,
+  const { data: instructorsData, isLoading: isLoadingInstructors } = useQuery({
+    queryKey: ["instructors"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/instructors");
+      if (!res.ok) throw new Error("Failed to fetch instructors");
+      return res.json();
+    },
   });
 
-  const mentors = mentorsData?.items || [];
+  const instructors = (instructorsData?.instructors || []).map((inst: any) => ({
+    id: inst.instructorId,
+    email: inst.email || null,
+  }));
 
   return (
     <ProductForm
       mode="create"
-      mentors={mentors}
-      isLoadingMentors={isLoadingMentors}
+      instructors={instructors}
+      isLoadingInstructors={isLoadingInstructors}
     />
   );
 }

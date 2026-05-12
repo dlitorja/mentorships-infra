@@ -255,7 +255,7 @@ export async function submitContact(data: { email: string; artGoals: string }) {
 export async function createProductFromStripe(data: {
   productId?: string;
   priceId?: string;
-  mentorId?: string;
+  instructorId?: string;
 }) {
   return apiFetch<{
     success: boolean;
@@ -278,7 +278,7 @@ export type MentorshipType = "one-on-one" | "group";
  * Create a new product with full fields
  */
 export async function createProduct(data: {
-  mentorId: string;
+  instructorId: string;
   title: string;
   description?: string;
   imageUrl?: string;
@@ -348,7 +348,7 @@ export async function fetchMentors(): Promise<FetchMentorsResponse> {
 export async function updateProduct(
   id: string,
   data: {
-    mentorId?: string;
+    instructorId?: string;
     title: string;
     description?: string;
     imageUrl?: string;

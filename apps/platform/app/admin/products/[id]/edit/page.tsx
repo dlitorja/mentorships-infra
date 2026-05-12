@@ -2,18 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { fetchMentors, type MentorshipType } from "@/lib/queries/api-client";
+import { type MentorshipType } from "@/lib/queries/api-client";
 import { ProductForm } from "../../_components/product-form";
 
-type Mentor = {
+type Instructor = {
   id: string;
   email: string | null;
 };
 
 type ProductInfo = {
   id: string;
-  mentorId: string;
-  mentorName: string;
+  instructorId: string;
+  instructorName: string;
   title: string;
   description: string | null;
   imageUrl: string | null;
@@ -36,15 +36,15 @@ export default function EditProductPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mentors, setMentors] = useState<Mentor[]>([]);
+  const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [productData, setProductData] = useState<ProductInfo | null>(null);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        const [productRes, mentorsData] = await Promise.all([
+        const [productRes, instructorsRes] = await Promise.all([
           fetch(`/api/admin/products/${productId}`),
-          fetchMentors(),
+          fetch("/api/admin/instructors"),
         ]);
 
         if (!productRes.ok) {
@@ -54,7 +54,16 @@ export default function EditProductPage() {
 
         const product = await productRes.json();
         setProductData(product);
-        setMentors(mentorsData.items || []);
+
+        if (instructorsRes.ok) {
+          const instructorsData = await instructorsRes.json();
+          setInstructors(
+            (instructorsData.instructors || []).map((inst: any) => ({
+              id: inst.instructorId,
+              email: inst.email || null,
+            }))
+          );
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch product");
       } finally {
@@ -107,7 +116,7 @@ export default function EditProductPage() {
       mode="edit"
       productId={productId}
       initialData={{
-        mentorId: productData.mentorId,
+        instructorId: productData.instructorId,
         title: productData.title,
         description: productData.description || "",
         imageUrl: productData.imageUrl || "",
@@ -119,8 +128,8 @@ export default function EditProductPage() {
         enableStripe: !!productData.stripePriceId,
         enablePayPal: !!productData.paypalProductId,
       }}
-      mentors={mentors}
-      isLoadingMentors={false}
+      instructors={instructors}
+      isLoadingInstructors={false}
     />
   );
 }

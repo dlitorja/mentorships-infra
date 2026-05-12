@@ -57,7 +57,7 @@ function escapeHtml(value: string): string {
 export function buildBookingConfirmationEmail(
   data: BookingEmailData,
   studentName: string,
-  mentorName: string,
+  instructorName: string,
   studentTimeZone?: string | null
 ): BookingEmail {
   const { scheduledAt } = data;
@@ -73,7 +73,7 @@ export function buildBookingConfirmationEmail(
     "Your mentorship session has been confirmed!",
     "",
     `Date & Time: ${sessionDateTime}`,
-    `Instructor: ${mentorName}`,
+    `Instructor: ${instructorName}`,
     "",
     `View your sessions: ${calendarUrl}`,
     "",
@@ -97,7 +97,7 @@ export function buildBookingConfirmationEmail(
         <div style="background:#F3F4F6;padding:12px;border-radius:8px;margin-bottom:12px">
           <div style="font-size:14px;font-weight:600;margin-bottom:4px">Session Details</div>
           <div style="font-size:14px;color:#374151">📅 ${escapeHtml(sessionDateTime)}</div>
-          <div style="font-size:14px;color:#374151">👤 Instructor: ${escapeHtml(mentorName)}</div>
+          <div style="font-size:14px;color:#374151">👤 Instructor: ${escapeHtml(instructorName)}</div>
         </div>
 
         <a href="${calendarUrl}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">View Calendar</a>
@@ -120,21 +120,21 @@ export function buildBookingConfirmationEmail(
   };
 }
 
-export function buildMentorNotificationEmail(
+export function buildInstructorNotificationEmail(
   data: BookingEmailData,
-  mentorName: string,
+  instructorName: string,
   studentName: string,
   studentEmail: string,
-  mentorTimeZone?: string | null
+  instructorTimeZone?: string | null
 ): BookingEmail {
   const { scheduledAt } = data;
-  const sessionDateTime = formatSessionDateTime(new Date(scheduledAt), mentorTimeZone || undefined);
+  const sessionDateTime = formatSessionDateTime(new Date(scheduledAt), instructorTimeZone || undefined);
   const dashboardUrl = `${getBaseUrl()}/instructor/dashboard`;
 
   const subject = `New booking: ${sessionDateTime}`;
 
   const text = [
-    `Hi ${mentorName},`,
+    `Hi ${instructorName},`,
     "",
     "You have a new session booking!",
     "",
@@ -154,7 +154,7 @@ export function buildMentorNotificationEmail(
       <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
         <div style="font-weight:700;margin-bottom:6px">New Session Booking!</div>
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">
-          Hi ${escapeHtml(mentorName)}, you have a new session scheduled.
+          Hi ${escapeHtml(instructorName)}, you have a new session scheduled.
         </div>
         
         <div style="background:#F3F4F6;padding:12px;border-radius:8px;margin-bottom:12px">
@@ -174,7 +174,7 @@ export function buildMentorNotificationEmail(
     html,
     text,
     headers: {
-      "X-Email-Type": "booking_notification_mentor",
+      "X-Email-Type": "booking_notification_instructor",
       "X-Session-Id": data.sessionId,
     },
   };
@@ -183,7 +183,7 @@ export function buildMentorNotificationEmail(
 export function buildReminderEmail(
   data: ReminderEmailData,
   studentName: string,
-  mentorName: string,
+  instructorName: string,
   studentTimeZone?: string | null
 ): BookingEmail {
   const { scheduledAt, type } = data;
@@ -199,7 +199,7 @@ export function buildReminderEmail(
     `This is a reminder that your mentorship session is in ${hoursText}.`,
     "",
     `Date & Time: ${sessionDateTime}`,
-    `Instructor: ${mentorName}`,
+    `Instructor: ${instructorName}`,
     "",
     `View your sessions: ${calendarUrl}`,
     "",
@@ -219,7 +219,7 @@ export function buildReminderEmail(
         <div style="background:#F3F4F6;padding:12px;border-radius:8px;margin-bottom:12px">
           <div style="font-size:14px;font-weight:600;margin-bottom:4px">Session Details</div>
           <div style="font-size:14px;color:#374151">📅 ${escapeHtml(sessionDateTime)}</div>
-          <div style="font-size:14px;color:#374151">👤 Instructor: ${escapeHtml(mentorName)}</div>
+          <div style="font-size:14px;color:#374151">👤 Instructor: ${escapeHtml(instructorName)}</div>
         </div>
 
         <a href="${calendarUrl}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">View Calendar</a>

@@ -69,7 +69,7 @@ type InstructorFormData = {
   socials: Socials;
   isActive: boolean;
   userId: string | null;
-  mentorId: string | null;
+  instructorId: string | null;
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
@@ -107,7 +107,7 @@ type UpdateInstructorResponse = {
     socials: Socials | null;
     isActive: boolean;
     userId: string | null;
-    mentorId: string | null;
+    instructorId: string | null;
     updatedAt: string;
   };
 };
@@ -132,7 +132,7 @@ const updateInstructorResponseSchema = z.object({
     socials: z.record(z.string(), z.string().optional()).nullable(),
     isActive: z.boolean(),
     userId: z.string().nullable(),
-    mentorId: z.string().nullable(),
+    instructorId: z.string().nullable(),
     updatedAt: z.string(),
   }).optional(),
 });
@@ -288,7 +288,7 @@ export default function EditInstructorPage() {
     socials: {},
     isActive: true,
     userId: null,
-    mentorId: null,
+    instructorId: null,
     oneOnOneInventory: 0,
     groupInventory: 0,
     maxActiveStudents: 10,
@@ -342,7 +342,7 @@ export default function EditInstructorPage() {
         socials: data.socials || {},
         isActive: data.isActive ?? true,
         userId: data.userId || null,
-        mentorId: data.mentorId || null,
+        instructorId: data.instructorId || null,
         oneOnOneInventory: (data as any).oneOnOneInventory ?? 0,
         groupInventory: (data as any).groupInventory ?? 0,
         maxActiveStudents: (data as any).maxActiveStudents ?? 10,
@@ -613,13 +613,13 @@ export default function EditInstructorPage() {
                 <Label htmlFor="isActive" className="cursor-pointer">Active</Label>
               </div>
               <div>
-                <Label htmlFor="mentorId">Booking record</Label>
+                <Label htmlFor="instructorId">Instructor ID</Label>
                 <Select
-                  value={formData.mentorId ?? NONE_SENTINEL}
-                  onValueChange={(value) => setFormData((prev) => ({ ...prev, mentorId: value === NONE_SENTINEL ? null : value }))}
+                  value={formData.instructorId ?? NONE_SENTINEL}
+                  onValueChange={(value) => setFormData((prev) => ({ ...prev, instructorId: value === NONE_SENTINEL ? null : value }))}
                 >
-                  <SelectTrigger id="mentorId">
-                    <SelectValue placeholder="Select a booking record" />
+                  <SelectTrigger id="instructorId">
+                    <SelectValue placeholder="Select an instructor ID" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NONE_SENTINEL}>None</SelectItem>
@@ -902,7 +902,7 @@ export default function EditInstructorPage() {
               <CardDescription>Configure mentorship availability and booking settings</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {formData.mentorId ? (
+              {formData.instructorId ? (
                 <div className="grid grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="oneOnOneInventory">One-on-One Inventory</Label>
