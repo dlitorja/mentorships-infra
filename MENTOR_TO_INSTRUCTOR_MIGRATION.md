@@ -125,15 +125,29 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 
 **Goal**: Update API contracts from `mentorId` → `instructorId`.
 
-### Status: Next (planned)
+### Status: In Progress
 
 ### Steps
 
-- [ ] **3.1** Convex `http.ts`: Rename `mentorId` params → `instructorId` (add backward compat)
-- [ ] **3.2** Platform API routes (~36 files)
-- [ ] **3.3** Web API routes (~36 files)
+- [x] **3.1** Convex `http.ts`: ✅ DONE — Inventory endpoints accept both `instructorId` (preferred) and `mentorId` (deprecated). Seed function fixed to use single createInstructor with proper params.
+- [ ] **3.2** Platform API routes (~36 files) — partially done
+- [ ] **3.3** Web API routes (~36 files) — partially done
 - [ ] **3.4** Marketing API routes (~5 files)
-- [ ] **3.5** Merge/remove `convex/mentors.ts`
+- [ ] **3.5** Merge/remove `convex/mentors.ts` — deferred (file already marked deprecated, serves legacy migration purpose)
+
+### Completed in Phase 3
+
+**convex/http.ts:**
+- `httpDecrementInventory`, `httpIncrementInventory`, `httpSetInventory`: Accept `{ instructorId?, mentorId? }` — prefer `instructorId` if both present
+- `httpSeedInstructor`: Fixed to use single createInstructor call with correct `instructorId` param (was passing `mentorId` which createProduct doesn't accept)
+
+**Platform API routes:**
+- `admin/instructors/route.ts`: Response now returns `instructorId` instead of `mentorId`
+- `admin/products/[id]/route.ts`: Schema updated to accept `instructorId` (primary) and `mentorId` (deprecated alias)
+
+**Web API routes:**
+- `session-packs/route.ts`: Accepts both `instructorId` (preferred) and `mentorId` (deprecated)
+- `admin/products/[id]/route.ts`: Schema updated to accept `instructorId` (primary) and `mentorId` (deprecated alias)
 
 ### Detailed Plan
 
