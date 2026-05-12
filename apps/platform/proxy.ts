@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
 import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
+import { clerkClient } from "@clerk/nextjs/server";
 
 /**
  * Allowed origins for CSRF protection
@@ -217,8 +218,19 @@ const hasClerkKey = Boolean(
 async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   const authResult = await auth();
   const userId = authResult.userId;
-  const sessionClaims = authResult.sessionClaims;
-  const userRole = (sessionClaims?.publicMetadata as Record<string, unknown>)?.role as string | undefined;
+
+  let userRole: string | undefined;
+
+  if (userId) {
+    try {
+      const clerk = await clerkClient();
+      const clerkUser = await clerk.users.getUser(userId);
+      const role = clerkUser.publicMetadata?.role;
+      userRole = typeof role === "string" ? role : undefined;
+    } catch (clerkError) {
+      console.warn("Failed to fetch user role from Clerk API:", clerkError);
+    }
+  }
 
   const pathname = req.nextUrl.pathname;
   const method = req.method;
