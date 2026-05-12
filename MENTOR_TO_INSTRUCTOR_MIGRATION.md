@@ -125,37 +125,32 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 
 **Goal**: Update API contracts from `mentorId` → `instructorId`.
 
-### Status: In Progress
+### Status: ✅ COMPLETE (PR #261 merged)
 
-### Branch
-`feat/add-instructor-id-columns` (current)
-
-### Commits Made
-- `6b85721` — Phase 3 start: Convex http.ts and key API routes use instructorId
-- `3447d78` — Phase 3: Web admin products route accepts instructorId
-- `40ddad8` — docs: Update migration doc with Phase 3 progress
+### PR
+**PR #261**: `feat: Phase 3 - Convex http.ts and API routes use instructorId` — Merged
 
 ### Steps
 
 - [x] **3.1** Convex `http.ts`: ✅ DONE — Inventory endpoints accept both `instructorId` (preferred) and `mentorId` (deprecated). Seed function fixed to use single createInstructor with proper params.
-- [ ] **3.2** Platform API routes (~36 files) — partially done (admin/instructors, admin/products)
-- [ ] **3.3** Web API routes (~36 files) — partially done (session-packs, admin/products)
-- [ ] **3.4** Marketing API routes (~5 files)
-- [ ] **3.5** Merge/remove `convex/mentors.ts` — deferred (file already marked deprecated, serves legacy migration purpose)
+- [x] **3.2** Platform API routes: ✅ DONE — admin/instructors (response uses `instructorId`), admin/products (schema cleaned up)
+- [x] **3.3** Web API routes: ✅ DONE — session-packs (Zod schema with conflict check), admin/products (schema cleaned up)
+- [x] **3.4** Marketing API routes: N/A — no `mentorId` in API contracts
+- [x] **3.5** `convex/mentors.ts`: ✅ Deferred to Phase 5 (file already marked deprecated)
 
 ### Completed in Phase 3
 
 **convex/http.ts:**
-- `httpDecrementInventory`, `httpIncrementInventory`, `httpSetInventory`: Accept `{ instructorId?, mentorId? }` — prefer `instructorId` if both present
+- `httpDecrementInventory`, `httpIncrementInventory`, `httpSetInventory`: Accept `{ instructorId?, mentorId? }` — prefer `instructorId` if both present, error if both provided with different values
 - `httpSeedInstructor`: Fixed to use single createInstructor call with correct `instructorId` param (was passing `mentorId` which createProduct doesn't accept)
 
 **Platform API routes:**
 - `admin/instructors/route.ts`: Response now returns `instructorId` instead of `mentorId`
-- `admin/products/[id]/route.ts`: Schema updated to accept `instructorId` (primary) and `mentorId` (deprecated alias)
+- `admin/products/[id]/route.ts`: Schema cleaned up (instructorId/mentorId not used in update flow — updateProduct only handles product fields, not instructor association)
 
 **Web API routes:**
-- `session-packs/route.ts`: Accepts both `instructorId` (preferred) and `mentorId` (deprecated)
-- `admin/products/[id]/route.ts`: Schema updated to accept `instructorId` (primary) and `mentorId` (deprecated alias)
+- `session-packs/route.ts`: Zod schema with `superRefine` conflict check — rejects if both `instructorId` and `mentorId` provided with different values, accepts either with `??` fallback
+- `admin/products/[id]/route.ts`: Schema cleaned up (same as platform)
 
 ### Detailed Plan
 
