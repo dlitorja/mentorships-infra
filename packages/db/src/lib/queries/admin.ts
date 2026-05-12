@@ -8,6 +8,7 @@ const instructorUsers = aliasedTable(users, "instructor_users");
 
 export type InstructorWithStats = {
   mentorId: string;
+  instructorId: string;
   userId: string;
   email: string;
   bio: string | null;
@@ -61,7 +62,7 @@ export async function getAllInstructorsWithStats(
 
       const results = await tx
         .select({
-          mentorId: mentors.id,
+          instructorId: mentors.id,
           userId: users.id,
           email: users.email,
           bio: mentors.bio,
@@ -74,8 +75,8 @@ export async function getAllInstructorsWithStats(
         })
         .from(mentors)
         .innerJoin(users, eq(mentors.userId, users.id))
-        .leftJoin(seatReservations, and(eq(seatReservations.mentorId, mentors.id), eq(seatReservations.status, "active")))
-        .leftJoin(sessionPacks, and(eq(sessionPacks.mentorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
+        .leftJoin(seatReservations, and(eq(seatReservations.instructorId, mentors.id), eq(seatReservations.status, "active")))
+        .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
         .leftJoin(sessions, and(eq(sessions.sessionPackId, sessionPacks.id), eq(sessions.status, "completed")))
         .where(and(isNull(mentors.deletedAt), searchCondition))
         .groupBy(mentors.id, users.id, users.email, mentors.bio, mentors.oneOnOneInventory, mentors.groupInventory, mentors.maxActiveStudents, mentors.createdAt)
@@ -85,7 +86,8 @@ export async function getAllInstructorsWithStats(
 
       return {
         instructors: results.map((r: typeof results[number]) => ({
-          mentorId: r.mentorId,
+          mentorId: r.instructorId,
+          instructorId: r.instructorId,
           userId: r.userId,
           email: r.email,
           bio: r.bio,
@@ -112,7 +114,7 @@ export async function getAllInstructorsWithStats(
 
     const results = await tx
       .select({
-        mentorId: mentors.id,
+        instructorId: mentors.id,
         userId: users.id,
         email: users.email,
         bio: mentors.bio,
@@ -125,8 +127,8 @@ export async function getAllInstructorsWithStats(
       })
       .from(mentors)
       .innerJoin(users, eq(mentors.userId, users.id))
-      .leftJoin(seatReservations, and(eq(seatReservations.mentorId, mentors.id), eq(seatReservations.status, "active")))
-      .leftJoin(sessionPacks, and(eq(sessionPacks.mentorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
+      .leftJoin(seatReservations, and(eq(seatReservations.instructorId, mentors.id), eq(seatReservations.status, "active")))
+      .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
       .leftJoin(sessions, and(eq(sessions.sessionPackId, sessionPacks.id), eq(sessions.status, "completed")))
       .where(isNull(mentors.deletedAt))
       .groupBy(mentors.id, users.id, users.email, mentors.bio, mentors.oneOnOneInventory, mentors.groupInventory, mentors.maxActiveStudents, mentors.createdAt)
@@ -136,7 +138,8 @@ export async function getAllInstructorsWithStats(
 
     return {
       instructors: results.map((r: typeof results[number]) => ({
-        mentorId: r.mentorId,
+        mentorId: r.instructorId,
+        instructorId: r.instructorId,
         userId: r.userId,
         email: r.email,
         bio: r.bio,
@@ -153,11 +156,11 @@ export async function getAllInstructorsWithStats(
 }
 
 export async function getInstructorWithMentees(
-  mentorId: string
+  instructorId: string
 ): Promise<InstructorWithMentees | null> {
   const instructorResult = await db
     .select({
-      mentorId: mentors.id,
+      instructorId: mentors.id,
       userId: users.id,
       email: users.email,
       bio: mentors.bio,
@@ -170,10 +173,10 @@ export async function getInstructorWithMentees(
     })
     .from(mentors)
     .innerJoin(users, eq(mentors.userId, users.id))
-    .leftJoin(seatReservations, and(eq(seatReservations.mentorId, mentors.id), eq(seatReservations.status, "active")))
-    .leftJoin(sessionPacks, and(eq(sessionPacks.mentorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
+    .leftJoin(seatReservations, and(eq(seatReservations.instructorId, mentors.id), eq(seatReservations.status, "active")))
+    .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
     .leftJoin(sessions, eq(sessions.sessionPackId, sessionPacks.id))
-    .where(and(eq(mentors.id, mentorId), isNull(mentors.deletedAt)))
+    .where(and(eq(mentors.id, instructorId), isNull(mentors.deletedAt)))
     .groupBy(mentors.id, users.id, users.email, mentors.bio, mentors.oneOnOneInventory, mentors.groupInventory, mentors.maxActiveStudents, mentors.createdAt)
     .limit(1);
 
@@ -204,8 +207,8 @@ export async function getInstructorWithMentees(
     })
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
-    .innerJoin(seatReservations, and(eq(seatReservations.sessionPackId, sessionPacks.id), eq(seatReservations.mentorId, mentorId)))
-    .where(eq(sessionPacks.mentorId, mentorId))
+    .innerJoin(seatReservations, and(eq(seatReservations.sessionPackId, sessionPacks.id), eq(seatReservations.instructorId, instructorId)))
+    .where(eq(sessionPacks.instructorId, instructorId))
     .orderBy(desc(sessionPacks.createdAt));
 
   const mentees: MenteeWithSessionInfo[] = menteesResult.map((m: typeof menteesResult[number]) => ({
@@ -223,7 +226,8 @@ export async function getInstructorWithMentees(
   }));
 
   return {
-    mentorId: instructor.mentorId,
+    mentorId: instructor.instructorId,
+    instructorId: instructor.instructorId,
     userId: instructor.userId,
     email: instructor.email,
     bio: instructor.bio,
@@ -238,7 +242,7 @@ export async function getInstructorWithMentees(
 }
 
 export async function getInstructorMenteesForCsv(
-  mentorId: string
+  instructorId: string
 ): Promise<MenteeWithSessionInfo[]> {
   const results = await db
     .select({
@@ -261,8 +265,8 @@ export async function getInstructorMenteesForCsv(
     })
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
-    .innerJoin(seatReservations, and(eq(seatReservations.sessionPackId, sessionPacks.id), eq(seatReservations.mentorId, mentorId)))
-    .where(eq(sessionPacks.mentorId, mentorId))
+    .innerJoin(seatReservations, and(eq(seatReservations.sessionPackId, sessionPacks.id), eq(seatReservations.instructorId, instructorId)))
+    .where(eq(sessionPacks.instructorId, instructorId))
     .orderBy(desc(sessionPacks.createdAt));
 
   return results.map((r: typeof results[number]) => ({
@@ -313,7 +317,7 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
-    .innerJoin(mentors, and(eq(sessionPacks.mentorId, mentors.id), isNull(mentors.deletedAt)))
+    .innerJoin(mentors, and(eq(sessionPacks.instructorId, mentors.id), isNull(mentors.deletedAt)))
     .innerJoin(instructorUsers, eq(mentors.userId, instructorUsers.id))
     .orderBy(desc(sessionPacks.createdAt));
 
@@ -400,7 +404,8 @@ export type AdminMenteeItem = {
   id: string;
   userId: string;
   email: string;
-  mentorId: string;
+  mentorId: string | null;
+  instructorId: string | null;
   instructorName: string | null;
   instructorSlug: string | null;
   totalSessions: number;
@@ -430,7 +435,7 @@ export async function getAdminMentees(
     const conditions: any[] = [];
 
     if (instructorId) {
-      conditions.push(eq(sessionPacks.mentorId, instructorId));
+      conditions.push(eq(sessionPacks.instructorId, instructorId));
     }
 
     if (search && search.trim()) {
@@ -453,6 +458,7 @@ export async function getAdminMentees(
         userId: sessionPacks.userId,
         email: users.email,
         mentorId: sessionPacks.mentorId,
+        instructorId: sessionPacks.instructorId,
         instructorName: instructors.name,
         instructorSlug: instructors.slug,
         totalSessions: sessionPacks.totalSessions,
@@ -464,7 +470,7 @@ export async function getAdminMentees(
       })
       .from(sessionPacks)
       .innerJoin(users, eq(sessionPacks.userId, users.id))
-      .leftJoin(instructors, eq(sessionPacks.mentorId, instructors.id))
+      .leftJoin(instructors, eq(sessionPacks.instructorId, instructors.id))
       .where(whereClause)
       .orderBy(desc(sessionPacks.createdAt))
       .limit(pageSize)
@@ -476,6 +482,7 @@ export async function getAdminMentees(
         userId: r.userId,
         email: r.email || "Unknown",
         mentorId: r.mentorId,
+        instructorId: r.instructorId,
         instructorName: r.instructorName || "Unknown",
         instructorSlug: r.instructorSlug,
         totalSessions: r.totalSessions,
@@ -738,8 +745,9 @@ export async function getAdminInstructors(
 
 export type AdminProductItem = {
   id: string;
-  mentorId: string;
-  mentorName: string | null;
+  mentorId: string | null;
+  instructorId: string | null;
+  instructorName: string | null;
   title: string;
   description: string | null;
   imageUrl: string | null;
@@ -765,7 +773,7 @@ export type AdminProductResult = {
 
 export async function getAdminProducts(
   search?: string,
-  mentorId?: string,
+  instructorId?: string,
   mentorshipType?: "one-on-one" | "group",
   active?: boolean,
   page: number = 1,
@@ -776,8 +784,8 @@ export async function getAdminProducts(
   return await db.transaction(async (tx) => {
     const conditions: any[] = [isNull(mentorshipProducts.deletedAt)];
 
-    if (mentorId) {
-      conditions.push(eq(mentorshipProducts.mentorId, mentorId));
+    if (instructorId) {
+      conditions.push(eq(mentorshipProducts.instructorId, instructorId));
     }
 
     if (mentorshipType) {
@@ -803,7 +811,7 @@ export async function getAdminProducts(
     const countResult = await tx
       .select({ count: sql<number>`count(*)` })
       .from(mentorshipProducts)
-      .leftJoin(instructors, eq(mentorshipProducts.mentorId, instructors.mentorId))
+      .leftJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
       .where(whereCondition);
 
     const total = Number(countResult[0]?.count || 0);
@@ -812,7 +820,8 @@ export async function getAdminProducts(
       .select({
         id: mentorshipProducts.id,
         mentorId: mentorshipProducts.mentorId,
-        mentorName: instructors.name,
+        instructorId: mentorshipProducts.instructorId,
+        instructorName: instructors.name,
         title: mentorshipProducts.title,
         description: mentorshipProducts.description,
         imageUrl: mentorshipProducts.imageUrl,
@@ -828,7 +837,7 @@ export async function getAdminProducts(
         createdAt: mentorshipProducts.createdAt,
       })
       .from(mentorshipProducts)
-      .leftJoin(instructors, eq(mentorshipProducts.mentorId, instructors.mentorId))
+      .leftJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
       .where(whereCondition)
       .orderBy(desc(mentorshipProducts.createdAt))
       .limit(pageSize)
@@ -838,7 +847,8 @@ export async function getAdminProducts(
       items: results.map(r => ({
         id: r.id,
         mentorId: r.mentorId,
-        mentorName: r.mentorName || "Unknown Instructor",
+        instructorId: r.instructorId,
+        instructorName: r.instructorName || "Unknown Instructor",
         title: r.title,
         description: r.description,
         imageUrl: r.imageUrl,

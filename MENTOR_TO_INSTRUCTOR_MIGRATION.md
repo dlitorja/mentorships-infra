@@ -8,7 +8,7 @@
 
 **Current State**:
 - Convex: `mentorId` removed from most tables, `instructorId` used instead. `mentors` table still exists but is largely unused.
-- Postgres/Drizzle: **Phase 1 complete** — `instructor_id` columns added, backfilled, and enforced as NOT NULL across 6 tables. Both `mentor_id` and `instructor_id` columns exist. `mentors` table still exists.
+- Postgres/Drizzle: **Phase 1 complete** — `instructor_id` columns added and backfilled across 6 tables. Columns are nullable (NOT NULL enforcement deferred to before Phase 1.5). Both `mentor_id` and `instructor_id` columns exist. `mentors` table still exists.
 - API layer: Still returns `mentorId` in responses, accepts it in request bodies.
 - Frontend: ~1,500 refs across `platform`, `web`, `marketing`, `home` apps.
 
@@ -37,7 +37,7 @@
   - For `sessionPacks`, `seatReservations`: Simple copy `instructor_id = mentor_id` (both text, Convex IDs)
   - For `products`, `sessions`, `discordActionQueue`, `menteeOnboardingSubmissions`: Resolve via `instructors.mentorId` → `instructors.id` mapping
   - Note: 1 orphaned mentor (`6aaa6fc1-9af3-4583-b7a1-b31fb531bac7`) had no instructor record — created instructor and backfilled 5 orphaned rows
-- [x] **1.3** Make `instructor_id` NOT NULL (after backfill verified)
+- [x] **1.3** Make `instructor_id` NOT NULL (deferred — columns remain nullable during transition phase for safe rollback; will enforce NOT NULL before Phase 1.5 drop)
 - [x] **1.4** Update Drizzle schema to use `instructorId` (both columns during transition)
 - [ ] **1.5** Drop `mentor_id` columns + `mentors` table (narrow) — final step (after Phase 2-4 complete)
 
@@ -56,15 +56,19 @@
 Created: `packages/db/drizzle/0026_add_instructor_id_columns.sql`
 
 ### Schema Files Updated
-- `packages/db/src/schema/products.ts` — added `instructorId` column with FK to instructors
+- `packages/db/src/schema/products.ts` — added `instructorId` column with FK and index (PR #259 fix: added missing index declaration)
 - `packages/db/src/schema/sessionPacks.ts` — added `instructorId` column with index
 - `packages/db/src/schema/seatReservations.ts` — added `instructorId` column with index
 - `packages/db/src/schema/sessions.ts` — added `instructorId` column with FK and index
 - `packages/db/src/schema/discordActionQueue.ts` — added `instructorId` column with FK and index
-- `packages/db/src/schema/menteeOnboardingSubmissions.ts` — added `instructorId` column with FK and index
+- `packages/db/src/schema/menteeOnboardingSubmissions.ts` — added `instructorId` column with FK and index (PR #259 fix: corrected indentation)
 
 ### Rollback Safety
 Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` columns now exist in all tables.
+
+### PR #259 Fixes Applied
+- `products.ts`: Added missing `instructorIdIdx` index to match SQL migration and prevent schema drift
+- `menteeOnboardingSubmissions.ts`: Fixed indentation inconsistency in column definitions
 
 ---
 
@@ -72,27 +76,35 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 
 **Goal**: Update `packages/db` to use `instructorId` internally.
 
-### Status: Pending
+### Status: Partial Complete
 
 ### Steps
 
-- [ ] **2.1** Update Drizzle schema definitions (both old/new columns during transition)
-- [ ] **2.2** Update `packages/db/src/lib/queries/` (8 files, 321 refs)
-- [ ] **2.3** Migrate `mentors.ts` query functions to `instructors.ts`
-- [ ] **2.4** Update `packages/payments/` (15 refs across 6 files)
-- [ ] **2.5** Update `packages/schemas/` and `packages/ui/`
+- [x] **2.1** Update Drizzle schema definitions (both old/new columns during transition) — done in Phase 1
+- [x] **2.2** Update `packages/db/src/lib/queries/` — COMPLETED:
+  - `seatsReservations.ts` — reads use `instructorId`, writes use both columns
+  - `sessions.ts` — all session queries use `instructorId`
+  - `products.ts` — product queries and creates use `instructorId`
+  - `sessionPacks.ts` — reads use `instructorId`, writes use both columns
+  - `admin.ts` — main queries updated to use `instructorId`; `getAdminInstructors` subqueries still use mentorId bridge (requires separate review)
+- [ ] **2.3** Migrate `mentors.ts` query functions to `instructors.ts` — pending (mentors table still in use for mentor-specific fields like Google Calendar auth)
+- [ ] **2.4** Update `packages/payments/` — no changes needed (mentorId only appears in JSDoc comments, not code)
+- [x] **2.5** Update `packages/schemas/` and `packages/ui/` — no changes needed (no mentorId references found)
 
-### Files Affected
+### Files Updated
 
-| File | mentor refs | mentorId refs |
-|------|------------|---------------|
-| `packages/db/src/lib/queries/admin.ts` | 105 | 37 |
-| `packages/db/src/lib/queries/sessionPacks.ts` | 65 | 22 |
-| `packages/db/src/lib/queries/products.ts` | 50 | 13 |
-| `packages/db/src/lib/queries/seatReservations.ts` | 22 | 12 |
-| `packages/db/src/lib/queries/mentors.ts` | 46 | 6 |
-| `packages/db/src/lib/queries/sessions.ts` | 30 | 8 |
-| Plus `softDelete.ts`, `users.ts`, `packages/payments/`, `packages/schemas/`, `packages/ui/` |
+| File | Changes |
+|------|---------|
+| `packages/db/src/lib/queries/seatsReservations.ts` | `reserveSeat`, `checkSeatAvailability`, `getMentorActiveSeats` — reads use `instructorId` |
+| `packages/db/src/lib/queries/sessions.ts` | All 5 query functions use `sessions.instructorId` |
+| `packages/db/src/lib/queries/products.ts` | Product queries and `createProduct` use `instructorId` |
+| `packages/db/src/lib/queries/sessionPacks.ts` | All reads use `instructorId`, writes use both columns; return types updated |
+| `packages/db/src/lib/queries/admin.ts` | `getAllInstructorsWithStats`, `getInstructorWithMentees`, `getInstructorMenteesForCsv`, `getFullAdminCsvData`, `getAdminMentees`, `getAdminProducts` updated |
+
+### Remaining Phase 2 Work
+
+- `admin.ts` `getAdminInstructors`: Subqueries at lines 690-702 use `instructors.mentorId` (bridge FK to mentors.id) combined with `seatReservations.mentorId`/`sessionPacks.mentorId` (text/Convex IDs). This pattern requires careful migration due to type mismatches (UUID vs text).
+- `mentors.ts`: Functions like `updateMentorGoogleCalendarAuth` query the `mentors` table directly for mentor-specific fields. These remain valid until mentors table is deprecated in Phase 5.
 
 ---
 

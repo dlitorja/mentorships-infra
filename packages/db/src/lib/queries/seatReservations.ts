@@ -18,7 +18,7 @@ const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
  * @returns Created seat reservation
  */
 export async function reserveSeat(
-  mentorId: string,
+  instructorId: string,
   userId: string,
   sessionPackId: string,
   seatExpiresAt: Date
@@ -30,7 +30,7 @@ export async function reserveSeat(
     .where(
       and(
         eq(seatReservations.sessionPackId, sessionPackId),
-        eq(seatReservations.mentorId, mentorId),
+        eq(seatReservations.instructorId, instructorId),
         eq(seatReservations.userId, userId)
       )
     )
@@ -62,7 +62,8 @@ export async function reserveSeat(
     .insert(seatReservations)
     .values({
       id: crypto.randomUUID(),
-      mentorId,
+      mentorId: instructorId,
+      instructorId,
       userId,
       sessionPackId,
       seatExpiresAt,
@@ -74,26 +75,26 @@ export async function reserveSeat(
 }
 
 /**
- * Check if a mentor has available seats
+ * Check if an instructor has available seats
  * 
- * @param mentorId - UUID of the mentor
+ * @param instructorId - UUID of the instructor
  * @returns Object with availability info
  */
-export async function checkSeatAvailability(mentorId: string): Promise<{
+export async function checkSeatAvailability(instructorId: string): Promise<{
   available: boolean;
   activeSeats: number;
   maxSeats: number;
   remainingSeats: number;
 }> {
-  // Get mentor's max active students
-  const [mentor] = await db
+  // Get instructor's max active students
+  const [instructor] = await db
     .select({ maxActiveStudents: mentors.maxActiveStudents })
     .from(mentors)
-    .where(eq(mentors.id, mentorId))
+    .where(eq(mentors.id, instructorId))
     .limit(1);
 
-  if (!mentor) {
-    throw new Error(`Mentor ${mentorId} not found`);
+  if (!instructor) {
+    throw new Error(`Instructor ${instructorId} not found`);
   }
 
   // Count active seats (active or grace status)
@@ -102,13 +103,13 @@ export async function checkSeatAvailability(mentorId: string): Promise<{
     .from(seatReservations)
     .where(
       and(
-        eq(seatReservations.mentorId, mentorId),
+        eq(seatReservations.instructorId, instructorId),
         inArray(seatReservations.status, ["active", "grace"])
       )
     );
 
   const activeSeats = Number(activeSeatsResult?.count ?? 0);
-  const maxSeats = mentor.maxActiveStudents;
+  const maxSeats = instructor.maxActiveStudents;
   const remainingSeats = Math.max(0, maxSeats - activeSeats);
 
   return {
@@ -333,18 +334,18 @@ export async function canUseSeatForBooking(seatId: string): Promise<boolean> {
 }
 
 /**
- * Get all active seats for a mentor
+ * Get all active seats for an instructor
  * 
- * @param mentorId - UUID of the mentor
+ * @param instructorId - UUID of the instructor
  * @returns Array of active seat reservations
  */
-export async function getMentorActiveSeats(mentorId: string) {
+export async function getMentorActiveSeats(instructorId: string) {
   const seats = await db
     .select()
     .from(seatReservations)
     .where(
       and(
-        eq(seatReservations.mentorId, mentorId),
+        eq(seatReservations.instructorId, instructorId),
         inArray(seatReservations.status, ["active", "grace"])
       )
     );

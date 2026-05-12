@@ -1,6 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentorshipProducts, mentors, sessionPacks, payments } from "../../schema";
+import { mentorshipProducts, mentors, instructors, sessionPacks, payments } from "../../schema";
 
 type Product = typeof mentorshipProducts.$inferSelect;
 type ProductWithMentor = Product & { mentor: typeof mentors.$inferSelect };
@@ -23,7 +23,8 @@ export async function getProductById(
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(eq(mentorshipProducts.id, productId))
     .limit(1);
 
@@ -31,10 +32,10 @@ export async function getProductById(
 }
 
 /**
- * Get active products by mentor ID
+ * Get active products by instructor ID
  */
 export async function getProductsByMentorId(
-  mentorId: string
+  instructorId: string
 ): Promise<ProductWithMentor[]> {
   const products = await db
     .select({
@@ -42,10 +43,11 @@ export async function getProductsByMentorId(
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(
       and(
-        eq(mentorshipProducts.mentorId, mentorId),
+        eq(mentorshipProducts.instructorId, instructorId),
         eq(mentorshipProducts.active, true)
       )
     );
@@ -60,7 +62,8 @@ export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(eq(mentorshipProducts.active, true));
 
   return products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor }));
@@ -106,7 +109,8 @@ export async function getAllActiveProductsPaginated(
       mentor: mentors,
     })
     .from(mentorshipProducts)
-    .innerJoin(mentors, eq(mentorshipProducts.mentorId, mentors.id))
+    .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
+    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
     .where(eq(mentorshipProducts.active, true))
     .limit(validatedPageSize)
     .offset(offset);
@@ -122,7 +126,7 @@ export async function getAllActiveProductsPaginated(
 /**
  * Create a mentorship product
  * 
- * @param mentorId - UUID of the mentor
+ * @param instructorId - UUID of the instructor
  * @param title - Product title
  * @param price - Price as string (e.g., "375.00")
  * @param stripePriceId - Stripe Price ID (optional)
@@ -133,7 +137,7 @@ export async function getAllActiveProductsPaginated(
  * @returns Created product
  */
 export async function createProduct(
-  mentorId: string,
+  instructorId: string,
   title: string,
   price: string,
   stripePriceId?: string,
@@ -145,7 +149,8 @@ export async function createProduct(
   const [product] = await db
     .insert(mentorshipProducts)
     .values({
-      mentorId,
+      mentorId: instructorId,
+      instructorId,
       title,
       price,
       stripePriceId,
@@ -196,28 +201,28 @@ export async function validateProductForPurchase(productId: string): Promise<{
 }
 
 /**
- * Get grandfathered price for a user-mentor combination
+ * Get grandfathered price for a user-instructor combination
  * 
- * Checks if the user has previously purchased from this mentor.
+ * Checks if the user has previously purchased from this instructor.
  * If yes, returns the product with the original price they paid.
  * This allows the student to repurchase at their original price.
  * 
  * @param userId - Clerk user ID
- * @param mentorId - Mentor/instructor ID
+ * @param instructorId - Instructor ID
  * @returns Product with original price if found, null if no prior purchase
  */
 export async function getGrandfatheredPrice(
   userId: string,
-  mentorId: string
+  instructorId: string
 ): Promise<{ hasPriorPurchase: boolean; originalPrice: string | null }> {
-  // Check for existing session pack with this mentor that's paid
+  // Check for existing session pack with this instructor that's paid
   const [existingPack] = await db
     .select()
     .from(sessionPacks)
     .where(
       and(
         eq(sessionPacks.userId, userId),
-        eq(sessionPacks.mentorId, mentorId),
+        eq(sessionPacks.instructorId, instructorId),
         eq(sessionPacks.status, "active")
       )
     )
