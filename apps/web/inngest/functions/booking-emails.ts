@@ -100,7 +100,7 @@ export const handleSessionBookingEmails = inngest.createFunction(
     }
 
     if (type === "booking_notification_instructor" && instructorUserEmail) {
-      const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId));
+      const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId || ""));
       const instructorTimeZone = instructorUser?.timeZone;
 
       const emailContent = buildInstructorNotificationEmail(
@@ -246,7 +246,7 @@ export const handleSessionCancellationEmails = inngest.createFunction(
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
-    const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId));
+    const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId || ""));
 
     const studentTimeZone = student?.timeZone;
     const instructorTimeZone = instructorUser?.timeZone;
