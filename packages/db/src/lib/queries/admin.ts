@@ -400,6 +400,7 @@ export type AdminMenteeItem = {
   id: string;
   userId: string;
   email: string;
+  mentorId: string | null;
   instructorId: string | null;
   instructorName: string | null;
   instructorSlug: string | null;
@@ -452,6 +453,7 @@ export async function getAdminMentees(
         id: sessionPacks.id,
         userId: sessionPacks.userId,
         email: users.email,
+        mentorId: sessionPacks.mentorId,
         instructorId: sessionPacks.instructorId,
         instructorName: instructors.name,
         instructorSlug: instructors.slug,
@@ -475,6 +477,7 @@ export async function getAdminMentees(
         id: r.id,
         userId: r.userId,
         email: r.email || "Unknown",
+        mentorId: r.mentorId,
         instructorId: r.instructorId,
         instructorName: r.instructorName || "Unknown",
         instructorSlug: r.instructorSlug,
@@ -738,6 +741,7 @@ export async function getAdminInstructors(
 
 export type AdminProductItem = {
   id: string;
+  mentorId: string | null;
   instructorId: string | null;
   instructorName: string | null;
   title: string;
@@ -811,6 +815,7 @@ export async function getAdminProducts(
     const results = await tx
       .select({
         id: mentorshipProducts.id,
+        mentorId: mentorshipProducts.mentorId,
         instructorId: mentorshipProducts.instructorId,
         instructorName: instructors.name,
         title: mentorshipProducts.title,
@@ -837,6 +842,7 @@ export async function getAdminProducts(
     return {
       items: results.map(r => ({
         id: r.id,
+        mentorId: r.mentorId,
         instructorId: r.instructorId,
         instructorName: r.instructorName || "Unknown Instructor",
         title: r.title,
