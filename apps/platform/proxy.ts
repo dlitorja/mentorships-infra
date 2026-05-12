@@ -4,7 +4,6 @@ import type { NextRequest } from "next/server";
 import { protectWithRateLimit, type RateLimitPolicy } from "@/lib/ratelimit";
 import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
-import { clerkClient } from "@clerk/nextjs/server";
 
 /**
  * Allowed origins for CSRF protection
