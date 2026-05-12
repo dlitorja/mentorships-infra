@@ -127,11 +127,19 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 
 ### Status: In Progress
 
+### Branch
+`feat/add-instructor-id-columns` (current)
+
+### Commits Made
+- `6b85721` — Phase 3 start: Convex http.ts and key API routes use instructorId
+- `3447d78` — Phase 3: Web admin products route accepts instructorId
+- `40ddad8` — docs: Update migration doc with Phase 3 progress
+
 ### Steps
 
 - [x] **3.1** Convex `http.ts`: ✅ DONE — Inventory endpoints accept both `instructorId` (preferred) and `mentorId` (deprecated). Seed function fixed to use single createInstructor with proper params.
-- [ ] **3.2** Platform API routes (~36 files) — partially done
-- [ ] **3.3** Web API routes (~36 files) — partially done
+- [ ] **3.2** Platform API routes (~36 files) — partially done (admin/instructors, admin/products)
+- [ ] **3.3** Web API routes (~36 files) — partially done (session-packs, admin/products)
 - [ ] **3.4** Marketing API routes (~5 files)
 - [ ] **3.5** Merge/remove `convex/mentors.ts` — deferred (file already marked deprecated, serves legacy migration purpose)
 
