@@ -1,10 +1,10 @@
 import { inngest } from "../client";
-import { getUserById, getMentorById, getSessionById, getSessionPackById } from "@mentorships/db";
+import { getUserById, getInstructorById, getSessionById, getSessionPackById } from "@mentorships/db";
 import { clerkClient } from "@clerk/nextjs/server";
 import { sendEmail } from "@/lib/email";
 import {
   buildBookingConfirmationEmail,
-  buildMentorNotificationEmail,
+  buildInstructorNotificationEmail,
   buildReminderEmail,
   buildCancellationEmail,
 } from "@/lib/emails/booking-email";
@@ -42,23 +42,23 @@ export const handleSessionBookingEmails = inngest.createFunction(
   },
   { event: "session/booking-email" },
   async ({ event, step }) => {
-    const { type, sessionId, sessionPackId, studentId, mentorId, scheduledAt } = event.data;
+    const { type, sessionId, sessionPackId, studentId, instructorId, scheduledAt } = event.data;
 
-    const [session, pack, mentor] = await Promise.all([
+    const [session, pack, instructor] = await Promise.all([
       step.run("get-session", () => getSessionById(sessionId)),
       step.run("get-pack", () => getSessionPackById(sessionPackId)),
-      step.run("get-mentor", () => getMentorById(mentorId)),
+      step.run("get-instructor", () => getInstructorById(instructorId)),
     ]);
 
-    if (!session || !pack || !mentor) {
-      throw new Error(`Missing session, pack, or mentor for booking email`);
+    if (!session || !pack || !instructor) {
+      throw new Error(`Missing session, pack, or instructor for booking email`);
     }
 
-    const [studentName, mentorName, studentEmail, mentorUserEmail] = await Promise.all([
+    const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-mentor-name", () => getClerkUserName(mentor.userId)),
+      step.run("get-instructor-name", () => getClerkUserName(instructor.userId)),
       step.run("get-student-email", () => getUserEmail(studentId)),
-      step.run("get-mentor-email", () => getUserEmail(mentor.userId)),
+      step.run("get-instructor-email", () => getUserEmail(instructor.userId)),
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
@@ -68,7 +68,7 @@ export const handleSessionBookingEmails = inngest.createFunction(
       const emailContent = buildBookingConfirmationEmail(
         event.data,
         studentName,
-        mentorName,
+        instructorName,
         studentTimeZone
       );
 
@@ -99,21 +99,21 @@ export const handleSessionBookingEmails = inngest.createFunction(
       });
     }
 
-    if (type === "booking_notification_mentor" && mentorUserEmail) {
-      const mentorUser = await step.run("get-mentor-user", () => getUserById(mentor.userId));
-      const mentorTimeZone = mentorUser?.timeZone;
+    if (type === "booking_notification_instructor" && instructorUserEmail) {
+      const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId));
+      const instructorTimeZone = instructorUser?.timeZone;
 
-      const emailContent = buildMentorNotificationEmail(
+      const emailContent = buildInstructorNotificationEmail(
         event.data,
-        mentorName,
+        instructorName,
         studentName,
         studentEmail || "Unknown",
-        mentorTimeZone
+        instructorTimeZone
       );
 
-      await step.run("send-mentor-notification", async () => {
+      await step.run("send-instructor-notification", async () => {
         const result = await sendEmail({
-          to: mentorUserEmail,
+          to: instructorUserEmail,
           subject: emailContent.subject,
           html: emailContent.html,
           text: emailContent.text,
@@ -123,16 +123,16 @@ export const handleSessionBookingEmails = inngest.createFunction(
         if (result.ok) {
           await reportInfo({
             source: "inngest/booking-emails",
-            message: "Booking notification sent to mentor",
-            context: { sessionId, mentorId, emailId: result.id },
+            message: "Booking notification sent to instructor",
+            context: { sessionId, instructorId, emailId: result.id },
           });
         } else {
           await reportError({
             source: "inngest/booking-emails",
             error: result,
             level: "error",
-            message: "Failed to send booking notification to mentor",
-            context: { sessionId, mentorId },
+            message: "Failed to send booking notification to instructor",
+            context: { sessionId, instructorId },
           });
         }
       });
@@ -150,7 +150,7 @@ export const handleSessionReminderEmails = inngest.createFunction(
   },
   { event: "session/reminder-email" },
   async ({ event, step }) => {
-    const { type, sessionId, sessionPackId, studentId, mentorId, scheduledAt } = event.data;
+    const { type, sessionId, sessionPackId, studentId, instructorId, scheduledAt } = event.data;
 
     const session = await step.run("get-session", () => getSessionById(sessionId));
 
@@ -164,15 +164,15 @@ export const handleSessionReminderEmails = inngest.createFunction(
     }
 
     const pack = await step.run("get-pack", () => getSessionPackById(sessionPackId));
-    const mentor = await step.run("get-mentor", () => getMentorById(mentorId));
+    const instructor = await step.run("get-instructor", () => getInstructorById(instructorId));
 
-    if (!pack || !mentor) {
-      throw new Error(`Missing pack or mentor for reminder email`);
+    if (!pack || !instructor) {
+      throw new Error(`Missing pack or instructor for reminder email`);
     }
 
-    const [studentName, mentorName, studentEmail] = await Promise.all([
+    const [studentName, instructorName, studentEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-mentor-name", () => getClerkUserName(mentor.userId)),
+      step.run("get-instructor-name", () => getClerkUserName(instructor.userId)),
       step.run("get-student-email", () => getUserEmail(studentId)),
     ]);
 
@@ -183,7 +183,7 @@ export const handleSessionReminderEmails = inngest.createFunction(
       const emailContent = buildReminderEmail(
         event.data,
         studentName,
-        mentorName,
+        instructorName,
         studentTimeZone
       );
 
@@ -226,31 +226,36 @@ export const handleSessionCancellationEmails = inngest.createFunction(
   },
   { event: "session/cancelled-email" },
   async ({ event, step }) => {
-    const { sessionId, sessionPackId, studentId, mentorId, scheduledAt, cancelledBy } = event.data;
+    const { sessionId, sessionPackId, studentId, instructorId, scheduledAt, cancelledBy } = event.data;
 
     const session = await step.run("get-session", () => getSessionById(sessionId));
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    const [studentName, mentorName, studentEmail, mentorUserEmail] = await Promise.all([
+    const instructor = await step.run("get-instructor", () => getInstructorById(instructorId));
+    if (!instructor) {
+      throw new Error(`Instructor not found: ${instructorId}`);
+    }
+
+    const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-mentor-name", () => getClerkUserName(mentorId)),
+      step.run("get-instructor-name", () => getClerkUserName(instructor.userId)),
       step.run("get-student-email", () => getUserEmail(studentId)),
-      step.run("get-mentor-email", () => getUserEmail(mentorId)),
+      step.run("get-instructor-email", () => getUserEmail(instructor.userId)),
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
-    const mentorUser = await step.run("get-mentor-user", () => getUserById(mentorId));
+    const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId));
 
     const studentTimeZone = student?.timeZone;
-    const mentorTimeZone = mentorUser?.timeZone;
+    const instructorTimeZone = instructorUser?.timeZone;
 
     if (studentEmail) {
       const emailContent = buildCancellationEmail(
         event.data,
         studentName,
-        mentorName,
+        instructorName,
         studentTimeZone,
         true
       );
@@ -274,18 +279,18 @@ export const handleSessionCancellationEmails = inngest.createFunction(
       });
     }
 
-    if (mentorUserEmail) {
+    if (instructorUserEmail) {
       const emailContent = buildCancellationEmail(
         event.data,
-        mentorName,
+        instructorName,
         studentName,
-        mentorTimeZone,
+        instructorTimeZone,
         false
       );
 
-      await step.run("send-mentor-cancellation", async () => {
+      await step.run("send-instructor-cancellation", async () => {
         const result = await sendEmail({
-          to: mentorUserEmail,
+          to: instructorUserEmail,
           subject: emailContent.subject,
           html: emailContent.html,
           text: emailContent.text,
@@ -295,8 +300,8 @@ export const handleSessionCancellationEmails = inngest.createFunction(
         if (result.ok) {
           await reportInfo({
             source: "inngest/booking-emails",
-            message: "Cancellation email sent to mentor",
-            context: { sessionId, mentorId, emailId: result.id },
+            message: "Cancellation email sent to instructor",
+            context: { sessionId, instructorId, emailId: result.id },
           });
         }
       });
@@ -338,7 +343,7 @@ export const scheduleSessionReminders = inngest.createFunction(
                 sessionId,
                 sessionPackId,
                 studentId: pack.userId,
-                mentorId: session24h.mentorId,
+                instructorId: session24h.instructorId,
                 scheduledAt,
               },
             });
@@ -364,7 +369,7 @@ export const scheduleSessionReminders = inngest.createFunction(
                 sessionId,
                 sessionPackId,
                 studentId: pack.userId,
-                mentorId: session1h.mentorId,
+                instructorId: session1h.instructorId,
                 scheduledAt,
               },
             });

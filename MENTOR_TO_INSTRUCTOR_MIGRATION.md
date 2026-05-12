@@ -212,25 +212,49 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 
 **Goal**: Update all frontend code.
 
-### Status: Pending
+### Status: 🔄 IN PROGRESS
 
-### Steps
+### Completed Work
 
-- [ ] **4.1** `apps/platform/` (517 refs, 71 mentorId)
-- [ ] **4.2** `apps/web/` (741 refs, 85 mentorId)
+**Inngest Event Types (both platforms):**
+- `apps/web/inngest/types.ts` — Updated `sessionBookingEmailEventSchema`, `sessionReminderEmailEventSchema`, `sessionCancelledEmailEventSchema` (mentorId → instructorId), `booking_notification_mentor` → `booking_notification_instructor`
+- `apps/platform/inngest/types.ts` — Same updates
+- `apps/web/inngest/functions/booking-emails.ts` — Updated to use `getInstructorById` instead of `getMentorById`, renamed function references (buildMentorNotificationEmail → buildInstructorNotificationEmail)
+- `apps/platform/lib/emails/booking-email.ts` — Renamed `buildMentorNotificationEmail` → `buildInstructorNotificationEmail`, updated parameter names (mentorName → instructorName, mentorTimeZone → instructorTimeZone)
+- `apps/web/lib/emails/booking-email.ts` — Same updates as platform
+
+**Product Form Components (both platforms):**
+- `apps/platform/app/admin/products/_components/product-form.tsx` — Type `Mentor` → `Instructor`, `mentorId` field → `instructorId`, props `mentors` → `instructors`, `isLoadingMentors` → `isLoadingInstructors`, UI labels "Mentor" → "Instructor"
+- `apps/web/app/admin/products/_components/product-form.tsx` — Same updates as platform
+
+**Admin Dashboard Pages (both platforms):**
+- `apps/platform/app/admin/page.tsx` — `InstructorWithStats.mentorId` → `instructorId`, state `expandedMentorId` → `expandedInstructorId`, API URLs updated
+- `apps/web/app/admin/page.tsx` — Same updates as platform
+
+**Instructor Edit Pages:**
+- `apps/platform/app/admin/instructors/[id]/edit/page.tsx` — `InstructorFormData.mentorId` → `instructorId`, response type updated, form field "Booking record" → "Instructor ID", conditional rendering updated
+
+### Remaining Work
+
+- [ ] **4.1** `apps/web/app/admin/instructors/[id]/edit/page.tsx` — Apply same changes as platform version
+- [ ] **4.2** `apps/web/` (741 refs, 85 mentorId) — Remaining web frontend files
 - [ ] **4.3** `apps/marketing/` (242 refs, 12 mentorId)
 - [ ] **4.4** `apps/home/` (31 refs, 0 mentorId — mostly display strings)
 
-### Key Files
+### Key Files Status
 
-| File | mentor refs | mentorId refs |
-|------|------------|---------------|
-| `app/admin/products/_components/product-form.tsx` (both platforms) | 120 | 24 |
-| `app/admin/page.tsx` (both platforms) | 42 | 32 |
-| `app/admin/instructors/[id]/edit/page.tsx` (both platforms) | 42 | 20 |
-| `lib/emails/booking-email.ts` (both platforms) | 48 | 0 |
-| `lib/instructors.ts` (marketing) | 40 | 0 |
-| `inngest/functions/booking-emails.ts` (web) | 46 | 13 |
+| File | Status | Notes |
+|------|--------|-------|
+| `app/admin/products/_components/product-form.tsx` (platform) | ✅ Complete | |
+| `app/admin/products/_components/product-form.tsx` (web) | ✅ Complete | |
+| `app/admin/page.tsx` (platform) | ✅ Complete | |
+| `app/admin/page.tsx` (web) | ✅ Complete | |
+| `app/admin/instructors/[id]/edit/page.tsx` (platform) | ✅ Complete | |
+| `app/admin/instructors/[id]/edit/page.tsx` (web) | 🔄 Pending | Apply same changes as platform |
+| `lib/emails/booking-email.ts` (platform) | ✅ Complete | |
+| `lib/emails/booking-email.ts` (web) | ✅ Complete | |
+| `inngest/functions/booking-emails.ts` (web) | ✅ Complete | |
+| `inngest/types.ts` (both platforms) | ✅ Complete | |
 
 ---
 

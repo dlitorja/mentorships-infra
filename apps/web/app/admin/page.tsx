@@ -26,7 +26,7 @@ type Stats = {
 };
 
 type InstructorWithStats = {
-  mentorId: string;
+  instructorId: string;
   userId: string;
   email: string;
   oneOnOneInventory: number;
@@ -202,7 +202,7 @@ function InstructorRow({
 export default function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [instructors, setInstructors] = useState<InstructorWithStats[]>([]);
-  const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
+  const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
   const [isAllExpanded, setIsAllExpanded] = useState(false);
   const [expandedMentees, setExpandedMentees] = useState<{ [key: string]: MenteeWithSessionInfo[] }>({});
   const [_loadingMentees, setLoadingMentees] = useState<string | null>(null);
@@ -241,28 +241,28 @@ export default function AdminDashboard() {
     fetchData();
   }, []);
 
-  const handleToggleExpand = async (mentorId: string) => {
+  const handleToggleExpand = async (instructorId: string) => {
     // If in "all expanded" mode, clicking a row toggles just that row
     if (isAllExpanded) {
-      setExpandedMentorId(expandedMentorId === mentorId ? null : mentorId);
+      setExpandedInstructorId(expandedInstructorId === instructorId ? null : instructorId);
       return;
     }
-    
+
     // Normal toggle behavior
-    if (expandedMentorId === mentorId) {
-      setExpandedMentorId(null);
+    if (expandedInstructorId === instructorId) {
+      setExpandedInstructorId(null);
       return;
     }
 
-    setExpandedMentorId(mentorId);
+    setExpandedInstructorId(instructorId);
 
-    if (!expandedMentees[mentorId]) {
-      setLoadingMentees(mentorId);
+    if (!expandedMentees[instructorId]) {
+      setLoadingMentees(instructorId);
       try {
-        const res = await fetch(`/api/admin/instructors/${mentorId}/mentees`);
+        const res = await fetch(`/api/admin/instructors/${instructorId}/mentees`);
         const data = await res.json();
         if (data.mentees) {
-          setExpandedMentees((prev) => ({ ...prev, [mentorId]: data.mentees }));
+          setExpandedMentees((prev) => ({ ...prev, [instructorId]: data.mentees }));
         }
       } catch (error) {
         console.error("Error loading mentees:", error);
@@ -276,12 +276,12 @@ export default function AdminDashboard() {
     setIsAllExpanded(true);
     // Load all mentees for all instructors
     for (const instructor of instructors) {
-      if (!expandedMentees[instructor.mentorId]) {
+      if (!expandedMentees[instructor.instructorId]) {
         try {
-          const res = await fetch(`/api/admin/instructors/${instructor.mentorId}/mentees`);
+          const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/mentees`);
           const data = await res.json();
           if (data.mentees) {
-            setExpandedMentees((prev) => ({ ...prev, [instructor.mentorId]: data.mentees }));
+            setExpandedMentees((prev) => ({ ...prev, [instructor.instructorId]: data.mentees }));
           }
         } catch (error) {
           console.error("Error loading mentees:", error);
@@ -292,7 +292,7 @@ export default function AdminDashboard() {
 
   const collapseAll = () => {
     setIsAllExpanded(false);
-    setExpandedMentorId(null);
+    setExpandedInstructorId(null);
   };
 
   if (loading) {
@@ -432,11 +432,11 @@ export default function AdminDashboard() {
               >
                 Expand All
               </Button>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 size="sm"
                 onClick={collapseAll}
-                disabled={!expandedMentorId}
+                disabled={!expandedInstructorId && !isAllExpanded}
               >
                 Collapse All
               </Button>
@@ -465,11 +465,11 @@ export default function AdminDashboard() {
                   <tbody>
                     {instructors.map((instructor) => (
                       <InstructorRow
-                        key={instructor.mentorId}
+                        key={instructor.instructorId}
                         instructor={instructor}
-                        isExpanded={isAllExpanded || expandedMentorId === instructor.mentorId}
-                        onToggle={() => handleToggleExpand(instructor.mentorId)}
-                        mentees={expandedMentees[instructor.mentorId] || null}
+                        isExpanded={isAllExpanded || expandedInstructorId === instructor.instructorId}
+                        onToggle={() => handleToggleExpand(instructor.instructorId)}
+                        mentees={expandedMentees[instructor.instructorId] || null}
                       />
                     ))}
                   </tbody>

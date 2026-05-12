@@ -26,14 +26,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, CheckCircle2, XCircle, ExternalLink, CreditCard, Wallet } from "lucide-react";
 import { createProduct, createProductFromStripe, updateProduct, type MentorshipType } from "@/lib/queries/api-client";
 
-type Mentor = {
+type Instructor = {
   id: string;
   email: string | null;
 };
 
 type ProductData = {
   id?: string;
-  mentorId: string;
+  instructorId: string;
   title: string;
   description?: string;
   imageUrl?: string;
@@ -50,8 +50,8 @@ type ProductFormProps = {
   mode: "create" | "edit";
   initialData?: ProductData;
   productId?: string;
-  mentors: Mentor[];
-  isLoadingMentors: boolean;
+  instructors: Instructor[];
+  isLoadingInstructors: boolean;
 };
 
 type ProductUpdateResult = {
@@ -87,8 +87,8 @@ export function ProductForm({
   mode,
   initialData,
   productId,
-  mentors,
-  isLoadingMentors,
+  instructors,
+  isLoadingInstructors,
 }: ProductFormProps) {
   const [activeTab, setActiveTab] = useState(mode === "create" ? "create-new" : "edit");
   const [result, setResult] = useState<ProductUpdateResult | null>(null);
@@ -154,11 +154,11 @@ export function ProductForm({
   });
 
   const importFromStripeMutation = useMutation({
-    mutationFn: async (data: { productId?: string; priceId?: string; enablePayPal?: boolean; mentorId?: string }) => {
+    mutationFn: async (data: { productId?: string; priceId?: string; enablePayPal?: boolean; instructorId?: string }) => {
       await createProductFromStripe({
         productId: data.productId,
         priceId: data.priceId,
-        mentorId: data.mentorId,
+        instructorId: data.instructorId,
       });
     },
     onSuccess: () => {
@@ -185,7 +185,7 @@ export function ProductForm({
     updateProductMutation.mutate(values);
   };
 
-  const handleImportSubmit = (values: { productId?: string; priceId?: string; enablePayPal?: boolean; mentorId?: string }) => {
+  const handleImportSubmit = (values: { productId?: string; priceId?: string; enablePayPal?: boolean; instructorId?: string }) => {
     setResult(null);
     importFromStripeMutation.mutate(values);
   };
@@ -219,8 +219,8 @@ export function ProductForm({
 
           <TabsContent value="create-new">
             <ProductFieldsForm
-              mentors={mentors}
-              isLoadingMentors={isLoadingMentors}
+              instructors={instructors}
+              isLoadingInstructors={isLoadingInstructors}
               isSubmitting={mode === "create" ? createProductMutation.isPending : updateProductMutation.isPending}
               onSubmit={mode === "create" ? handleCreateSubmit : handleUpdateSubmit}
               initialData={initialData}
@@ -230,8 +230,8 @@ export function ProductForm({
 
           <TabsContent value="import-stripe">
             <ImportFromStripeForm
-              mentors={mentors}
-              isLoadingMentors={isLoadingMentors}
+              instructors={instructors}
+              isLoadingInstructors={isLoadingInstructors}
               isSubmitting={importFromStripeMutation.isPending}
               onSubmit={handleImportSubmit}
             />
@@ -402,8 +402,8 @@ export function ProductForm({
 }
 
 type ProductFieldsFormProps = {
-  mentors: Mentor[];
-  isLoadingMentors: boolean;
+  instructors: Instructor[];
+  isLoadingInstructors: boolean;
   isSubmitting: boolean;
   onSubmit: (values: ProductData) => void;
   initialData?: ProductData;
@@ -411,8 +411,8 @@ type ProductFieldsFormProps = {
 };
 
 function ProductFieldsForm({
-  mentors,
-  isLoadingMentors,
+  instructors,
+  isLoadingInstructors,
   isSubmitting,
   onSubmit,
   initialData,
@@ -420,7 +420,7 @@ function ProductFieldsForm({
 }: ProductFieldsFormProps) {
   const form = useForm({
     defaultValues: {
-      mentorId: initialData?.mentorId || "",
+      instructorId: initialData?.instructorId || "",
       title: initialData?.title || "",
       description: initialData?.description || "",
       imageUrl: initialData?.imageUrl || "",
@@ -434,7 +434,7 @@ function ProductFieldsForm({
     },
     onSubmit: async ({ value }) => {
       onSubmit({
-        mentorId: value.mentorId,
+        instructorId: value.instructorId,
         title: value.title,
         description: value.description || undefined,
         imageUrl: value.imageUrl || undefined,
@@ -469,22 +469,22 @@ function ProductFieldsForm({
           className="space-y-6"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <form.Field name="mentorId">
+            <form.Field name="instructorId">
               {(field) => (
                 <div className="space-y-2">
-                  <Label htmlFor={field.name}>Mentor *</Label>
+                  <Label htmlFor={field.name}>Instructor *</Label>
                   <Select
                     value={field.state.value}
                     onValueChange={field.handleChange}
-                    disabled={isLoadingMentors}
+                    disabled={isLoadingInstructors}
                   >
                     <SelectTrigger id={field.name}>
-                      <SelectValue placeholder="Select a mentor" />
+                      <SelectValue placeholder="Select an instructor" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mentors.map((mentor) => (
-                        <SelectItem key={mentor.id} value={mentor.id}>
-                          {mentor.email || mentor.id}
+                      {instructors.map((instructor) => (
+                        <SelectItem key={instructor.id} value={instructor.id}>
+                          {instructor.email || instructor.id}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -670,8 +670,8 @@ function ProductFieldsForm({
               type="submit"
               disabled={
                 isSubmitting ||
-                isLoadingMentors ||
-                !form.state.values.mentorId ||
+                isLoadingInstructors ||
+                !form.state.values.instructorId ||
                 !form.state.values.title ||
                 !form.state.values.price
               }
@@ -695,15 +695,15 @@ function ProductFieldsForm({
 }
 
 type ImportFromStripeFormProps = {
-  mentors: Mentor[];
-  isLoadingMentors: boolean;
+  instructors: Instructor[];
+  isLoadingInstructors: boolean;
   isSubmitting: boolean;
-  onSubmit: (values: { productId?: string; priceId?: string; enablePayPal?: boolean; mentorId?: string }) => void;
+  onSubmit: (values: { productId?: string; priceId?: string; enablePayPal?: boolean; instructorId?: string }) => void;
 };
 
 function ImportFromStripeForm({
-  mentors,
-  isLoadingMentors,
+  instructors,
+  isLoadingInstructors,
   isSubmitting,
   onSubmit,
 }: ImportFromStripeFormProps) {
@@ -712,14 +712,14 @@ function ImportFromStripeForm({
       productId: "",
       priceId: "",
       enablePayPal: false,
-      mentorId: "__unassigned__",
+      instructorId: "__unassigned__",
     },
     onSubmit: async ({ value }) => {
       onSubmit({
         productId: value.productId.trim() || undefined,
         priceId: value.priceId.trim() || undefined,
         enablePayPal: value.enablePayPal,
-        mentorId: value.mentorId === "__unassigned__" ? undefined : value.mentorId || undefined,
+        instructorId: value.instructorId === "__unassigned__" ? undefined : value.instructorId || undefined,
       });
     },
   });
@@ -743,23 +743,23 @@ function ImportFromStripeForm({
           }}
           className="space-y-6"
         >
-          <form.Field name="mentorId">
+          <form.Field name="instructorId">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor={field.name}>Assign to Mentor (optional)</Label>
+                <Label htmlFor={field.name}>Assign to Instructor (optional)</Label>
                 <Select
                   value={field.state.value}
                   onValueChange={field.handleChange}
-                  disabled={isLoadingMentors}
+                  disabled={isLoadingInstructors}
                 >
                   <SelectTrigger id={field.name}>
-                    <SelectValue placeholder="Select a mentor (optional)" />
+                    <SelectValue placeholder="Select an instructor (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__unassigned__">No mentor assigned</SelectItem>
-                    {mentors.map((mentor) => (
-                      <SelectItem key={mentor.id} value={mentor.id}>
-                        {mentor.email || mentor.id}
+                    <SelectItem value="__unassigned__">No instructor assigned</SelectItem>
+                    {instructors.map((instructor) => (
+                      <SelectItem key={instructor.id} value={instructor.id}>
+                        {instructor.email || instructor.id}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -825,7 +825,7 @@ function ImportFromStripeForm({
               type="submit"
               disabled={
                 isSubmitting ||
-                isLoadingMentors ||
+                isLoadingInstructors ||
                 !hasAtLeastOneField
               }
             >
