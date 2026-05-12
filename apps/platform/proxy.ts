@@ -225,24 +225,10 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
 
   if (userId) {
     try {
-      const convex = getConvexClient();
-      const convexToken = await authResult.getToken({ template: "convex" });
-      if (convexToken) {
-        convex.setAuth(convexToken);
-      }
-      const convexUser = await convex.query(api.users.getUserByClerkId, { userId });
-      userRole = convexUser?.role;
-    } catch (error) {
-      console.warn("Failed to fetch user role from Convex:", error);
-    }
-
-    if (!userRole) {
-      try {
-        const clerkUser = await clerkClient().users.getUser(userId);
-        userRole = clerkUser.publicMetadata?.role as string | undefined;
-      } catch (clerkError) {
-        console.warn("Failed to fetch user role from Clerk API:", clerkError);
-      }
+      const clerkUser = await clerkClient().users.getUser(userId);
+      userRole = clerkUser.publicMetadata?.role as string | undefined;
+    } catch (clerkError) {
+      console.warn("Failed to fetch user role from Clerk API:", clerkError);
     }
   }
 
