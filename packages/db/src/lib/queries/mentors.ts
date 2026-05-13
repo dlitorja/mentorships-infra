@@ -4,20 +4,11 @@ import { mentors, users } from "../../schema";
 import type { MentorWorkingHours } from "../../schema/mentors";
 import { encrypt, decrypt } from "../encryption";
 
-/**
- * Get instructor record by Clerk user ID
- */
-export async function getInstructorByUserId(userId: string) {
-  const [mentor] = await db
-    .select()
-    .from(mentors)
-    .where(eq(mentors.userId, userId))
-    .limit(1);
+import { getInstructorByUserId } from "./instructors";
 
-  return mentor || null;
-}
+export { getInstructorByUserId };
 
-/** @deprecated Use getInstructorByUserId instead */
+/** @deprecated Use getInstructorByUserId from "./instructors" instead */
 export const getMentorByUserId = getInstructorByUserId;
 
 /**
