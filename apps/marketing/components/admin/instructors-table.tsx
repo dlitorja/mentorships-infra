@@ -8,16 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
 type InstructorWithStats = {
-  instructorId: string;
-  userId: string | null;
-  email: string | null;
+  mentorId: string;
+  userId: string;
+  email: string;
   bio: string | null;
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
   activeMenteeCount: number;
   totalCompletedSessions: number;
-  createdAt: number;
+  createdAt: string;
 };
 
 type MenteeWithSessionInfo = {
@@ -231,7 +231,7 @@ function InstructorRow({
   useEffect(() => {
     if (isExpanded && !expandedMentees && !loading) {
       setLoading(true);
-      fetch(`/api/admin/instructors/${instructor.instructorId}/mentees`)
+      fetch(`/api/admin/instructors/${instructor.mentorId}/mentees`)
         .then((res) => res.json())
         .then((data) => {
           if (data.mentees) {
@@ -247,7 +247,7 @@ function InstructorRow({
     } else if (expandedMentees) {
       setMentees(expandedMentees.mentees);
     }
-  }, [isExpanded, instructor.instructorId, loading, expandedMentees]);
+  }, [isExpanded, instructor.mentorId, loading, expandedMentees]);
 
   const displayMentees = expandedMentees?.mentees || mentees;
 
@@ -338,8 +338,8 @@ export function InstructorsTable({
   const [page, setPage] = useState(initialPage);
   const [search, setSearch] = useState(initialSearch);
   const [searchInput, setSearchInput] = useState(initialSearch);
-  const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
-  const [expandedMenteeData, setExpandedMenteeData] = useState<InstructorWithMentees | null>(null);
+  const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
+  const [expandedMentees, setExpandedMentees] = useState<InstructorWithMentees | null>(null);
   const [loading, setLoading] = useState(false);
 
   const pageSize = 50;
@@ -392,21 +392,21 @@ export function InstructorsTable({
     router.push(`/admin/instructors?${params.toString()}`);
   };
 
-  const handleToggleExpand = async (instructorId: string) => {
-    if (expandedInstructorId === instructorId) {
-      setExpandedInstructorId(null);
-      setExpandedMenteeData(null);
+  const handleToggleExpand = async (mentorId: string) => {
+    if (expandedMentorId === mentorId) {
+      setExpandedMentorId(null);
+      setExpandedMentees(null);
       return;
     }
 
-    setExpandedInstructorId(instructorId);
-    setExpandedMenteeData(null);
+    setExpandedMentorId(mentorId);
+    setExpandedMentees(null);
 
     try {
-      const res = await fetch(`/api/admin/instructors/${instructorId}/mentees`);
+      const res = await fetch(`/api/admin/instructors/${mentorId}/mentees`);
       const data = await res.json();
       if (data.mentees) {
-        setExpandedMenteeData(data);
+        setExpandedMentees(data);
       }
     } catch (error) {
       console.error("Error loading mentees:", error);
@@ -487,11 +487,11 @@ export function InstructorsTable({
             ) : (
               instructors.map((instructor) => (
                 <InstructorRow
-                  key={instructor.instructorId}
+                  key={instructor.mentorId}
                   instructor={instructor}
-                  isExpanded={expandedInstructorId === instructor.instructorId}
-                  onToggle={() => handleToggleExpand(instructor.instructorId)}
-                  expandedMentees={expandedMenteeData?.instructorId === instructor.instructorId ? expandedMenteeData : null}
+                  isExpanded={expandedMentorId === instructor.mentorId}
+                  onToggle={() => handleToggleExpand(instructor.mentorId)}
+                  expandedMentees={expandedMentees?.mentorId === instructor.mentorId ? expandedMentees : null}
                 />
               ))
             )}
