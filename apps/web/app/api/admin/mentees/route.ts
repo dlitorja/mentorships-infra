@@ -68,7 +68,6 @@ export async function GET(req: NextRequest) {
           email: m.email || "Unknown",
           firstName: clerkUser?.firstName ?? null,
           lastName: clerkUser?.lastName ?? null,
-          mentorId: m.mentorId,
           instructorName: m.instructorName || "Unknown",
           instructorSlug: m.instructorSlug,
           totalSessions: m.totalSessions,

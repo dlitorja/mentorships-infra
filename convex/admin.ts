@@ -21,6 +21,20 @@ type InstructorWithEmail = {
   createdAt: number | null;
 };
 
+type InstructorForAdmin = {
+  id: Id<"instructors">;
+  name: string | null;
+  slug: string | null;
+  email: string | null;
+  userId: string | null;
+  bio: string | null;
+  profileImageUrl: string | null;
+  isActive: boolean;
+  createdAt: number;
+  activeMenteeCount: number;
+  totalCompletedSessions: number;
+};
+
 export const getAllInstructors = query({
   args: {},
   handler: async (ctx) => {
@@ -54,6 +68,71 @@ export const getAllInstructors = query({
     );
 
     return results.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+  },
+});
+
+export const getInstructorsForAdmin = query({
+  args: {
+    search: v.optional(v.string()),
+    page: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { items: [], total: 0, page: 1, pageSize: 50 };
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) return { items: [], total: 0, page: 1, pageSize: 50 };
+
+    let instructors = await ctx.db.query("instructors").collect();
+
+    if (args.search) {
+      const searchLower = args.search.toLowerCase();
+      instructors = instructors.filter(i => {
+        const nameMatch = i.name?.toLowerCase().includes(searchLower);
+        const emailMatch = i.email?.toLowerCase().includes(searchLower);
+        const slugMatch = i.slug?.toLowerCase().includes(searchLower);
+        return nameMatch || emailMatch || slugMatch;
+      });
+    }
+
+    const total = instructors.length;
+
+    const page = args.page ?? 1;
+    const pageSize = args.pageSize ?? 50;
+    const offset = (page - 1) * pageSize;
+
+    const sortedInstructors = instructors
+      .sort((a, b) => b._creationTime - a._creationTime)
+      .slice(offset, offset + pageSize);
+
+    const seatReservations = await ctx.db.query("seatReservations").collect();
+    const sessions = await ctx.db.query("sessions").collect();
+
+    const results: InstructorForAdmin[] = sortedInstructors.map(instructor => {
+      const activeMenteeCount = seatReservations.filter(
+        sr => sr.instructorId === instructor._id && sr.status === "active"
+      ).length;
+
+      const totalCompletedSessions = sessions.filter(
+        s => s.instructorId === instructor._id && s.status === "completed"
+      ).length;
+
+      return {
+        id: instructor._id,
+        name: instructor.name ?? null,
+        slug: instructor.slug ?? null,
+        email: instructor.email ?? null,
+        userId: instructor.userId ?? null,
+        bio: instructor.bio ?? null,
+        profileImageUrl: instructor.profileImageUrl ?? null,
+        isActive: instructor.isActive ?? true,
+        createdAt: instructor._creationTime,
+        activeMenteeCount,
+        totalCompletedSessions,
+      };
+    });
+
+    return { items: results, total, page, pageSize };
   },
 });
 

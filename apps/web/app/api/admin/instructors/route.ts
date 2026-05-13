@@ -5,7 +5,6 @@ import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
 import { requireRoleForApi } from "@/lib/auth-helpers";
-import { getAdminInstructors } from "@mentorships/db";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -69,14 +68,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { search, includeInactive, page, pageSize } = parsedQuery.data;
+    const { search, page, pageSize } = parsedQuery.data;
 
-    const result = await getAdminInstructors(
-      search || undefined,
-      includeInactive,
+    const convex = getConvexClient();
+    const result = await convex.query(api.admin.getInstructorsForAdmin, {
+      search: search || undefined,
       page,
-      pageSize
-    );
+      pageSize,
+    });
 
     return NextResponse.json({
       items: result.items.map((inst) => ({
@@ -86,13 +85,15 @@ export async function GET(req: NextRequest) {
         slug: inst.slug,
         email: inst.email,
         userId: inst.userId,
-        tagline: inst.tagline,
-        specialties: inst.specialties,
-        background: inst.background,
+        tagline: null,
+        specialties: [],
+        background: [],
         profileImageUrl: inst.profileImageUrl,
         isActive: inst.isActive,
         instructorId: inst.id,
         createdAt: new Date(inst.createdAt).toISOString(),
+        activeMenteeCount: inst.activeMenteeCount,
+        totalCompletedSessions: inst.totalCompletedSessions,
       })),
       total: result.total,
       page: result.page,

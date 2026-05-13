@@ -32,7 +32,6 @@ export async function createSessionPack(
     .values({
       id: crypto.randomUUID(),
       userId,
-      mentorId: instructorId,
       instructorId,
       paymentId,
       expiresAt,
@@ -64,7 +63,6 @@ export async function createSessionPackWithoutPayment(
     .values({
       id: crypto.randomUUID(),
       userId,
-      mentorId: instructorId,
       instructorId,
       paymentId: crypto.randomUUID() as any,
       expiresAt: null,
@@ -126,10 +124,6 @@ export async function createInstructorMenteeAssociations(
           eq(sessionPacks.instructorId, instructor[0].id),
         ];
 
-        if (instructor[0].mentorId !== null) {
-          conditions.push(eq(sessionPacks.mentorId, instructor[0].mentorId));
-        }
-
         const existingPack = await tx
           .select()
           .from(sessionPacks)
@@ -146,7 +140,6 @@ export async function createInstructorMenteeAssociations(
           .values({
             id: crypto.randomUUID(),
             userId: menteeUserId,
-            mentorId: instructor[0].id,
             instructorId: instructor[0].id,
             paymentId: crypto.randomUUID() as any,
             expiresAt: null,

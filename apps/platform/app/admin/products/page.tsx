@@ -16,16 +16,22 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type Mentor = {
+type InstructorOption = {
   id: string;
-  userId: string;
+  userId: string | null;
   email: string | null;
 };
 
-const mentorSchema = z.object({
+const instructorOptionSchema = z.object({
   id: z.string(),
-  userId: z.string(),
+  userId: z.string().nullable(),
   email: z.string().nullable(),
+  name: z.string().nullable(),
+  slug: z.string().nullable(),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+  activeMenteeCount: z.number(),
+  totalCompletedSessions: z.number(),
 });
 
 type ProductInfo = {
@@ -78,7 +84,7 @@ const productsResponseSchema = z.object({
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductInfo[]>([]);
-  const [mentors, setMentors] = useState<Mentor[]>([]);
+  const [instructors, setInstructors] = useState<InstructorOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,21 +102,21 @@ export default function ProductsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const fetchMentors = async () => {
+  const fetchInstructors = async () => {
     try {
-      const res = await fetch("/api/admin/instructors/mentors");
+      const res = await fetch("/api/admin/instructors?pageSize=100");
       const json = await res.json();
-      const parsed = mentorSchema.array().safeParse(json.items);
+      const parsed = instructorOptionSchema.array().safeParse(json.items);
       if (res.ok && parsed.success) {
-        setMentors(parsed.data);
+        setInstructors(parsed.data);
       }
     } catch (err) {
-      console.error("Error fetching mentors:", err);
+      console.error("Error fetching instructors:", err);
     }
   };
 
   useEffect(() => {
-    fetchMentors();
+    fetchInstructors();
   }, []);
 
   const fetchProducts = async () => {
@@ -317,10 +323,10 @@ export default function ProductsPage() {
               }}
               className="p-2 border rounded-md"
             >
-              <option value="">All Mentors</option>
-              {mentors.map((mentor) => (
-                <option key={mentor.id} value={mentor.id}>
-                  {mentor.email || mentor.userId.slice(0, 8) + "..."}
+              <option value="">All Instructors</option>
+              {instructors.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>
+                  {instructor.email || (instructor.userId ? instructor.userId.slice(0, 8) + "..." : "No email")}
                 </option>
               ))}
             </select>

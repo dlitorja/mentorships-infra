@@ -320,12 +320,14 @@ export async function createProduct(data: {
 
 const MentorSchema = z.object({
   id: z.string(),
-  userId: z.string(),
+  userId: z.string().nullable(),
   email: z.string().nullable(),
-  maxActiveStudents: z.number(),
-  oneOnOneInventory: z.number(),
-  groupInventory: z.number(),
-  createdAt: z.string().nullable(),
+  name: z.string().nullable(),
+  slug: z.string().nullable(),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+  activeMenteeCount: z.number(),
+  totalCompletedSessions: z.number(),
 });
 
 const FetchMentorsResponseSchema = z.object({
@@ -335,10 +337,10 @@ const FetchMentorsResponseSchema = z.object({
 type FetchMentorsResponse = z.infer<typeof FetchMentorsResponseSchema>;
 
 /**
- * Fetch all mentors for admin
+ * Fetch all instructors for admin dropdown
  */
 export async function fetchMentors(): Promise<FetchMentorsResponse> {
-  const data = await apiFetch<unknown>("/api/admin/instructors/mentors");
+  const data = await apiFetch<unknown>("/api/admin/instructors?pageSize=100");
   return FetchMentorsResponseSchema.parse(data);
 }
 

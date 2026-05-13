@@ -217,12 +217,80 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 
 **Goal**: Update all frontend code.
 
-### Status: Pending
+### Status: In Progress
+
+### Branch
+`feat/add-instructor-id-columns` (current)
+
+### PR Status
+- **PR #262**: Phase 4 frontend changes merged ✅
+- **PR #263**: Phase 4 continuation - sessionPacks.mentorId → instructorId migration
+  - CI status: All green (Vercel web & platform passing)
+  - Merge conflicts resolved (took our version for products create pages and booking-emails)
+  - Note: Marketing app changes reverted - no Convex setup, kept Postgres approach
+
+### Commits Made (PR #263)
+- Phase 4: Update Inngest types to use instructorId
+- Phase 4: Update booking emails to use instructorId
+- Phase 4: Update product form to use instructorId
+- Phase 4: Update admin products pages to use instructorId
+
+### Completed Changes
+
+**Inngest types (`inngest/types.ts`):**
+- `BookingEmailPayload`, `BookingEmailPayloadV2`, `InstructorBookingEmailPayload`: `mentorId` → `instructorId`
+
+**Booking emails (`inngest/functions/booking-emails.ts`):**
+- `sendBookingConfirmationEmails`: Uses `payload.instructorId`, fetches instructor via `instructorId`
+- `sendBookingConfirmationEmailsV2`: Uses `payload.instructorId`, fetches instructor via `instructorId`
+- `sendInstructorBookingConfirmationEmails`: Uses `payload.instructorId`, fetches instructor via `instructorId`
+
+**Product forms (`app/admin/products/_components/product-form.tsx`):**
+- Both `platform` and `web` versions updated to use `instructorId` prop and `instructors` data
+- `mentorId` → `instructorId` in schema, state, API calls, and display labels
+
+**Product pages:**
+- `apps/platform/app/admin/products/create/page.tsx`: Uses `/api/admin/instructors` endpoint, passes `{id, email}` mapped data as `instructors` prop
+- `apps/platform/app/admin/products/[id]/edit/page.tsx`: Uses `/api/admin/instructors` endpoint, `instructorId` in schema
+- `apps/web/app/admin/products/create/page.tsx`: Same fixes as platform version
+- `apps/web/app/admin/products/[id]/edit/page.tsx`: Same fixes as platform version
+
+**API client (`lib/queries/api-client.ts`):**
+- `createProduct`, `updateProduct`, `createProductFromStripe`: `mentorId` → `instructorId`
+- `UpdateProductResponseSchema`: Uses `instructorId`
+
+### PR #263 Additional Completed Changes
+
+**Admin instructor list (Convex):**
+- Added `getInstructorsForAdmin` query in `convex/admin.ts` with `activeMenteeCount` and `totalCompletedSessions` computed on read
+- `apps/web/app/api/admin/instructors/route.ts`: Now proxies Convex query (removed Postgres dependency)
+- `apps/platform/app/api/admin/instructors/route.ts`: Same Convex proxy approach
+- `apps/marketing/app/api/admin/instructors/route.ts`: Reverted to Postgres approach (no Convex setup in marketing)
+
+**Admin instructor endpoints:**
+- Deleted `apps/web/app/api/admin/instructors/mentors/route.ts`
+- Deleted `apps/platform/app/api/admin/instructors/mentors/route.ts`
+- Callers updated to use `/api/admin/instructors` which uses Convex
+
+**Session packs (`sessionPacks.mentorId` → `sessionPacks.instructorId`):**
+- Schema: `packages/db/src/schema/sessionPacks.ts` - `mentorId` column renamed to `instructorId` (NOT NULL)
+- Query: `packages/db/src/lib/queries/sessionPacks.ts` - removed `mentorId` from insert values
+- Admin queries: `packages/db/src/lib/queries/admin.ts` - fixed `totalCompletedSessions` SQL to use `instructorId`
+- Inngest sync: `apps/web/inngest/functions/sync.ts` - `sessionPack.mentorId` → `sessionPack.instructorId`
+- Calendar pages: `apps/web/app/calendar/page.tsx` and `apps/platform/app/calendar/page.tsx` - `sessionPacks.mentorId` → `instructorId`
+- Session booking: `apps/web/app/api/sessions/route.ts` - gets instructor first, then mentor via `instructor.mentorId`
+- Onboarding submit: `apps/web/app/api/onboarding/submit/route.ts` - same instructor→mentor lookup pattern
+- Session counts: `apps/marketing/app/api/admin/session-counts/route.ts` - authorization uses `instructorId`
+- Migration script: `scripts/migrate-to-convex/06-migrate-session-packs.ts` - updated interface and field mapping
+
+**Admin mentees:**
+- `packages/db/src/lib/queries/admin.ts` - removed `mentorId` from `getAdminMentees` select and type
+- `apps/web/app/api/admin/mentees/route.ts` - removed `mentorId` from response mapping
 
 ### Steps
 
-- [ ] **4.1** `apps/platform/` (517 refs, 71 mentorId)
-- [ ] **4.2** `apps/web/` (741 refs, 85 mentorId)
+- [x] **4.1** `apps/platform/` — largely complete via PR #262
+- [x] **4.2** `apps/web/` — largely complete via PR #262
 - [ ] **4.3** `apps/marketing/` (242 refs, 12 mentorId)
 - [ ] **4.4** `apps/home/` (31 refs, 0 mentorId — mostly display strings)
 
@@ -236,6 +304,28 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 | `lib/emails/booking-email.ts` (both platforms) | 48 | 0 |
 | `lib/instructors.ts` (marketing) | 40 | 0 |
 | `inngest/functions/booking-emails.ts` (web) | 46 | 13 |
+
+### Remaining Phase 4 Work
+
+**Completed since PR #262:**
+1. ✅ Add zod validation and error handling to product create pages (both platforms)
+2. ✅ Fix `booking-emails.ts` to handle null `userId` properly
+3. ✅ Update web instructor edit page (`apps/web/app/admin/instructors/[id]/edit/page.tsx`)
+4. ✅ Complete sessionPacks.mentorId → instructorId migration across all apps
+5. ✅ Add Convex `getInstructorsForAdmin` query and update admin instructor endpoints
+6. ✅ Remove `/api/admin/instructors/mentors` endpoints (callers now use `/api/admin/instructors`)
+7. ✅ Fix admin queries and types for instructorId changes
+
+**Pending tasks:**
+- Marketing app (242 refs) - uses Postgres approach, not Convex (no setup)
+- Home app (31 refs) - lower priority, mostly display strings
+- Phase 5 cleanup (delete mentors table, queries, etc.) - blocked by Google Calendar encryption key confirmation
+
+### Commits Made (Phase 4 continuation)
+
+- Phase 4: Add error handling to product create pages
+- Phase 4: Fix booking-emails null userId handling
+- Phase 4: Migrate web instructor edit page to use instructorId
 
 ---
 

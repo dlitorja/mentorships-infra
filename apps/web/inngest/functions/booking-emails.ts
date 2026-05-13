@@ -54,11 +54,28 @@ export const handleSessionBookingEmails = inngest.createFunction(
       throw new Error(`Missing session, pack, or instructor for booking email`);
     }
 
+    const hasInstructorUserId = !!instructor.userId;
+
+    if (type === "booking_notification_instructor" && !hasInstructorUserId) {
+      await reportError({
+        source: "inngest/booking-emails",
+        error: new Error("Cannot send instructor notification: instructor.userId is null"),
+        level: "error",
+        message: "Cannot send instructor notification: instructor.userId is null. Fix: Set userId on instructor via admin instructor edit page (/admin/instructors/[id]/edit). Instructor ID: " + instructorId,
+        context: { sessionId, instructorId, type },
+      });
+      return { success: false, sessionId, type, reason: "missing_instructor_userId" };
+    }
+
     const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
+      step.run("get-instructor-name", () =>
+        instructor.userId
+          ? getClerkUserName(instructor.userId)
+          : Promise.resolve(instructor.name || "your instructor")
+      ),
       step.run("get-student-email", () => getUserEmail(studentId)),
-      step.run("get-instructor-email", () => getUserEmail(instructor.userId || "")),
+      step.run("get-instructor-email", () => instructor.userId ? getUserEmail(instructor.userId) : Promise.resolve(null)),
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
@@ -100,7 +117,7 @@ export const handleSessionBookingEmails = inngest.createFunction(
     }
 
     if (type === "booking_notification_instructor" && instructorUserEmail) {
-      const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId || ""));
+      const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId!));
       const instructorTimeZone = instructorUser?.timeZone;
 
       const emailContent = buildInstructorNotificationEmail(
@@ -172,7 +189,11 @@ export const handleSessionReminderEmails = inngest.createFunction(
 
     const [studentName, instructorName, studentEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
+      step.run("get-instructor-name", () =>
+        instructor.userId
+          ? getClerkUserName(instructor.userId)
+          : Promise.resolve(instructor.name || "your instructor")
+      ),
       step.run("get-student-email", () => getUserEmail(studentId)),
     ]);
 
@@ -238,15 +259,31 @@ export const handleSessionCancellationEmails = inngest.createFunction(
       throw new Error(`Instructor not found: ${instructorId}`);
     }
 
+    const hasInstructorUserId = !!instructor.userId;
+
+    if (!hasInstructorUserId) {
+      await reportError({
+        source: "inngest/booking-emails",
+        error: new Error("Cannot send instructor cancellation email: instructor.userId is null"),
+        level: "error",
+        message: "Cannot send instructor cancellation email: instructor.userId is null. Fix: Set userId on instructor via admin instructor edit page (/admin/instructors/[id]/edit). Instructor ID: " + instructorId,
+        context: { sessionId, instructorId },
+      });
+    }
+
     const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
+      step.run("get-instructor-name", () =>
+        instructor.userId
+          ? getClerkUserName(instructor.userId)
+          : Promise.resolve(instructor.name || "your instructor")
+      ),
       step.run("get-student-email", () => getUserEmail(studentId)),
-      step.run("get-instructor-email", () => getUserEmail(instructor.userId || "")),
+      step.run("get-instructor-email", () => instructor.userId ? getUserEmail(instructor.userId) : Promise.resolve(null)),
     ]);
 
     const student = await step.run("get-student-user", () => getUserById(studentId));
-    const instructorUser = await step.run("get-instructor-user", () => getUserById(instructor.userId || ""));
+    const instructorUser = await step.run("get-instructor-user", () => instructor.userId ? getUserById(instructor.userId) : Promise.resolve(null));
 
     const studentTimeZone = student?.timeZone;
     const instructorTimeZone = instructorUser?.timeZone;

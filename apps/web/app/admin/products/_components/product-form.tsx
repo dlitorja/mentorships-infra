@@ -154,7 +154,7 @@ export function ProductForm({
   });
 
   const importFromStripeMutation = useMutation({
-    mutationFn: async (data: { productId?: string; priceId?: string; enablePayPal?: boolean; instructorId?: string }) => {
+    mutationFn: async (data: { productId?: string; priceId?: string; instructorId?: string }) => {
       await createProductFromStripe({
         productId: data.productId,
         priceId: data.priceId,
@@ -185,7 +185,7 @@ export function ProductForm({
     updateProductMutation.mutate(values);
   };
 
-  const handleImportSubmit = (values: { productId?: string; priceId?: string; enablePayPal?: boolean; instructorId?: string }) => {
+  const handleImportSubmit = (values: { productId?: string; priceId?: string; instructorId?: string }) => {
     setResult(null);
     importFromStripeMutation.mutate(values);
   };
@@ -698,7 +698,7 @@ type ImportFromStripeFormProps = {
   instructors: Instructor[];
   isLoadingInstructors: boolean;
   isSubmitting: boolean;
-  onSubmit: (values: { productId?: string; priceId?: string; enablePayPal?: boolean; instructorId?: string }) => void;
+  onSubmit: (values: { productId?: string; priceId?: string; instructorId?: string }) => void;
 };
 
 function ImportFromStripeForm({
@@ -711,14 +711,12 @@ function ImportFromStripeForm({
     defaultValues: {
       productId: "",
       priceId: "",
-      enablePayPal: false,
       instructorId: "__unassigned__",
     },
     onSubmit: async ({ value }) => {
       onSubmit({
         productId: value.productId.trim() || undefined,
         priceId: value.priceId.trim() || undefined,
-        enablePayPal: value.enablePayPal,
         instructorId: value.instructorId === "__unassigned__" ? undefined : value.instructorId || undefined,
       });
     },

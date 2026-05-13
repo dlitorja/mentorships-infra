@@ -22,7 +22,7 @@ const CONVEX_DEPLOYMENT = process.env.CONVEX_DEPLOYMENT || "dev";
 interface DrizzleSessionPack {
   id: string;
   userId: string;
-  mentorId: string;
+  instructorId: string;
   totalSessions: number;
   remainingSessions: number;
   purchasedAt: Date;
@@ -114,12 +114,10 @@ async function migrateSessionPacks(): Promise<void> {
     try {
       console.log(`Migrating session pack: ${pack.id} (${pack.status}, ${pack.mentorType})`);
       
-      const convexMentorId = instructorMentorIdToConvexId.get(pack.mentorId);
-
       await runConvexMutation("sessionPacks:migrateSessionPack", {
         id: pack.id,
         userId: pack.userId,
-        mentorId: convexMentorId || pack.mentorId,
+        instructorId: pack.instructorId,
         totalSessions: pack.totalSessions,
         remainingSessions: pack.remainingSessions,
         purchasedAt: pack.purchasedAt.getTime(),

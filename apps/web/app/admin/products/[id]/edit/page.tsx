@@ -2,8 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { z } from "zod";
 import { type MentorshipType } from "@/lib/queries/api-client";
 import { ProductForm } from "../../_components/product-form";
+
+const instructorSchema = z.object({
+  instructorId: z.string(),
+  email: z.string().nullable(),
+});
+
+const instructorsResponseSchema = z.object({
+  instructors: z.array(instructorSchema),
+});
 
 type Instructor = {
   id: string;
@@ -37,6 +47,7 @@ export default function EditProductPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const [isLoadingInstructors, setIsLoadingInstructors] = useState(true);
   const [productData, setProductData] = useState<ProductInfo | null>(null);
 
   useEffect(() => {
@@ -57,15 +68,20 @@ export default function EditProductPage() {
 
         if (instructorsRes.ok) {
           const instructorsData = await instructorsRes.json();
+          const validated = instructorsResponseSchema.parse(instructorsData);
           setInstructors(
-            (instructorsData.instructors || []).map((inst: any) => ({
+            validated.instructors.map((inst) => ({
               id: inst.instructorId,
               email: inst.email || null,
             }))
           );
+          setIsLoadingInstructors(false);
+        } else {
+          setIsLoadingInstructors(false);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to fetch product");
+        setIsLoadingInstructors(false);
       } finally {
         setLoading(false);
       }
@@ -129,7 +145,7 @@ export default function EditProductPage() {
         enablePayPal: !!productData.paypalProductId,
       }}
       instructors={instructors}
-      isLoadingInstructors={false}
+      isLoadingInstructors={isLoadingInstructors}
     />
   );
 }

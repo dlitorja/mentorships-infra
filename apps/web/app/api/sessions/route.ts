@@ -4,6 +4,7 @@ import {
   and,
   db,
   eq,
+  getInstructorById,
   getMentorById,
   decryptMentorRefreshToken,
   getSessionPackById,
@@ -192,7 +193,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const mentor = await getMentorById(pack.mentorId);
+    const instructor = await getInstructorById(pack.instructorId);
+    if (!instructor) {
+      const { response: errorResponse } = notFound("Instructor");
+      return NextResponse.json(errorResponse, { status: 404 });
+    }
+
+    if (!instructor.mentorId) {
+      const { response: errorResponse } = validationError(
+        "Instructor has not connected Google Calendar"
+      );
+      return NextResponse.json(errorResponse, { status: 422 });
+    }
+
+    const mentor = await getMentorById(instructor.mentorId);
     if (!mentor) {
       const { response: errorResponse } = notFound("Mentor");
       return NextResponse.json(errorResponse, { status: 404 });
