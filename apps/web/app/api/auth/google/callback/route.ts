@@ -15,9 +15,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireDbUser();
 
-    if (user.role !== "mentor") {
+    if (user.role !== "instructor") {
       return NextResponse.json(
-        { error: "Forbidden: mentor role required" },
+        { error: "Forbidden: instructor role required" },
         { status: 403 }
       );
     }

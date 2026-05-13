@@ -12,7 +12,7 @@ export default async function InstructorSettingsPage() {
     return (
       <ProtectedLayout currentPath="/instructor/settings">
         <div className="container mx-auto p-4 md:p-8">
-          <p className="text-muted-foreground">Mentor profile not found.</p>
+          <p className="text-muted-foreground">Instructor profile not found.</p>
         </div>
       </ProtectedLayout>
     );

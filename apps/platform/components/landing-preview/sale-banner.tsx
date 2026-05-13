@@ -46,7 +46,7 @@ const SALE_ITEMS: SaleItem[] = [
   },
   {
     id: 'mentor-kim',
-    title: 'New Mentor — Kim Myatt',
+    title: 'New Instructor — Kim Myatt',
     badge: 'MENTORSHIPS',
     description: '1-on-1 mentorships available',
     endsAt: null,
