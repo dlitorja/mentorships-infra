@@ -344,7 +344,7 @@ export async function getMentorActiveSeats(
 ): Promise<Array<{
   id: string;
   userId: string;
-  status: string;
+  status: SeatStatus;
   sessionPackId: string;
   instructorId: string | null;
   seatExpiresAt: Date | null;
