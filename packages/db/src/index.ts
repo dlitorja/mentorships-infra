@@ -54,3 +54,6 @@ export * from "./lib/queries/menteeSessionCounts";
 // Export types
 export type { Database } from "./types/database.types";
 
+// Export encryption utilities
+export { decrypt, encrypt, isEncrypted } from "./lib/encryption";
+

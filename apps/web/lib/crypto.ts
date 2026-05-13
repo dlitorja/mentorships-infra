@@ -1,4 +1,4 @@
-import { decrypt } from "@mentorships/db/lib/encryption";
+import { decrypt } from "@mentorships/db";
 
 /**
  * Decrypts a Google refresh token from storage.

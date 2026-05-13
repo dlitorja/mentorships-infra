@@ -48,7 +48,11 @@ export async function getDbUser() {
  */
 export async function requireDbUser() {
   await requireAuth();
-  return await getDbUser();
+  const user = await getDbUser();
+  if (!user) {
+    throw new UnauthorizedError("User not found in database");
+  }
+  return user;
 }
 
 /**
