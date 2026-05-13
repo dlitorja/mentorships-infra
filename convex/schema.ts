@@ -49,15 +49,6 @@ export default defineSchema({
     .index("by_deletedAt", ["deletedAt"])
     .index("by_email", ["email"]),
 
-  mentors: defineTable({
-    userId: v.string(),
-    maxActiveStudents: v.optional(v.number()),
-    bio: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-    deletedAt: v.optional(v.number()),
-  }).index("by_userId", ["userId"]),
-
   sessions: defineTable({
     instructorId: v.id("instructors"),
     studentId: v.string(),

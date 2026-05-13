@@ -5,9 +5,9 @@ import type { MentorWorkingHours } from "../../schema/mentors";
 import { encrypt, decrypt } from "../encryption";
 
 /**
- * Get mentor by Clerk user ID
+ * Get instructor record by Clerk user ID
  */
-export async function getMentorByUserId(userId: string) {
+export async function getInstructorByUserId(userId: string) {
   const [mentor] = await db
     .select()
     .from(mentors)
@@ -16,6 +16,9 @@ export async function getMentorByUserId(userId: string) {
 
   return mentor || null;
 }
+
+/** @deprecated Use getInstructorByUserId instead */
+export const getMentorByUserId = getInstructorByUserId;
 
 /**
  * Get mentor by mentor ID (UUID)
@@ -31,11 +34,11 @@ export async function getMentorById(mentorId: string) {
 }
 
 /**
- * Get or create mentor record by Clerk user ID
+ * Get or create instructor record by Clerk user ID
  * Used when manually associating instructors without going through normal signup flow
  */
 export async function getOrCreateMentorByUserId(userId: string) {
-  const existingMentor = await getMentorByUserId(userId);
+  const existingMentor = await getInstructorByUserId(userId);
   if (existingMentor) {
     return existingMentor;
   }

@@ -1,14 +1,14 @@
 import { requireRole } from "@/lib/auth-helpers";
-import { getMentorByUserId } from "@mentorships/db";
+import { getInstructorByUserId } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import type { MentorWorkingHours } from "@mentorships/db";
 
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
-  const mentor = await getMentorByUserId(user.id);
+  const instructorRecord = await getInstructorByUserId(user.id);
 
-  if (!mentor) {
+  if (!instructorRecord) {
     return (
       <ProtectedLayout currentPath="/instructor/settings">
         <div className="container mx-auto p-4 md:p-8">

@@ -1,7 +1,7 @@
 import { requireRole } from "@/lib/auth-helpers";
 import { UserButton } from "@clerk/nextjs";
 import {
-  getMentorByUserId,
+  getInstructorByUserId,
   getMentorUpcomingSessions,
   getMentorPastSessions,
   getMentorActiveSeats,
@@ -37,7 +37,7 @@ function formatDateTime(date: Date | string): string {
 
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await getMentorByUserId(user.id);
+  const instructorRecord = await getInstructorByUserId(user.id);
 
   if (!instructorRecord) {
     return (

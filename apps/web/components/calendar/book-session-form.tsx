@@ -66,7 +66,7 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
     isLoading: loadingSlots,
     error: availabilityError,
   } = useQuery({
-    queryKey: queryKeys.mentors.availability(
+    queryKey: queryKeys.instructors.availability(
       selectedPack?.instructorId || "",
       dateRange?.start || "",
       dateRange?.end || ""

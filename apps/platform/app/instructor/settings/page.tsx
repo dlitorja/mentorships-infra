@@ -1,5 +1,5 @@
 import { requireRole } from "@/lib/auth-helpers";
-import { getMentorByUserId } from "@mentorships/db";
+import { getInstructorByUserId } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import type { MentorWorkingHours } from "@mentorships/db";
@@ -10,7 +10,7 @@ function isMentorWorkingHours(value: unknown): value is MentorWorkingHours {
 
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await getMentorByUserId(user.id);
+  const instructorRecord = await getInstructorByUserId(user.id);
 
   if (!instructorRecord) {
     return (

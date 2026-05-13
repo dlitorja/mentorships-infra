@@ -318,32 +318,6 @@ export async function createProduct(data: {
   });
 }
 
-const MentorSchema = z.object({
-  id: z.string(),
-  userId: z.string().nullable(),
-  email: z.string().nullable(),
-  name: z.string().nullable(),
-  slug: z.string().nullable(),
-  isActive: z.boolean(),
-  createdAt: z.string(),
-  activeMenteeCount: z.number(),
-  totalCompletedSessions: z.number(),
-});
-
-const FetchMentorsResponseSchema = z.object({
-  items: z.array(MentorSchema),
-});
-
-type FetchMentorsResponse = z.infer<typeof FetchMentorsResponseSchema>;
-
-/**
- * Fetch all instructors for admin dropdown
- */
-export async function fetchMentors(): Promise<FetchMentorsResponse> {
-  const data = await apiFetch<unknown>("/api/admin/instructors?pageSize=100");
-  return FetchMentorsResponseSchema.parse(data);
-}
-
 /**
  * Update an existing product
  */

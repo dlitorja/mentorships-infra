@@ -60,11 +60,11 @@ export const queryKeys = {
   },
 
   /**
-   * Mentor availability query keys
+   * Instructor availability query keys
    */
-  mentors: {
-    availability: (mentorId: string, start: string, end: string) =>
-      ["mentors", mentorId, "availability", start, end] as const,
+  instructors: {
+    availability: (instructorId: string, start: string, end: string) =>
+      ["instructors", instructorId, "availability", start, end] as const,
   },
 
   /**
