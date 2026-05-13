@@ -2,9 +2,9 @@ import { requireRole } from "@/lib/auth";
 import { UserButton } from "@clerk/nextjs";
 import { redirect } from "next/navigation";
 import {
-  getMentorByUserId,
-  getMentorMenteesWithSessionInfo,
-  getMentorMenteesWithLowSessions,
+  getInstructorByUserId,
+  getInstructorStudentsWithSessionInfo,
+  getInstructorStudentsWithLowSessions,
 } from "@mentorships/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,9 +32,9 @@ function formatDateTime(date: Date | string): string {
   });
 }
 
-function getRenewalEncouragement(menteeEmail: string, sessionsRemaining: number): string {
+function getRenewalEncouragement(studentEmail: string, sessionsRemaining: number): string {
   if (sessionsRemaining === 1) {
-    return `Consider reaching out to ${menteeEmail} to encourage them to renew their mentorship. Not renewing means their slot may become available to other prospective mentees.`;
+    return `Consider reaching out to ${studentEmail} to encourage them to renew their instruction. Not renewing means their slot may become available to other prospective students.`;
   }
   return "";
 }
@@ -43,10 +43,10 @@ export const dynamic = "force-dynamic";
 
 export default async function InstructorDashboardPage() {
   try {
-    const user = await requireRole("mentor");
-    const mentor = await getMentorByUserId(user.id);
+    const user = await requireRole("instructor");
+    const instructor = await getInstructorByUserId(user.id);
 
-    if (!mentor) {
+    if (!instructor) {
       return (
         <div className="container mx-auto p-4 md:p-8">
           <Card>
@@ -60,13 +60,13 @@ export default async function InstructorDashboardPage() {
       );
     }
 
-    const [menteesWithSessions, menteesWithLowSessions] = await Promise.all([
-      getMentorMenteesWithSessionInfo(mentor.id),
-      getMentorMenteesWithLowSessions(mentor.id),
+    const [studentsWithSessions, studentsWithLowSessions] = await Promise.all([
+      getInstructorStudentsWithSessionInfo(instructor.id),
+      getInstructorStudentsWithLowSessions(instructor.id),
     ]);
 
-    const totalMentees = menteesWithSessions.length;
-    const lowSessionMentees = menteesWithLowSessions.length;
+    const totalStudents = studentsWithSessions.length;
+    const lowSessionStudents = studentsWithLowSessions.length;
 
     return (
       <div className="container mx-auto p-4 md:p-8 space-y-6">
@@ -80,38 +80,38 @@ export default async function InstructorDashboardPage() {
           <UserButton afterSignOutUrl="/" />
         </div>
 
-        {menteesWithLowSessions.length > 0 && (
+        {studentsWithLowSessions.length > 0 && (
           <Card className="border-amber-200 bg-amber-50">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-amber-800">
                 <AlertTriangle className="h-5 w-5" />
-                Mentee Renewal Opportunities
+                Student Renewal Opportunities
               </CardTitle>
               <CardDescription className="text-amber-700">
-                These mentees have only 1 session remaining. Reach out to encourage renewals!
+                These students have only 1 session remaining. Reach out to encourage renewals!
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {menteesWithLowSessions.map((mentee) => (
+              {studentsWithLowSessions.map((student) => (
                 <div
-                  key={mentee.sessionPackId}
+                  key={student.sessionPackId}
                   className="bg-white rounded-lg p-4 border border-amber-200"
                 >
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="font-semibold text-amber-900">
-                        {mentee.email} has 1 session remaining
+                        {student.email} has 1 session remaining
                       </p>
                       <p className="text-sm text-amber-700 mt-1">
-                        {getRenewalEncouragement(mentee.email, mentee.remainingSessions)}
+                        {getRenewalEncouragement(student.email, student.remainingSessions)}
                       </p>
-                      {mentee.lastSessionCompletedAt && (
+                      {student.lastSessionCompletedAt && (
                         <p className="text-xs text-amber-600 mt-2">
-                          Last session: {formatDateTime(mentee.lastSessionCompletedAt)}
+                          Last session: {formatDateTime(student.lastSessionCompletedAt)}
                         </p>
                       )}
                       <p className="text-xs text-amber-600">
-                        Pack expires: {formatDate(mentee.expiresAt)}
+                        Pack expires: {formatDate(student.expiresAt)}
                       </p>
                     </div>
                     <Badge variant="warning" className="bg-amber-200 text-amber-800">
@@ -128,14 +128,14 @@ export default async function InstructorDashboardPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Active Mentees
+                Active Students
               </CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalMentees}</div>
               <p className="text-xs text-muted-foreground">
-                {totalMentees === 1 ? "mentee" : "mentees"} active
+                {totalStudents === 1 ? "student" : "students"} active
               </p>
             </CardContent>
           </Card>
@@ -148,9 +148,9 @@ export default async function InstructorDashboardPage() {
               <AlertTriangle className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{lowSessionMentees}</div>
+              <div className="text-2xl font-bold">{lowSessionStudents}</div>
               <p className="text-xs text-muted-foreground">
-                {lowSessionMentees === 1 ? "mentee" : "mentees"} with 1 session
+                {lowSessionStudents === 1 ? "student" : "students"} with 1 session
               </p>
             </CardContent>
           </Card>
@@ -164,7 +164,7 @@ export default async function InstructorDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {menteesWithSessions.reduce((sum, m) => sum + m.completedSessionCount, 0)}
+                {studentsWithSessions.reduce((sum, m) => sum + m.completedSessionCount, 0)}
               </div>
               <p className="text-xs text-muted-foreground">
                 sessions completed
@@ -181,10 +181,10 @@ export default async function InstructorDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {menteesWithSessions.reduce((sum, m) => sum + m.remainingSessions, 0)}
+                {studentsWithSessions.reduce((sum, m) => sum + m.remainingSessions, 0)}
               </div>
               <p className="text-xs text-muted-foreground">
-                across all mentees
+                across all students
               </p>
             </CardContent>
           </Card>
@@ -192,56 +192,56 @@ export default async function InstructorDashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>My Mentees</CardTitle>
+            <CardTitle>My Students</CardTitle>
             <CardDescription>
-              All active mentees with session counts and last session dates
+              All active students with session counts and last session dates
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {menteesWithSessions.length === 0 ? (
+            {studentsWithSessions.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <User className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="mb-2">No active mentees</p>
+                <p className="mb-2">No active students</p>
                 <p className="text-sm">When students purchase session packs with you, they will appear here.</p>
               </div>
             ) : (
               <div className="space-y-4">
-                {menteesWithSessions.map((mentee) => (
+                {studentsWithSessions.map((student) => (
                   <div
-                    key={mentee.sessionPackId}
+                    key={student.sessionPackId}
                     className={`border rounded-lg p-4 space-y-2 ${
-                      mentee.remainingSessions === 1
+                      student.remainingSessions === 1
                         ? "border-amber-200 bg-amber-50/50"
                         : ""
                     }`}
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-semibold">{mentee.email}</p>
+                        <p className="font-semibold">{student.email}</p>
                         <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                           <div className="flex items-center gap-1">
                             <Calendar className="h-4 w-4" />
-                            <span>Expires {formatDate(mentee.expiresAt)}</span>
+                            <span>Expires {formatDate(student.expiresAt)}</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <BookOpen className="h-4 w-4" />
                             <span>
-                              {mentee.remainingSessions}/{mentee.totalSessions} sessions
+                              {student.remainingSessions}/{student.totalSessions} sessions
                             </span>
                           </div>
                           <div className="flex items-center gap-1">
                             <Clock className="h-4 w-4" />
                             <span>
-                              {mentee.completedSessionCount} completed
+                              {student.completedSessionCount} completed
                             </span>
                           </div>
                         </div>
-                        {mentee.lastSessionCompletedAt && (
+                        {student.lastSessionCompletedAt && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            Last session: {formatDateTime(mentee.lastSessionCompletedAt)}
+                            Last session: {formatDateTime(student.lastSessionCompletedAt)}
                           </p>
                         )}
-                        {mentee.remainingSessions === 1 && (
+                        {student.remainingSessions === 1 && (
                           <p className="text-xs text-amber-700 mt-2 font-medium">
                             💡 Consider reaching out to encourage renewal!
                           </p>
@@ -249,17 +249,17 @@ export default async function InstructorDashboardPage() {
                       </div>
                       <Badge
                         variant={
-                          mentee.remainingSessions === 1
+                          student.remainingSessions === 1
                             ? "warning"
                             : "secondary"
                         }
                         className={
-                          mentee.remainingSessions === 1
+                          student.remainingSessions === 1
                             ? "bg-amber-100 text-amber-800"
                             : ""
                         }
                       >
-                        {mentee.remainingSessions} left
+                        {student.remainingSessions} left
                       </Badge>
                     </div>
                   </div>

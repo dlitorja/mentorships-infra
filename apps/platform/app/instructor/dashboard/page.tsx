@@ -1,12 +1,13 @@
 import { requireRole } from "@/lib/auth-helpers";
 import { UserButton } from "@clerk/nextjs";
 import {
-  getInstructorByUserId,
   getMentorUpcomingSessions,
   getMentorPastSessions,
   getMentorActiveSeats,
   checkSeatAvailability,
 } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Users, BookOpen, CheckCircle2 } from "lucide-react";
@@ -37,7 +38,8 @@ function formatDateTime(date: Date | string): string {
 
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await getInstructorByUserId(user.id);
+  const convex = getConvexClient();
+  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructorRecord) {
     return (
@@ -56,12 +58,30 @@ export default async function InstructorDashboardPage() {
   }
 
   // Fetch all dashboard data in parallel
+  // Note: legacyMentorId is the Postgres mentor UUID for session queries
+  const mentorId = instructorRecord.legacyMentorId;
+  if (!mentorId) {
+    return (
+      <ProtectedLayout currentPath="/instructor/dashboard">
+        <div className="container mx-auto p-4 md:p-8">
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">
+                Instructor profile not fully set up. Please contact support.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </ProtectedLayout>
+    );
+  }
+
   const [upcomingSessions, pastSessions, activeSeats, seatAvailability] =
     await Promise.all([
-      getMentorUpcomingSessions(instructorRecord.id, 10),
-      getMentorPastSessions(instructorRecord.id, 5),
-      getMentorActiveSeats(instructorRecord.id),
-      checkSeatAvailability(instructorRecord.id),
+      getMentorUpcomingSessions(mentorId, 10),
+      getMentorPastSessions(mentorId, 5),
+      getMentorActiveSeats(mentorId),
+      checkSeatAvailability(mentorId),
     ]);
 
   return (

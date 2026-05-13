@@ -1,16 +1,13 @@
 import { requireRole } from "@/lib/auth-helpers";
-import { getInstructorByUserId } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
-import type { MentorWorkingHours } from "@mentorships/db";
-
-function isMentorWorkingHours(value: unknown): value is MentorWorkingHours {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await getInstructorByUserId(user.id);
+  const convex = getConvexClient();
+  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructorRecord) {
     return (
@@ -34,14 +31,9 @@ export default async function InstructorSettingsPage() {
 
         <SchedulingSettingsForm
           initialTimeZone={instructorRecord.timeZone ?? null}
-          initialWorkingHours={
-            isMentorWorkingHours(instructorRecord.workingHours)
-              ? instructorRecord.workingHours
-              : null
-          }
+          initialWorkingHours={instructorRecord.workingHours ?? null}
         />
       </div>
     </ProtectedLayout>
   );
 }
-
