@@ -141,10 +141,28 @@ The following still contain "mentor" references that may need attention:
 4. **Phase 5 cleanup** — Blocked until Google Calendar encryption key confirmation received
 5. **Rename `getMentorByUserId`** — Lower priority, still works as-is. See Phase 5 investigation findings above
 
-### PR #259 Status
-- Core issues flagged by greptile are **resolved** and **committed**
-- Vercel platforms & web deployments: **still pending** (CI must confirm)
-- greptile review decision still shows `CHANGES_REQUESTED` — will update once CI passes
+### PR #267 Status (May 13, 2026)
+- **PR #267**: Phase 4 role checks and additional fixes — **MERGED ✅**
+- CI: All green (Lint, Unit Tests, E2E Tests, Build, Vercel deployments)
+- CodeRabbit: Approved with summary (1 pre-existing warning: docstring coverage 28.89%)
+- Greptile: Raised 2 concerns about clerk.ts and crypto.ts — **addressed via commits**:
+  - `clerk.ts`: Uses `safeParse` with fallback to "student" (not `.parse()`), so ZodError never thrown
+  - `crypto.ts`: Correctly attempts base64 decode first before marker check (legacy format `base64("__decrypted__"+token)` handled)
+
+**PR #267 commits:**
+- `fix: Complete mentor→instructor role checks in platform app` — 5 pages + 6 API routes
+- `Update MENTOR_TO_INSTRUCTOR_MIGRATION.md with PR #266 progress`
+- `Fix marketing app getDbUser to handle undefined user`
+- `Fix requireDbUser to throw on undefined and cascade fixes`
+- `Address PR #266 CodeRabbit review comments` — safeParse, explicit return types, DB enum migration
+- `Fix role check in onboarding signed-urls route`
+- `Fix role type references across db package`
+- `Update user role enum from mentor to instructor in DB schema`
+- `Fix sale banner terminology and role checks for instructor migration`
+- `docs: Fix stale Phase 5 checklist - mark step 5.3 as complete`
+- `feat: Migrate Google Calendar token storage from Postgres to Convex`
+- `docs: Update migration doc with PR #263 merge details and CodeRabbit fixes`
+- Merge commit: `Merge main into feat/migrate-google-calendar-tokens-to-convex`
 
 ---
 
@@ -252,6 +270,8 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 ### PR Status
 - **PR #262**: Phase 4 frontend changes merged ✅
 - **PR #263**: Phase 4 continuation - sessionPacks.mentorId → instructorId migration ✅ **MERGED**
+- **PR #266**: Sale banners, Google OAuth role checks, DB enum migration ✅ **MERGED**
+- **PR #267**: Role check migration (platform app + web app fixes), Google Calendar token migration, CodeRabbit review fixes ✅ **MERGED** (May 13, 2026)
   - CI status: All green (Lint, Unit Tests, E2E Tests, Build, Vercel, CodeRabbit)
   - `mergeStateStatus: CLEAN` - ready to merge
   - Merge conflicts resolved (took our version for products create pages and booking-emails)
