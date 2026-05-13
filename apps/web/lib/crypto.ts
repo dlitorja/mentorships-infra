@@ -1,9 +1,12 @@
+import { decrypt } from "@mentorships/db/lib/encryption";
+
 /**
  * Decrypts a Google refresh token from storage.
  *
- * Two storage formats are supported:
- * 1. Legacy Postgres (encrypted): base64-encoded with "__decrypted__" prefix
- * 2. Convex (plain text): stored as-is without encryption
+ * Three storage formats are supported:
+ * 1. Legacy plain text (Convex, no encryption): stored as-is without encryption
+ * 2. Legacy format (old Postgres): base64("__decrypted__" + actual_token)
+ * 3. Encrypted (migrated Postgres): AES-256-GCM encrypted, base64 encoded
  *
  * @param instructor - Object with optional googleRefreshToken field
  * @returns Decrypted token string, or null if not present/invalid
@@ -17,7 +20,9 @@ export function decryptMentorRefreshToken(instructor: { googleRefreshToken?: str
       const decoded = Buffer.from(token.replace("__decrypted__", ""), "base64").toString("utf-8");
       return decoded;
     }
-    return token;
+
+    const decrypted = decrypt(token);
+    return decrypted;
   } catch {
     return null;
   }

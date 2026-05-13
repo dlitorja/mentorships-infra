@@ -401,7 +401,7 @@ Fixed user-facing "mentor" → "instructor" terminology that was still appearing
   - `apps/web/app/api/auth/google/callback/route.ts`
   - `apps/web/app/api/auth/google/route.ts`
 
-**Note:** The actual role checks (`user.role !== "mentor"`) were not changed since those depend on database values. Those checks should be updated as part of the broader database migration when roles are changed from "mentor" to "instructor".
+**Role checks updated:** The actual role checks (`user.role !== "mentor"`) were updated to `user.role !== "instructor"` in the Google OAuth routes (`apps/web/app/api/auth/google/route.ts` and `apps/web/app/api/auth/google/callback/route.ts`) to match the new DB schema enum. The `mentor` → `instructor` DB enum migration (`ALTER TYPE user_role RENAME VALUE 'mentor' TO 'instructor'`) must be applied before deploying these changes.
 
 ---
 

@@ -31,10 +31,12 @@ export async function getUserByEmail(email: string) {
 /**
  * Update user role
  */
+type UserRole = (typeof users.$inferInsert)["role"];
+
 export async function updateUserRole(
   clerkUserId: string,
-  role: "student" | "instructor" | "admin" | "video_editor"
-) {
+  role: UserRole
+): Promise<typeof users.$inferSelect | undefined> {
   const [updated] = await db
     .update(users)
     .set({
