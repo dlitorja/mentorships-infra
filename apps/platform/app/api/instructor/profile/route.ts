@@ -3,7 +3,7 @@ import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
-import { isUnauthorizedError } from "@/lib/errors";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const socialsSchema = z.object({
@@ -98,6 +98,9 @@ export async function GET(): Promise<NextResponse> {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
+    }
     return NextResponse.json({ error: "Failed to load profile" }, { status: 500 });
   }
 }
@@ -174,6 +177,9 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     console.error("Update instructor profile error:", error);
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
     return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
   }

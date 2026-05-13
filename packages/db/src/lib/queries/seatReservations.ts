@@ -335,11 +335,21 @@ export async function canUseSeatForBooking(seatId: string): Promise<boolean> {
 
 /**
  * Get all active seats for an instructor
- * 
+ *
  * @param instructorId - UUID of the instructor
  * @returns Array of active seat reservations
  */
-export async function getMentorActiveSeats(instructorId: string) {
+export async function getMentorActiveSeats(
+  instructorId: string
+): Promise<Array<{
+  id: string;
+  userId: string;
+  status: string;
+  sessionPackId: string;
+  instructorId: string | null;
+  seatExpiresAt: Date | null;
+  gracePeriodEndsAt: Date | null;
+}>> {
   const seats = await db
     .select()
     .from(seatReservations)

@@ -5,7 +5,7 @@ import { decrypt } from "@mentorships/db";
  *
  * Three storage formats are supported:
  * 1. Legacy plain text (Convex, no encryption): stored as-is without encryption
- * 2. Legacy format (old Postgres): base64("__decrypted__" + actual_token)
+ * 2. Legacy format (old Postgres): base64("__decrypted__" + actual_token) then base64 encoded again
  * 3. Encrypted (migrated Postgres): AES-256-GCM encrypted, base64 encoded
  *
  * @param instructor - Object with optional googleRefreshToken field
@@ -16,11 +16,17 @@ export function decryptMentorRefreshToken(instructor: { googleRefreshToken?: str
   if (!token) return null;
 
   try {
-    if (token.startsWith("__decrypted__")) {
-      const decoded = Buffer.from(token.replace("__decrypted__", ""), "base64").toString("utf-8");
-      return decoded;
+    // Try to decode as base64 first (legacy format: base64("__decrypted__" + actual_token))
+    try {
+      const decoded = Buffer.from(token, "base64").toString("utf-8");
+      if (decoded.startsWith("__decrypted__")) {
+        return decoded.replace("__decrypted__", "");
+      }
+    } catch {
+      // Not base64 encoded, fall through to encryption check
     }
 
+    // Try to decrypt as AES-256-GCM (migrated format)
     const decrypted = decrypt(token);
     return decrypted;
   } catch {

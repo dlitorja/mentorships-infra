@@ -23,7 +23,7 @@ export interface Database {
         Row: {
           id: string;
           email: string;
-          role: "student" | "instructor" | "admin";
+          role: "student" | "instructor" | "admin" | "video_editor";
           created_at: string;
           updated_at: string;
         };
@@ -81,7 +81,7 @@ export interface Database {
       [_ in never]: never;
     };
     Enums: {
-      user_role: "student" | "instructor" | "admin";
+      user_role: "student" | "instructor" | "admin" | "video_editor";
       order_status: "pending" | "paid" | "refunded" | "failed" | "canceled";
       payment_provider: "stripe" | "paypal";
       payment_status: "pending" | "completed" | "refunded" | "failed";

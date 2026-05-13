@@ -3,8 +3,18 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { ProfileForm } from "./profile-form";
+import { z } from "zod";
 
 export const dynamic = "force-dynamic";
+
+const socialsSchema = z.object({
+  twitter: z.string().optional(),
+  instagram: z.string().optional(),
+  youtube: z.string().optional(),
+  bluesky: z.string().optional(),
+  website: z.string().optional(),
+  artstation: z.string().optional(),
+});
 
 async function getProfileData() {
   const user = await requireRole("instructor");
@@ -18,6 +28,8 @@ async function getProfileData() {
     return null;
   }
 
+  const parsedSocials = socialsSchema.nullable().safeParse(instructor.socials ?? null);
+
   return {
     id: instructor._id,
     name: instructor.name ?? "",
@@ -29,7 +41,7 @@ async function getProfileData() {
     profileImageUrl: instructor.profileImageUrl ?? null,
     profileImageUploadPath: instructor.profileImageUploadPath ?? null,
     portfolioImages: instructor.portfolioImages ?? null,
-    socials: (instructor.socials as { twitter?: string; instagram?: string; youtube?: string; bluesky?: string; website?: string; artstation?: string } | null) ?? null,
+    socials: parsedSocials.success ? parsedSocials.data : null,
     isActive: instructor.isActive ?? false,
     updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : new Date(instructor._creationTime).toISOString(),
   };

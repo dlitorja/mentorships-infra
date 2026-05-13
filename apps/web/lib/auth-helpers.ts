@@ -70,7 +70,7 @@ export async function requireRoleForApi(role: "student" | "instructor" | "admin"
   const user = await requireDbUser();
   
   if (user.role !== role) {
-    throw new ForbiddenError("Admin access required");
+    throw new ForbiddenError(`${role.charAt(0).toUpperCase() + role.slice(1)} access required`);
   }
   
   return user;

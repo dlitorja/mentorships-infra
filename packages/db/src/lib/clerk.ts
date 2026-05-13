@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { sanitizeErrorForLogging, sanitizeForLogging } from "./errorSanitization";
 
-const ClerkRoleSchema = z.enum(["student", "instructor", "admin"]);
+const ClerkRoleSchema = z.enum(["student", "instructor", "admin", "video_editor"]);
 
 /**
  * Custom error class for unauthorized access
@@ -106,7 +106,7 @@ export async function requireAuth(): Promise<string> {
 export async function syncClerkUserToSupabase(
   clerkUserId: string,
   email: string,
-  role: "student" | "instructor" | "admin" = "student"
+  role: "student" | "instructor" | "admin" | "video_editor" = "student"
 ): Promise<typeof users.$inferSelect | undefined> {
   // Check if user exists
   let existingUser;
@@ -206,10 +206,9 @@ export async function getOrCreateUser() {
   }
 
   // Sync user to Supabase
-  return await syncClerkUserToSupabase(
-    clerkUser.id,
-    email,
-    ClerkRoleSchema.parse(clerkUser.publicMetadata?.role ?? "student")
-  );
+  const rawRole = clerkUser.publicMetadata?.role ?? "student";
+  const parsed = ClerkRoleSchema.safeParse(rawRole);
+  const role = parsed.success ? parsed.data : "student";
+  return await syncClerkUserToSupabase(clerkUser.id, email, role);
 }
 

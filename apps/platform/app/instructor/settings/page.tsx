@@ -4,6 +4,10 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import type { MentorWorkingHours } from "@mentorships/db";
 
+function isMentorWorkingHours(value: unknown): value is MentorWorkingHours {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
   const instructorRecord = await getMentorByUserId(user.id);
@@ -30,7 +34,11 @@ export default async function InstructorSettingsPage() {
 
         <SchedulingSettingsForm
           initialTimeZone={instructorRecord.timeZone ?? null}
-          initialWorkingHours={(instructorRecord.workingHours as MentorWorkingHours | null) ?? null}
+          initialWorkingHours={
+            isMentorWorkingHours(instructorRecord.workingHours)
+              ? instructorRecord.workingHours
+              : null
+          }
         />
       </div>
     </ProtectedLayout>
