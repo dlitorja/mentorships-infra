@@ -403,6 +403,23 @@ Fixed user-facing "mentor" → "instructor" terminology that was still appearing
 
 **Role checks updated:** The actual role checks (`user.role !== "mentor"`) were updated to `user.role !== "instructor"` in the Google OAuth routes (`apps/web/app/api/auth/google/route.ts` and `apps/web/app/api/auth/google/callback/route.ts`) to match the new DB schema enum. The `mentor` → `instructor` DB enum migration (`ALTER TYPE user_role RENAME VALUE 'mentor' TO 'instructor'`) must be applied before deploying these changes.
 
+**DB Schema enum updated (PR #266):**
+- `packages/db/src/schema/users.ts` - Changed userRoleEnum from `["student", "mentor", "admin", "video_editor"]` to `["student", "instructor", "admin", "video_editor"]`
+- `packages/db/src/lib/clerk.ts` - Updated `syncClerkUserToSupabase` function signature and added Zod validation for `publicMetadata.role`
+- `packages/db/src/lib/queries/users.ts` - Updated `updateUserRole` function signature to use "instructor" instead of "mentor"
+- `packages/db/src/types/database.types.ts` - Updated all role type definitions
+
+**Token decryption fixed (PR #266):**
+- `apps/web/lib/crypto.ts` - Now properly uses `decrypt()` from `@mentorships/db` for migrated Postgres AES-256-GCM encrypted tokens (previously only handled legacy plain-text format)
+
+**PostgreSQL migration script created (PR #266):**
+- `packages/db/drizzle/0027_rename_user_role_mentor_to_instructor.sql` - SQL migration to rename the enum value from 'mentor' to 'instructor'. Must be run BEFORE deploying code changes that check for 'instructor' role.
+
+**Auth helpers fixed (PR #266):**
+- `apps/web/lib/auth.ts` - `requireDbUser()` now throws `UnauthorizedError` if user is not found in DB
+- `apps/web/lib/auth-helpers.ts` - `requireRole()`, `requireRoleForApi()`, `hasRole()` now use `requireDbUser` instead of `getDbUser`
+- `apps/marketing/lib/auth.ts` - Same fixes for marketing app
+
 ---
 
 ## Phase 5: Cleanup
