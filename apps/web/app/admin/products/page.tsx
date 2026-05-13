@@ -16,12 +16,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type InstructorOption = {
-  id: string;
-  userId: string | null;
-  email: string | null;
-};
-
 const instructorOptionSchema = z.object({
   id: z.string(),
   userId: z.string().nullable(),
@@ -33,6 +27,8 @@ const instructorOptionSchema = z.object({
   activeMenteeCount: z.number(),
   totalCompletedSessions: z.number(),
 });
+
+type InstructorOption = z.infer<typeof instructorOptionSchema>;
 
 type ProductInfo = {
   id: string;

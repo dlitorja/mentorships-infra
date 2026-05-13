@@ -1,5 +1,6 @@
 import { pgTable, text, integer, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
 import { users } from "./users";
+import { instructors } from "./instructors";
 
 export const sessionPackStatusEnum = pgEnum("session_pack_status", [
   "active",
@@ -18,7 +19,9 @@ export const sessionPacks = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    instructorId: text("instructor_id").notNull(),
+    instructorId: text("instructor_id")
+      .notNull()
+      .references(() => instructors.id, { onDelete: "cascade" }),
     totalSessions: integer("total_sessions").notNull().default(4),
     remainingSessions: integer("remaining_sessions").notNull().default(4),
     purchasedAt: timestamp("purchased_at").notNull().defaultNow(),

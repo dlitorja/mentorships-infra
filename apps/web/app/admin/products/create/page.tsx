@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { z } from "zod";
 import { ProductForm } from "../_components/product-form";
+
+const instructorSchema = z.object({
+  instructorId: z.string(),
+  email: z.string().nullable(),
+});
+
+const instructorsResponseSchema = z.object({
+  instructors: z.array(instructorSchema),
+});
 
 type Instructor = {
   id: string;
@@ -22,8 +32,9 @@ export default function CreateProductPage() {
           throw new Error(data.error || "Failed to fetch instructors");
         }
         const data = await res.json();
+        const validated = instructorsResponseSchema.parse(data);
         setInstructors(
-          (data.instructors || []).map((inst: any) => ({
+          validated.instructors.map((inst) => ({
             id: inst.instructorId,
             email: inst.email || null,
           }))

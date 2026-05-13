@@ -69,7 +69,11 @@ export const handleSessionBookingEmails = inngest.createFunction(
 
     const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
+      step.run("get-instructor-name", () =>
+        instructor.userId
+          ? getClerkUserName(instructor.userId)
+          : Promise.resolve(instructor.name || "your instructor")
+      ),
       step.run("get-student-email", () => getUserEmail(studentId)),
       step.run("get-instructor-email", () => instructor.userId ? getUserEmail(instructor.userId) : Promise.resolve(null)),
     ]);
@@ -185,7 +189,11 @@ export const handleSessionReminderEmails = inngest.createFunction(
 
     const [studentName, instructorName, studentEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
+      step.run("get-instructor-name", () =>
+        instructor.userId
+          ? getClerkUserName(instructor.userId)
+          : Promise.resolve(instructor.name || "your instructor")
+      ),
       step.run("get-student-email", () => getUserEmail(studentId)),
     ]);
 
@@ -265,7 +273,11 @@ export const handleSessionCancellationEmails = inngest.createFunction(
 
     const [studentName, instructorName, studentEmail, instructorUserEmail] = await Promise.all([
       step.run("get-student-name", () => getClerkUserName(studentId)),
-      step.run("get-instructor-name", () => getClerkUserName(instructor.userId || "")),
+      step.run("get-instructor-name", () =>
+        instructor.userId
+          ? getClerkUserName(instructor.userId)
+          : Promise.resolve(instructor.name || "your instructor")
+      ),
       step.run("get-student-email", () => getUserEmail(studentId)),
       step.run("get-instructor-email", () => instructor.userId ? getUserEmail(instructor.userId) : Promise.resolve(null)),
     ]);
