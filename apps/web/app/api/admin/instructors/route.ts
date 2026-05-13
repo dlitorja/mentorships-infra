@@ -68,12 +68,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { search, includeInactive, page, pageSize } = parsedQuery.data;
+    const { search, page, pageSize } = parsedQuery.data;
 
     const convex = getConvexClient();
     const result = await convex.query(api.admin.getInstructorsForAdmin, {
       search: search || undefined,
-      includeInactive: includeInactive || false,
       page,
       pageSize,
     });
