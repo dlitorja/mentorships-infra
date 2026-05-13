@@ -33,7 +33,7 @@ export async function getUserByEmail(email: string) {
  */
 export async function updateUserRole(
   clerkUserId: string,
-  role: "student" | "mentor" | "admin" | "video_editor"
+  role: "student" | "instructor" | "admin" | "video_editor"
 ) {
   const [updated] = await db
     .update(users)

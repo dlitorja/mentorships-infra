@@ -23,21 +23,21 @@ export interface Database {
         Row: {
           id: string;
           email: string;
-          role: "student" | "mentor" | "admin";
+          role: "student" | "instructor" | "admin";
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id: string;
           email: string;
-          role?: "student" | "mentor" | "admin";
+          role?: "student" | "instructor" | "admin";
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           email?: string;
-          role?: "student" | "mentor" | "admin";
+          role?: "student" | "instructor" | "admin";
           created_at?: string;
           updated_at?: string;
         };
@@ -81,7 +81,7 @@ export interface Database {
       [_ in never]: never;
     };
     Enums: {
-      user_role: "student" | "mentor" | "admin";
+      user_role: "student" | "instructor" | "admin";
       order_status: "pending" | "paid" | "refunded" | "failed" | "canceled";
       payment_provider: "stripe" | "paypal";
       payment_status: "pending" | "completed" | "refunded" | "failed";

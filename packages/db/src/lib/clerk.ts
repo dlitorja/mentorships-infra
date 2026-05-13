@@ -103,7 +103,7 @@ export async function requireAuth(): Promise<string> {
 export async function syncClerkUserToSupabase(
   clerkUserId: string,
   email: string,
-  role: "student" | "mentor" | "admin" = "student"
+  role: "student" | "instructor" | "admin" = "student"
 ) {
   // Check if user exists
   let existingUser;
@@ -207,7 +207,7 @@ export async function getOrCreateUser() {
     clerkUser.id,
     email,
     // You can determine role from Clerk metadata if needed
-    (clerkUser.publicMetadata?.role as "student" | "mentor" | "admin") || "student"
+    (clerkUser.publicMetadata?.role as "student" | "instructor" | "admin") || "student"
   );
 }
 
