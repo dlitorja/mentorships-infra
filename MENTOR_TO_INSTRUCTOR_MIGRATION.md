@@ -354,7 +354,7 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 
 - [ ] **5.1** Remove `MentorSchema`, `fetchMentors`, `mentors` query key namespace
 - [ ] **5.2** Remove `packages/db/src/schema/mentors.ts` and `mentors` table references
-- [ ] **5.3** Remove `/api/admin/instructors/mentors` endpoint
+- [x] **5.3** Remove `/api/admin/instructors/mentors` endpoint (deleted in PR #263)
 - [ ] **5.4** Remove `convex/mentors.ts` and `mentors` table from Convex schema
 - [ ] **5.5** Rename remaining `mentor`-prefixed vars to `instructor` where appropriate
 - [ ] **5.6** Update tests (4 files, 15 refs)

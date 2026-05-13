@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { db, eq, getMentorByUserId, menteeOnboardingSubmissions } from "@mentorships/db";
+import { db, eq, getInstructorByUserId, menteeOnboardingSubmissions } from "@mentorships/db";
 import { requireDbUser } from "@/lib/auth";
 import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
 
@@ -34,13 +34,13 @@ export async function GET(
 
     const isStudentOwner = submission.userId === user.id;
 
-    let isMentorOwner = false;
+    let isInstructorOwner = false;
     if (user.role === "mentor") {
-      const mentor = await getMentorByUserId(user.id);
-      isMentorOwner = Boolean(mentor && mentor.id === submission.mentorId);
+      const instructor = await getInstructorByUserId(user.id);
+      isInstructorOwner = Boolean(instructor && instructor.mentorId === submission.mentorId);
     }
 
-    if (!isStudentOwner && !isMentorOwner) {
+    if (!isStudentOwner && !isInstructorOwner) {
       return NextResponse.json({ error: "Forbidden", errorId }, { status: 403 });
     }
 
