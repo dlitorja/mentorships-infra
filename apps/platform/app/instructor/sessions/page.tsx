@@ -35,10 +35,10 @@ function getStatusBadgeVariant(status: string) {
 }
 
 export default async function InstructorSessionsPage() {
-  const user = await requireRole("mentor");
-  const mentor = await getMentorByUserId(user.id);
+  const user = await requireRole("instructor");
+  const instructorRecord = await getMentorByUserId(user.id);
 
-  if (!mentor) {
+  if (!instructorRecord) {
     return (
       <ProtectedLayout currentPath="/instructor/sessions">
         <div className="container mx-auto p-4 md:p-8">
@@ -54,7 +54,7 @@ export default async function InstructorSessionsPage() {
     );
   }
 
-  const allSessions = await getMentorSessions(mentor.id, 100);
+  const allSessions = await getMentorSessions(instructorRecord.id, 100);
 
   // Separate sessions by status
   const upcomingSessions = allSessions.filter(

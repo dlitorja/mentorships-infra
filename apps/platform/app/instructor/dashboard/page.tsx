@@ -36,10 +36,10 @@ function formatDateTime(date: Date | string): string {
 }
 
 export default async function InstructorDashboardPage() {
-  const user = await requireRole("mentor");
-  const mentor = await getMentorByUserId(user.id);
+  const user = await requireRole("instructor");
+  const instructorRecord = await getMentorByUserId(user.id);
 
-  if (!mentor) {
+  if (!instructorRecord) {
     return (
       <ProtectedLayout currentPath="/instructor/dashboard">
         <div className="container mx-auto p-4 md:p-8">
@@ -58,10 +58,10 @@ export default async function InstructorDashboardPage() {
   // Fetch all dashboard data in parallel
   const [upcomingSessions, pastSessions, activeSeats, seatAvailability] =
     await Promise.all([
-      getMentorUpcomingSessions(mentor.id, 10),
-      getMentorPastSessions(mentor.id, 5),
-      getMentorActiveSeats(mentor.id) as Promise<{ id: string; userId: string; status: string; sessionPackId: string; mentorId: string; seatExpiresAt: Date | null; gracePeriodEndsAt: Date | null }[]>,
-      checkSeatAvailability(mentor.id),
+      getMentorUpcomingSessions(instructorRecord.id, 10),
+      getMentorPastSessions(instructorRecord.id, 5),
+      getMentorActiveSeats(instructorRecord.id) as Promise<{ id: string; userId: string; status: string; sessionPackId: string; instructorId: string; seatExpiresAt: Date | null; gracePeriodEndsAt: Date | null }[]>,
+      checkSeatAvailability(instructorRecord.id),
     ]);
 
   return (
@@ -144,15 +144,15 @@ export default async function InstructorDashboardPage() {
           </CardHeader>
           <CardContent className="flex items-center justify-between gap-4">
             <div className="text-sm">
-              {mentor.googleRefreshToken ? (
+              {instructorRecord.googleRefreshToken ? (
                 <span className="text-green-600">Connected</span>
               ) : (
                 <span className="text-amber-600">Not connected</span>
               )}
             </div>
-            <Button asChild variant={mentor.googleRefreshToken ? "outline" : "default"}>
+            <Button asChild variant={instructorRecord.googleRefreshToken ? "outline" : "default"}>
               <a href="/api/auth/google">
-                {mentor.googleRefreshToken ? "Reconnect" : "Connect Google Calendar"}
+                {instructorRecord.googleRefreshToken ? "Reconnect" : "Connect Google Calendar"}
               </a>
             </Button>
           </CardContent>

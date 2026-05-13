@@ -4,13 +4,13 @@
 
 **Goal**: Eliminate all instances of `mentor`/`mentorId` in favor of `instructor`/`instructorId` across all apps/platforms.
 
-**Scope**: ~2,500 references across ~280 files
+**Scope**: ~2,500 references across ~280 files (excludes `apps/marketing` — maintained as-is during platform/web focus)
 
 **Current State**:
 - Convex: `mentorId` removed from most tables, `instructorId` used instead. `mentors` table still exists but is largely unused.
 - Postgres/Drizzle: **Phase 1 complete** — `instructor_id` columns added and backfilled across 6 tables. Columns are nullable (NOT NULL enforcement deferred to before Phase 1.5). Both `mentor_id` and `instructor_id` columns exist. `mentors` table still exists.
 - API layer: Still returns `mentorId` in responses, accepts it in request bodies.
-- Frontend: ~1,500 refs across `platform`, `web`, `marketing`, `home` apps.
+- Frontend: ~1,500 refs across `platform`, `web`, `home` apps. `marketing` excluded from this migration.
 
 ---
 
@@ -19,7 +19,7 @@
 1. `instructors.mentorId` is a FK bridge to `mentors.id` — must be replaced with direct `instructors.id` reference.
 2. Inconsistent column types: `mentor_id` is `text` in some tables, `uuid` in others.
 3. No shared canonical type — `mentorId` is redefined as `string` at every layer.
-4. Two live frontends (`platform` + `web`) + `marketing` — changes must be coordinated.
+4. Two live frontends (`platform` + `web`) + `home` — changes must be coordinated. `marketing` excluded from scope.
 5. 17 Drizzle migration files reference `mentor_id` — these are immutable (past migrations).
 
 ---
@@ -135,11 +135,11 @@ The following still contain "mentor" references that may need attention:
 
 ### Recommended Next Steps
 
-1. **Complete Phase 4.3 (Marketing app)** — 242 refs, uses Postgres approach
-2. **Complete Phase 4.4 (Home app)** — 31 refs, mostly display strings
-3. **Update role checks** — Change `requireRole("mentor")` to `requireRole("instructor")` once database roles are updated
-4. **Sale banner terminology** — Consider updating "New Mentor — Kim Myatt" to "New Instructor — Kim Myatt" if product allows
-5. **Phase 5 cleanup** — Blocked until Google Calendar encryption key confirmation received
+1. **Complete Phase 4.4 (Home app)** — 31 refs, mostly display strings
+2. ✅ **Role checks** — Done May 13: Updated `requireRole("mentor")` to `"instructor"` across 5 platform pages + 10 API routes
+3. ✅ **Sale banner terminology** — Already done in PR #266 ("New Mentor — Kim Myatt" → "New Instructor — Kim Myatt")
+4. **Phase 5 cleanup** — Blocked until Google Calendar encryption key confirmation received
+5. **Rename `getMentorByUserId`** — Lower priority, still works as-is. See Phase 5 investigation findings above
 
 ### PR #259 Status
 - Core issues flagged by greptile are **resolved** and **committed**
@@ -333,7 +333,7 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 
 - [x] **4.1** `apps/platform/` — largely complete via PR #262
 - [x] **4.2** `apps/web/` — largely complete via PR #262
-- [ ] **4.3** `apps/marketing/` (242 refs, 12 mentorId)
+- [ ] **4.3** `apps/marketing/` — **EXCLUDED** from migration (maintained as-is while focusing on platform/web)
 - [ ] **4.4** `apps/home/` (31 refs, 0 mentorId — mostly display strings)
 
 ### Key Files
@@ -357,6 +357,20 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 5. ✅ Add Convex `getInstructorsForAdmin` query and update admin instructor endpoints
 6. ✅ Remove `/api/admin/instructors/mentors` endpoints (callers now use `/api/admin/instructors`)
 7. ✅ Fix admin queries and types for instructorId changes
+
+**Completed May 13, 2026:**
+8. ✅ Fix `requireRole("mentor")` → `"instructor"` in 5 platform instructor pages (dashboard, settings, profile, sessions, onboarding)
+9. ✅ Update auth-helpers.ts type signatures — removed "mentor" from union types (`requireRole`, `requireRoleForApi`)
+10. ✅ Fix 10 API route references to use `requireRoleForApi("instructor")` instead of `"mentor"`:
+    - `mentees-results/route.ts` (GET + POST)
+    - `mentees-results/[resultId]/route.ts` (DELETE)
+    - `settings/route.ts` (GET + PATCH)
+    - `profile/route.ts` (GET + PATCH)
+    - `testimonials/[testimonialId]/route.ts` (DELETE)
+    - `testimonials/route.ts` (GET + POST)
+11. ✅ Update error messages from "Forbidden: Mentor role required" → "Forbidden: Instructor role required"
+12. ✅ Fix profile page to use Convex `api.instructors.getInstructorByUserId` instead of SQL `getMentorByUserId`
+13. ✅ Update variable names from `mentor` → `instructorRecord` in platform instructor pages
 
 **Pending tasks:**
 - Marketing app (242 refs) - uses Postgres approach, not Convex (no setup)
@@ -426,7 +440,7 @@ Fixed user-facing "mentor" → "instructor" terminology that was still appearing
 
 **Goal**: Remove all legacy mentor references.
 
-### Status: Pending
+### Status: Pending — Blocked by Google Calendar encryption key confirmation
 
 ### Steps
 
@@ -436,6 +450,66 @@ Fixed user-facing "mentor" → "instructor" terminology that was still appearing
 - [ ] **5.4** Remove `convex/mentors.ts` and `mentors` table from Convex schema
 - [ ] **5.5** Rename remaining `mentor`-prefixed vars to `instructor` where appropriate
 - [ ] **5.6** Update tests (4 files, 15 refs)
+
+### Phase 5 Investigation Findings (May 13, 2026)
+
+#### Google Calendar Encryption Key (Blocking Item)
+
+The `mentors` SQL table and `instructors` Convex table both store `googleRefreshToken` (encrypted). The encryption key `ENCRYPTION_KEY` must be confirmed working in all environments before Phase 5 cleanup.
+
+**Current state:**
+- SQL `mentors` table has `google_refresh_token` (encrypted with `ENCRYPTION_KEY` via AES-256-GCM)
+- Convex `instructors` table has `googleRefreshToken` field (same encryption pattern)
+- Encryption was migrated from unencrypted to encrypted format (v1 → v2 format)
+- PR #266 fixed `decrypt()` in `apps/web/lib/crypto.ts` to handle migrated tokens
+
+**Before Phase 5 cleanup:**
+1. Verify `ENCRYPTION_KEY` is set in: local dev, Vercel preview, Vercel production (web + platform)
+2. Verify Google Calendar tokens can be decrypted for existing instructors
+3. Confirm Convex `instructors.googleRefreshToken` encryption path is also working
+
+**Key files to verify:**
+- `packages/db/src/lib/encryption.ts` — encryption/decryption logic
+- `packages/db/src/lib/queries/mentors.ts:80` — `updateMentorGoogleCalendarAuth()` encrypts tokens
+- `packages/db/src/lib/queries/mentors.ts:129` — `decryptMentorRefreshToken()` decrypts tokens
+- `apps/web/lib/crypto.ts` — PR #266 fix for decrypting migrated tokens
+
+#### `getMentorByUserId` Rename Analysis
+
+**Current state:** Function still named `getMentorByUserId` but returns instructor data.
+
+**Downstream callers (13 files):**
+
+| File | Usage |
+|------|-------|
+| `apps/platform/app/instructor/dashboard/page.tsx` | Line 40: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/platform/app/instructor/sessions/page.tsx` | Line 39: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/platform/app/instructor/settings/page.tsx` | Line 9: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/platform/app/instructor/onboarding/page.tsx` | Line 24: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/platform/components/navigation/protected-layout.tsx` | Line 21: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/web/app/instructor/dashboard/page.tsx` | Line 40: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/web/app/instructor/sessions/page.tsx` | Line 39: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/web/app/instructor/settings/page.tsx` | Line 9: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/web/app/instructor/onboarding/page.tsx` | Line 24: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/web/app/api/instructor/onboarding/review/route.ts` | Line 15: `const mentor = await getMentorByUserId(user.id)` |
+| `apps/web/app/api/instructor/mentees/session-counts/[userId]/route.ts` | Lines 42, 98, 161 |
+| `apps/web/components/navigation/protected-layout.tsx` | Line 21: `const mentor = await getMentorByUserId(user.id)` |
+| `packages/db/src/lib/queries/mentors.ts` | Definition file |
+| `convex/mentors.ts` | Convex internalQuery (deprecated) |
+| `apps/marketing/app/instructor/dashboard/page.tsx` | **Excluded from migration** |
+
+**Convex `mentors` table status:**
+- Table exists in `convex/schema.ts:52-59` but is **deprecated**
+- `instructors` table has `googleRefreshToken`, `googleCalendarId` fields — mentors table is not needed for Google Calendar
+- `convex/mentors.ts` is marked `@deprecated` with note: "mentors table is no longer used for Clerk user linking"
+
+**Rename recommendation:**
+1. Rename `getMentorByUserId` → `getInstructorByUserId` in `packages/db/src/lib/queries/mentors.ts`
+2. Update all 11 caller files (platform + web)
+3. Keep the Convex version in `convex/mentors.ts` as-is (already deprecated, will be removed in 5.4)
+4. Consider renaming the file `packages/db/src/lib/queries/mentors.ts` → `instructors.ts` as part of 5.1
+
+**Risk:** Low — all callers use it the same way, just a rename with mechanical updates needed.
 
 ---
 

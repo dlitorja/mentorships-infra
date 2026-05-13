@@ -5,10 +5,10 @@ import { SchedulingSettingsForm } from "@/components/instructor/scheduling-setti
 import type { MentorWorkingHours } from "@mentorships/db";
 
 export default async function InstructorSettingsPage() {
-  const user = await requireRole("mentor");
-  const mentor = await getMentorByUserId(user.id);
+  const user = await requireRole("instructor");
+  const instructorRecord = await getMentorByUserId(user.id);
 
-  if (!mentor) {
+  if (!instructorRecord) {
     return (
       <ProtectedLayout currentPath="/instructor/settings">
         <div className="container mx-auto p-4 md:p-8">
@@ -29,8 +29,8 @@ export default async function InstructorSettingsPage() {
         </div>
 
         <SchedulingSettingsForm
-          initialTimeZone={mentor.timeZone ?? null}
-          initialWorkingHours={(mentor.workingHours as MentorWorkingHours | null) ?? null}
+          initialTimeZone={instructorRecord.timeZone ?? null}
+          initialWorkingHours={(instructorRecord.workingHours as MentorWorkingHours | null) ?? null}
         />
       </div>
     </ProtectedLayout>

@@ -1,32 +1,37 @@
 import { requireRole } from "@/lib/auth-helpers";
-import { getInstructorByUserId } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { ProfileForm } from "./profile-form";
 
 export const dynamic = "force-dynamic";
 
 async function getProfileData() {
-  const user = await requireRole("mentor");
-  const instructor = await getInstructorByUserId(user.id);
+  const user = await requireRole("instructor");
+  const convex = getConvexClient();
+
+  const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+    userId: user.id,
+  });
 
   if (!instructor) {
     return null;
   }
 
   return {
-    id: instructor.id,
-    name: instructor.name,
-    slug: instructor.slug,
-    tagline: instructor.tagline,
-    bio: instructor.bio,
-    specialties: instructor.specialties,
-    background: instructor.background,
-    profileImageUrl: instructor.profileImageUrl,
-    profileImageUploadPath: instructor.profileImageUploadPath,
-    portfolioImages: instructor.portfolioImages,
-    socials: instructor.socials,
-    isActive: instructor.isActive,
-    updatedAt: instructor.updatedAt.toISOString(),
+    id: instructor._id,
+    name: instructor.name ?? "",
+    slug: instructor.slug ?? "",
+    tagline: instructor.tagline ?? null,
+    bio: instructor.bio ?? null,
+    specialties: instructor.specialties ?? null,
+    background: instructor.background ?? null,
+    profileImageUrl: instructor.profileImageUrl ?? null,
+    profileImageUploadPath: instructor.profileImageUploadPath ?? null,
+    portfolioImages: instructor.portfolioImages ?? null,
+    socials: (instructor.socials as { twitter?: string; instagram?: string; youtube?: string; bluesky?: string; website?: string; artstation?: string } | null) ?? null,
+    isActive: instructor.isActive ?? false,
+    updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : new Date(instructor._creationTime).toISOString(),
   };
 }
 
