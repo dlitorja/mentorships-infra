@@ -62,6 +62,7 @@ export async function reserveSeat(
     .insert(seatReservations)
     .values({
       id: crypto.randomUUID(),
+      mentorId: instructorId,
       instructorId,
       userId,
       sessionPackId,

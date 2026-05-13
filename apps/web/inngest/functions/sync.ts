@@ -187,7 +187,7 @@ export const syncSessionPackCreated = inngest.createFunction(
           .update(sessionPacks)
           .set({
             userId: sessionPack.userId,
-            mentorId: sessionPack.mentorId,
+            instructorId: sessionPack.instructorId,
             totalSessions: sessionPack.totalSessions,
             remainingSessions: sessionPack.remainingSessions,
             status: sessionPack.status,
@@ -200,7 +200,7 @@ export const syncSessionPackCreated = inngest.createFunction(
         await db.insert(sessionPacks).values({
           id: sessionPack.id,
           userId: sessionPack.userId,
-          mentorId: sessionPack.mentorId,
+          instructorId: sessionPack.instructorId,
           totalSessions: sessionPack.totalSessions,
           remainingSessions: sessionPack.remainingSessions,
           purchasedAt: new Date(sessionPack.purchasedAt),

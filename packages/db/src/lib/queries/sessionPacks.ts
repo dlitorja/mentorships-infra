@@ -32,7 +32,6 @@ export async function createSessionPack(
     .values({
       id: crypto.randomUUID(),
       userId,
-      mentorId: instructorId,
       instructorId,
       paymentId,
       expiresAt,
@@ -64,7 +63,6 @@ export async function createSessionPackWithoutPayment(
     .values({
       id: crypto.randomUUID(),
       userId,
-      mentorId: instructorId,
       instructorId,
       paymentId: crypto.randomUUID() as any,
       expiresAt: null,

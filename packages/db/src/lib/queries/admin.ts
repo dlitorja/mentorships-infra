@@ -404,7 +404,6 @@ export type AdminMenteeItem = {
   id: string;
   userId: string;
   email: string;
-  mentorId: string | null;
   instructorId: string | null;
   instructorName: string | null;
   instructorSlug: string | null;
@@ -480,7 +479,6 @@ export async function getAdminMentees(
         id: r.id,
         userId: r.userId,
         email: r.email || "Unknown",
-        mentorId: r.mentorId,
         instructorId: r.instructorId,
         instructorName: r.instructorName || "Unknown",
         instructorSlug: r.instructorSlug,
