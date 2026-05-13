@@ -35,7 +35,7 @@ export async function GET(
     const isStudentOwner = submission.userId === user.id;
 
     let isInstructorOwner = false;
-    if (user.role === "mentor") {
+    if (user.role === "instructor") {
       const instructor = await getInstructorByUserId(user.id);
       isInstructorOwner = Boolean(instructor && instructor.mentorId === submission.mentorId);
     }
