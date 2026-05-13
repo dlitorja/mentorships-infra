@@ -139,7 +139,7 @@ export default function WorkspacesPage() {
                     <th className="text-left py-3 px-4 font-medium">Name</th>
                     <th className="text-left py-3 px-4 font-medium">Type</th>
                     <th className="text-left py-3 px-4 font-medium">Owner</th>
-                    <th className="text-left py-3 px-4 font-medium">Mentor</th>
+                    <th className="text-left py-3 px-4 font-medium">Instructor</th>
                     <th className="text-left py-3 px-4 font-medium">Images</th>
                     <th className="text-left py-3 px-4 font-medium">Created</th>
                     <th className="text-left py-3 px-4 font-medium">Actions</th>

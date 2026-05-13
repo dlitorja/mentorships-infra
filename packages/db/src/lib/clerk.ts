@@ -2,7 +2,10 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "./drizzle";
 import { users } from "../schema";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { sanitizeErrorForLogging, sanitizeForLogging } from "./errorSanitization";
+
+const ClerkRoleSchema = z.enum(["student", "instructor", "admin"]);
 
 /**
  * Custom error class for unauthorized access
@@ -103,8 +106,8 @@ export async function requireAuth(): Promise<string> {
 export async function syncClerkUserToSupabase(
   clerkUserId: string,
   email: string,
-  role: "student" | "mentor" | "admin" = "student"
-) {
+  role: "student" | "instructor" | "admin" = "student"
+): Promise<typeof users.$inferSelect | undefined> {
   // Check if user exists
   let existingUser;
   try {
@@ -206,8 +209,7 @@ export async function getOrCreateUser() {
   return await syncClerkUserToSupabase(
     clerkUser.id,
     email,
-    // You can determine role from Clerk metadata if needed
-    (clerkUser.publicMetadata?.role as "student" | "mentor" | "admin") || "student"
+    ClerkRoleSchema.parse(clerkUser.publicMetadata?.role ?? "student")
   );
 }
 

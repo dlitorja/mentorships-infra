@@ -12,7 +12,7 @@ async function checkAdminAccess(): Promise<void> {
   }
   
   const user = await getDbUser();
-  if (user.role !== "admin") {
+  if (!user || user.role !== "admin") {
     redirect("/dashboard?error=unauthorized");
   }
 }

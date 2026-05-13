@@ -196,6 +196,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const convex = getConvexClient();
 
+    // Note: pack.instructorId is expected to be a valid Convex instructor ID.
+    // If invalid or legacy, the query will return null and trigger a 404.
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: pack.instructorId as Id<"instructors">,
     });

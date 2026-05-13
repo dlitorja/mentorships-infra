@@ -114,6 +114,33 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
 - `admin.ts` `getAdminInstructors`: Subqueries at lines 690-702 use `instructors.mentorId` (bridge FK to mentors.id) combined with `seatReservations.mentorId`/`sessionPacks.mentorId` (text/Convex IDs). This pattern requires careful migration due to type mismatches (UUID vs text).
 - `mentors.ts`: Functions like `updateMentorGoogleCalendarAuth` query the `mentors` table directly for mentor-specific fields. These remain valid until mentors table is deprecated in Phase 5.
 
+### Remaining User-Facing Text Work
+
+The following still contain "mentor" references that may need attention:
+
+**Sale banners / product labels (harder to change - product/category names):**
+- `New Mentor — Kim Myatt` in sale-banner components (3 apps)
+- `MENTORSHIPS` badge text
+- These are product/category display names that may require coordination with business logic
+
+**Internal code references (variable names, function names):**
+- `getMentorByUserId()` function calls (still works, returns instructor data)
+- `mentorId` variable names in local scope (not user-facing)
+- `requireRole("mentor")` checks (database-dependent, should update when roles change)
+
+**Remaining grep findings (526 total matches):**
+- Many are internal variable names (`mentor`, `mentorId`, `getMentorByUserId`)
+- Some are type definitions and schema references
+- Seed data testimonials contain "mentor" in natural language text (not code)
+
+### Recommended Next Steps
+
+1. **Complete Phase 4.3 (Marketing app)** — 242 refs, uses Postgres approach
+2. **Complete Phase 4.4 (Home app)** — 31 refs, mostly display strings
+3. **Update role checks** — Change `requireRole("mentor")` to `requireRole("instructor")` once database roles are updated
+4. **Sale banner terminology** — Consider updating "New Mentor — Kim Myatt" to "New Instructor — Kim Myatt" if product allows
+5. **Phase 5 cleanup** — Blocked until Google Calendar encryption key confirmation received
+
 ### PR #259 Status
 - Core issues flagged by greptile are **resolved** and **committed**
 - Vercel platforms & web deployments: **still pending** (CI must confirm)
@@ -341,6 +368,40 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 - Phase 4: Add error handling to product create pages
 - Phase 4: Fix booking-emails null userId handling
 - Phase 4: Migrate web instructor edit page to use instructorId
+
+### User-Facing Text Fixes (Terminology Consistency)
+
+Fixed user-facing "mentor" → "instructor" terminology that was still appearing after recent PRs:
+
+**Display text fixed:**
+- "Mentor profile not found" → "Instructor profile not found" (instructor pages across web, platform, marketing)
+  - `apps/web/app/instructor/dashboard/page.tsx`
+  - `apps/web/app/instructor/settings/page.tsx`
+  - `apps/web/app/instructor/sessions/page.tsx`
+  - `apps/web/app/instructor/onboarding/page.tsx`
+  - `apps/platform/app/instructor/dashboard/page.tsx`
+  - `apps/platform/app/instructor/settings/page.tsx`
+  - `apps/platform/app/instructor/sessions/page.tsx`
+  - `apps/platform/app/instructor/onboarding/page.tsx`
+  - `apps/marketing/app/instructor/dashboard/page.tsx`
+- "Mentor workspace" → "Instructor workspace" (`apps/web/app/workspace/page.tsx`)
+- "Mentor" column header → "Instructor" (admin workspaces pages)
+  - `apps/web/app/admin/workspaces/page.tsx`
+  - `apps/platform/app/admin/workspaces/page.tsx`
+
+**Navigation links fixed:**
+- "Browse Mentors" → "Browse Instructors" (3 landing preview footers)
+- "Find Your Mentor" → "Find Your Instructor" (3 landing preview footers)
+  - `apps/web/components/landing-preview/preview-footer.tsx`
+  - `apps/platform/components/landing-preview/preview-footer.tsx`
+  - `apps/home/components/landing-preview/preview-footer.tsx`
+
+**Error messages fixed:**
+- "Forbidden: mentor role required" → "Forbidden: instructor role required" (2 API routes)
+  - `apps/web/app/api/auth/google/callback/route.ts`
+  - `apps/web/app/api/auth/google/route.ts`
+
+**Role checks updated:** The actual role checks (`user.role !== "mentor"`) were updated to `user.role !== "instructor"` in the Google OAuth routes (`apps/web/app/api/auth/google/route.ts` and `apps/web/app/api/auth/google/callback/route.ts`) to match the new DB schema enum. The `mentor` → `instructor` DB enum migration (`ALTER TYPE user_role RENAME VALUE 'mentor' TO 'instructor'`) must be applied before deploying these changes.
 
 ---
 

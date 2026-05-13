@@ -29,7 +29,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">
-              Mentor profile not found. Please contact support.
+              Instructor profile not found. Please contact support.
             </p>
           </CardContent>
         </Card>

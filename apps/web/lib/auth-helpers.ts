@@ -24,8 +24,8 @@ export async function hasRole(role: "student" | "instructor" | "admin") {
   const { userId } = await auth();
   if (!userId) return false;
 
-  const { getDbUser } = await import("./auth");
-  const user = await getDbUser();
+  const { requireDbUser } = await import("./auth");
+  const user = await requireDbUser();
   
   return user.role === role;
 }
@@ -40,8 +40,8 @@ export async function hasRole(role: "student" | "instructor" | "admin") {
 export async function requireRole(role: "student" | "instructor" | "admin") {
   const userId = await requireAuthRedirect();
   
-  const { getDbUser } = await import("./auth");
-  const user = await getDbUser();
+  const { requireDbUser } = await import("./auth");
+  const user = await requireDbUser();
   
   if (user.role !== role) {
     redirect("/dashboard?error=insufficient_permissions");
@@ -66,8 +66,8 @@ export async function requireRoleForApi(role: "student" | "instructor" | "admin"
     throw new UnauthorizedError("Authentication required");
   }
   
-  const { getDbUser } = await import("./auth");
-  const user = await getDbUser();
+  const { requireDbUser } = await import("./auth");
+  const user = await requireDbUser();
   
   if (user.role !== role) {
     throw new ForbiddenError("Admin access required");
