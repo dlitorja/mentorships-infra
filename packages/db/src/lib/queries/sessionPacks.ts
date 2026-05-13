@@ -126,10 +126,6 @@ export async function createInstructorMenteeAssociations(
           eq(sessionPacks.instructorId, instructor[0].id),
         ];
 
-        if (instructor[0].mentorId !== null) {
-          conditions.push(eq(sessionPacks.mentorId, instructor[0].mentorId));
-        }
-
         const existingPack = await tx
           .select()
           .from(sessionPacks)
@@ -146,7 +142,6 @@ export async function createInstructorMenteeAssociations(
           .values({
             id: crypto.randomUUID(),
             userId: menteeUserId,
-            mentorId: instructor[0].id,
             instructorId: instructor[0].id,
             paymentId: crypto.randomUUID() as any,
             expiresAt: null,

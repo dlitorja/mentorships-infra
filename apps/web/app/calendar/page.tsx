@@ -71,7 +71,7 @@ export default async function CalendarPage() {
   }[] = await db
     .select({
       id: sessionPacks.id,
-      instructorId: sessionPacks.mentorId,
+      instructorId: sessionPacks.instructorId,
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,

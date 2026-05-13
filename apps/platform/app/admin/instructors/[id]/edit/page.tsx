@@ -137,10 +137,17 @@ const updateInstructorResponseSchema = z.object({
   }).optional(),
 });
 
-const mentorsResponseSchema = z.object({
+const instructorsResponseSchema = z.object({
   items: z.array(z.object({
     id: z.string(),
+    userId: z.string().nullable(),
     email: z.string().nullable(),
+    name: z.string().nullable(),
+    slug: z.string().nullable(),
+    isActive: z.boolean(),
+    createdAt: z.string(),
+    activeMenteeCount: z.number(),
+    totalCompletedSessions: z.number(),
   })),
 });
 
@@ -319,11 +326,11 @@ export default function EditInstructorPage() {
     enabled: !!instructorId,
   });
 
-  const { data: mentorsData } = useQuery({
-    queryKey: ["mentors"],
+  const { data: instructorsData } = useQuery({
+    queryKey: ["instructors-for-admin"],
     queryFn: async () => {
-      const result = await apiFetch<{ items: { id: string; email: string | null }[] }>("/api/admin/instructors/mentors");
-      return mentorsResponseSchema.parse(result);
+      const result = await apiFetch<{ items: { id: string; userId: string | null; email: string | null; name: string | null; slug: string | null; isActive: boolean; createdAt: string; activeMenteeCount: number; totalCompletedSessions: number }[] }>("/api/admin/instructors?pageSize=100");
+      return instructorsResponseSchema.parse(result);
     },
   });
 
@@ -623,9 +630,9 @@ export default function EditInstructorPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NONE_SENTINEL}>None</SelectItem>
-                    {mentorsData?.items?.map((mentor) => (
-                      <SelectItem key={mentor.id} value={mentor.id}>
-                        {mentor.email || mentor.id}
+                    {instructorsData?.items?.map((instructor) => (
+                      <SelectItem key={instructor.id} value={instructor.id}>
+                        {instructor.email || instructor.id}
                       </SelectItem>
                     ))}
                   </SelectContent>

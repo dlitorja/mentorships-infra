@@ -6,7 +6,7 @@ import {
   incrementRemainingSessions,
   decrementRemainingSessions,
   getSessionPackById,
-  getMentorByUserId,
+  getInstructorByUserId,
 } from "@mentorships/db";
 import { UnauthorizedError } from "@mentorships/db";
 
@@ -37,7 +37,7 @@ async function requireAdmin() {
   return userId;
 }
 
-async function requireAdminOrMentor(sessionPackId: string) {
+async function requireAdminOrInstructor(sessionPackId: string) {
   const { userId } = await auth();
   if (!userId) {
     throw new UnauthorizedError("Authentication required");
@@ -52,9 +52,9 @@ async function requireAdminOrMentor(sessionPackId: string) {
     return { userId, isAdmin: true };
   }
 
-  const mentor = await getMentorByUserId(userId);
-  if (!mentor) {
-    throw new UnauthorizedError("Mentor access required");
+  const instructor = await getInstructorByUserId(userId);
+  if (!instructor) {
+    throw new UnauthorizedError("Instructor access required");
   }
 
   const pack = await getSessionPackById(sessionPackId);
@@ -62,7 +62,7 @@ async function requireAdminOrMentor(sessionPackId: string) {
     throw new Error("Session pack not found");
   }
 
-  if (mentor.id !== pack.mentorId) {
+  if (instructor.id !== pack.instructorId) {
     throw new UnauthorizedError("You can only modify session packs for your own mentees");
   }
 
@@ -88,7 +88,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const { sessionPackId, action } = parseResult.data;
 
-    const { isAdmin } = await requireAdminOrMentor(sessionPackId);
+    const { isAdmin } = await requireAdminOrInstructor(sessionPackId);
 
     if (action === "increment") {
       const updated = await incrementRemainingSessions(sessionPackId);

@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
-import { getAllInstructorsWithStats } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
+
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
 
 const searchSchema = z.object({
   search: z.string().optional(),
@@ -25,10 +34,26 @@ export async function GET(request: Request): Promise<Response> {
 
     const { search, page, pageSize } = parseResult.data;
 
-    const result = await getAllInstructorsWithStats(search, page, pageSize);
+    const convex = getConvexClient();
+    const result = await convex.query(api.admin.getInstructorsForAdmin, {
+      search,
+      page,
+      pageSize,
+    });
 
     return NextResponse.json({
-      instructors: result.instructors,
+      instructors: result.items.map(inst => ({
+        instructorId: inst.id,
+        userId: inst.userId,
+        email: inst.email,
+        bio: inst.bio,
+        oneOnOneInventory: 0,
+        groupInventory: 0,
+        maxActiveStudents: 0,
+        activeMenteeCount: inst.activeMenteeCount,
+        totalCompletedSessions: inst.totalCompletedSessions,
+        createdAt: inst.createdAt,
+      })),
       total: result.total,
       page,
       pageSize,

@@ -65,7 +65,7 @@ export default async function CalendarPage() {
   const activePacksRaw = await db
     .select({
       id: sessionPacks.id,
-      mentorId: sessionPacks.mentorId,
+      instructorId: sessionPacks.instructorId,
       remainingSessions: sessionPacks.remainingSessions,
       expiresAt: sessionPacks.expiresAt,
       status: sessionPacks.status,
@@ -80,7 +80,7 @@ export default async function CalendarPage() {
 
   const activePacks = activePacksRaw.map((p) => ({
     id: p.id,
-    instructorId: p.mentorId,
+    instructorId: p.instructorId,
     remainingSessions: p.remainingSessions,
     expiresAt: p.expiresAt,
     status: p.status,

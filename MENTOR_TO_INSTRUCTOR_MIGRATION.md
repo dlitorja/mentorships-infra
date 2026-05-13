@@ -217,12 +217,50 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 
 **Goal**: Update all frontend code.
 
-### Status: Pending
+### Status: In Progress
+
+### Branch
+`feat/add-instructor-id-columns` (current)
+
+### PR Status
+- **PR #262**: Phase 4 frontend changes merged ✅
+- CI status: All green (Build, Vercel, Lint, Tests)
+- CodeRabbit: Pending (non-blocking)
+
+### Commits Made
+- Phase 4: Update Inngest types to use instructorId
+- Phase 4: Update booking emails to use instructorId
+- Phase 4: Update product form to use instructorId
+- Phase 4: Update admin products pages to use instructorId
+
+### Completed Changes
+
+**Inngest types (`inngest/types.ts`):**
+- `BookingEmailPayload`, `BookingEmailPayloadV2`, `InstructorBookingEmailPayload`: `mentorId` → `instructorId`
+
+**Booking emails (`inngest/functions/booking-emails.ts`):**
+- `sendBookingConfirmationEmails`: Uses `payload.instructorId`, fetches instructor via `instructorId`
+- `sendBookingConfirmationEmailsV2`: Uses `payload.instructorId`, fetches instructor via `instructorId`
+- `sendInstructorBookingConfirmationEmails`: Uses `payload.instructorId`, fetches instructor via `instructorId`
+
+**Product forms (`app/admin/products/_components/product-form.tsx`):**
+- Both `platform` and `web` versions updated to use `instructorId` prop and `instructors` data
+- `mentorId` → `instructorId` in schema, state, API calls, and display labels
+
+**Product pages:**
+- `apps/platform/web/app/admin/products/create/page.tsx`: Uses `/api/admin/instructors` endpoint, passes `{id, email}` mapped data as `instructors` prop
+- `apps/platform/web/app/admin/products/[id]/edit/page.tsx`: Uses `/api/admin/instructors` endpoint, `instructorId` in schema
+- `apps/web/app/admin/products/create/page.tsx`: Same fixes as platform version
+- `apps/web/app/admin/products/[id]/edit/page.tsx`: Same fixes as platform version
+
+**API client (`lib/queries/api-client.ts`):**
+- `createProduct`, `updateProduct`, `createProductFromStripe`: `mentorId` → `instructorId`
+- `UpdateProductResponseSchema`: Uses `instructorId`
 
 ### Steps
 
-- [ ] **4.1** `apps/platform/` (517 refs, 71 mentorId)
-- [ ] **4.2** `apps/web/` (741 refs, 85 mentorId)
+- [x] **4.1** `apps/platform/` — largely complete via PR #262
+- [x] **4.2** `apps/web/` — largely complete via PR #262
 - [ ] **4.3** `apps/marketing/` (242 refs, 12 mentorId)
 - [ ] **4.4** `apps/home/` (31 refs, 0 mentorId — mostly display strings)
 
@@ -236,6 +274,23 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 | `lib/emails/booking-email.ts` (both platforms) | 48 | 0 |
 | `lib/instructors.ts` (marketing) | 40 | 0 |
 | `inngest/functions/booking-emails.ts` (web) | 46 | 13 |
+
+### Remaining Phase 4 Work
+
+**Completed since PR #262:**
+1. ✅ Add zod validation and error handling to product create pages (both platforms) — switched from useQuery to useEffect+manual fetch with explicit error state
+2. ✅ Fix `booking-emails.ts` to handle null `userId` properly — added early guards that report error with fix guidance and return early when instructor.userId is missing
+3. ✅ Update web instructor edit page (`apps/web/app/admin/instructors/[id]/edit/page.tsx`) — migrated mentorId → instructorId across types, schemas, state, and form bindings
+
+**Pending tasks:**
+4. Marketing app (242 refs) and home app (31 refs) — lower priority, mostly display strings
+5. `/api/admin/instructors/mentors` endpoint in web still uses old naming (treated as separate task)
+
+### Commits Made (Phase 4 continuation)
+
+- Phase 4: Add error handling to product create pages
+- Phase 4: Fix booking-emails null userId handling
+- Phase 4: Migrate web instructor edit page to use instructorId
 
 ---
 

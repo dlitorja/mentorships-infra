@@ -18,8 +18,7 @@ export const sessionPacks = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    mentorId: text("mentor_id").notNull(),
-    instructorId: text("instructor_id"),
+    instructorId: text("instructor_id").notNull(),
     totalSessions: integer("total_sessions").notNull().default(4),
     remainingSessions: integer("remaining_sessions").notNull().default(4),
     purchasedAt: timestamp("purchased_at").notNull().defaultNow(),
@@ -33,7 +32,6 @@ export const sessionPacks = pgTable(
   },
   (t) => ({
     userIdIdx: index("session_packs_user_id_idx").on(t.userId),
-    mentorIdIdx: index("session_packs_mentor_id_idx").on(t.mentorId),
     instructorIdIdx: index("session_packs_instructor_id_idx").on(t.instructorId),
     statusIdx: index("session_packs_status_idx").on(t.status),
     expiresAtIdx: index("session_packs_expires_at_idx").on(t.expiresAt),

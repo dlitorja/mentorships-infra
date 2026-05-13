@@ -457,7 +457,6 @@ export async function getAdminMentees(
         id: sessionPacks.id,
         userId: sessionPacks.userId,
         email: users.email,
-        mentorId: sessionPacks.mentorId,
         instructorId: sessionPacks.instructorId,
         instructorName: instructors.name,
         instructorSlug: instructors.slug,
@@ -704,7 +703,7 @@ export async function getAdminInstructors(
           SELECT COUNT(*)
           FROM ${sessions}
           INNER JOIN ${sessionPacks} ON ${sessions.sessionPackId} = ${sessionPacks.id}
-          WHERE ${sessionPacks.mentorId} = ${instructors.mentorId}
+          WHERE ${sessionPacks.instructorId} = ${instructors.id}
             AND ${sessions.status} = 'completed'
         ), 0)`,
       })

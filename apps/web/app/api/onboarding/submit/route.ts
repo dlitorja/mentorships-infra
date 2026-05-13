@@ -6,6 +6,7 @@ import {
   db,
   discordActionQueue,
   eq,
+  getInstructorById,
   getMentorById,
   menteeOnboardingSubmissions,
   sessionPacks,
@@ -94,7 +95,15 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
       );
     }
 
-    const mentor = await getMentorById(sessionPack.mentorId);
+    const instructor = await getInstructorById(sessionPack.instructorId);
+    if (!instructor) {
+      return NextResponse.json(
+        { error: "Instructor not found for session pack", errorId },
+        { status: 404 }
+      );
+    }
+
+    const mentor = instructor.mentorId ? await getMentorById(instructor.mentorId) : null;
     if (!mentor) {
       return NextResponse.json(
         { error: "Mentor not found for session pack", errorId },

@@ -1,5 +1,5 @@
 import { inngest } from "../client";
-import { db, instructors, mentors, menteeInvitations, sessionPacks, eq, ilike, isNull, and, gt } from "@mentorships/db";
+import { db, instructors, menteeInvitations, eq, ilike, and, gt } from "@mentorships/db";
 
 export const linkClerkUserToInstructor = inngest.createFunction(
   {
@@ -34,39 +34,22 @@ export const linkClerkUserToInstructor = inngest.createFunction(
 
       const instructor = instructorsToLink[0];
 
-// If already linked to the same Clerk user, treat as success so we can complete the mentor backfill on retry
+      // If already linked to the same Clerk user, treat as success
       if (instructor.userId && instructor.userId !== userId) {
         return { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor.id };
       }
 
-      // Use transaction for idempotency: check for existing mentor first, then create/update atomically
-      const mentorId = await db.transaction(async (tx) => {
-        // Check if mentor already exists for this user
-        const existingMentor = await tx
-          .select({ id: mentors.id })
-          .from(mentors)
-          .where(eq(mentors.userId, userId))
-          .limit(1);
-
-        const id =
-          existingMentor[0]?.id ??
-          (await tx.insert(mentors).values({ id: crypto.randomUUID(), userId }).returning({ id: mentors.id }))[0].id;
-
-        // Update instructor with both userId and mentorId atomically
-        await tx
-          .update(instructors)
-          .set({ userId, mentorId: id, updatedAt: new Date() })
-          .where(eq(instructors.id, instructor.id));
-
-        return id;
-      });
+      // Update instructor with userId only - no mentorId bridge needed (Convex is source of truth)
+      await db
+        .update(instructors)
+        .set({ userId, updatedAt: new Date() })
+        .where(eq(instructors.id, instructor.id));
 
       return {
         linked: true,
         instructorId: instructor.id,
         instructorName: instructor.name,
         userId,
-        mentorId,
         email,
       };
     });
