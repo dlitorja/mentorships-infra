@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { requireDbUser } from "@/lib/auth";
-import { getMentorByUserId } from "@mentorships/db";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 import { getGoogleCalendarAuthUrl } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
@@ -17,9 +18,13 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
+    const convex = getConvexClient();
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+
+    if (!instructor) {
+      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
     const state = randomUUID();
@@ -31,7 +36,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 10 * 60, // 10 minutes
+      maxAge: 10 * 60,
     });
 
     return res;

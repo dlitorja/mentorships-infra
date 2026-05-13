@@ -4,15 +4,16 @@ import {
   and,
   db,
   eq,
-  getInstructorById,
-  getMentorById,
-  decryptMentorRefreshToken,
   getSessionPackById,
   sessions,
   validateBookingEligibility,
 } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
+import { getConvexClient } from "@/lib/convex";
 import { requireDbUser } from "@/lib/auth";
 import { getGoogleCalendarClient } from "@/lib/google";
+import { decryptMentorRefreshToken } from "@/lib/crypto";
 import { inngest } from "@/inngest/client";
 import {
   forbidden,
@@ -193,47 +194,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const instructor = await getInstructorById(pack.instructorId);
+    const convex = getConvexClient();
+
+    const instructor = await convex.query(api.instructors.getInstructorById, {
+      id: pack.instructorId as Id<"instructors">,
+    });
+
     if (!instructor) {
       const { response: errorResponse } = notFound("Instructor");
       return NextResponse.json(errorResponse, { status: 404 });
     }
 
-    if (!instructor.mentorId) {
+    const refreshToken = decryptMentorRefreshToken(instructor);
+    if (!refreshToken) {
       const { response: errorResponse } = validationError(
         "Instructor has not connected Google Calendar"
       );
       return NextResponse.json(errorResponse, { status: 422 });
     }
 
-    const mentor = await getMentorById(instructor.mentorId);
-    if (!mentor) {
-      const { response: errorResponse } = notFound("Mentor");
-      return NextResponse.json(errorResponse, { status: 404 });
-    }
-    const refreshToken = decryptMentorRefreshToken(mentor);
-    if (!refreshToken) {
-      const { response: errorResponse } = validationError(
-        "Mentor has not connected Google Calendar"
-      );
-      return NextResponse.json(errorResponse, { status: 422 });
-    }
-
-    const calendarId = mentor.googleCalendarId || "primary";
+    const calendarId = instructor.googleCalendarId || "primary";
     const calendar = await getGoogleCalendarClient(refreshToken);
 
-    // Enforce working-hours constraints server-side as well (not just in slot UI).
-    if (mentor.timeZone && mentor.workingHours) {
+    if (instructor.timeZone && instructor.workingHours) {
       if (
         !isWithinWorkingHours(
           start,
           end,
-          mentor.timeZone,
-          mentor.workingHours as WorkingHours
+          instructor.timeZone,
+          instructor.workingHours as WorkingHours
         )
       ) {
         const { response: errorResponse } = schedulingError(
-          "Selected time is outside mentor working hours"
+          "Selected time is outside instructor working hours"
         );
         return NextResponse.json(errorResponse, { status: 400 });
       }
@@ -287,7 +280,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const [created] = await db
         .insert(sessions)
         .values({
-          mentorId: mentor.id,
+          mentorId: pack.instructorId,
           studentId: user.id,
           sessionPackId,
           scheduledAt: start,
@@ -312,7 +305,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             sessionId,
             sessionPackId,
             studentId: user.id,
-            mentorId: mentor.id,
+            mentorId: instructor._id,
             scheduledAt,
           },
         }),
@@ -323,7 +316,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             sessionId,
             sessionPackId,
             studentId: user.id,
-            mentorId: mentor.id,
+            mentorId: instructor._id,
             scheduledAt,
           },
         }),

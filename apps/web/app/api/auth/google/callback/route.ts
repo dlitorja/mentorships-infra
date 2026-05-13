@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireDbUser } from "@/lib/auth";
-import { getMentorByUserId, updateMentorGoogleCalendarAuth } from "@mentorships/db";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 import { exchangeGoogleCodeForTokens } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
@@ -40,8 +41,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const tokens = await exchangeGoogleCodeForTokens(code);
 
     if (!tokens.refresh_token) {
-      // This can happen if the user has previously granted consent and Google doesn't return a refresh token.
-      // Since we need offline access for server-side availability checks, require a refresh token.
       return NextResponse.json(
         {
           error:
@@ -51,12 +50,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
+    const convex = getConvexClient();
+
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+
+    if (!instructor) {
+      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
-    await updateMentorGoogleCalendarAuth(mentor.id, {
+    await convex.mutation(api.instructors.updateInstructor, {
+      id: instructor._id,
       googleRefreshToken: tokens.refresh_token,
       googleCalendarId: "primary",
     });
