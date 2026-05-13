@@ -89,11 +89,7 @@ export async function getDbUser(): Promise<DbUser> {
 }
 
 export async function requireDbUser(): Promise<DbUser> {
-  const user = await getOrCreateUser();
-  if (!user) {
-    throw new UnauthorizedError("User not found in database");
-  }
-  return user;
+  return getDbUser();
 }
 
 export async function requireAuthRedirect() {

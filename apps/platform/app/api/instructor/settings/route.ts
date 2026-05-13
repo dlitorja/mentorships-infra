@@ -40,22 +40,22 @@ const patchSchema = z.object({
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
-    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
 
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
+    if (!instructor) {
+      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
     return NextResponse.json({
       success: true,
       settings: {
-        timeZone: mentor.timeZone ?? null,
-        workingHours: mentor.workingHours ?? null,
+        timeZone: instructor.timeZone ?? null,
+        workingHours: instructor.workingHours ?? null,
       },
     });
   } catch (error) {
@@ -63,7 +63,7 @@ export async function GET(): Promise<NextResponse> {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
     console.error("Get instructor settings error:", error);
     return NextResponse.json({ error: "Failed to load settings" }, { status: 500 });
@@ -72,15 +72,15 @@ export async function GET(): Promise<NextResponse> {
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
-    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
 
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor not found" }, { status: 404 });
+    if (!instructor) {
+      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
     const body = await req.json();
@@ -93,7 +93,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     }
 
     const updated = await convex.mutation(api.instructors.updateInstructorSchedulingSettings, {
-      id: mentor._id,
+      id: instructor._id,
       ...(parsed.data.timeZone !== undefined && parsed.data.timeZone !== null && { timeZone: parsed.data.timeZone }),
       ...(parsed.data.workingHours !== undefined && { workingHours: parsed.data.workingHours }),
     });
@@ -110,7 +110,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
     console.error("Update instructor settings error:", error);
     return NextResponse.json({ error: "Failed to update settings" }, { status: 500 });

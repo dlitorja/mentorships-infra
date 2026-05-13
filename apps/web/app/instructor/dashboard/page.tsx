@@ -60,7 +60,7 @@ export default async function InstructorDashboardPage() {
     await Promise.all([
       getMentorUpcomingSessions(mentor.id, 10),
       getMentorPastSessions(mentor.id, 5),
-      getMentorActiveSeats(mentor.id) as Promise<{ id: string; userId: string; status: string; sessionPackId: string; mentorId: string; seatExpiresAt: Date | null; gracePeriodEndsAt: Date | null }[]>,
+      getMentorActiveSeats(mentor.id),
       checkSeatAvailability(mentor.id),
     ]);
 

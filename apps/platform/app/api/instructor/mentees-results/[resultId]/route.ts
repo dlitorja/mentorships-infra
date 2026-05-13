@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
-import { isUnauthorizedError } from "@/lib/errors";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
 /**
@@ -14,7 +14,7 @@ export async function DELETE(
   { params }: { params: Promise<{ resultId: string }> }
 ) {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
@@ -54,6 +54,9 @@ export async function DELETE(
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
     console.error("Error deleting mentee result:", error);

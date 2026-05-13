@@ -66,7 +66,7 @@ This has been superseded by the apps/platform decision. The new architecture wil
 
 | App | Responsibility |
 |-----|---------------|
-| **apps/marketing** | Public-facing marketing site, instructor profiles (`/instructors`), landing pages |
+| **apps/marketing** | Public-facing marketing site, instructor profiles (`/instructors`), landing pages. **Excluded from mentor→instructor migration** — maintained as-is while focused on platform/web |
 | **apps/platform** | NEW (May 2026): Fresh rebuild with clean Convex-only architecture. Dashboards, payment flow, workspace. See `docs/implementation/apps-platform-impl.md` |
 | **apps/web** | Legacy (superseded by apps/platform). Kept for reference during transition. |
 | **apps/bot** | Discord bot (slash commands, automation) |

@@ -4,11 +4,15 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import type { MentorWorkingHours } from "@mentorships/db";
 
-export default async function InstructorSettingsPage() {
-  const user = await requireRole("mentor");
-  const mentor = await getMentorByUserId(user.id);
+function isMentorWorkingHours(value: unknown): value is MentorWorkingHours {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
 
-  if (!mentor) {
+export default async function InstructorSettingsPage() {
+  const user = await requireRole("instructor");
+  const instructorRecord = await getMentorByUserId(user.id);
+
+  if (!instructorRecord) {
     return (
       <ProtectedLayout currentPath="/instructor/settings">
         <div className="container mx-auto p-4 md:p-8">
@@ -29,8 +33,12 @@ export default async function InstructorSettingsPage() {
         </div>
 
         <SchedulingSettingsForm
-          initialTimeZone={mentor.timeZone ?? null}
-          initialWorkingHours={(mentor.workingHours as MentorWorkingHours | null) ?? null}
+          initialTimeZone={instructorRecord.timeZone ?? null}
+          initialWorkingHours={
+            isMentorWorkingHours(instructorRecord.workingHours)
+              ? instructorRecord.workingHours
+              : null
+          }
         />
       </div>
     </ProtectedLayout>

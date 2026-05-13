@@ -17,7 +17,7 @@ const createTestimonialSchema = z.object({
  */
 export async function GET(req: NextRequest) {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
     console.error("Error getting testimonials:", error);
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireRoleForApi("mentor");
+    const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
     console.error("Error adding testimonial:", error);
