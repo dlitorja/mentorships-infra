@@ -224,16 +224,22 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 
 ### PR Status
 - **PR #262**: Phase 4 frontend changes merged ✅
-- **PR #263**: Phase 4 continuation - sessionPacks.mentorId → instructorId migration
-  - CI status: All green (Vercel web & platform passing)
+- **PR #263**: Phase 4 continuation - sessionPacks.mentorId → instructorId migration ✅ **MERGED**
+  - CI status: All green (Lint, Unit Tests, E2E Tests, Build, Vercel, CodeRabbit)
+  - `mergeStateStatus: CLEAN` - ready to merge
   - Merge conflicts resolved (took our version for products create pages and booking-emails)
   - Note: Marketing app changes reverted - no Convex setup, kept Postgres approach
+  - CodeRabbit review comments addressed (see below)
 
 ### Commits Made (PR #263)
 - Phase 4: Update Inngest types to use instructorId
 - Phase 4: Update booking emails to use instructorId
 - Phase 4: Update product form to use instructorId
 - Phase 4: Update admin products pages to use instructorId
+- fix: Resolve remaining mentorId → instructorId references (sync.ts, admin.ts types)
+- fix: Revert marketing app changes - no Convex setup
+- fix: Address CodeRabbit review comments
+- fix: Remove includeInactive from Convex call - query doesn't support it
 
 ### Completed Changes
 
@@ -286,6 +292,15 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 **Admin mentees:**
 - `packages/db/src/lib/queries/admin.ts` - removed `mentorId` from `getAdminMentees` select and type
 - `apps/web/app/api/admin/mentees/route.ts` - removed `mentorId` from response mapping
+
+**CodeRabbit review comments addressed:**
+- Removed unused `enablePayPal` from import mutation and form (web & platform)
+- Added Zod validation for API responses in product pages (web & platform)
+- Removed `any` types from instructor mapping, replaced with typed parsing
+- Added proper `isLoadingInstructors` state in edit pages (web & platform)
+- Used `z.infer<typeof instructorOptionSchema>` for `InstructorOption` type alignment
+- Used `instructor.name` as fallback when `userId` is missing in booking-emails (3 locations)
+- Added FK constraint on `sessionPacks.instructor_id` referencing `instructors.id`
 
 ### Steps
 
