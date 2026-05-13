@@ -16,7 +16,23 @@ const socialsSchema = z.object({
   artstation: z.string().optional(),
 });
 
-async function getProfileData() {
+type InstructorProfileData = {
+  id: string;
+  name: string;
+  slug: string;
+  tagline: string | null;
+  bio: string | null;
+  specialties: string[] | null;
+  background: string[] | null;
+  profileImageUrl: string | null;
+  profileImageUploadPath: string | null;
+  portfolioImages: string[] | null;
+  socials: z.infer<typeof socialsSchema> | null;
+  isActive: boolean;
+  updatedAt: string;
+};
+
+async function getProfileData(): Promise<InstructorProfileData | null> {
   const user = await requireRole("instructor");
   const convex = getConvexClient();
 

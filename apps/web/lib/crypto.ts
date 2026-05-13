@@ -27,8 +27,20 @@ export function decryptMentorRefreshToken(instructor: { googleRefreshToken?: str
     }
 
     // Try to decrypt as AES-256-GCM (migrated format)
-    const decrypted = decrypt(token);
-    return decrypted;
+    try {
+      const decrypted = decrypt(token);
+      return decrypted;
+    } catch {
+      // Fall through to plain-text fallback
+    }
+
+    // Legacy plain-text format (Convex, no encryption): return as-is
+    // Only if it doesn't look like base64-encrypted content
+    if (!token.match(/^[A-Za-z0-9+/]+=*$/)) {
+      return token;
+    }
+
+    return null;
   } catch {
     return null;
   }
