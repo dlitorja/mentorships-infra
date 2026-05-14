@@ -271,12 +271,21 @@ export const getStudentsForAdmin = query({
     if (!isAdmin) return { items: [], total: 0, page: 1, pageSize: 20 };
 
     // Start with index pushdown when possible to avoid full table scans
-    const packsQuery = args.instructorId
-      ? ctx.db
+    let sessionPacks;
+    if (args.instructorId) {
+      // Try to push filter into index; if the provided id is invalid, fall back to full scan + filter
+      try {
+        sessionPacks = await ctx.db
           .query("sessionPacks")
           .withIndex("by_instructorId", (q) => q.eq("instructorId", (args.instructorId as any)))
-      : ctx.db.query("sessionPacks");
-    let sessionPacks = await packsQuery.collect();
+          .collect();
+      } catch {
+        sessionPacks = await ctx.db.query("sessionPacks").collect();
+        sessionPacks = sessionPacks.filter(sp => sp.instructorId === (args.instructorId as any));
+      }
+    } else {
+      sessionPacks = await ctx.db.query("sessionPacks").collect();
+    }
 
     if (args.instructorId) {
       // Filter by instructor id string; sessionPacks.instructorId is an Id<"instructors"> string
