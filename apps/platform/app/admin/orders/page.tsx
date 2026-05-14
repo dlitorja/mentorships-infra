@@ -251,10 +251,14 @@ export default function AdminOrdersPage() {
       if (statusFilter) params.set("status", statusFilter);
 
       const res = await fetch(`/api/admin/orders?${params}`);
-      
       if (!res.ok) {
-        console.error("Auth check failed - not authorized");
-        router.push("/dashboard?error=unauthorized");
+        if (res.status === 401 || res.status === 403) {
+          router.push("/dashboard?error=unauthorized");
+          return;
+        }
+        console.error("Failed to fetch orders:", res.status);
+        setOrders([]);
+        setTotal(0);
         return;
       }
 

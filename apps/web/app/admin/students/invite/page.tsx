@@ -1,6 +1,15 @@
 "use client";
-import { redirect } from "next/navigation";
-export default function RedirectMenteeInviteWeb() { redirect("/admin/students/invite"); }
+
+import React, { useState } from "react";
+import Link from "next/link";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Mail, ArrowLeft } from "lucide-react";
+import { apiFetch } from "@/lib/queries/api-client";
 
 type Invitation = {
   id: string;
@@ -24,8 +33,7 @@ type InvitationsResponse = {
 async function fetchInvitations(status?: string): Promise<InvitationsResponse> {
   const params = new URLSearchParams();
   if (status && status !== "all") params.set("status", status);
-  
-  const url = `/api/admin/mentees/invite${params.toString() ? `?${params.toString()}` : ""}`;
+  const url = `/api/admin/students/invite${params.toString() ? `?${params.toString()}` : ""}`;
   return apiFetch<InvitationsResponse>(url);
 }
 
@@ -34,21 +42,19 @@ async function fetchInstructors() {
 }
 
 async function createInvitation(data: { email: string; instructorId: string }) {
-  const response = await fetch("/api/admin/mentees/invite", {
+  const response = await fetch("/api/admin/students/invite", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error || "Failed to create invitation");
   }
-  
   return response.json();
 }
 
-export default function InviteMenteePage() {
+export default function InviteStudentPage() {
   const queryClient = useQueryClient();
   const [email, setEmail] = useState("");
   const [instructorId, setInstructorId] = useState("");
@@ -56,7 +62,7 @@ export default function InviteMenteePage() {
   const [error, setError] = useState("");
 
   const { data: invitations, isLoading: isLoadingInvitations } = useQuery({
-    queryKey: ["mentee-invitations", statusFilter],
+    queryKey: ["student-invitations-web", statusFilter],
     queryFn: () => fetchInvitations(statusFilter),
   });
 
@@ -68,7 +74,7 @@ export default function InviteMenteePage() {
   const createMutation = useMutation({
     mutationFn: createInvitation,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["mentee-invitations"] });
+      queryClient.invalidateQueries({ queryKey: ["student-invitations-web"] });
       setEmail("");
       setInstructorId("");
       setError("");
@@ -111,66 +117,37 @@ export default function InviteMenteePage() {
 
   return (
     <div className="container mx-auto py-8">
-      <Link
-        href="/admin/mentees"
-        className="flex items-center text-sm text-muted-foreground hover:text-foreground mb-6"
-      >
+      <Link href="/admin/students" className="flex items-center text-sm text-muted-foreground hover:text-foreground mb-6">
         <ArrowLeft className="mr-2 h-4 w-4" />
-        Back to Mentees
+        Back to Students
       </Link>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Invite Mentee</CardTitle>
-            <CardDescription>
-              Send an invitation to a potential mentee. They will receive an email to
-              sign up and will be linked to the selected instructor.
-            </CardDescription>
+            <CardTitle>Invite Student</CardTitle>
+            <CardDescription>Send an invitation to a prospective student. They will receive an email and be linked to the selected instructor.</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email Address</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="mentee@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={createMutation.isPending}
-                />
+                <Input id="email" type="email" placeholder="student@example.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={createMutation.isPending} />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="instructor">Instructor</Label>
-                <select
-                  id="instructor"
-                  value={instructorId}
-                  onChange={(e) => setInstructorId(e.target.value)}
-                  disabled={createMutation.isPending || isLoadingInstructors}
-                  className="w-full px-3 py-2 border rounded-md text-sm"
-                >
+                <select id="instructor" value={instructorId} onChange={(e) => setInstructorId(e.target.value)} disabled={createMutation.isPending || isLoadingInstructors} className="w-full px-3 py-2 border rounded-md text-sm">
                   <option value="">Select an instructor...</option>
                   {instructorsData?.items.map((inst) => (
-                    <option key={inst.id} value={inst.id}>
-                      {inst.name}
-                    </option>
+                    <option key={inst.id} value={inst.id}>{inst.name}</option>
                   ))}
                 </select>
               </div>
 
-              {error && (
-                <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
-                  {error}
-                </div>
-              )}
+              {error && <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">{error}</div>}
 
-              <Button
-                type="submit"
-                disabled={createMutation.isPending || !email || !instructorId}
-                className="w-full"
-              >
+              <Button type="submit" disabled={createMutation.isPending || !email || !instructorId} className="w-full">
                 {createMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -191,11 +168,7 @@ export default function InviteMenteePage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Pending Invitations</CardTitle>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-2 py-1 border rounded-md text-sm"
-              >
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-2 py-1 border rounded-md text-sm">
                 <option value="pending">Pending</option>
                 <option value="accepted">Accepted</option>
                 <option value="expired">Expired</option>
@@ -205,30 +178,25 @@ export default function InviteMenteePage() {
           </CardHeader>
           <CardContent>
             {isLoadingInvitations ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin" />
-              </div>
+              <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin" /></div>
             ) : invitations?.items.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                No invitations found
-              </div>
+              <div className="text-center py-8 text-muted-foreground">No invitations found</div>
             ) : (
               <div className="space-y-3">
                 {invitations?.items.map((invitation) => (
-                  <div
-                    key={invitation.id}
-                    className="flex items-center justify-between p-3 border rounded-lg"
-                  >
+                  <div key={invitation.id} className="flex items-center justify-between p-3 border rounded-lg">
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{invitation.email}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {invitation.instructorName}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Expires: {new Date(invitation.expiresAt).toLocaleDateString()}
-                      </div>
+                      <div className="text-sm text-muted-foreground">{invitation.instructorName}</div>
+                      <div className="text-xs text-muted-foreground">Expires: {new Date(invitation.expiresAt).toLocaleDateString()}</div>
                     </div>
-                    <div className="ml-4">{getStatusBadge(invitation.status)}</div>
+                    <div className="ml-4">
+                      {invitation.status === "pending" ? <Badge variant="default">Pending</Badge> :
+                       invitation.status === "accepted" ? <Badge variant="secondary">Accepted</Badge> :
+                       invitation.status === "expired" ? <Badge variant="destructive">Expired</Badge> :
+                       invitation.status === "cancelled" ? <Badge variant="outline">Cancelled</Badge> :
+                       <Badge>{invitation.status}</Badge>}
+                    </div>
                   </div>
                 ))}
               </div>

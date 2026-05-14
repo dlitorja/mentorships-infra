@@ -70,7 +70,7 @@ export default function WorkspacesPage() {
   const getTypeBadge = (type: string) => {
     switch (type) {
       case "admin_mentee":
-        return <Badge variant="default">Admin-Mentee</Badge>;
+        return <Badge variant="default">Admin-Student</Badge>;
       case "admin_instructor":
         return <Badge variant="secondary">Admin-Instructor</Badge>;
       default:
@@ -91,7 +91,7 @@ export default function WorkspacesPage() {
           <Button variant="outline" asChild>
             <Link href="/admin/workspaces/create?type=admin_mentee">
               <Plus className="mr-2 h-4 w-4" />
-              New Admin-Mentee Workspace
+              New Admin-Student Workspace
             </Link>
           </Button>
           <Button variant="outline" asChild>
@@ -120,7 +120,7 @@ export default function WorkspacesPage() {
               >
                 <option value="">All Types</option>
                 <option value="mentorship">Mentorship</option>
-                <option value="admin_mentee">Admin-Mentee</option>
+                <option value="admin_mentee">Admin-Student</option>
                 <option value="admin_instructor">Admin-Instructor</option>
               </select>
             </div>
@@ -182,7 +182,7 @@ export default function WorkspacesPage() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="text-sm">
-                          <span className="text-muted-foreground">M:</span> {workspace.menteeImageCount}
+                          <span className="text-muted-foreground">S:</span> {workspace.menteeImageCount}
                           <span className="text-muted-foreground ml-2">I:</span> {workspace.mentorImageCount}
                         </div>
                       </td>
