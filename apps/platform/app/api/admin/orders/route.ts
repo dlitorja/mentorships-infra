@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { auth } from "@clerk/nextjs/server";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -47,6 +48,13 @@ export async function GET(req: NextRequest) {
     const offset = (page - 1) * pageSize;
 
     const convex = getConvexClient();
+    // Authenticate Convex requests so admin-only queries work server-side
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
     const result = await convex.query(api.orders.getOrdersForAdmin, {
       limit: pageSize,
       offset,

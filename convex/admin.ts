@@ -246,10 +246,20 @@ type MenteeWithSessionInfo = {
   createdAt: number;
 };
 
-export const getAllMenteesForAdmin = query({
+// Removed legacy mentee-named endpoint to enforce naming consistency
+
+// New naming-compliant alias for admin UI: students instead of mentees
+export const getStudentsForAdmin = query({
   args: {
     search: v.optional(v.string()),
     instructorId: v.optional(v.id("instructors")),
+    status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
+    expiresAfter: v.optional(v.number()),
+    expiresBefore: v.optional(v.number()),
+    purchasedAfter: v.optional(v.number()),
+    purchasedBefore: v.optional(v.number()),
+    remainingMin: v.optional(v.number()),
+    remainingMax: v.optional(v.number()),
     page: v.optional(v.number()),
     pageSize: v.optional(v.number()),
   },
@@ -277,8 +287,32 @@ export const getAllMenteesForAdmin = query({
       sessionPacks = sessionPacks.filter(sp => userIds.has(sp.userId));
     }
 
-    const total = sessionPacks.length;
+    if (args.status) {
+      sessionPacks = sessionPacks.filter(sp => sp.status === args.status);
+    }
 
+    if (args.expiresAfter) {
+      sessionPacks = sessionPacks.filter(sp => (sp.expiresAt ?? 0) >= args.expiresAfter!);
+    }
+    if (args.expiresBefore) {
+      sessionPacks = sessionPacks.filter(sp => (sp.expiresAt ?? Number.MAX_SAFE_INTEGER) <= args.expiresBefore!);
+    }
+
+    if (args.purchasedAfter) {
+      sessionPacks = sessionPacks.filter(sp => sp.purchasedAt >= args.purchasedAfter!);
+    }
+    if (args.purchasedBefore) {
+      sessionPacks = sessionPacks.filter(sp => sp.purchasedAt <= args.purchasedBefore!);
+    }
+
+    if (args.remainingMin !== undefined) {
+      sessionPacks = sessionPacks.filter(sp => sp.remainingSessions >= (args.remainingMin as number));
+    }
+    if (args.remainingMax !== undefined) {
+      sessionPacks = sessionPacks.filter(sp => sp.remainingSessions <= (args.remainingMax as number));
+    }
+
+    const total = sessionPacks.length;
     const page = args.page ?? 1;
     const pageSize = args.pageSize ?? 20;
     const offset = (page - 1) * pageSize;
@@ -287,21 +321,18 @@ export const getAllMenteesForAdmin = query({
       .sort((a, b) => b._creationTime - a._creationTime)
       .slice(offset, offset + pageSize);
 
-    const results: MenteeWithSessionInfo[] = await Promise.all(
+    const items = await Promise.all(
       sortedPacks.map(async (pack) => {
-        let email: string | null = null;
         const user = await ctx.db
           .query("users")
           .withIndex("by_userId", (q) => q.eq("userId", pack.userId))
           .first();
-        email = user?.email ?? null;
-
         const instructor = await ctx.db.get(pack.instructorId);
 
         return {
           id: pack._id,
           userId: pack.userId,
-          email,
+          email: user?.email ?? null,
           instructorId: pack.instructorId,
           instructorName: instructor?.name ?? null,
           instructorSlug: instructor?.slug ?? null,
@@ -315,6 +346,6 @@ export const getAllMenteesForAdmin = query({
       })
     );
 
-    return { items: results, total, page, pageSize };
+    return { items, total, page, pageSize };
   },
 });

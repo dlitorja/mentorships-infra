@@ -262,3 +262,129 @@ export const migrateProduct = mutation({
     return { action: "inserted", id: insertResult };
   },
 });
+
+/** Admin listing with filters and pagination. Returns instructorName and createdAt timestamps. */
+export const getProductsForAdmin = query({
+  args: {
+    search: v.optional(v.string()),
+    instructorId: v.optional(v.string()),
+    mentorshipType: v.optional(v.string()),
+    active: v.optional(v.boolean()),
+    hasStripe: v.optional(v.boolean()),
+    hasPayPal: v.optional(v.boolean()),
+    minPrice: v.optional(v.string()),
+    maxPrice: v.optional(v.string()),
+    createdAfter: v.optional(v.number()),
+    createdBefore: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    // Base query: optional active filter
+    let products = args.active === undefined
+      ? await ctx.db.query("products").collect()
+      : await ctx.db
+          .query("products")
+          .withIndex("by_active", (q) => q.eq("active", args.active!))
+          .collect();
+
+    // Filter by instructor
+    if (args.instructorId) {
+      products = products.filter((p) => p.instructorId === args.instructorId);
+    }
+
+    // Filter by mentorship type
+    if (args.mentorshipType) {
+      products = products.filter((p) => p.mentorshipType === args.mentorshipType);
+    }
+
+    // Search in title/description
+    if (args.search && args.search.trim()) {
+      const s = args.search.toLowerCase();
+      products = products.filter((p) =>
+        (p.title?.toLowerCase().includes(s) ?? false) ||
+        (p.description?.toLowerCase().includes(s) ?? false)
+      );
+    }
+
+    // Provider filters
+    if (args.hasStripe !== undefined) {
+      products = products.filter((p) => {
+        const has = Boolean(p.stripePriceId || p.stripeProductId);
+        return args.hasStripe ? has : !has;
+      });
+    }
+    if (args.hasPayPal !== undefined) {
+      products = products.filter((p) => {
+        const has = Boolean(p.paypalProductId);
+        return args.hasPayPal ? has : !has;
+      });
+    }
+
+    // Price range (string amounts)
+    if (args.minPrice) {
+      const min = parseFloat(args.minPrice);
+      if (!Number.isNaN(min)) {
+        products = products.filter((p) => parseFloat(p.price) >= min);
+      }
+    }
+    if (args.maxPrice) {
+      const max = parseFloat(args.maxPrice);
+      if (!Number.isNaN(max)) {
+        products = products.filter((p) => parseFloat(p.price) <= max);
+      }
+    }
+
+    // Created time window
+    if (args.createdAfter) {
+      products = products.filter((p) => p._creationTime >= args.createdAfter!);
+    }
+    if (args.createdBefore) {
+      products = products.filter((p) => p._creationTime <= args.createdBefore!);
+    }
+
+    const total = products.length;
+
+    // Sort by createdAt desc
+    products.sort((a, b) => b._creationTime - a._creationTime);
+
+    const limit = args.limit ?? 20;
+    const offset = args.offset ?? 0;
+    const pageItems = products.slice(offset, offset + limit);
+
+    // Attach instructorName
+    const items = await Promise.all(
+      pageItems.map(async (p) => {
+        let instructorName: string | null = null;
+        if (p.instructorId) {
+          const inst = await ctx.db.get(p.instructorId as Id<"instructors">);
+          instructorName = inst?.name ?? null;
+        }
+        return {
+          id: p._id,
+          mentorId: null,
+          instructorId: p.instructorId ?? null,
+          instructorName,
+          title: p.title,
+          description: p.description ?? null,
+          imageUrl: p.imageUrl ?? null,
+          price: p.price,
+          currency: p.currency,
+          sessionsPerPack: p.sessionsPerPack,
+          validityDays: p.validityDays,
+          mentorshipType: p.mentorshipType,
+          stripePriceId: p.stripePriceId ?? null,
+          stripeProductId: p.stripeProductId ?? null,
+          paypalProductId: p.paypalProductId ?? null,
+          active: p.active,
+          createdAt: p._creationTime,
+        };
+      })
+    );
+
+    return { items, total, hasMore: offset + limit < total };
+  },
+});

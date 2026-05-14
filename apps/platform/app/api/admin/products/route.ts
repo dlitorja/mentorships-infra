@@ -10,7 +10,7 @@ import {
   getPayPalProductDashboardLink,
   deletePayPalProduct,
 } from "@mentorships/payments";
-import { getAdminProducts } from "@mentorships/db";
+import { auth } from "@clerk/nextjs/server";
 
 const createProductSchema = z.object({
   instructorId: z.string().min(1, "Instructor ID is required"),
@@ -45,9 +45,13 @@ const listProductsQuerySchema = z.object({
   instructorId: z.string().optional(),
   mentorshipType: z.enum(["one-on-one", "group"]).optional(),
   active: z
-    .enum(["true", "false"])
-    .transform((val) => val === "true")
-    .optional(),
+    .enum(["true", "false"]).transform((val) => val === "true").optional(),
+  hasStripe: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
+  hasPayPal: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
+  minPrice: z.string().optional(),
+  maxPrice: z.string().optional(),
+  createdAfter: z.coerce.number().optional(),
+  createdBefore: z.coerce.number().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -274,25 +278,54 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { search, instructorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
-
-    const result = await getAdminProducts(
+    const {
       search,
       instructorId,
       mentorshipType,
       active,
+      hasStripe,
+      hasPayPal,
+      minPrice,
+      maxPrice,
+      createdAfter,
+      createdBefore,
       page,
-      pageSize
-    );
+      pageSize,
+    } = parsedQuery.data;
+
+    const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
+
+    const offset = (page - 1) * pageSize;
+    const result = await convex.query(api.products.getProductsForAdmin as any, {
+      search: search || undefined,
+      instructorId: instructorId || undefined,
+      mentorshipType: mentorshipType || undefined,
+      active,
+      hasStripe,
+      hasPayPal,
+      minPrice: minPrice || undefined,
+      maxPrice: maxPrice || undefined,
+      createdAfter,
+      createdBefore,
+      limit: pageSize,
+      offset,
+    });
 
     return NextResponse.json({
-      items: result.items.map(item => ({
+      items: result.items.map((item: any) => ({
         ...item,
-        createdAt: item.createdAt.toISOString(),
+        createdAt: new Date(item.createdAt).toISOString(),
       })),
       total: result.total,
-      page: result.page,
-      pageSize: result.pageSize,
+      page,
+      pageSize,
+      hasMore: result.hasMore,
     });
   } catch (error) {
     if (error instanceof Error && "status" in error) {
