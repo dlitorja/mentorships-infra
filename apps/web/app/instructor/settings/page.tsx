@@ -1,11 +1,13 @@
 import { requireRole } from "@/lib/auth-helpers";
-import { getInstructorByUserId } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
-  const instructor = await getInstructorByUserId(user.id);
+  const convex = getConvexClient();
+  const instructor = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructor) {
     return (
@@ -35,4 +37,3 @@ export default async function InstructorSettingsPage() {
     </ProtectedLayout>
   );
 }
-
