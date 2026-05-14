@@ -24,5 +24,6 @@ jobs:
       - name: Deploy Convex
         env:
           CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
+          CONVEX_ACCESS_TOKEN: ${{ secrets.CONVEX_ACCESS_TOKEN }}
           CONVEX_PROJECT_NAME: mentorships-infra
         run: pnpm exec convex deploy --yes
