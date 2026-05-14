@@ -6,6 +6,22 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import type { Id } from "@/convex/_generated/dataModel";
 import { auth } from "@clerk/nextjs/server";
 
+async function resolveInstructorByIdOrSlug(convex: ReturnType<typeof getConvexClient>, idOrSlug: string) {
+  try {
+    const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
+    if (byId) {
+      return { instructor: byId, resolvedId: byId._id as string };
+    }
+  } catch (_) {
+    // ignore invalid id format
+  }
+  const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
+  if (bySlug) {
+    return { instructor: bySlug, resolvedId: bySlug._id as string };
+  }
+  return { instructor: null, resolvedId: null } as const;
+}
+
 const createMenteeResultSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal("")).default(""),
   imageUploadPath: z.string().optional().default(""),
@@ -46,10 +62,9 @@ export async function POST(
     }
     convex.setAuth(token);
 
-    const instructor = await convex.query(api.instructors.getInstructorById, {
-      id: id as Id<"instructors">,
-    });
-    if (!instructor) {
+    const resolved = await resolveInstructorByIdOrSlug(convex, id);
+    const instructor = resolved.instructor;
+    if (!instructor || !resolved.resolvedId) {
       return NextResponse.json(
         { error: "Instructor not found" },
         { status: 404 }
@@ -57,7 +72,7 @@ export async function POST(
     }
 
     const result = await convex.mutation(api.instructors.createMenteeResult, {
-      instructorId: id as Id<"instructors">,
+      instructorId: resolved.resolvedId as Id<"instructors">,
       imageUrl: data.imageUrl || "",
       imageUploadPath: data.imageUploadPath || undefined,
       studentName: data.studentName || undefined,

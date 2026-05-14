@@ -4,6 +4,23 @@ import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import type { Id } from "@/convex/_generated/dataModel";
 import { auth } from "@clerk/nextjs/server";
+import { api } from "@/convex/_generated/api";
+
+async function resolveInstructorByIdOrSlug(convex: ReturnType<typeof getConvexClient>, idOrSlug: string) {
+  try {
+    const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
+    if (byId) {
+      return { instructor: byId, resolvedId: byId._id as string };
+    }
+  } catch (_) {
+    // ignore invalid id format
+  }
+  const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
+  if (bySlug) {
+    return { instructor: bySlug, resolvedId: bySlug._id as string };
+  }
+  return { instructor: null, resolvedId: null } as const;
+}
 
 /**
  * DELETE /api/admin/instructors/[id]/testimonials/[testimonialId]
@@ -26,9 +43,13 @@ export async function DELETE(
     }
     convex.setAuth(token);
 
+    const resolved = await resolveInstructorByIdOrSlug(convex, id);
+    if (!resolved.resolvedId) {
+      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
+    }
     const testimonial = await convex.query(api.instructors.getTestimonialById, {
       id: testimonialId as Id<"instructorTestimonials">,
-      instructorId: id,
+      instructorId: resolved.resolvedId,
     });
 
     if (!testimonial) {
