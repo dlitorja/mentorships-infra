@@ -282,7 +282,6 @@ export const getProductsForAdmin = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-
     // Verify admin role like other admin queries
     const user = await ctx.db
       .query("users")
@@ -292,7 +291,6 @@ export const getProductsForAdmin = query({
       // Match getStudentsForAdmin behavior: return empty result for non-admins
       return { items: [], total: 0, hasMore: false };
     }
-
     // Base query: optional active filter
     let products = args.active === undefined
       ? await ctx.db.query("products").collect()
