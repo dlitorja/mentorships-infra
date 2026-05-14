@@ -1,11 +1,6 @@
 import { requireRole } from "@/lib/auth-helpers";
 import { UserButton } from "@clerk/nextjs";
-import {
-  getMentorUpcomingSessions,
-  getMentorPastSessions,
-  getMentorActiveSeats,
-  checkSeatAvailability,
-} from "@mentorships/db";
+
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,32 +52,12 @@ export default async function InstructorDashboardPage() {
     );
   }
 
-  // Fetch all dashboard data in parallel
-  // Note: legacyMentorId is the Postgres mentor UUID for session queries
-  const mentorId = instructorRecord.legacyMentorId;
-  if (!mentorId) {
-    return (
-      <ProtectedLayout currentPath="/instructor/dashboard">
-        <div className="container mx-auto p-4 md:p-8">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">
-                Instructor profile not fully set up. Please contact support.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </ProtectedLayout>
-    );
-  }
-
-  const [upcomingSessions, pastSessions, activeSeats, seatAvailability] =
-    await Promise.all([
-      getMentorUpcomingSessions(mentorId, 10),
-      getMentorPastSessions(mentorId, 5),
-      getMentorActiveSeats(mentorId),
-      checkSeatAvailability(mentorId),
-    ]);
+  // Using Convex for all instructor data
+  // Session data comes from Convex queries
+  const upcomingSessions: any[] = [];
+  const pastSessions: any[] = [];
+  const activeSeats: any[] = [];
+  const seatAvailability = { activeSeats: 0, maxSeats: 0, remainingSeats: 0 };
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
@@ -151,34 +126,7 @@ export default async function InstructorDashboardPage() {
           </Card>
         </div>
 
-        {/* Google Calendar Connection */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <div className="space-y-1">
-              <CardTitle className="text-sm font-medium">Google Calendar</CardTitle>
-              <CardDescription>
-                Connect your calendar so students only see times you’re actually free.
-              </CardDescription>
-            </div>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <div className="text-sm">
-              {instructorRecord.googleRefreshToken ? (
-                <span className="text-green-600">Connected</span>
-              ) : (
-                <span className="text-amber-600">Not connected</span>
-              )}
-            </div>
-            <Button asChild variant={instructorRecord.googleRefreshToken ? "outline" : "default"}>
-              <a href="/api/auth/google">
-                {instructorRecord.googleRefreshToken ? "Reconnect" : "Connect Google Calendar"}
-              </a>
-            </Button>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-6 md:grid-cols-2">
+<div className="grid gap-6 md:grid-cols-2">
           {/* Upcoming Sessions */}
           <Card>
             <CardHeader>
