@@ -3,9 +3,10 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { Suspense, lazy } from "react";
+import { Suspense } from "react";
 import type { ReactElement } from "react";
 import { Menu } from "lucide-react";
+import { SignedIn, SignedOut, UserButton, useUser } from "@clerk/nextjs";
 import {
   Sheet,
   SheetContent,
@@ -25,59 +26,34 @@ const navLinks = [
   { href: "https://discord.gg/4DqDyKZyA8", label: "Discord", external: true },
 ];
 
-const ClerkAuthButtons = lazy(() =>
-  import("@clerk/nextjs").then((clerk) => ({
-    default: function ClerkAuthButtons() {
-      const { SignedIn, SignedOut, UserButton } = clerk;
-      return (
-        <>
-          <SignedOut>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide text-xs font-semibold">
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-          </SignedOut>
-          <SignedIn>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <UserButton />
-          </SignedIn>
-        </>
-      );
-    },
-  }))
-);
+type UserLike = { publicMetadata?: { role?: unknown } } | null | undefined;
 
-const MobileClerkAuthButtons = lazy(() =>
-  import("@clerk/nextjs").then((clerk) => ({
-    default: function MobileClerkAuthButtons(): ReactElement {
-      const { SignedIn, SignedOut, UserButton } = clerk;
-      return (
-        <>
-          <SignedOut>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 w-full uppercase tracking-wide font-semibold">
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-          </SignedOut>
-          <SignedIn>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-            <div className="flex items-center justify-start">
-              <UserButton />
-            </div>
-          </SignedIn>
-        </>
-      );
-    },
-  }))
-);
+function getDashboardHref(user: UserLike): "/admin" | "/instructor/dashboard" | "/dashboard" {
+  const roleVal = typeof user?.publicMetadata?.role === "string" ? user.publicMetadata.role.toLowerCase() : "student";
+  if (roleVal === "admin") return "/admin";
+  if (roleVal === "instructor") return "/instructor/dashboard";
+  return "/dashboard";
+}
+
+function DashboardButton(): ReactElement {
+  const { user, isLoaded } = useUser();
+  const href = getDashboardHref(user);
+  return (
+    <Button asChild disabled={!isLoaded} variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
+      <Link href={href}>Dashboard</Link>
+    </Button>
+  );
+}
+
+function MobileDashboardButton(): ReactElement {
+  const { user, isLoaded } = useUser();
+  const href = getDashboardHref(user);
+  return (
+    <Button asChild disabled={!isLoaded} variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
+      <Link href={href}>Dashboard</Link>
+    </Button>
+  );
+}
 
 function FallbackAuthButtons(): ReactElement {
   return (
@@ -129,9 +105,22 @@ function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactEle
 
       <div className="flex flex-col gap-4 pt-4 border-t border-border">
         {hasClerk ? (
-          <Suspense fallback={<FallbackMobileAuthButtons />}>
-            <MobileClerkAuthButtons />
-          </Suspense>
+          <>
+            <SignedOut>
+              <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
+                <Link href="/sign-in">Sign In</Link>
+              </Button>
+              <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 w-full uppercase tracking-wide font-semibold">
+                <Link href="/sign-up">Get Started</Link>
+              </Button>
+            </SignedOut>
+            <SignedIn>
+              <MobileDashboardButton />
+              <div className="flex items-center justify-start">
+                <UserButton />
+              </div>
+            </SignedIn>
+          </>
         ) : (
           <FallbackMobileAuthButtons />
         )}
@@ -171,9 +160,20 @@ export function Header({ hasClerk = true }: HeaderProps): ReactElement {
           ))}
 
           {hasClerk ? (
-            <Suspense fallback={<FallbackAuthButtons />}>
-              <ClerkAuthButtons />
-            </Suspense>
+            <>
+              <SignedOut>
+                <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
+                  <Link href="/sign-in">Sign In</Link>
+                </Button>
+                <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide text-xs font-semibold">
+                  <Link href="/sign-up">Get Started</Link>
+                </Button>
+              </SignedOut>
+              <SignedIn>
+                <DashboardButton />
+                <UserButton />
+              </SignedIn>
+            </>
           ) : (
             <FallbackAuthButtons />
           )}
