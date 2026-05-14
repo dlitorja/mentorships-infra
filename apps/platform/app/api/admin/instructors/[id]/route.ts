@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
+import { auth } from "@clerk/nextjs/server";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -74,6 +75,12 @@ export async function GET(
 
     const { id } = await params;
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
     const instructor = resolved.instructor;
@@ -161,6 +168,12 @@ export async function PUT(
 
     const data = validationResult.data as UpdateInstructorInput;
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
     const existing = resolved.instructor;
@@ -263,6 +276,12 @@ export async function DELETE(
 
     const { id } = await params;
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
     const existing = resolved.instructor;

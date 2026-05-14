@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import type { Id } from "@/convex/_generated/dataModel";
+import { auth } from "@clerk/nextjs/server";
 
 const createMenteeResultSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal("")).default(""),
@@ -38,6 +39,12 @@ export async function POST(
 
     const data = validationResult.data as CreateMenteeResultInput;
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: id as Id<"instructors">,

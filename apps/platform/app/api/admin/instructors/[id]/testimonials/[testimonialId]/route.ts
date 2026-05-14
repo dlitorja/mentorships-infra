@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import type { Id } from "@/convex/_generated/dataModel";
+import { auth } from "@clerk/nextjs/server";
 
 /**
  * DELETE /api/admin/instructors/[id]/testimonials/[testimonialId]
@@ -18,6 +19,12 @@ export async function DELETE(
 
     const { id, testimonialId } = await params;
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const testimonial = await convex.query(api.instructors.getTestimonialById, {
       id: testimonialId as Id<"instructorTestimonials">,

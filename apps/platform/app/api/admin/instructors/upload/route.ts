@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
+import { auth } from "@clerk/nextjs/server";
 
 const ALLOWED_TYPES = [
   "image/jpeg",
@@ -75,6 +76,12 @@ export async function POST(req: NextRequest) {
     }
 
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
