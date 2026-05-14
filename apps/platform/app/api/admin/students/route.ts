@@ -52,19 +52,33 @@ export async function GET(req: NextRequest) {
     }
     convex.setAuth(token);
 
-    const result = await convex.query(api.admin.getStudentsForAdmin as any, {
-      search: search || undefined,
-      instructorId: instructorId || undefined,
-      status: status || undefined,
-      expiresAfter,
-      expiresBefore,
-      purchasedAfter,
-      purchasedBefore,
-      remainingMin,
-      remainingMax,
-      page,
-      pageSize,
-    });
+    let result;
+    try {
+      result = await convex.query(api.admin.getStudentsForAdmin as any, {
+        search: search || undefined,
+        instructorId: instructorId || undefined,
+        status: status || undefined,
+        expiresAfter,
+        expiresBefore,
+        purchasedAfter,
+        purchasedBefore,
+        remainingMin,
+        remainingMax,
+        page,
+        pageSize,
+      });
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : String(err)) || "";
+      if (msg.includes("Server Error")) {
+        console.error("[admin/students] Convex server error, returning empty result set:", err);
+        // Degraded mode: do not 500 the UI; signal partial content
+        return NextResponse.json(
+          { items: [], total: 0, page, pageSize },
+          { status: 206 }
+        );
+      }
+      throw err;
+    }
 
     return NextResponse.json({
       items: result.items.map((it: any) => ({
@@ -83,13 +97,6 @@ export async function GET(req: NextRequest) {
     }
     if (error instanceof Error && error.message.includes("Forbidden")) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
-    }
-    // Temporary mitigation: if Convex query throws a generic server error, return an empty page
-    // so the admin UI can render without breaking, while backend deploy issues are resolved.
-    const msg = (error instanceof Error ? error.message : String(error)) || "";
-    if (msg.includes("Server Error")) {
-      console.error("[admin/students] Convex server error, returning empty result set:", error);
-      return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 20 });
     }
     console.error("Error listing students:", error);
     return NextResponse.json({ error: "Failed to list students" }, { status: 500 });
