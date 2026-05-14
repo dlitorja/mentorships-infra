@@ -84,6 +84,13 @@ export async function GET(req: NextRequest) {
     if (error instanceof Error && error.message.includes("Forbidden")) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
+    // Temporary mitigation: if Convex query throws a generic server error, return an empty page
+    // so the admin UI can render without breaking, while backend deploy issues are resolved.
+    const msg = (error instanceof Error ? error.message : String(error)) || "";
+    if (msg.includes("Server Error")) {
+      console.error("[admin/students] Convex server error, returning empty result set:", error);
+      return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 20 });
+    }
     console.error("Error listing students:", error);
     return NextResponse.json({ error: "Failed to list students" }, { status: 500 });
   }
