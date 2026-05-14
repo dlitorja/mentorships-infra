@@ -7,6 +7,7 @@ on:
     paths:
       - 'convex/**'
       - '!convex/_generated/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
