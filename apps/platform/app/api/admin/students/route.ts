@@ -52,19 +52,33 @@ export async function GET(req: NextRequest) {
     }
     convex.setAuth(token);
 
-    const result = await convex.query(api.admin.getStudentsForAdmin as any, {
-      search: search || undefined,
-      instructorId: instructorId || undefined,
-      status: status || undefined,
-      expiresAfter,
-      expiresBefore,
-      purchasedAfter,
-      purchasedBefore,
-      remainingMin,
-      remainingMax,
-      page,
-      pageSize,
-    });
+    let result;
+    try {
+      result = await convex.query(api.admin.getStudentsForAdmin as any, {
+        search: search || undefined,
+        instructorId: instructorId || undefined,
+        status: status || undefined,
+        expiresAfter,
+        expiresBefore,
+        purchasedAfter,
+        purchasedBefore,
+        remainingMin,
+        remainingMax,
+        page,
+        pageSize,
+      });
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : String(err)) || "";
+      if (msg.includes("Server Error")) {
+        console.error("[admin/students] Convex server error, returning empty result set:", err);
+        // Degraded mode: do not 500 the UI; signal partial content
+        return NextResponse.json(
+          { items: [], total: 0, page, pageSize },
+          { status: 206 }
+        );
+      }
+      throw err;
+    }
 
     return NextResponse.json({
       items: result.items.map((it: any) => ({
