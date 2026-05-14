@@ -23,7 +23,8 @@ jobs:
       - run: pnpm install
       - name: Deploy Convex
         env:
+          # Use a Production Deploy Key to authenticate non-interactively
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          # Optional: explicitly target a deployment if needed
           CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
-          CONVEX_ACCESS_TOKEN: ${{ secrets.CONVEX_ACCESS_TOKEN }}
-          CONVEX_PROJECT_NAME: mentorships-infra
         run: pnpm exec convex deploy --yes
