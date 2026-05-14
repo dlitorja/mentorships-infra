@@ -2,13 +2,12 @@ import { requireRole } from "@/lib/auth-helpers";
 import { getInstructorByUserId } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
-import type { MentorWorkingHours } from "@mentorships/db";
 
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await getInstructorByUserId(user.id);
+  const instructor = await getInstructorByUserId(user.id);
 
-  if (!instructorRecord) {
+  if (!instructor) {
     return (
       <ProtectedLayout currentPath="/instructor/settings">
         <div className="container mx-auto p-4 md:p-8">
@@ -29,8 +28,8 @@ export default async function InstructorSettingsPage() {
         </div>
 
         <SchedulingSettingsForm
-          initialTimeZone={mentor.timeZone ?? null}
-          initialWorkingHours={(mentor.workingHours as MentorWorkingHours | null) ?? null}
+          initialTimeZone={instructor.timeZone ?? null}
+          initialWorkingHours={instructor.workingHours as any ?? null}
         />
       </div>
     </ProtectedLayout>
