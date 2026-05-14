@@ -171,7 +171,7 @@ export default function StudentsPage() {
                 className="px-3 py-2 border rounded-md text-sm"
               >
                 <option value="">All Instructors</option>
-                {instructorsData?.items.map((inst) => (
+                {(instructorsData?.items ?? (instructorsData as any)?.instructors ?? []).map((inst: any) => (
                   <option key={inst.id} value={inst.id}>
                     {inst.name}
                   </option>
@@ -210,7 +210,7 @@ export default function StudentsPage() {
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
-          ) : data?.items.length === 0 ? (
+          ) : (data?.items ?? []).length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               No students found. {""}
               <Link href="/admin/students/invite" className="text-primary hover:underline">
@@ -230,7 +230,7 @@ export default function StudentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data?.items.map((student) => (
+                  {(data?.items ?? []).map((student) => (
                     <tr key={student.id} className="border-b hover:bg-muted/50">
                       <td className="py-3 px-4">
                         <div>
