@@ -28,7 +28,19 @@ const navLinks = [
 const ClerkAuthButtons = lazy(() =>
   import("@clerk/nextjs").then((clerk) => ({
     default: function ClerkAuthButtons() {
-      const { SignedIn, SignedOut, UserButton } = clerk;
+      const { SignedIn, SignedOut, UserButton, useUser } = clerk as any;
+
+      function DashboardButton() {
+        const { user } = useUser?.() ?? { user: undefined };
+        const role = (user?.publicMetadata?.role as string) || "student";
+        const href = role === "admin" ? "/admin" : role === "instructor" ? "/instructor/dashboard" : "/dashboard";
+        return (
+          <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
+            <Link href={href}>Dashboard</Link>
+          </Button>
+        );
+      }
+
       return (
         <>
           <SignedOut>
@@ -40,9 +52,7 @@ const ClerkAuthButtons = lazy(() =>
             </Button>
           </SignedOut>
           <SignedIn>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
+            <DashboardButton />
             <UserButton />
           </SignedIn>
         </>
@@ -54,7 +64,19 @@ const ClerkAuthButtons = lazy(() =>
 const MobileClerkAuthButtons = lazy(() =>
   import("@clerk/nextjs").then((clerk) => ({
     default: function MobileClerkAuthButtons(): ReactElement {
-      const { SignedIn, SignedOut, UserButton } = clerk;
+      const { SignedIn, SignedOut, UserButton, useUser } = clerk as any;
+
+      function MobileDashboardButton() {
+        const { user } = useUser?.() ?? { user: undefined };
+        const role = (user?.publicMetadata?.role as string) || "student";
+        const href = role === "admin" ? "/admin" : role === "instructor" ? "/instructor/dashboard" : "/dashboard";
+        return (
+          <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
+            <Link href={href}>Dashboard</Link>
+          </Button>
+        );
+      }
+
       return (
         <>
           <SignedOut>
@@ -66,9 +88,7 @@ const MobileClerkAuthButtons = lazy(() =>
             </Button>
           </SignedOut>
           <SignedIn>
-            <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
+            <MobileDashboardButton />
             <div className="flex items-center justify-start">
               <UserButton />
             </div>
