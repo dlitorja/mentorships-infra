@@ -1,5 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import "server-only";
 
 export class UnauthorizedError extends Error {
@@ -38,17 +37,31 @@ export type DbUser = {
   timeZone?: string;
 };
 
+async function getServerUserRole(userId: string): Promise<string> {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const role = user.publicMetadata?.role;
+    if (typeof role === "string" && ["admin", "instructor", "student"].includes(role)) {
+      return role;
+    }
+  } catch {
+    // Fall through to default
+  }
+  return "student";
+}
+
 export async function requireDbUser(): Promise<DbUser> {
   const userId = await requireAuth();
-  return { id: userId, role: "student", timeZone: undefined };
+  const role = await getServerUserRole(userId);
+  return { id: userId, role, timeZone: undefined };
 }
 
 export async function getDbUser(): Promise<DbUser> {
-  const { userId, sessionClaims } = await auth();
+  const { userId } = await auth();
   if (!userId) {
     throw new UnauthorizedError();
   }
-  const metadata = sessionClaims?.publicMetadata as { role?: string } | undefined;
-  const role = typeof metadata?.role === "string" ? metadata.role : "student";
+  const role = await getServerUserRole(userId);
   return { id: userId, role, timeZone: undefined };
 }

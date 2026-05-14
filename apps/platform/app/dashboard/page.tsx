@@ -2,7 +2,6 @@
 
 import { useUser, UserButton } from "@clerk/nextjs";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, User, BookOpen, CheckCircle2, Loader2 } from "lucide-react";
@@ -10,7 +9,7 @@ import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/li
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
-import { useMemo, useEffect, Suspense } from "react";
+import { useMemo, Suspense } from "react";
 
 function formatDate(date: number): string {
   return new Date(date).toLocaleDateString("en-US", {
@@ -112,19 +111,8 @@ function UpcomingSessionCard({ session }: { session: any }) {
 }
 
 function DashboardContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, isLoaded } = useUser();
   const userId = user?.id;
-
-  const isAdmin = user?.publicMetadata?.role === "admin";
-  const hasError = searchParams.has("error");
-
-  useEffect(() => {
-    if (isLoaded && user && isAdmin && !hasError) {
-      router.replace("/admin");
-    }
-  }, [isLoaded, user, isAdmin, hasError, router]);
 
   const { data: sessionPacks, isLoading: packsLoading } = useActiveSessionPacksByUser(userId || "");
   const { data: totalSessions } = useUserTotalRemainingSessions(userId || "");

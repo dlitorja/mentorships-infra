@@ -222,19 +222,24 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
   let userRole: string | undefined;
 
   if (userId && isAdminRoute(req)) {
-    try {
-      const clerk = await clerkClient();
-      const clerkUser = await clerk.users.getUser(userId);
-      const role = clerkUser.publicMetadata?.role;
-      userRole = typeof role === "string" ? role : undefined;
-    } catch (clerkError) {
-      await reportError({
-        source: "proxy.middleware",
-        error: clerkError instanceof Error ? clerkError : new Error(String(clerkError)),
-        message: "Failed to fetch user role from Clerk API",
-        level: "warn",
-        context: { userId },
-      });
+    const claimsRole = (authResult.sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+    if (typeof claimsRole === "string" && ["admin", "instructor", "student"].includes(claimsRole)) {
+      userRole = claimsRole;
+    } else {
+      try {
+        const clerk = await clerkClient();
+        const clerkUser = await clerk.users.getUser(userId);
+        const role = clerkUser.publicMetadata?.role;
+        userRole = typeof role === "string" ? role : undefined;
+      } catch (clerkError) {
+        await reportError({
+          source: "proxy.middleware",
+          error: clerkError instanceof Error ? clerkError : new Error(String(clerkError)),
+          message: "Failed to fetch user role from Clerk API",
+          level: "warn",
+          context: { userId },
+        });
+      }
     }
   }
 
