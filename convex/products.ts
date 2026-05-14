@@ -283,6 +283,16 @@ export const getProductsForAdmin = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    // Verify admin role like other admin queries
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") {
+      // Match getStudentsForAdmin behavior: return empty result for non-admins
+      return { items: [], total: 0, hasMore: false };
+    }
+
     // Base query: optional active filter
     let products = args.active === undefined
       ? await ctx.db.query("products").collect()
@@ -360,8 +370,13 @@ export const getProductsForAdmin = query({
       pageItems.map(async (p) => {
         let instructorName: string | null = null;
         if (p.instructorId) {
-          const inst = await ctx.db.get(p.instructorId as Id<"instructors">);
-          instructorName = inst?.name ?? null;
+          // Some legacy products may have a non-Convex id string stored; guard the lookup
+          try {
+            const inst = await ctx.db.get(p.instructorId as unknown as Id<"instructors">);
+            instructorName = inst?.name ?? null;
+          } catch {
+            instructorName = null;
+          }
         }
         return {
           id: p._id,

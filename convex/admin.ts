@@ -252,7 +252,8 @@ type MenteeWithSessionInfo = {
 export const getStudentsForAdmin = query({
   args: {
     search: v.optional(v.string()),
-    instructorId: v.optional(v.id("instructors")),
+    // Accept string to avoid strict id validation errors from malformed query params
+    instructorId: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
     expiresAfter: v.optional(v.number()),
     expiresBefore: v.optional(v.number()),
@@ -272,7 +273,8 @@ export const getStudentsForAdmin = query({
     let sessionPacks = await ctx.db.query("sessionPacks").collect();
 
     if (args.instructorId) {
-      sessionPacks = sessionPacks.filter(sp => sp.instructorId === args.instructorId);
+      // Filter by instructor id string; sessionPacks.instructorId is an Id<"instructors"> string
+      sessionPacks = sessionPacks.filter(sp => sp.instructorId === (args.instructorId as any));
     }
 
     if (args.search) {
