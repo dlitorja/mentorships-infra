@@ -4,6 +4,27 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import type { Id } from "@/convex/_generated/dataModel";
+import { auth } from "@clerk/nextjs/server";
+
+/** Resolve an instructor by Convex document id or slug. Only swallows errors related to invalid id formats. */
+async function resolveInstructorByIdOrSlug(convex: ReturnType<typeof getConvexClient>, idOrSlug: string) {
+  try {
+    const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
+    if (byId) {
+      return { instructor: byId, resolvedId: byId._id as string };
+    }
+  } catch (err) {
+    if (!(err instanceof Error) || !/id|argument/i.test(err.message)) {
+      // Network/auth or unexpected error: propagate
+      throw err;
+    }
+  }
+  const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
+  if (bySlug) {
+    return { instructor: bySlug, resolvedId: bySlug._id as string };
+  }
+  return { instructor: null, resolvedId: null } as const;
+}
 
 const createTestimonialSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
@@ -38,11 +59,16 @@ export async function POST(
     const data = validationResult.data as CreateTestimonialInput;
 
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
-    const instructor = await convex.query(api.instructors.getInstructorById, {
-      id: id as Id<"instructors">,
-    });
-    if (!instructor) {
+    const resolved = await resolveInstructorByIdOrSlug(convex, id);
+    const instructor = resolved.instructor;
+    if (!instructor || !resolved.resolvedId) {
       return NextResponse.json(
         { error: "Instructor not found" },
         { status: 404 }
@@ -50,7 +76,7 @@ export async function POST(
     }
 
     const testimonial = await convex.mutation(api.instructors.createTestimonial, {
-      instructorId: id as Id<"instructors">,
+      instructorId: resolved.resolvedId as Id<"instructors">,
       name: data.name,
       text: data.text,
     });
