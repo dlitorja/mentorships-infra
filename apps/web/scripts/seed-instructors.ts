@@ -83,7 +83,7 @@ function runConvexMutation(functionName: string, args: Record<string, any>): Pro
 
 /**
  * Creates an instructor in Convex along with associated products, testimonials,
- * and mentee results. Skips instructors that already exist (idempotent).
+ * and student results. Skips instructors that already exist (idempotent).
  */
 async function seedInstructor(instructor: any): Promise<any> {
   console.log(`  Creating instructor...`);
