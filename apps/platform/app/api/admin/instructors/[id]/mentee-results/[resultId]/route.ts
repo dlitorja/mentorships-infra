@@ -7,6 +7,7 @@ import { auth } from "@clerk/nextjs/server";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 
 // Uses shared helper to avoid duplication across routes
+ 
 
 /**
  * DELETE /api/admin/instructors/[id]/mentee-results/[resultId]

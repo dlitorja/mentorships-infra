@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 
 // Uses shared helper to avoid duplication across routes
+ 
 
 /**
  * DELETE /api/admin/instructors/[id]/testimonials/[testimonialId]
