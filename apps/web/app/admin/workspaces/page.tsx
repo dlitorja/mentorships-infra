@@ -22,13 +22,13 @@ type Workspace = {
   type: "mentorship" | "admin_mentee" | "admin_instructor";
   ownerId: string;
   owner: { id: string; email: string; firstName: string | null } | null;
-  mentorId: string | null;
-  mentor: { id: string; userId: string } | null;
+  instructorId: string | null;
+  instructor: { id: string; userId: string } | null;
   isPublic: boolean;
   endedAt: number | null;
   createdAt: number;
-  menteeImageCount: number;
-  mentorImageCount: number;
+  studentImageCount: number;
+  instructorImageCount: number;
 };
 
 type WorkspacesResponse = {
@@ -172,9 +172,9 @@ export default function WorkspacesPage() {
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        {workspace.mentor ? (
+                        {workspace.instructor ? (
                           <span className="text-sm font-mono">
-                            {workspace.mentor.userId.slice(0, 8)}...
+                            {workspace.instructor.userId.slice(0, 8)}...
                           </span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
@@ -182,8 +182,8 @@ export default function WorkspacesPage() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="text-sm">
-                          <span className="text-muted-foreground">M:</span> {workspace.menteeImageCount}
-                          <span className="text-muted-foreground ml-2">I:</span> {workspace.mentorImageCount}
+                          <span className="text-muted-foreground">M:</span> {workspace.studentImageCount}
+                          <span className="text-muted-foreground ml-2">I:</span> {workspace.instructorImageCount}
                         </div>
                       </td>
                       <td className="py-3 px-4">
