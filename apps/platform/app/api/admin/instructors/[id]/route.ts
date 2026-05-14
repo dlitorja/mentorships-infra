@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
 import { auth } from "@clerk/nextjs/server";
+import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -14,27 +15,7 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
-/** Resolve an instructor by Convex document id or slug. Only swallows errors related to invalid id formats. */
-async function resolveInstructorByIdOrSlug(convex: ConvexHttpClient, idOrSlug: string) {
-  // Try Convex Id first; if invalid, swallow and continue to slug
-  try {
-    const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
-    if (byId) {
-      return { instructor: byId, resolvedId: byId._id as string };
-    }
-  } catch (err) {
-    if (!(err instanceof Error) || !/id|argument/i.test(err.message)) {
-      // Network/auth or unexpected error: propagate
-      throw err;
-    }
-  }
-  // Fallback: treat the param as slug
-  const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
-  if (bySlug) {
-    return { instructor: bySlug, resolvedId: bySlug._id as string };
-  }
-  return { instructor: null, resolvedId: null };
-}
+// Uses shared helper to avoid duplication across routes
 
 const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
