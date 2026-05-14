@@ -131,34 +131,7 @@ export default async function InstructorDashboardPage() {
           </Card>
         </div>
 
-        {/* Google Calendar Connection */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <div className="space-y-1">
-              <CardTitle className="text-sm font-medium">Google Calendar</CardTitle>
-              <CardDescription>
-                Connect your calendar so students only see times you’re actually free.
-              </CardDescription>
-            </div>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <div className="text-sm">
-              {instructorRecord.googleRefreshToken ? (
-                <span className="text-green-600">Connected</span>
-              ) : (
-                <span className="text-amber-600">Not connected</span>
-              )}
-            </div>
-            <Button asChild variant={instructorRecord.googleRefreshToken ? "outline" : "default"}>
-              <a href="/api/auth/google">
-                {instructorRecord.googleRefreshToken ? "Reconnect" : "Connect Google Calendar"}
-              </a>
-            </Button>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-6 md:grid-cols-2">
+<div className="grid gap-6 md:grid-cols-2">
           {/* Upcoming Sessions */}
           <Card>
             <CardHeader>
