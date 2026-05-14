@@ -12,11 +12,6 @@ import { z } from "zod";
 import { spawn } from "child_process";
 import { instructors as marketingInstructors } from "../../marketing/lib/instructors";
 
-const mentorResponseSchema = z.union([
-  z.string(),
-  z.object({ _id: z.string() }),
-]);
-
 const instructorResponseSchema = z.union([
   z.string(),
   z.object({ _id: z.string() }),
@@ -83,72 +78,58 @@ function runConvexMutation(functionName: string, args: Record<string, any>): Pro
 }
 
 async function seedInstructor(instructor: any): Promise<any> {
-  console.log(`  Creating mentor...`);
-  
+  console.log(`  Creating instructor...`);
+
   const userId = `seed-${instructor.slug}`;
-  
-  // Create mentor - try/catch for idempotency
-  let mentorId;
+
+  // Create instructor - idempotent via userId
+  let instructorId;
   try {
-    const mentorResult = await runConvexMutation("mentors:getOrCreateMentor", {
+    const instructorResult = await runConvexMutation("instructors:createInstructor", {
       userId,
+      name: instructor.name,
+      slug: instructor.slug,
+      tagline: instructor.tagline,
+      bio: instructor.bio,
+      specialties: instructor.specialties,
+      background: instructor.background,
+      profileImageUrl: instructor.profileImage,
+      portfolioImages: instructor.workImages,
+      socials: instructor.socials,
+      isActive: true,
+      isNew: instructor.isNew || false,
     });
-    const parsed = mentorResponseSchema.safeParse(mentorResult);
+
+    const parsed = instructorResponseSchema.safeParse(instructorResult);
     if (!parsed.success) {
-      throw new Error(`Invalid mentor response from mentors:getOrCreateMentor: ${JSON.stringify(mentorResult)}`);
+      throw new Error(`Invalid instructor response from instructors:createInstructor: ${JSON.stringify(instructorResult)}`);
     }
-    mentorId = typeof parsed.data === "string" ? parsed.data : parsed.data._id;
+    if (typeof parsed.data === "string") {
+      instructorId = parsed.data;
+    } else if ("_id" in parsed.data) {
+      instructorId = parsed.data._id;
+    } else {
+      instructorId = parsed.data.value._id;
+    }
   } catch (e: any) {
     if (e.message?.includes("UNIQUE constraint") || e.message?.includes("already exists")) {
-      console.log(`  ⏭️  Mentor already exists, skipping`);
+      console.log(`  ⏭️  Instructor already exists, skipping`);
       return { skipped: true };
     }
     throw e;
   }
 
-  if (!mentorId) {
-    throw new Error("Could not get mentor ID");
+  if (!instructorId) {
+    throw new Error("Could not get instructor ID");
   }
-  
-  console.log(`  Mentor ID: ${mentorId}`);
 
-  console.log(`  Creating instructor...`);
-  
-  // Create instructor
-  const instructorResult = await runConvexMutation("instructors:createInstructor", {
-    name: instructor.name,
-    slug: instructor.slug,
-    tagline: instructor.tagline,
-    bio: instructor.bio,
-    specialties: instructor.specialties,
-    background: instructor.background,
-    profileImageUrl: instructor.profileImage,
-    portfolioImages: instructor.workImages,
-    socials: instructor.socials,
-    isActive: true,
-    isNew: instructor.isNew || false,
-    mentorId,
-  });
-
-  const parsedInstructor = instructorResponseSchema.safeParse(instructorResult);
-  if (!parsedInstructor.success) {
-    throw new Error(`Invalid instructor response from instructors:createInstructor: ${JSON.stringify(instructorResult)}`);
-  }
-  let instructorId: string;
-  if (typeof parsedInstructor.data === "string") {
-    instructorId = parsedInstructor.data;
-  } else if ("_id" in parsedInstructor.data) {
-    instructorId = parsedInstructor.data._id;
-  } else {
-    instructorId = parsedInstructor.data.value._id;
-  }
   console.log(`  Instructor ID: ${instructorId}`);
 
   // Create products
   if (instructor.pricing?.oneOnOne) {
     console.log(`  Creating 1-on-1 product...`);
     await runConvexMutation("products:createProduct", {
-      mentorId,
+      instructorId,
       title: "1-on-1 Mentorship",
       description: `4-session mentorship with ${instructor.name}`,
       price: instructor.pricing.oneOnOne.toString(),
@@ -162,7 +143,7 @@ async function seedInstructor(instructor: any): Promise<any> {
   if (instructor.pricing?.group) {
     console.log(`  Creating group product...`);
     await runConvexMutation("products:createProduct", {
-      mentorId,
+      instructorId,
       title: "Group Mentorship",
       description: `4-session group mentorship with ${instructor.name}`,
       price: instructor.pricing.group.toString(),
@@ -196,7 +177,7 @@ async function seedInstructor(instructor: any): Promise<any> {
     }
   }
 
-  return { success: true, instructorId, mentorId };
+  return { success: true, instructorId };
 }
 
 async function seedInstructors(): Promise<void> {
