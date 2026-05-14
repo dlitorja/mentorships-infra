@@ -52,41 +52,12 @@ export default async function InstructorDashboardPage() {
     );
   }
 
-<<<<<<< HEAD
   // Using Convex for all instructor data
   // Session data comes from Convex queries
   const upcomingSessions: any[] = [];
   const pastSessions: any[] = [];
   const activeSeats: any[] = [];
   const seatAvailability = { activeSeats: 0, maxSeats: 0, remainingSeats: 0 };
-=======
-  // Fetch all dashboard data in parallel
-  // Note: legacyMentorId is the Postgres mentor UUID for session queries
-  const mentorId = instructorRecord.legacyMentorId;
-  if (!mentorId) {
-    return (
-      <ProtectedLayout currentPath="/instructor/dashboard">
-        <div className="container mx-auto p-4 md:p-8">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">
-                Instructor profile not fully set up. Please contact support.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </ProtectedLayout>
-    );
-  }
-
-  const [upcomingSessions, pastSessions, activeSeats, seatAvailability] =
-    await Promise.all([
-      getMentorUpcomingSessions(mentorId, 10),
-      getMentorPastSessions(mentorId, 5),
-      getMentorActiveSeats(mentorId),
-      checkSeatAvailability(mentorId),
-    ]);
->>>>>>> 91167f9 (feat: Complete mentor→instructor rename in platform and marketing dashboards)
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
