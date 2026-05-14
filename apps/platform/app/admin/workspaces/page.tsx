@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink, Plus } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Workspace = {
   id: string;
@@ -113,16 +114,17 @@ export default function WorkspacesPage() {
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <select
-                className="border rounded-md px-3 py-2 text-sm"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="">All Types</option>
-                <option value="mentorship">Mentorship</option>
-                <option value="admin_mentee">Admin-Student</option>
-                <option value="admin_instructor">Admin-Instructor</option>
-              </select>
+              <Select value={typeFilter || "__all__"} onValueChange={(v) => setTypeFilter(v === "__all__" ? "" : v)}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="All Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All Types</SelectItem>
+                  <SelectItem value="mentorship">Mentorship</SelectItem>
+                  <SelectItem value="admin_mentee">Admin-Student</SelectItem>
+                  <SelectItem value="admin_instructor">Admin-Instructor</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>

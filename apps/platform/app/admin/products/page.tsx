@@ -7,6 +7,7 @@ import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight, Lo
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -315,47 +316,41 @@ export default function ProductsPage() {
               <Button type="submit" variant="secondary">Search</Button>
             </form>
 
-            <select
-              value={mentorId}
-              onChange={(e) => {
-                setMentorId(e.target.value);
-                setPage(1);
-              }}
-              className="p-2 border rounded-md"
-            >
-              <option value="">All Instructors</option>
-              {instructors.map((instructor) => (
-                <option key={instructor.id} value={instructor.id}>
-                  {instructor.email || (instructor.userId ? instructor.userId.slice(0, 8) + "..." : "No email")}
-                </option>
-              ))}
-            </select>
+            <Select value={mentorId || "__all__"} onValueChange={(v) => { setMentorId(v === "__all__" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="All Instructors" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All Instructors</SelectItem>
+                {instructors.map((instructor) => (
+                  <SelectItem key={instructor.id} value={instructor.id}>
+                    {instructor.email || (instructor.userId ? instructor.userId.slice(0, 8) + "..." : "No email")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-            <select
-              value={mentorshipType}
-              onChange={(e) => {
-                setMentorshipType(e.target.value);
-                setPage(1);
-              }}
-              className="p-2 border rounded-md"
-            >
-              <option value="">All Types</option>
-              <option value="one-on-one">1-on-1</option>
-              <option value="group">Group</option>
-            </select>
+            <Select value={mentorshipType || "__all__"} onValueChange={(v) => { setMentorshipType(v === "__all__" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="All Types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All Types</SelectItem>
+                <SelectItem value="one-on-one">1-on-1</SelectItem>
+                <SelectItem value="group">Group</SelectItem>
+              </SelectContent>
+            </Select>
 
-            <select
-              value={activeFilter}
-              onChange={(e) => {
-                setActiveFilter(e.target.value);
-                setPage(1);
-              }}
-              className="p-2 border rounded-md"
-            >
-              <option value="">All Status</option>
-              <option value="true">Active</option>
-              <option value="false">Inactive</option>
-            </select>
+            <Select value={activeFilter || "__all__"} onValueChange={(v) => { setActiveFilter(v === "__all__" ? "" : v); setPage(1); }}>
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">All Status</SelectItem>
+                <SelectItem value="true">Active</SelectItem>
+                <SelectItem value="false">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
