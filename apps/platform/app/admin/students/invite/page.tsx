@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Mail, ArrowLeft } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Invitation = {
   id: string;
@@ -146,20 +147,19 @@ export default function InviteStudentPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="instructor">Instructor</Label>
-                <select
-                  id="instructor"
-                  value={instructorId}
-                  onChange={(e) => setInstructorId(e.target.value)}
-                  disabled={createMutation.isPending || isLoadingInstructors}
-                  className="w-full px-3 py-2 border rounded-md text-sm"
-                >
-                  <option value="">Select an instructor...</option>
-                  {instructorsData?.items.map((inst) => (
-                    <option key={inst.id} value={inst.id}>
-                      {inst.name}
-                    </option>
-                  ))}
-                </select>
+                <Select value={instructorId} onValueChange={setInstructorId}>
+                  <SelectTrigger id="instructor" className="w-full">
+                    <SelectValue placeholder="Select an instructor..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Select an instructor...</SelectItem>
+                    {instructorsData?.items.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {error && (
@@ -184,17 +184,22 @@ export default function InviteStudentPage() {
         </Card>
 
         <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Pending Invitations</CardTitle>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-2 py-1 border rounded-md text-sm">
-                <option value="pending">Pending</option>
-                <option value="accepted">Accepted</option>
-                <option value="expired">Expired</option>
-                <option value="all">All</option>
-              </select>
-            </div>
-          </CardHeader>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Pending Invitations</CardTitle>
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-[160px]">
+                      <SelectValue placeholder="Filter" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="accepted">Accepted</SelectItem>
+                      <SelectItem value="expired">Expired</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
           <CardContent>
             {isLoadingInvitations ? (
               <div className="flex justify-center py-8">

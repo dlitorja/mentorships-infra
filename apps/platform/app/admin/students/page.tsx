@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Search, UserPlus } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Student = {
   id: string;
@@ -165,31 +166,33 @@ export default function StudentsPage() {
                   className="pl-9"
                 />
               </div>
-              <select
-                value={instructorFilter}
-                onChange={(e) => setInstructorFilter(e.target.value)}
-                className="px-3 py-2 border rounded-md text-sm"
-              >
-                <option value="">All Instructors</option>
-                {(instructorsData?.items ?? (instructorsData as any)?.instructors ?? []).map((inst: any) => (
-                  <option key={inst.id} value={inst.id}>
-                    {inst.name}
-                  </option>
-                ))}
-              </select>
+              <Select value={instructorFilter} onValueChange={setInstructorFilter}>
+                <SelectTrigger className="w-[220px]">
+                  <SelectValue placeholder="All Instructors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Instructors</SelectItem>
+                  {(instructorsData?.items ?? (instructorsData as any)?.instructors ?? []).map((inst: any) => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      {inst.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="px-3 py-2 border rounded-md text-sm"
-              >
-                <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="depleted">Depleted</option>
-                <option value="expired">Expired</option>
-                <option value="refunded">Refunded</option>
-              </select>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="All Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">All Status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="depleted">Depleted</SelectItem>
+                  <SelectItem value="expired">Expired</SelectItem>
+                  <SelectItem value="refunded">Refunded</SelectItem>
+                </SelectContent>
+              </Select>
               <div className="flex gap-2">
                 <Input type="date" value={expiresAfter} onChange={(e) => setExpiresAfter(e.target.value)} placeholder="Expires After" />
                 <Input type="date" value={expiresBefore} onChange={(e) => setExpiresBefore(e.target.value)} placeholder="Expires Before" />

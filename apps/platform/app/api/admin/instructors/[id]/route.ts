@@ -13,6 +13,20 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+async function resolveInstructorByIdOrSlug(convex: ConvexHttpClient, idOrSlug: string) {
+  // Try Convex Id first
+  const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
+  if (byId) {
+    return { instructor: byId, resolvedId: byId._id as string };
+  }
+  // Fallback: treat the param as slug
+  const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
+  if (bySlug) {
+    return { instructor: bySlug, resolvedId: bySlug._id as string };
+  }
+  return { instructor: null, resolvedId: null };
+}
+
 const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
   slug: z.string().min(1, "Slug is required").max(200).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with dashes").optional(),
@@ -57,7 +71,8 @@ export async function GET(
     const { id } = await params;
     const convex = getConvexClient();
 
-    const instructor = await convex.query(api.instructors.getInstructorById, { id: id as any });
+    const resolved = await resolveInstructorByIdOrSlug(convex, id);
+    const instructor = resolved.instructor;
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -65,8 +80,8 @@ export async function GET(
       );
     }
 
-    const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, { instructorId: id as any });
-    const menteeResultsData = await convex.query(api.instructors.getMenteeResultsByInstructorId, { instructorId: id as any });
+    const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, { instructorId: instructor._id as any });
+    const menteeResultsData = await convex.query(api.instructors.getMenteeResultsByInstructorId, { instructorId: instructor._id as any });
 
     return NextResponse.json({
       id: instructor._id,
@@ -143,8 +158,10 @@ export async function PUT(
     const data = validationResult.data as UpdateInstructorInput;
     const convex = getConvexClient();
 
-    const existing = await convex.query(api.instructors.getInstructorById, { id: id as any });
-    if (!existing) {
+    const resolved = await resolveInstructorByIdOrSlug(convex, id);
+    const existing = resolved.instructor;
+    const resolvedId = resolved.resolvedId;
+    if (!existing || !resolvedId) {
       return NextResponse.json(
         { error: "Instructor not found" },
         { status: 404 }
@@ -180,7 +197,7 @@ export async function PUT(
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
 
     const updated = await convex.mutation(api.instructors.updateInstructor, {
-      id: id as any,
+      id: resolvedId as any,
       ...updateData,
     });
 
@@ -243,15 +260,17 @@ export async function DELETE(
     const { id } = await params;
     const convex = getConvexClient();
 
-    const existing = await convex.query(api.instructors.getInstructorById, { id: id as any });
-    if (!existing) {
+    const resolved = await resolveInstructorByIdOrSlug(convex, id);
+    const existing = resolved.instructor;
+    const resolvedId = resolved.resolvedId;
+    if (!existing || !resolvedId) {
       return NextResponse.json(
         { error: "Instructor not found" },
         { status: 404 }
       );
     }
 
-    await convex.mutation(api.instructors.deleteInstructor, { id: id as any });
+    await convex.mutation(api.instructors.deleteInstructor, { id: resolvedId as any });
 
     return NextResponse.json({
       success: true,

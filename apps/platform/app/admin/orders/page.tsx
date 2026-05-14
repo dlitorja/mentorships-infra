@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Order = {
   id: string;
@@ -186,16 +187,17 @@ function RefundModal({
 
           <div>
             <label className="text-sm font-medium">Reason</label>
-            <select
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              className="w-full mt-1 p-2 border rounded-md"
-            >
-              <option value="Duplicate">Duplicate</option>
-              <option value="Fraudulent">Fraudulent</option>
-              <option value="Requested by customer">Requested by customer</option>
-              <option value="Other">Other</option>
-            </select>
+            <Select value={reason} onValueChange={setReason}>
+              <SelectTrigger className="w-full mt-1">
+                <SelectValue placeholder="Select reason" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Duplicate">Duplicate</SelectItem>
+                <SelectItem value="Fraudulent">Fraudulent</SelectItem>
+                <SelectItem value="Requested by customer">Requested by customer</SelectItem>
+                <SelectItem value="Other">Other</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {reason === "Other" && (
@@ -322,20 +324,18 @@ export default function AdminOrdersPage() {
               <Button type="submit" variant="secondary">Search</Button>
             </form>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="p-2 border rounded-md"
-            >
-              <option value="">All Status</option>
-              <option value="paid">Paid</option>
-              <option value="pending">Pending</option>
-              <option value="refunded">Refunded</option>
-              <option value="failed">Failed</option>
-            </select>
+            <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="All Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All Status</SelectItem>
+                <SelectItem value="paid">Paid</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="refunded">Refunded</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+              </SelectContent>
+            </Select>
 
             <Button 
               variant="outline" 
