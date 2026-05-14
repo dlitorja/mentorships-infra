@@ -87,7 +87,9 @@ Phase 1.1-1.3 are complete and applied. Both `mentor_id` and `instructor_id` col
   - `sessionPacks.ts` — Duplicate-check now catches backfilled rows where `instructorId` contains a mentor UUID (not instructors UUID)
   - `seatsReservations.ts` — reads use `instructorId`, writes use both columns
   - `admin.ts` — main queries updated to use `instructorId`; `getAdminInstructors` subqueries still use mentorId bridge (requires separate review)
-- [ ] **2.3** Migrate `mentors.ts` query functions to `instructors.ts` — pending (mentors table still in use for mentor-specific fields like Google Calendar auth)
+- [x] **2.3** Migrate `mentors.ts` query functions to `instructors.ts` — **COMPLETED in PR #268**
+  - `packages/db/src/lib/queries/mentors.ts` **DELETED** — `getInstructorByUserId` moved to `instructors.ts`
+  - Note: Google Calendar tokens now stored in Convex `instructors` table, not SQL mentors table
 - [ ] **2.4** Update `packages/payments/` — no changes needed (mentorId only appears in JSDoc comments, not code)
 - [x] **2.5** Update `packages/schemas/` and `packages/ui/` — no changes needed (no mentorId references found)
 
@@ -163,6 +165,54 @@ The following still contain "mentor" references that may need attention:
 - `feat: Migrate Google Calendar token storage from Postgres to Convex`
 - `docs: Update migration doc with PR #263 merge details and CodeRabbit fixes`
 - Merge commit: `Merge main into feat/migrate-google-calendar-tokens-to-convex`
+
+---
+
+### PR #268 Status (May 14, 2026)
+- **PR #268**: `feat: Rename getMentorByUserId, fix platform product API, complete Phase 5 cleanup` — **MERGED ✅**
+- CI: All green (Lint, Unit Tests, E2E Tests, Build)
+- Core changes: Renamed functions, removed `mentors.ts` queries, updated platform/web to use Convex for instructor data
+
+**PR #268 commits:**
+- `fix: Re-export getInstructorByUserId from instructors.ts to resolve duplicate export conflict`
+- `feat: Rename getMentorByUserId to getInstructorByUserId, fix platform product API`
+- `fix: Complete mentor→instructor role checks in apps/platform`
+- `fix: Complete mentor→instructor rename in platform and marketing dashboards`
+  - Deleted `packages/db/src/lib/queries/mentors.ts`
+  - Moved `getInstructorByUserId` to `packages/db/src/lib/queries/instructors.ts`
+  - Renamed `getMentorMenteesWithSessionInfo` → `getInstructorStudentsWithSessionInfo`
+  - Renamed `getMentorMenteesWithLowSessions` → `getInstructorStudentsWithLowSessions`
+  - Renamed type `MenteeWithSessions` → `StudentWithSessions`
+  - Updated marketing instructor dashboard to use `totalStudents` instead of `totalMentees`
+- `fix: use Convex for instructor lookup in onboarding submit route`
+- `fix: add instructor role to marketing auth, remove mentorId from platform dashboard`
+- `fix: remove Google Calendar card from web instructor dashboard`
+- `fix: replace totalMentees with totalStudents in marketing dashboard`
+- `fix: replace mentor variable with instructor in settings page`
+- `fix: rename mentor->instructor, mentee->student in workspace type`
+- `fix: replace mentor references with instructor in checkout page`
+- `fix: remove mentor/mentee from instructor slug page`
+- `fix: use Convex for instructor data in settings page`
+
+**Key changes in PR #268:**
+
+1. **Deleted `mentors.ts` queries** — `packages/db/src/lib/queries/mentors.ts` removed, function moved to `instructors.ts`
+
+2. **Platform instructor pages** — Now use Convex `api.instructors.getInstructorByUserId` instead of Postgres `getMentorByUserId`:
+   - `apps/platform/app/instructor/dashboard/page.tsx`
+   - `apps/platform/app/instructor/settings/page.tsx`
+   - `apps/platform/app/instructor/profile/route.ts`
+
+3. **Web app fixes** — Removed `mentor`/`mentee` variable references:
+   - `apps/web/app/api/onboarding/submit/route.ts` — Uses Convex for instructor lookup
+   - `apps/web/app/instructor/settings/page.tsx` — Uses Convex for instructor data
+   - `apps/web/app/admin/workspaces/page.tsx` — Renamed type fields `mentor`→`instructor`, `menteeImageCount`→`studentImageCount`
+   - `apps/web/app/checkout/page.tsx` — Uses `useInstructorProducts` instead of `useProductsByMentorId`
+   - `apps/web/app/instructors/[slug]/page.tsx` — Renamed types `Mentor`→`InstructorProfile`, `MenteeResult`→`StudentResult`
+
+4. **Marketing auth fix** — Added `"instructor"` to role type union in `apps/marketing/lib/auth.ts`
+
+5. **Removed mentorId-dependent code** — Google Calendar connection card removed from platform/web instructor dashboards (mentorId no longer exists on Convex instructor type)
 
 ---
 
@@ -378,7 +428,7 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 6. ✅ Remove `/api/admin/instructors/mentors` endpoints (callers now use `/api/admin/instructors`)
 7. ✅ Fix admin queries and types for instructorId changes
 
-**Completed May 13, 2026:**
+**Completed May 13-14, 2026 (PR #267 + #268):**
 8. ✅ Fix `requireRole("mentor")` → `"instructor"` in 5 platform instructor pages (dashboard, settings, profile, sessions, onboarding)
 9. ✅ Update auth-helpers.ts type signatures — removed "mentor" from union types (`requireRole`, `requireRoleForApi`)
 10. ✅ Fix 10 API route references to use `requireRoleForApi("instructor")` instead of `"mentor"`:
@@ -392,10 +442,21 @@ API changes in Phase 3 are **breaking** for external callers. Mitigation:
 12. ✅ Fix profile page to use Convex `api.instructors.getInstructorByUserId` instead of SQL `getMentorByUserId`
 13. ✅ Update variable names from `mentor` → `instructorRecord` in platform instructor pages
 
+14. ✅ **PR #268**: Delete `packages/db/src/lib/queries/mentors.ts` — function moved to `instructors.ts` as `getInstructorByUserId`
+15. ✅ **PR #268**: Update platform instructor pages to use Convex for instructor data:
+    - `apps/platform/app/instructor/dashboard/page.tsx` — Uses Convex query
+    - `apps/platform/app/instructor/settings/page.tsx` — Uses Convex query
+16. ✅ **PR #268**: Remove mentorId-dependent code (Google Calendar card) from platform/web instructor dashboards
+17. ✅ **PR #268**: Rename variable references in web app:
+    - `apps/web/app/admin/workspaces/page.tsx` — `mentor`→`instructor`, `menteeImageCount`→`studentImageCount`
+    - `apps/web/app/checkout/page.tsx` — `useProductsByMentorId`→`useInstructorProducts`
+    - `apps/web/app/instructors/[slug]/page.tsx` — `Mentor`→`InstructorProfile`, `MenteeResult`→`StudentResult`
+18. ✅ **PR #268**: Add `"instructor"` to marketing auth role types
+
 **Pending tasks:**
-- Marketing app (242 refs) - uses Postgres approach, not Convex (no setup)
+- Marketing app (242 refs) - uses Postgres approach, not Convex (no setup) — **EXCLUDED per user decision**
 - Home app (31 refs) - lower priority, mostly display strings
-- Phase 5 cleanup (delete mentors table, queries, etc.) - blocked by Google Calendar encryption key confirmation
+- Phase 5 cleanup (delete SQL mentors table, Convex mentors table, etc.) — **PENDING**
 
 ### Commits Made (Phase 4 continuation)
 
@@ -460,18 +521,18 @@ Fixed user-facing "mentor" → "instructor" terminology that was still appearing
 
 **Goal**: Remove all legacy mentor references.
 
-### Status: Pending — Blocked by Google Calendar encryption key confirmation
+### Status: In Progress — Partially Complete via PR #268
 
 ### Steps
 
-- [ ] **5.1** Remove `MentorSchema`, `fetchMentors`, `mentors` query key namespace
-- [ ] **5.2** Remove `packages/db/src/schema/mentors.ts` and `mentors` table references
+- [x] **5.1** Remove `MentorSchema`, `fetchMentors`, `mentors` query key namespace — **COMPLETE** (PR #268: deleted `packages/db/src/lib/queries/mentors.ts`)
+- [x] **5.2** Remove `packages/db/src/schema/mentors.ts` and `mentors` table references — **COMPLETE** (PR #268: mentors.ts deleted)
 - [x] **5.3** Remove `/api/admin/instructors/mentors` endpoint (deleted in PR #263)
-- [ ] **5.4** Remove `convex/mentors.ts` and `mentors` table from Convex schema
-- [ ] **5.5** Rename remaining `mentor`-prefixed vars to `instructor` where appropriate
-- [ ] **5.6** Update tests (4 files, 15 refs)
+- [ ] **5.4** Remove `convex/mentors.ts` and `mentors` table from Convex schema — **PENDING**
+- [ ] **5.5** Rename remaining `mentor`-prefixed vars to `instructor` where appropriate — **ONGOING**
+- [ ] **5.6** Update tests (4 files, 15 refs) — **PENDING**
 
-### Phase 5 Investigation Findings (May 13, 2026)
+### Phase 5 Investigation Findings (May 13-14, 2026)
 
 #### Google Calendar Encryption Key (Blocking Item)
 
@@ -494,42 +555,23 @@ The `mentors` SQL table and `instructors` Convex table both store `googleRefresh
 - `packages/db/src/lib/queries/mentors.ts:129` — `decryptMentorRefreshToken()` decrypts tokens
 - `apps/web/lib/crypto.ts` — PR #266 fix for decrypting migrated tokens
 
-#### `getMentorByUserId` Rename Analysis
+#### `getMentorByUserId` Rename — **COMPLETED in PR #268**
 
-**Current state:** Function still named `getMentorByUserId` but returns instructor data.
+**Status:** ✅ COMPLETE — Function renamed to `getInstructorByUserId` and moved to `packages/db/src/lib/queries/instructors.ts`
 
-**Downstream callers (13 files):**
+**What was done:**
+- `packages/db/src/lib/queries/mentors.ts` **DELETED**
+- `getInstructorByUserId` now exported from `packages/db/src/lib/queries/instructors.ts`
+- Platform instructor pages updated to use Convex queries instead of this function
+- Web app instructor settings page updated to use Convex queries
 
-| File | Usage |
-|------|-------|
-| `apps/platform/app/instructor/dashboard/page.tsx` | Line 40: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/platform/app/instructor/sessions/page.tsx` | Line 39: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/platform/app/instructor/settings/page.tsx` | Line 9: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/platform/app/instructor/onboarding/page.tsx` | Line 24: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/platform/components/navigation/protected-layout.tsx` | Line 21: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/web/app/instructor/dashboard/page.tsx` | Line 40: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/web/app/instructor/sessions/page.tsx` | Line 39: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/web/app/instructor/settings/page.tsx` | Line 9: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/web/app/instructor/onboarding/page.tsx` | Line 24: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/web/app/api/instructor/onboarding/review/route.ts` | Line 15: `const mentor = await getMentorByUserId(user.id)` |
-| `apps/web/app/api/instructor/mentees/session-counts/[userId]/route.ts` | Lines 42, 98, 161 |
-| `apps/web/components/navigation/protected-layout.tsx` | Line 21: `const mentor = await getMentorByUserId(user.id)` |
-| `packages/db/src/lib/queries/mentors.ts` | Definition file |
-| `convex/mentors.ts` | Convex internalQuery (deprecated) |
-| `apps/marketing/app/instructor/dashboard/page.tsx` | **Excluded from migration** |
+**Note:** Convex `instructors` table now stores Google Calendar tokens. SQL `mentors` table is deprecated.
 
 **Convex `mentors` table status:**
 - Table exists in `convex/schema.ts:52-59` but is **deprecated**
 - `instructors` table has `googleRefreshToken`, `googleCalendarId` fields — mentors table is not needed for Google Calendar
 - `convex/mentors.ts` is marked `@deprecated` with note: "mentors table is no longer used for Clerk user linking"
-
-**Rename recommendation:**
-1. Rename `getMentorByUserId` → `getInstructorByUserId` in `packages/db/src/lib/queries/mentors.ts`
-2. Update all 11 caller files (platform + web)
-3. Keep the Convex version in `convex/mentors.ts` as-is (already deprecated, will be removed in 5.4)
-4. Consider renaming the file `packages/db/src/lib/queries/mentors.ts` → `instructors.ts` as part of 5.1
-
-**Risk:** Low — all callers use it the same way, just a rename with mechanical updates needed.
+- **Still pending removal in Phase 5.4**
 
 ---
 
@@ -566,3 +608,42 @@ During transition, both `mentor_id` and `instructor_id` columns exist. Applicati
 ```
 
 After all app code is updated (Phase 2-3 complete), Phase 1.5 drops old columns.
+
+---
+
+## What's Next (May 14, 2026)
+
+### Immediate: PR #268 Merge ✅
+
+PR #268 has been merged. Core mentor→instructor rename complete for platform/web.
+
+### Remaining Work
+
+**Phase 5 Cleanup (highest priority):**
+1. **5.4** Remove `convex/mentors.ts` and `mentors` table from Convex schema
+2. **5.5** Continue renaming remaining `mentor`-prefixed vars to `instructor` (ongoing)
+3. **5.6** Update tests (4 files, 15 refs)
+4. **Phase 1.5** Drop SQL `mentor_id` columns + `mentors` table (after Phase 2-3 complete)
+
+**Key Blocker for Phase 5.4:**
+- Google Calendar encryption key (`ENCRYPTION_KEY`) must be verified working in all environments before removing Convex `mentors` table
+
+**Lower Priority (not in current PR scope):**
+- Marketing app (242 mentor refs) — **EXCLUDED** per user decision, uses Postgres approach
+- Home app (31 refs) — mostly display strings, lower priority
+- SQL analytics queries — may still reference `mentorId` for admin stats
+
+**Before Phase 1.5 (drop old columns):**
+- Verify all app code uses `instructorId` exclusively
+- Confirm no remaining readers depend on `mentor_id` column
+- Apply NOT NULL constraint to `instructor_id` columns
+
+### Summary
+
+| Phase | Status |
+|-------|--------|
+| Phase 1 (DB Schema) | ✅ Complete |
+| Phase 2 (Query Layer) | ✅ Complete (mentors.ts deleted in PR #268) |
+| Phase 3 (API/Convex) | ⚠️ Partial — accepts both, returns instructorId |
+| Phase 4 (Frontend) | ✅ Core complete — platform/web use Convex for instructor data |
+| Phase 5 (Cleanup) | 🚧 In Progress — mentors.ts deleted, Convex mentors table pending |

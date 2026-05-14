@@ -170,10 +170,9 @@ export const httpDecrementInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   const body = await request.json();
-  const { mentorId, instructorId, type } = body;
+  const { instructorId, type } = body;
 
-  const resolvedId = instructorId || mentorId;
-  if (!resolvedId) {
+  if (!instructorId) {
     return new Response(JSON.stringify({ success: false, error: "Missing instructorId" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
@@ -181,7 +180,7 @@ export const httpDecrementInventory = httpAction(async (ctx, request) => {
   }
 
   const normalizedType = typeMap[type] || type;
-  const resolvedIdTyped = resolvedId as any;
+  const resolvedIdTyped = instructorId as any;
 
   try {
     const result = await ctx.runMutation(decrementInventory as any, {
@@ -205,10 +204,9 @@ export const httpIncrementInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   const body = await request.json();
-  const { mentorId, instructorId, type, quantity } = body;
+  const { instructorId, type, quantity } = body;
 
-  const resolvedId = instructorId || mentorId;
-  if (!resolvedId) {
+  if (!instructorId) {
     return new Response(JSON.stringify({ success: false, error: "Missing instructorId" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
@@ -216,7 +214,7 @@ export const httpIncrementInventory = httpAction(async (ctx, request) => {
   }
 
   const normalizedType = typeMap[type] || type;
-  const resolvedIdTyped = resolvedId as any;
+  const resolvedIdTyped = instructorId as any;
   const qty = quantity || 1;
 
   try {
@@ -244,17 +242,16 @@ export const httpSetInventory = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   const body = await request.json();
-  const { mentorId, instructorId, oneOnOneInventory, groupInventory } = body;
+  const { instructorId, oneOnOneInventory, groupInventory } = body;
 
-  const resolvedId = instructorId || mentorId;
-  if (!resolvedId) {
+  if (!instructorId) {
     return new Response(JSON.stringify({ success: false, error: "Missing instructorId" }), {
       status: 400,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  const resolvedIdTyped = resolvedId as any;
+  const resolvedIdTyped = instructorId as any;
 
   try {
     const updates: Record<string, any> = {};

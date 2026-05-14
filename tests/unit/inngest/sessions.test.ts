@@ -118,7 +118,7 @@ describe("Inngest Session Functions", () => {
       const mockPack = {
         id: "pack_123",
         userId: "user_123",
-        mentorId: "mentor_123",
+        instructorId: "instructor_123",
         totalSessions: 4,
         remainingSessions: 3,
       };
@@ -237,7 +237,7 @@ describe("Inngest Session Functions", () => {
       const mockPack = {
         id: "pack_123",
         userId: "user_123",
-        mentorId: "mentor_123",
+        instructorId: "instructor_123",
         remainingSessions: 1,
       };
 
@@ -261,7 +261,7 @@ describe("Inngest Session Functions", () => {
                 type: "renewal_reminder",
                 userId: "user_123",
                 sessionPackId: "pack_123",
-                message: "You have 1 session remaining. Renew now to continue your mentorship.",
+                message: "You have 1 session remaining. Renew now to continue your instruction.",
                 sessionNumber: 3,
               },
             });

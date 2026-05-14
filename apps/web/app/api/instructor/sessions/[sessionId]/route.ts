@@ -27,11 +27,11 @@ export async function PATCH(
     const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
-    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
 
-    if (!mentor) {
+    if (!instructor) {
       return NextResponse.json(
         { error: "Instructor profile not found" },
         { status: 404 }
@@ -50,7 +50,7 @@ export async function PATCH(
       );
     }
 
-    if (session.instructorId !== mentor._id) {
+    if (session.instructorId !== instructor._id) {
       return NextResponse.json(
         { error: "Unauthorized: Session does not belong to this instructor" },
         { status: 403 }
