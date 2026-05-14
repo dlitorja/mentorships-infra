@@ -6,7 +6,7 @@ import {
   createSessionCount,
   updateSessionCount,
   adjustSessionCount,
-  getMentorByUserId,
+  getInstructorByUserId,
   upsertSessionCount,
   isUnauthorizedError,
   isForbiddenError,
@@ -39,15 +39,15 @@ export async function GET(
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     const user = await requireRoleForApi("instructor");
 
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor profile not found" }, { status: 404 });
+    const instructorRecord = await getInstructorByUserId(user.id);
+    if (!instructorRecord) {
+      return NextResponse.json({ error: "Instructor profile not found" }, { status: 404 });
     }
 
     const instructor = await db
       .select({ id: instructors.id })
       .from(instructors)
-      .where(eq(instructors.mentorId, mentor.id))
+      .where(eq(instructors.mentorId, instructorRecord.id))
       .limit(1);
 
     if (instructor.length === 0) {
@@ -95,15 +95,15 @@ export async function POST(
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     const user = await requireRoleForApi("instructor");
 
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor profile not found" }, { status: 404 });
+    const instructorRecord = await getInstructorByUserId(user.id);
+    if (!instructorRecord) {
+      return NextResponse.json({ error: "Instructor profile not found" }, { status: 404 });
     }
 
     const instructor = await db
       .select({ id: instructors.id })
       .from(instructors)
-      .where(eq(instructors.mentorId, mentor.id))
+      .where(eq(instructors.mentorId, instructorRecord.id))
       .limit(1);
 
     if (instructor.length === 0) {
@@ -158,15 +158,15 @@ export async function PATCH(
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     const user = await requireRoleForApi("instructor");
 
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor profile not found" }, { status: 404 });
+    const instructorRecord = await getInstructorByUserId(user.id);
+    if (!instructorRecord) {
+      return NextResponse.json({ error: "Instructor profile not found" }, { status: 404 });
     }
 
     const instructor = await db
       .select({ id: instructors.id })
       .from(instructors)
-      .where(eq(instructors.mentorId, mentor.id))
+      .where(eq(instructors.mentorId, instructorRecord.id))
       .limit(1);
 
     if (instructor.length === 0) {

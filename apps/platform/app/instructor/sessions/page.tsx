@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/auth-helpers";
 import {
-  getMentorByUserId,
+  getInstructorByUserId,
   getMentorSessions,
 } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
@@ -36,7 +36,7 @@ function getStatusBadgeVariant(status: string) {
 
 export default async function InstructorSessionsPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await getMentorByUserId(user.id);
+  const instructorRecord = await getInstructorByUserId(user.id);
 
   if (!instructorRecord) {
     return (

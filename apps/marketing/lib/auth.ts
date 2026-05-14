@@ -102,7 +102,7 @@ export async function requireAuthRedirect() {
   return userId;
 }
 
-export async function hasRole(role: "student" | "mentor" | "admin"): Promise<boolean> {
+export async function hasRole(role: "student" | "instructor" | "admin"): Promise<boolean> {
   const { userId } = await auth();
   if (!userId) return false;
 
@@ -111,7 +111,7 @@ export async function hasRole(role: "student" | "mentor" | "admin"): Promise<boo
   return user?.role === role;
 }
 
-export async function requireRole(role: "student" | "mentor" | "admin"): Promise<DbUser> {
+export async function requireRole(role: "student" | "instructor" | "admin"): Promise<DbUser> {
   const userId = await requireAuthRedirect();
   
   const user = await getDbUser();
@@ -123,7 +123,7 @@ export async function requireRole(role: "student" | "mentor" | "admin"): Promise
   return user;
 }
 
-export async function requireRoleForApi(role: "student" | "mentor" | "admin"): Promise<DbUser> {
+export async function requireRoleForApi(role: "student" | "instructor" | "admin"): Promise<DbUser> {
   const { userId } = await auth();
   
   if (!userId) {

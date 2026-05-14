@@ -7,7 +7,7 @@ import {
   db,
   desc,
   eq,
-  getMentorByUserId,
+  getInstructorByUserId,
   menteeOnboardingSubmissions,
   users,
 } from "@mentorships/db";
@@ -21,7 +21,7 @@ type PageProps = {
 
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
-  const instructorRecord = await getMentorByUserId(user.id);
+  const instructorRecord = await getInstructorByUserId(user.id);
 
   if (!instructorRecord) {
     return (

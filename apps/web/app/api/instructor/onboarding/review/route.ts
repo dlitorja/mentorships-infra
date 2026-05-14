@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { and, db, eq, getMentorByUserId, menteeOnboardingSubmissions } from "@mentorships/db";
+import { and, db, eq, getInstructorByUserId, menteeOnboardingSubmissions } from "@mentorships/db";
 import { requireRole } from "@/lib/auth-helpers";
 
 const schema = z.object({
@@ -12,9 +12,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   const errorId = randomUUID();
   try {
     const user = await requireRole("instructor");
-    const mentor = await getMentorByUserId(user.id);
-    if (!mentor) {
-      return NextResponse.json({ error: "Mentor profile not found", errorId }, { status: 404 });
+    const instructorRecord = await getInstructorByUserId(user.id);
+    if (!instructorRecord) {
+      return NextResponse.json({ error: "Instructor profile not found", errorId }, { status: 404 });
     }
 
     const form = await request.formData();
@@ -27,7 +27,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         reviewedByUserId: user.id,
         updatedAt: new Date(),
       })
-      .where(and(eq(menteeOnboardingSubmissions.id, submissionId), eq(menteeOnboardingSubmissions.mentorId, mentor.id)))
+      .where(and(eq(menteeOnboardingSubmissions.id, submissionId), eq(menteeOnboardingSubmissions.mentorId, instructorRecord.id)))
       .returning();
 
     if (!updated) {

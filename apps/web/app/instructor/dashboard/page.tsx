@@ -1,7 +1,7 @@
 import { requireRole } from "@/lib/auth-helpers";
 import { UserButton } from "@clerk/nextjs";
 import {
-  getMentorByUserId,
+  getInstructorByUserId,
   getMentorUpcomingSessions,
   getMentorPastSessions,
   getMentorActiveSeats,
@@ -37,9 +37,9 @@ function formatDateTime(date: Date | string): string {
 
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
-  const mentor = await getMentorByUserId(user.id);
+  const instructorRecord = await getInstructorByUserId(user.id);
 
-  if (!mentor) {
+  if (!instructorRecord) {
     return (
       <ProtectedLayout currentPath="/instructor/dashboard">
         <div className="container mx-auto p-4 md:p-8">
@@ -58,10 +58,10 @@ export default async function InstructorDashboardPage() {
   // Fetch all dashboard data in parallel
   const [upcomingSessions, pastSessions, activeSeats, seatAvailability] =
     await Promise.all([
-      getMentorUpcomingSessions(mentor.id, 10),
-      getMentorPastSessions(mentor.id, 5),
-      getMentorActiveSeats(mentor.id),
-      checkSeatAvailability(mentor.id),
+      getMentorUpcomingSessions(instructorRecord.id, 10),
+      getMentorPastSessions(instructorRecord.id, 5),
+      getMentorActiveSeats(instructorRecord.id),
+      checkSeatAvailability(instructorRecord.id),
     ]);
 
   return (
@@ -131,34 +131,7 @@ export default async function InstructorDashboardPage() {
           </Card>
         </div>
 
-        {/* Google Calendar Connection */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <div className="space-y-1">
-              <CardTitle className="text-sm font-medium">Google Calendar</CardTitle>
-              <CardDescription>
-                Connect your calendar so students only see times you’re actually free.
-              </CardDescription>
-            </div>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-4">
-            <div className="text-sm">
-              {mentor.googleRefreshToken ? (
-                <span className="text-green-600">Connected</span>
-              ) : (
-                <span className="text-amber-600">Not connected</span>
-              )}
-            </div>
-            <Button asChild variant={mentor.googleRefreshToken ? "outline" : "default"}>
-              <a href="/api/auth/google">
-                {mentor.googleRefreshToken ? "Reconnect" : "Connect Google Calendar"}
-              </a>
-            </Button>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-6 md:grid-cols-2">
+<div className="grid gap-6 md:grid-cols-2">
           {/* Upcoming Sessions */}
           <Card>
             <CardHeader>

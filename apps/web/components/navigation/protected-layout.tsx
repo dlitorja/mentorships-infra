@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireDbUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getMentorByUserId } from "@mentorships/db";
+import { getInstructorByUserId } from "@mentorships/db";
 import { MessageSquare, type LucideIcon } from "lucide-react";
 
 interface NavItem {
@@ -18,7 +18,7 @@ interface ProtectedLayoutProps {
 
 export async function ProtectedLayout({ children, currentPath }: ProtectedLayoutProps) {
   const user = await requireDbUser();
-  const mentor = await getMentorByUserId(user.id);
+  const instructorRecord = await getInstructorByUserId(user.id);
 
   // Common navigation items
   const commonItems: NavItem[] = [
@@ -26,7 +26,7 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   ];
 
   // Determine navigation items based on user role
-  const roleSpecificItems: NavItem[] = mentor
+  const roleSpecificItems: NavItem[] = instructorRecord
     ? [
         // Instructor navigation
         { href: "/instructor/dashboard", label: "Instructor Dashboard" },

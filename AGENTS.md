@@ -1,3 +1,17 @@
+<!-- NAMING CONVENTIONS - CRITICAL -->
+# Naming Conventions: NEVER use mentor/mentee
+
+**ABSOLUTE RULE: The words "mentor" and "mentee" are FORBIDDEN in code.**
+
+- Use `instructor` instead of `mentor`
+- Use `student` instead of `mentee`
+- The ONLY exception is the word "mentorships" in UI copy/text
+
+**If you see mentor/mentee in code, DELETE IT and rebuild with instructor/student. I don't care what breaks.**
+
+Convex is the source of truth for instructor data (profile, tokens, inventory).
+Supabase/Postgres should NOT be used for instructor data in apps/platform and apps/web.
+
 <!-- TRIGGER.DEV basic START -->
 # Trigger.dev Basic Tasks (v4)
 

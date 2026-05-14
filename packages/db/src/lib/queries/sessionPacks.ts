@@ -628,10 +628,10 @@ export async function getExpiredPacksNeedingSeatRelease(): Promise<
 }
 
 /**
- * Mentee information with session pack and last session details
- * Used by instructors to view all their mentees
+ * Student information with session pack and last session details
+ * Used by instructors to view all their students
  */
-export type MenteeWithSessions = {
+export type StudentWithSessions = {
   userId: string;
   email: string;
   sessionPackId: string;
@@ -648,9 +648,9 @@ export type MenteeWithSessions = {
  * Includes last completed session date and session counts
  * Includes packs with null expiresAt (no expiration)
  */
-export async function getMentorMenteesWithSessionInfo(
+export async function getInstructorStudentsWithSessionInfo(
   instructorId: string
-): Promise<MenteeWithSessions[]> {
+): Promise<StudentWithSessions[]> {
   const now = new Date();
 
   const results = await db
@@ -701,10 +701,10 @@ export async function getMentorMenteesWithSessionInfo(
  * Get mentees with only 1 session remaining (for instructor alerts)
  * Includes packs with null expiresAt (no expiration)
  */
-export async function getMentorMenteesWithLowSessions(
+export async function getInstructorStudentsWithLowSessions(
   instructorId: string,
   threshold: number = 1
-): Promise<MenteeWithSessions[]> {
+): Promise<StudentWithSessions[]> {
   const now = new Date();
 
   const results = await db

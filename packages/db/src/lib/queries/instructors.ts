@@ -2,6 +2,15 @@ import { db } from "../drizzle";
 import { instructors, instructorTestimonials, menteeResults, type Instructor, type InstructorTestimonial, type MenteeResult, type NewInstructor, type NewInstructorTestimonial, type NewMenteeResult } from "../../schema/instructors";
 import { eq, desc, asc, ilike, or, and, sql } from "drizzle-orm";
 
+export async function getInstructorByUserId(userId: string): Promise<Instructor | null> {
+  const [result] = await db
+    .select()
+    .from(instructors)
+    .where(eq(instructors.userId, userId))
+    .limit(1);
+  return result || null;
+}
+
 export async function getInstructors(options?: {
   includeInactive?: boolean;
   search?: string;
@@ -55,14 +64,6 @@ export async function getInstructorBySlug(slug: string): Promise<Instructor | nu
   const result = await db.select()
     .from(instructors)
     .where(eq(instructors.slug, slug))
-    .limit(1);
-  return result[0] || null;
-}
-
-export async function getInstructorByUserId(userId: string): Promise<Instructor | null> {
-  const result = await db.select()
-    .from(instructors)
-    .where(eq(instructors.userId, userId))
     .limit(1);
   return result[0] || null;
 }
@@ -130,7 +131,11 @@ export async function deleteMenteeResult(id: string): Promise<void> {
 }
 
 export async function getTestimonialsByUserId(userId: string): Promise<(InstructorTestimonial & { instructor: Instructor })[]> {
-  const instructor = await getInstructorByUserId(userId);
+  const [instructor] = await db
+    .select()
+    .from(instructors)
+    .where(eq(instructors.userId, userId))
+    .limit(1);
   if (!instructor) return [];
   
   const testimonials = await getTestimonialsByInstructorId(instructor.id);
