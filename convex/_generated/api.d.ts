@@ -20,7 +20,6 @@ import type * as instructors from "../instructors.js";
 import type * as legacyMappings from "../legacyMappings.js";
 import type * as menteeInvitations from "../menteeInvitations.js";
 import type * as menteeSessionCounts from "../menteeSessionCounts.js";
-import type * as mentors from "../mentors.js";
 import type * as migrationQueries from "../migrationQueries.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_http from "../mutations/http.js";
@@ -58,7 +57,6 @@ declare const fullApi: ApiFromModules<{
   legacyMappings: typeof legacyMappings;
   menteeInvitations: typeof menteeInvitations;
   menteeSessionCounts: typeof menteeSessionCounts;
-  mentors: typeof mentors;
   migrationQueries: typeof migrationQueries;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/http": typeof mutations_http;
