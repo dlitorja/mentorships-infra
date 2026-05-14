@@ -12,8 +12,11 @@ async function resolveInstructorByIdOrSlug(convex: ReturnType<typeof getConvexCl
     if (byId) {
       return { instructor: byId, resolvedId: byId._id as string };
     }
-  } catch (_) {
-    // ignore invalid id format
+  } catch (err) {
+    if (!(err instanceof Error) || !/id|argument/i.test(err.message)) {
+      // Network/auth or unexpected error: propagate
+      throw err;
+    }
   }
   const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
   if (bySlug) {
