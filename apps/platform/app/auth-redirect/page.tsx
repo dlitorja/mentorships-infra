@@ -1,39 +1,41 @@
 import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
-export default async function AuthRedirectPage() {
-  const clerkAuth = await auth();
-  const session = (clerkAuth as any).session;
+interface SessionClaimsWithRole {
+  publicMetadata?: {
+    role?: string;
+  };
+}
 
-  if (!session) {
+function isSessionClaimsWithRole(
+  obj: unknown
+): obj is SessionClaimsWithRole {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    "publicMetadata" in obj &&
+    typeof (obj as SessionClaimsWithRole).publicMetadata === "object"
+  );
+}
+
+/**
+ * Handles post-sign-in routing based on user role.
+ * Redirects admins to /admin and other users to /dashboard.
+ */
+export default async function AuthRedirectPage(): Promise<never> {
+  const { userId, sessionClaims } = await auth();
+
+  if (!userId) {
     redirect("/sign-in");
   }
 
-  const token = await session.getToken();
-  if (!token) {
-    redirect("/dashboard");
-  }
+  const role = isSessionClaimsWithRole(sessionClaims) &&
+    typeof sessionClaims.publicMetadata?.role === "string"
+    ? sessionClaims.publicMetadata.role
+    : "student";
 
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    redirect("/dashboard");
-  }
-
-  try {
-    const response = await fetch(`${convexUrl}/api/users/getCurrentUserRole`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (response.ok) {
-      const role = await response.json();
-      if (role === "admin") {
-        redirect("/admin");
-      }
-    }
-  } catch (error) {
-    console.error("Failed to get user role:", error);
+  if (role === "admin") {
+    redirect("/admin");
   }
 
   redirect("/dashboard");

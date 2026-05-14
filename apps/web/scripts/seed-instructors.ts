@@ -18,6 +18,10 @@ const instructorResponseSchema = z.union([
   z.object({ value: z.object({ _id: z.string() }) }),
 ]);
 
+/**
+ * Executes a Convex mutation via the CLI and returns the parsed result.
+ * Handles multiple response formats including plain string IDs and JSON objects.
+ */
 function runConvexMutation(functionName: string, args: Record<string, any>): Promise<any> {
   return new Promise((resolve, reject) => {
     const argsJson = JSON.stringify(args);
@@ -77,6 +81,10 @@ function runConvexMutation(functionName: string, args: Record<string, any>): Pro
   });
 }
 
+/**
+ * Creates an instructor in Convex along with associated products, testimonials,
+ * and student results. Skips instructors that already exist (idempotent).
+ */
 async function seedInstructor(instructor: any): Promise<any> {
   console.log(`  Creating instructor...`);
 
@@ -106,10 +114,10 @@ async function seedInstructor(instructor: any): Promise<any> {
     }
     if (typeof parsed.data === "string") {
       instructorId = parsed.data;
-    } else if ("_id" in parsed.data) {
-      instructorId = parsed.data._id;
-    } else {
+    } else if ("value" in parsed.data) {
       instructorId = parsed.data.value._id;
+    } else {
+      instructorId = parsed.data._id;
     }
   } catch (e: any) {
     if (e.message?.includes("UNIQUE constraint") || e.message?.includes("already exists")) {
@@ -180,6 +188,10 @@ async function seedInstructor(instructor: any): Promise<any> {
   return { success: true, instructorId };
 }
 
+/**
+ * Main entry point that seeds all visible instructors from the marketing data.
+ * Reports counts of seeded and skipped instructors.
+ */
 async function seedInstructors(): Promise<void> {
   console.log("Starting instructor seed...\n");
 

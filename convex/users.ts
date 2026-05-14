@@ -102,21 +102,6 @@ export const getCurrentUser = query({
   },
 });
 
-/** Returns just the role of the currently authenticated user. Used for auth redirects. */
-export const getCurrentUserRole = query({
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-    return user?.role ?? null;
-  },
-});
-
 /** Creates a new user if one doesn't already exist with the given email. */
 export const createUser = mutation({
   args: {
