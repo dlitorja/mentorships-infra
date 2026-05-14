@@ -7,6 +7,7 @@ on:
     paths:
       - 'convex/**'
       - '!convex/_generated/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -25,6 +26,4 @@ jobs:
         env:
           # Use a Production Deploy Key to authenticate non-interactively
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-          # Optional: explicitly target a deployment if needed
-          CONVEX_DEPLOYMENT: ${{ secrets.CONVEX_DEPLOYMENT }}
         run: pnpm exec convex deploy --yes
