@@ -316,12 +316,12 @@ export default function ProductsPage() {
               <Button type="submit" variant="secondary">Search</Button>
             </form>
 
-            <Select value={mentorId} onValueChange={(v) => { setMentorId(v); setPage(1); }}>
+            <Select value={mentorId || "__all__"} onValueChange={(v) => { setMentorId(v === "__all__" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[220px]">
                 <SelectValue placeholder="All Instructors" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Instructors</SelectItem>
+                <SelectItem value="__all__">All Instructors</SelectItem>
                 {instructors.map((instructor) => (
                   <SelectItem key={instructor.id} value={instructor.id}>
                     {instructor.email || (instructor.userId ? instructor.userId.slice(0, 8) + "..." : "No email")}
@@ -330,23 +330,23 @@ export default function ProductsPage() {
               </SelectContent>
             </Select>
 
-            <Select value={mentorshipType} onValueChange={(v) => { setMentorshipType(v); setPage(1); }}>
+            <Select value={mentorshipType || "__all__"} onValueChange={(v) => { setMentorshipType(v === "__all__" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="All Types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Types</SelectItem>
+                <SelectItem value="__all__">All Types</SelectItem>
                 <SelectItem value="one-on-one">1-on-1</SelectItem>
                 <SelectItem value="group">Group</SelectItem>
               </SelectContent>
             </Select>
 
-            <Select value={activeFilter} onValueChange={(v) => { setActiveFilter(v); setPage(1); }}>
+            <Select value={activeFilter || "__all__"} onValueChange={(v) => { setActiveFilter(v === "__all__" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="All Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Status</SelectItem>
+                <SelectItem value="__all__">All Status</SelectItem>
                 <SelectItem value="true">Active</SelectItem>
                 <SelectItem value="false">Inactive</SelectItem>
               </SelectContent>

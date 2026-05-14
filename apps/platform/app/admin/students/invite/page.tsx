@@ -147,12 +147,16 @@ export default function InviteStudentPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="instructor">Instructor</Label>
-                <Select value={instructorId} onValueChange={setInstructorId}>
+                <Select
+                  value={instructorId || "__none__"}
+                  onValueChange={(v) => setInstructorId(v === "__none__" ? "" : v)}
+                  disabled={createMutation.isPending || isLoadingInstructors}
+                >
                   <SelectTrigger id="instructor" className="w-full">
                     <SelectValue placeholder="Select an instructor..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Select an instructor...</SelectItem>
+                    <SelectItem value="__none__">Select an instructor...</SelectItem>
                     {instructorsData?.items.map((inst) => (
                       <SelectItem key={inst.id} value={inst.id}>
                         {inst.name}

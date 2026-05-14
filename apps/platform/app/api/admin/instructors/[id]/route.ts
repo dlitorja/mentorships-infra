@@ -14,10 +14,14 @@ function getConvexClient() {
 }
 
 async function resolveInstructorByIdOrSlug(convex: ConvexHttpClient, idOrSlug: string) {
-  // Try Convex Id first
-  const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
-  if (byId) {
-    return { instructor: byId, resolvedId: byId._id as string };
+  // Try Convex Id first; if invalid, swallow and continue to slug
+  try {
+    const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
+    if (byId) {
+      return { instructor: byId, resolvedId: byId._id as string };
+    }
+  } catch (_) {
+    // ignore invalid id format or query errors
   }
   // Fallback: treat the param as slug
   const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
@@ -170,7 +174,7 @@ export async function PUT(
 
     if (data.slug && data.slug !== existing.slug) {
       const slugInstructor = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: data.slug });
-      if (slugInstructor && slugInstructor._id !== id) {
+      if (slugInstructor && slugInstructor._id !== resolvedId) {
         return NextResponse.json(
           { error: "Slug already exists" },
           { status: 400 }

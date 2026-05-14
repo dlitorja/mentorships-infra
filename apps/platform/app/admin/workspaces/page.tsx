@@ -114,12 +114,12 @@ export default function WorkspacesPage() {
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <Select value={typeFilter || "__all__"} onValueChange={(v) => setTypeFilter(v === "__all__" ? "" : v)}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="All Types" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Types</SelectItem>
+                  <SelectItem value="__all__">All Types</SelectItem>
                   <SelectItem value="mentorship">Mentorship</SelectItem>
                   <SelectItem value="admin_mentee">Admin-Student</SelectItem>
                   <SelectItem value="admin_instructor">Admin-Instructor</SelectItem>

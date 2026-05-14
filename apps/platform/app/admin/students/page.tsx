@@ -166,12 +166,12 @@ export default function StudentsPage() {
                   className="pl-9"
                 />
               </div>
-              <Select value={instructorFilter} onValueChange={setInstructorFilter}>
+              <Select value={instructorFilter || "__all__"} onValueChange={(v) => setInstructorFilter(v === "__all__" ? "" : v)}>
                 <SelectTrigger className="w-[220px]">
                   <SelectValue placeholder="All Instructors" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Instructors</SelectItem>
+                  <SelectItem value="__all__">All Instructors</SelectItem>
                   {(instructorsData?.items ?? (instructorsData as any)?.instructors ?? []).map((inst: any) => (
                     <SelectItem key={inst.id} value={inst.id}>
                       {inst.name}
@@ -181,12 +181,12 @@ export default function StudentsPage() {
               </Select>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Select value={status} onValueChange={setStatus}>
+              <Select value={status || "__all__"} onValueChange={(v) => setStatus(v === "__all__" ? "" : v)}>
                 <SelectTrigger className="w-[180px]">
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Status</SelectItem>
+                  <SelectItem value="__all__">All Status</SelectItem>
                   <SelectItem value="active">Active</SelectItem>
                   <SelectItem value="depleted">Depleted</SelectItem>
                   <SelectItem value="expired">Expired</SelectItem>
