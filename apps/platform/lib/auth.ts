@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { getServerUserRole } from "@/lib/auth-helpers";
 import "server-only";
 
 export class UnauthorizedError extends Error {
@@ -39,8 +39,8 @@ export type DbUser = {
 };
 
 export async function requireDbUser(): Promise<DbUser> {
-  const userId = await requireAuth();
-  return { id: userId, role: "student", timeZone: undefined };
+  // Delegate to getDbUser to keep behavior consistent
+  return getDbUser();
 }
 
 export async function getDbUser(): Promise<DbUser> {
@@ -48,7 +48,11 @@ export async function getDbUser(): Promise<DbUser> {
   if (!userId) {
     throw new UnauthorizedError();
   }
-  const metadata = sessionClaims?.publicMetadata as { role?: string } | undefined;
-  const role = typeof metadata?.role === "string" ? metadata.role : "student";
+  // Fast path: use claims role when present; fallback to server API
+  const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  const role =
+    typeof claimsRole === "string" && ["admin", "instructor", "student"].includes(claimsRole)
+      ? (claimsRole as string)
+      : await getServerUserRole(userId);
   return { id: userId, role, timeZone: undefined };
 }
