@@ -252,7 +252,8 @@ type MenteeWithSessionInfo = {
 export const getStudentsForAdmin = query({
   args: {
     search: v.optional(v.string()),
-    instructorId: v.optional(v.id("instructors")),
+    // Accept string to avoid strict id validation errors from malformed query params
+    instructorId: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
     expiresAfter: v.optional(v.number()),
     expiresBefore: v.optional(v.number()),
@@ -269,10 +270,17 @@ export const getStudentsForAdmin = query({
     const isAdmin = await isAdminUser(ctx, identity.subject);
     if (!isAdmin) return { items: [], total: 0, page: 1, pageSize: 20 };
 
-    let sessionPacks = await ctx.db.query("sessionPacks").collect();
+    // Start with index pushdown when possible to avoid full table scans
+    const packsQuery = args.instructorId
+      ? ctx.db
+          .query("sessionPacks")
+          .withIndex("by_instructorId", (q) => q.eq("instructorId", (args.instructorId as any)))
+      : ctx.db.query("sessionPacks");
+    let sessionPacks = await packsQuery.collect();
 
     if (args.instructorId) {
-      sessionPacks = sessionPacks.filter(sp => sp.instructorId === args.instructorId);
+      // Filter by instructor id string; sessionPacks.instructorId is an Id<"instructors"> string
+      sessionPacks = sessionPacks.filter(sp => sp.instructorId === (args.instructorId as any));
     }
 
     if (args.search) {
@@ -327,7 +335,12 @@ export const getStudentsForAdmin = query({
           .query("users")
           .withIndex("by_userId", (q) => q.eq("userId", pack.userId))
           .first();
-        const instructor = await ctx.db.get(pack.instructorId);
+        let instructor: { name?: string | undefined; slug?: string | undefined } | null = null;
+        try {
+          instructor = await ctx.db.get(pack.instructorId);
+        } catch {
+          instructor = null;
+        }
 
         return {
           id: pack._id,
