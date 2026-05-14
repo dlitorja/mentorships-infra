@@ -30,7 +30,7 @@ type Testimonial = {
   text: string;
 };
 
-type MenteeResult = {
+type StudentResult = {
   _id: string;
   imageUrl?: string;
   studentName?: string;
@@ -45,7 +45,7 @@ type Product = {
   active: boolean;
 };
 
-type Mentor = {
+type InstructorProfile = {
   _id: string;
   oneOnOneInventory: number;
   groupInventory: number;
@@ -65,14 +65,14 @@ type Instructor = {
   portfolioImageStorageIds?: string[];
   socials?: SocialPlatform[];
   isActive: boolean;
-  mentorId?: string;
+  instructorId?: string;
 };
 
 type InstructorData = {
   instructor: Instructor;
-  mentor: Mentor | null;
+  instructorProfile: InstructorProfile | null;
   testimonials: Testimonial[];
-  menteeResults: MenteeResult[];
+  studentResults: StudentResult[];
 };
 
 function SocialIcon({ platform }: { platform: string }) {
@@ -129,9 +129,9 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructorData, isLoading } = usePublicInstructorBySlug(slug);
   const data = instructorData as InstructorData | null;
   const instructor = data?.instructor;
-  const instructorProfile = data?.mentor;
+  const instructorProfile = data?.instructorProfile;
   const convexTestimonials = data?.testimonials || [];
-  const menteeResults = data?.menteeResults || [];
+  const studentResults = data?.studentResults || [];
 
   const mockInstructor = getInstructorBySlug(slug);
   const useMockData = !instructor && mockInstructor;
@@ -155,7 +155,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
     text: t.text,
   })) || []);
 
-  const instructorId = displayInstructor?.mentorId as Id<"instructors"> | undefined;
+  const instructorId = displayInstructor?._id as Id<"instructors"> | undefined;
   const { data: productsData } = useProductsByInstructorId(instructorId!);
   const products = (productsData as Product[] || []).filter(p => p.active);
 
@@ -354,10 +354,10 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             )}
 
-            {menteeResults.length > 0 && (
+            {studentResults.length > 0 && (
               <div className="mt-12">
-                <h2 className="text-3xl font-bold mb-6">Mentee Success Stories</h2>
-                <PortfolioGallery images={menteeResults.map((r) => r.imageUrl).filter(Boolean) as string[]} instructorName={displayInstructor.name} />
+                <h2 className="text-3xl font-bold mb-6">Student Success Stories</h2>
+                <PortfolioGallery images={studentResults.map((r) => r.imageUrl).filter(Boolean) as string[]} instructorName={displayInstructor.name} />
               </div>
             )}
           </div>
