@@ -1,8 +1,12 @@
 -- Backfill workspaceMessages.senderRole from "mentee" to "student"
--- This migration addresses the schema change where senderRole union literal
--- changed from "mentee" to "student". Existing records need to be updated
--- so that queries checking for "student" will find these records.
+--
+-- IMPORTANT: This SQL file will NOT execute against Convex document storage.
+-- Convex stores data in its own document database, not in a SQL database.
+-- This migration must be implemented as a Convex migration action instead.
+--
+-- To run a backfill for Convex document storage, create a migration action in
+-- convex/migrations/ that uses ctx.runMutation to update records in a loop.
+--
+-- Alternatively, run the backfill manually via `npx convex data` or an admin UI.
 
-UPDATE workspaceMessages
-SET senderRole = 'student'
-WHERE senderRole = 'mentee';
+-- UPDATE workspaceMessages SET senderRole = 'student' WHERE senderRole = 'mentee';
