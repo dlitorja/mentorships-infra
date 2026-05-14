@@ -1,4 +1,5 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
+import { getServerUserRole } from "@/lib/auth-helpers";
 import "server-only";
 
 export class UnauthorizedError extends Error {
@@ -37,31 +38,21 @@ export type DbUser = {
   timeZone?: string;
 };
 
-async function getServerUserRole(userId: string): Promise<string> {
-  try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
-    const role = user.publicMetadata?.role;
-    if (typeof role === "string" && ["admin", "instructor", "student"].includes(role)) {
-      return role;
-    }
-  } catch {
-    // Fall through to default
-  }
-  return "student";
-}
-
 export async function requireDbUser(): Promise<DbUser> {
-  const userId = await requireAuth();
-  const role = await getServerUserRole(userId);
-  return { id: userId, role, timeZone: undefined };
+  // Delegate to getDbUser to keep behavior consistent
+  return getDbUser();
 }
 
 export async function getDbUser(): Promise<DbUser> {
-  const { userId } = await auth();
+  const { userId, sessionClaims } = await auth();
   if (!userId) {
     throw new UnauthorizedError();
   }
-  const role = await getServerUserRole(userId);
+  // Fast path: use claims role when present; fallback to server API
+  const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  const role =
+    typeof claimsRole === "string" && ["admin", "instructor", "student"].includes(claimsRole)
+      ? (claimsRole as string)
+      : await getServerUserRole(userId);
   return { id: userId, role, timeZone: undefined };
 }
