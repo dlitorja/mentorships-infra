@@ -50,7 +50,6 @@ const listProductsQuerySchema = z.object({
     .optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  mentorId: z.string().optional(), // alias for instructorId (backward compat)
 });
 
 /**
@@ -275,11 +274,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { search, instructorId, mentorshipType, active, page, pageSize, mentorId } = parsedQuery.data;
+    const { search, instructorId, mentorshipType, active, page, pageSize } = parsedQuery.data;
 
     const result = await getAdminProducts(
       search,
-      instructorId ?? mentorId, // mentorId is alias for instructorId (backward compat)
+      instructorId,
       mentorshipType,
       active,
       page,

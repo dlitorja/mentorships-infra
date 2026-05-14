@@ -14,7 +14,7 @@ const updateSessionCountSchema = z.object({
 
 /**
  * PATCH /api/instructor/mentees/[sessionPackId]
- * Update session count for a mentee's session pack
+ * Update session count for a student's session pack
  */
 export async function PATCH(
   req: NextRequest,
@@ -28,13 +28,13 @@ export async function PATCH(
     const rawSessionPackId = sessionPackIdSchema.parse(rawParams.sessionPackId);
     const sessionPackId = rawSessionPackId as Id<"sessionPacks">;
 
-    const mentor = await convex.query(api.instructors.getInstructorByUserId, {
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
 
-    if (!mentor) {
+    if (!instructor) {
       return NextResponse.json(
-        { error: "Mentor profile not found" },
+        { error: "Instructor profile not found" },
         { status: 404 }
       );
     }
@@ -50,7 +50,7 @@ export async function PATCH(
       );
     }
 
-    if (sessionPack.instructorId !== mentor._id) {
+    if (sessionPack.instructorId !== instructor._id) {
       return NextResponse.json(
         { error: "You do not have permission to modify this session pack" },
         { status: 403 }
@@ -114,7 +114,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
     console.error("Error updating session count:", error);

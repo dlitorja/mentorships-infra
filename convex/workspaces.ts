@@ -557,7 +557,7 @@ export const createWorkspaceMessage = mutation({
     }
 
     const isUserAdmin = await isAdmin(ctx, user.subject);
-    let senderRole: "instructor" | "mentee" | "admin" | undefined;
+    let senderRole: "instructor" | "student" | "admin" | undefined;
 
     if (isUserAdmin) {
       senderRole = "admin";
@@ -569,10 +569,10 @@ export const createWorkspaceMessage = mutation({
       if (instructor && instructor._id === workspace.instructorId) {
         senderRole = "instructor";
       } else if (workspace.ownerId === user.subject) {
-        senderRole = "mentee";
+        senderRole = "student";
       }
     } else if (workspace.ownerId === user.subject) {
-      senderRole = "mentee";
+      senderRole = "student";
     }
 
     const messageId = await ctx.db.insert("workspaceMessages", {

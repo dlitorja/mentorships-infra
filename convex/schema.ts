@@ -249,7 +249,7 @@ export default defineSchema({
     userId: v.string(),
     content: v.string(),
     type: v.union(v.literal("text"), v.literal("image"), v.literal("file")),
-    senderRole: v.optional(v.union(v.literal("instructor"), v.literal("mentee"), v.literal("admin"))),
+    senderRole: v.optional(v.union(v.literal("instructor"), v.literal("student"), v.literal("admin"))),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_senderRole", ["senderRole"]),
