@@ -31,8 +31,9 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Optional proxy URL for previews; leave unset by default so Clerk uses its CDN
-  const proxyUrl = process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined;
+  // Optional proxy URL only for preview deploys; avoid using in prod domains to prevent script loading from custom domain
+  const isPreviewEnv = process.env.VERCEL_ENV === "preview" || Boolean(process.env.CF_PAGES_BRANCH);
+  const proxyUrl = isPreviewEnv ? (process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined) : undefined;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
