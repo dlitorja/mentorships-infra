@@ -23,7 +23,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>): React.JSX.Element {
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      // Pin ClerkJS to version that supports Client Trust
+      clerkJSVersion="5.127.0"
+    >
       <html lang="en" className="bg-background dark">
         <body className={`${inter.className} antialiased bg-background text-foreground`}>
           <QueryProvider>

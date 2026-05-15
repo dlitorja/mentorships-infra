@@ -64,6 +64,8 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
+      // Pin ClerkJS to version that supports Client Trust
+      clerkJSVersion="5.127.0"
       {...(domainUrl && { domainUrl })}
     >
       <QueryProvider>
@@ -74,4 +76,3 @@ export default function RootLayout({
     </ClerkProvider>
   );
 }
-
