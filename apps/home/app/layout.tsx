@@ -26,8 +26,6 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  const clerkJSVersion = "5" as const;
-
   const layoutContent = (
     <html lang="en" className="dark">
       <body className={`${inter.className} antialiased bg-background text-foreground`}>
@@ -46,7 +44,6 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      clerkJSVersion={clerkJSVersion}
     >
       {layoutContent}
     </ClerkProvider>
