@@ -37,6 +37,10 @@ export default function RootLayout({
   const proxyUrl = process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined;
   const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
 
+  // Force ClerkJS to load from a known-good CDN to avoid broken proxy/domain setups
+  const clerkJsPinnedVersion = "5.127.0" as const;
+  const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJsPinnedVersion}/dist/clerk.browser.js`;
+
   const layoutContent = (
     <html lang="en" className="bg-background dark">
       <body className={`${inter.className} antialiased bg-background text-foreground`}>
@@ -67,7 +71,8 @@ export default function RootLayout({
       publishableKey={clerkPublishableKey}
       // Pin ClerkJS to a version that supports Client Trust
       // See: https://clerk.com/docs/guides/development/custom-flows/authentication/client-trust (needs_client_trust)
-      clerkJSVersion="5.127.0"
+      clerkJSVersion={clerkJsPinnedVersion}
+      clerkJSUrl={clerkJSUrl}
       {...(proxyUrl ? { proxyUrl } : domainUrl ? { domainUrl } : {})}
     >
       <QueryProvider>
