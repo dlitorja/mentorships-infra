@@ -176,7 +176,8 @@ export async function PUT(
       );
     }
 
-    if (data.slug && data.slug !== existing.slug) {
+    // existing is `unknown` from resolver; cast locally for property access
+    if (data.slug && data.slug !== (existing as any).slug) {
       const slugInstructor = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: data.slug });
       if (slugInstructor && slugInstructor._id !== resolvedId) {
         return NextResponse.json(
