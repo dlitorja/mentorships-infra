@@ -250,7 +250,7 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
  * Adds a mentee result (before/after image) to an instructor.
  */
 async function addStudentResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
-  const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results`, {
+  const response = await fetch(`/api/admin/instructors/${instructorId}/student-results`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -266,7 +266,7 @@ async function addStudentResult(instructorId: string, data: { imageUrl: string; 
  * Deletes a mentee result from an instructor.
  */
 async function deleteStudentResult(instructorId: string, resultId: string) {
-  const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results/${resultId}`, {
+  const response = await fetch(`/api/admin/instructors/${instructorId}/student-results/${resultId}`, {
     method: "DELETE",
   });
   if (!response.ok) {

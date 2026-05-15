@@ -5,15 +5,15 @@ import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
-const createMenteeResultSchema = z.object({
+const createStudentResultSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal("")).default(""),
   imageUploadPath: z.string().optional().default(""),
   studentName: z.string().optional().default(""),
 });
 
 /**
- * GET /api/instructor/mentees-results
- * Get mentee results for the current instructor
+ * GET /api/instructor/student-results
+ * Get student results for the current instructor
  */
 export async function GET(req: NextRequest) {
   try {
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const results = await convex.query(api.instructors.getMenteeResultsByInstructorId, {
+    const results = await convex.query(api.instructors.getStudentResultsByInstructorId, {
       instructorId: instructor._id,
     }) as any[];
 
@@ -52,17 +52,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
-    console.error("Error getting mentee results:", error);
+    console.error("Error getting student results:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to get mentee results" },
+      { error: error instanceof Error ? error.message : "Failed to get student results" },
       { status: 500 }
     );
   }
 }
 
 /**
- * POST /api/instructor/mentees-results
- * Add a mentee result for the current instructor
+ * POST /api/instructor/student-results
+ * Add a student result for the current instructor
  */
 export async function POST(req: NextRequest) {
   try {
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const validationResult = createMenteeResultSchema.safeParse(body);
+    const validationResult = createStudentResultSchema.safeParse(body);
 
     if (!validationResult.success) {
       return NextResponse.json(
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
     const { imageUrl, imageUploadPath, studentName } = validationResult.data;
 
-    const result = await convex.mutation(api.instructors.createMenteeResult, {
+    const result = await convex.mutation(api.instructors.createStudentResult, {
       instructorId: instructor._id,
       imageUrl: imageUrl || "",
       imageUploadPath: imageUploadPath || "",
@@ -101,8 +101,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: "Mentee result added successfully",
-      menteeResult: {
+      message: "Student result added successfully",
+      studentResult: {
         id: result._id,
         imageUrl: result.imageUrl,
         imageUploadPath: result.imageUploadPath,
@@ -118,9 +118,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
-    console.error("Error adding mentee result:", error);
+    console.error("Error adding student result:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to add mentee result" },
+      { error: error instanceof Error ? error.message : "Failed to add student result" },
       { status: 500 }
     );
   }

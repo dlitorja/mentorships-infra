@@ -8,7 +8,7 @@ import { ExternalLink, Twitter, Instagram, Youtube, Quote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PortfolioGallery } from "@/components/instructors/portfolio-gallery";
-import { useInstructorBySlug, useInstructorTestimonials, useInstructorMenteeResults } from "@/lib/queries/convex/use-instructors";
+import { useInstructorBySlug, useInstructorTestimonials, useInstructorStudentResults } from "@/lib/queries/convex/use-instructors";
 import { useProductsByInstructor } from "@/lib/queries/convex/use-products";
 import { InstructorNavigation } from "@/components/instructors/instructor-navigation";
 import { InstructorNavigationWrapper } from "@/components/instructors/instructor-navigation-wrapper";
@@ -75,7 +75,7 @@ function SocialLink({ url, platform }: { url: string; platform: string }) {
 function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructor } = useInstructorBySlug(slug);
   const { data: testimonialsData } = useInstructorTestimonials(instructor?._id as string);
-  const { data: menteeResultsData } = useInstructorMenteeResults(instructor?._id as string);
+  const { data: studentResultsData } = useInstructorStudentResults(instructor?._id as string);
   const { data: productsData } = useProductsByInstructor(instructor?._id as string);
 
   const activeProducts = productsData?.filter((p: any) => p.active) || [];
@@ -280,10 +280,10 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             )}
 
-            {menteeResultsData && menteeResultsData.length > 0 && (
+            {studentResultsData && studentResultsData.length > 0 && (
               <div className="mt-12">
                 <h2 className="text-3xl font-bold mb-6">Mentee Success Stories</h2>
-                <PortfolioGallery images={(menteeResultsData as Array<{imageUrl?: string}>).map((r) => r.imageUrl).filter((url): url is string => Boolean(url))} instructorName={instructor.name} />
+                <PortfolioGallery images={(studentResultsData as Array<{imageUrl?: string}>).map((r) => r.imageUrl).filter((url): url is string => Boolean(url))} instructorName={instructor.name} />
               </div>
             )}
           </div>

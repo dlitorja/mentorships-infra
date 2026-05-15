@@ -10,8 +10,8 @@ import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
  
 
 /**
- * DELETE /api/admin/instructors/[id]/mentee-results/[resultId]
- * Delete a mentee result
+ * DELETE /api/admin/instructors/[id]/student-results/[resultId]
+ * Delete a student result
  */
 export async function DELETE(
   req: NextRequest,
@@ -34,25 +34,25 @@ export async function DELETE(
     if (!resolved.resolvedId) {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
-    const result = await convex.query(api.instructors.getMenteeResultById, {
-      id: resultId as Id<"menteeResults">,
+    const result = await convex.query(api.instructors.getStudentResultById, {
+      id: resultId as Id<"studentResults">,
       instructorId: resolved.resolvedId,
     });
 
     if (!result) {
       return NextResponse.json(
-        { error: "Mentee result not found" },
+        { error: "Student result not found" },
         { status: 404 }
       );
     }
 
-    await convex.mutation(api.instructors.deleteMenteeResult, {
-      id: resultId as Id<"menteeResults">,
+    await convex.mutation(api.instructors.deleteStudentResult, {
+      id: resultId as Id<"studentResults">,
     });
 
     return NextResponse.json({
       success: true,
-      message: "Mentee result deleted successfully",
+      message: "Student result deleted successfully",
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
@@ -62,9 +62,9 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 
-    console.error("Error deleting mentee result:", error);
+    console.error("Error deleting student result:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to delete mentee result" },
+      { error: error instanceof Error ? error.message : "Failed to delete student result" },
       { status: 500 }
     );
   }
