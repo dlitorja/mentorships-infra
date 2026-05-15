@@ -31,8 +31,8 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Use Clerk v5 runtime (Client Trust capable); let Clerk choose script host
-  const clerkJSVersion = "5" as const;
+  // Restore May 11–13 behavior: allow optional domainUrl; do not override script URL/version
+  const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -62,7 +62,7 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      clerkJSVersion={clerkJSVersion}
+      {...(domainUrl && { domainUrl })}
     >
       <QueryProvider>
         <ConvexClientProvider>
