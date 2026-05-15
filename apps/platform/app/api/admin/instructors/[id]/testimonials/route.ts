@@ -5,26 +5,10 @@ import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import type { Id } from "@/convex/_generated/dataModel";
 import { auth } from "@clerk/nextjs/server";
+import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 
-/** Resolve an instructor by Convex document id or slug. Only swallows errors related to invalid id formats. */
-async function resolveInstructorByIdOrSlug(convex: ReturnType<typeof getConvexClient>, idOrSlug: string) {
-  try {
-    const byId = await convex.query(api.instructors.getInstructorById, { id: idOrSlug as any });
-    if (byId) {
-      return { instructor: byId, resolvedId: byId._id as string };
-    }
-  } catch (err) {
-    if (!(err instanceof Error) || !/id|argument/i.test(err.message)) {
-      // Network/auth or unexpected error: propagate
-      throw err;
-    }
-  }
-  const bySlug = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: idOrSlug });
-  if (bySlug) {
-    return { instructor: bySlug, resolvedId: bySlug._id as string };
-  }
-  return { instructor: null, resolvedId: null } as const;
-}
+// Uses shared helper to avoid duplication across routes
+ 
 
 const createTestimonialSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
