@@ -28,6 +28,8 @@ export default function RootLayout({
 
   const clerkJSVersion = "5" as const;
   const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
+  const clerkUIVersion = "1" as const;
+  const clerkUIUrl = `https://cdn.jsdelivr.net/npm/@clerk/ui@${clerkUIVersion}/dist/ui.browser.js` as const;
 
   const layoutContent = (
     <html lang="en" className="dark">
@@ -49,6 +51,8 @@ export default function RootLayout({
       publishableKey={clerkPublishableKey}
       clerkJSVersion={clerkJSVersion}
       clerkJSUrl={clerkJSUrl}
+      clerkUIVersion={clerkUIVersion}
+      clerkUIUrl={clerkUIUrl}
     >
       {layoutContent}
     </ClerkProvider>

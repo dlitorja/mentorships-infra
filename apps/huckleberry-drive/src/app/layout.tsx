@@ -25,9 +25,11 @@ export default function RootLayout({
 }>): React.ReactElement {
   const clerkJSVersion = "5" as const;
   const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
+  const clerkUIVersion = "1" as const;
+  const clerkUIUrl = `https://cdn.jsdelivr.net/npm/@clerk/ui@${clerkUIVersion}/dist/ui.browser.js` as const;
 
   return (
-    <ClerkProvider clerkJSVersion={clerkJSVersion} clerkJSUrl={clerkJSUrl}>
+    <ClerkProvider clerkJSVersion={clerkJSVersion} clerkJSUrl={clerkJSUrl} clerkUIVersion={clerkUIVersion} clerkUIUrl={clerkUIUrl}>
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}

@@ -24,12 +24,16 @@ export default function RootLayout({
 }>): React.JSX.Element {
   const clerkJSVersion = "5" as const;
   const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
+  const clerkUIVersion = "1" as const;
+  const clerkUIUrl = `https://cdn.jsdelivr.net/npm/@clerk/ui@${clerkUIVersion}/dist/ui.browser.js` as const;
 
   return (
     <ClerkProvider
       // Pin ClerkJS to version that supports Client Trust
       clerkJSVersion={clerkJSVersion}
       clerkJSUrl={clerkJSUrl}
+      clerkUIVersion={clerkUIVersion}
+      clerkUIUrl={clerkUIUrl}
     >
       <html lang="en" className="bg-background dark">
         <body className={`${inter.className} antialiased bg-background text-foreground`}>
