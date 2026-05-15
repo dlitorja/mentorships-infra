@@ -24,7 +24,6 @@ export const getMigrationStatus = query({
 
     const instructors = await ctx.db.query("instructors").collect();
     const profiles = await ctx.db.query("instructorProfiles").collect();
-    const menteeResults = await ctx.db.query("menteeResults").collect();
 
     const instructorsNeedingProfileMigration = instructors.filter(
       (i) => i.profileImageUrl && !i.profileImageStorageId
@@ -46,10 +45,6 @@ export const getMigrationStatus = query({
       (!p.portfolioImageStorageIds || p.portfolioImageStorageIds.length < p.portfolioImages.length)
     ).length;
 
-    const menteeResultsNeedingMigration = menteeResults.filter(
-      (r) => r.imageUrl && !r.imageStorageId
-    ).length;
-
     const instructorsWithStorageId = instructors.filter((i) => i.profileImageStorageId).length;
     const profilesWithStorageId = profiles.filter((p) => p.profileImageStorageId).length;
 
@@ -58,12 +53,10 @@ export const getMigrationStatus = query({
       instructorsNeedingPortfolioMigration,
       profilesNeedingProfileMigration,
       profilesNeedingPortfolioMigration,
-      menteeResultsNeedingMigration,
       instructorsWithStorageId,
       profilesWithStorageId,
       totalInstructors: instructors.length,
       totalProfiles: profiles.length,
-      totalMenteeResults: menteeResults.length,
     };
   },
 });
@@ -119,7 +112,7 @@ export const listInstructorProfilesInternal = query({
   },
 });
 
-export const listMenteeResultsInternal = query({
+export const listStudentResultsInternal = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -129,7 +122,7 @@ export const listMenteeResultsInternal = query({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    return await ctx.db.query("menteeResults").collect();
+    return await ctx.db.query("studentResults").collect();
   },
 });
 
@@ -549,7 +542,7 @@ export const createTestimonial = mutation({
 });
 
 /** Creates a mentee result with an image URL for an instructor profile. Admin role enforced. */
-export const createMenteeResult = mutation({
+export const createStudentResult = mutation({
   args: {
     instructorId: v.id('instructors'),
     imageUrl: v.string(),
@@ -565,19 +558,20 @@ export const createMenteeResult = mutation({
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
 
-    const id = await ctx.db.insert('menteeResults', {
+    const id = await ctx.db.insert('studentResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
       imageUploadPath: args.imageUploadPath,
       studentName: args.studentName,
     });
     const result = await ctx.db.get(id);
-    if (!result) throw new Error("Failed to create mentee result");
+    if (!result) throw new Error("Failed to create student result");
+
     return result;
   },
 });
 
-export const createMenteeResultWithStorage = mutation({
+export const createStudentResultWithStorage = mutation({
   args: {
     instructorId: v.id('instructors'),
     imageUrl: v.string(),
@@ -593,7 +587,8 @@ export const createMenteeResultWithStorage = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    const id = await ctx.db.insert('menteeResults', {
+
+    const id = await ctx.db.insert('studentResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
       imageStorageId: args.imageStorageId,
@@ -602,7 +597,8 @@ export const createMenteeResultWithStorage = mutation({
       createdAt: Date.now(),
     });
     const result = await ctx.db.get(id);
-    if (!result) throw new Error("Failed to create mentee result");
+    if (!result) throw new Error("Failed to create student result");
+
     return result;
   },
 });
@@ -695,7 +691,7 @@ export const upsertInstructorTestimonial = mutation({
 });
 
 /** Idempotent upsert for mentee results, keyed on instructorId + imageUrl. */
-export const upsertMenteeResult = mutation({
+export const upsertStudentResult = mutation({
   args: {
     instructorId: v.string(),
     imageUrl: v.string(),
@@ -703,7 +699,7 @@ export const upsertMenteeResult = mutation({
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
-      .query('menteeResults')
+      .query('studentResults')
       .withIndex('by_instructorId', (q) => q.eq('instructorId', args.instructorId))
       .filter((q) => q.eq(q.field('imageUrl'), args.imageUrl))
       .first();
@@ -716,12 +712,14 @@ export const upsertMenteeResult = mutation({
       return existing._id;
     }
 
-    return await ctx.db.insert('menteeResults', {
+    const id = await ctx.db.insert('studentResults', {
       instructorId: args.instructorId,
       imageUrl: args.imageUrl,
       studentName: args.studentName,
       createdAt: Date.now(),
     });
+
+    return id;
   },
 });
 
@@ -807,16 +805,16 @@ export const uploadInstructorPortfolioImage = mutation({
   },
 });
 
-export const uploadMenteeResultImage = mutation({
+export const uploadStudentResultImage = mutation({
   args: {
-    menteeResultId: v.id("menteeResults"),
+    studentResultId: v.id("studentResults"),
     storageId: v.string(),
     contentType: v.string(),
   },
   handler: async (ctx, args) => {
-    const menteeResult = await ctx.db.get(args.menteeResultId);
-    if (!menteeResult) {
-      throw new Error("Mentee result not found");
+    const studentResult = await ctx.db.get(args.studentResultId);
+    if (!studentResult) {
+      throw new Error("Student result not found");
     }
 
     const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
@@ -824,7 +822,7 @@ export const uploadMenteeResultImage = mutation({
       throw new Error("Failed to get URL for storage ID");
     }
 
-    await ctx.db.patch(args.menteeResultId, {
+    await ctx.db.patch(args.studentResultId, {
       imageUrl: url,
       imageStorageId: args.storageId,
     });
@@ -943,9 +941,9 @@ export const updateInstructorPortfolioStorageIds = mutation({
   },
 });
 
-export const updateMenteeResultStorageId = mutation({
+export const updateStudentResultStorageId = mutation({
   args: {
-    menteeResultId: v.id("menteeResults"),
+    studentResultId: v.id("studentResults"),
     storageId: v.string(),
     url: v.string(),
   },
@@ -957,10 +955,15 @@ export const updateMenteeResultStorageId = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    await ctx.db.patch(args.menteeResultId, {
+
+    const studentResult = await ctx.db.get(args.studentResultId);
+    if (!studentResult) throw new Error("Student result not found");
+
+    await ctx.db.patch(args.studentResultId, {
       imageStorageId: args.storageId,
       imageUrl: args.url,
     });
+
     return { storageId: args.storageId, url: args.url };
   },
 });
@@ -1043,7 +1046,7 @@ export const getTestimonialsByInstructorId = query({
 });
 
 /** Returns all mentee results for a given instructor. */
-export const getMenteeResultsByInstructorId = query({
+export const getStudentResultsByInstructorId = query({
   args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -1051,7 +1054,7 @@ export const getMenteeResultsByInstructorId = query({
       return [];
     }
     return await ctx.db
-      .query("menteeResults")
+      .query("studentResults")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
   },
@@ -1073,9 +1076,8 @@ export const getTestimonialById = query({
   },
 });
 
-/** Returns a mentee result by ID, or null if not found/not owned by instructor. */
-export const getMenteeResultById = query({
-  args: { id: v.id("menteeResults"), instructorId: v.string() },
+export const getStudentResultById = query({
+  args: { id: v.id("studentResults"), instructorId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
@@ -1286,8 +1288,8 @@ export const deleteTestimonial = mutation({
 });
 
 /** Deletes a mentee result by ID. Requires admin role or instructor ownership. */
-export const deleteMenteeResult = mutation({
-  args: { id: v.id("menteeResults") },
+export const deleteStudentResult = mutation({
+  args: { id: v.id("studentResults") },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
@@ -1301,20 +1303,21 @@ export const deleteMenteeResult = mutation({
       throw new Error("Forbidden");
     }
     
-    const menteeResult = await ctx.db.get(args.id);
-    if (!menteeResult) throw new Error("Mentee result not found");
+    const studentResult = await ctx.db.get(args.id);
+    if (!studentResult) throw new Error("Student result not found");
     
     if (user.role === "instructor") {
       const instructor = await ctx.db
         .query("instructors")
         .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
         .first();
-      if (!instructor || instructor._id !== menteeResult.instructorId) {
+      if (!instructor || instructor._id !== studentResult.instructorId) {
         throw new Error("Forbidden");
       }
     }
     
     await ctx.db.delete(args.id);
+
     return { success: true };
   },
 });

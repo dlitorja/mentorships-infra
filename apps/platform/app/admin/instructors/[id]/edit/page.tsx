@@ -48,7 +48,7 @@ type Testimonial = {
   createdAt: string;
 };
 
-type MenteeResult = {
+type StudentResult = {
   id: string;
   imageUrl: string | null;
   imageUploadPath: string | null;
@@ -84,7 +84,7 @@ type ActiveProduct = {
 
 type InstructorDetail = InstructorFormData & {
   testimonials: Testimonial[];
-  menteeResults: MenteeResult[];
+  studentResults: StudentResult[];
 };
 
 type UpdateInstructorResponse = {
@@ -138,16 +138,16 @@ const updateInstructorResponseSchema = z.object({
 });
 
 const instructorsResponseSchema = z.object({
-  items: z.array(z.object({
-    id: z.string(),
-    userId: z.string().nullable(),
-    email: z.string().nullable(),
-    name: z.string().nullable(),
-    slug: z.string().nullable(),
-    isActive: z.boolean(),
-    createdAt: z.string(),
+  instructors: z.array(z.object({
+    instructorId: z.string(),
+    userId: z.string(),
+    email: z.string(),
+    displayName: z.string(),
+    oneOnOneInventory: z.number(),
+    groupInventory: z.number(),
+    maxActiveStudents: z.number(),
     activeMenteeCount: z.number(),
-    totalCompletedSessions: z.number(),
+    createdAt: z.string(),
   })),
 });
 
@@ -249,7 +249,7 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
 /**
  * Adds a mentee result (before/after image) to an instructor.
  */
-async function addMenteeResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
+async function addStudentResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -265,7 +265,7 @@ async function addMenteeResult(instructorId: string, data: { imageUrl: string; s
 /**
  * Deletes a mentee result from an instructor.
  */
-async function deleteMenteeResult(instructorId: string, resultId: string) {
+async function deleteStudentResult(instructorId: string, resultId: string) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/mentee-results/${resultId}`, {
     method: "DELETE",
   });
@@ -307,8 +307,8 @@ export default function EditInstructorPage() {
   const [showTestimonialDialog, setShowTestimonialDialog] = useState(false);
   const [testimonialForm, setTestimonialForm] = useState({ name: "", text: "" });
 
-  const [showMenteeResultDialog, setShowMenteeResultDialog] = useState(false);
-  const [menteeResultForm, setMenteeResultForm] = useState({ imageUrl: "", studentName: "" });
+  const [showStudentResultDialog, setShowStudentResultDialog] = useState(false);
+  const [studentResultForm, setStudentResultForm] = useState({ imageUrl: "", studentName: "" });
 
   const [showProductDeactivationDialog, setShowProductDeactivationDialog] = useState(false);
   const [activeProducts, setActiveProducts] = useState<ActiveProduct[]>([]);
@@ -329,7 +329,7 @@ export default function EditInstructorPage() {
   const { data: instructorsData } = useQuery({
     queryKey: ["instructors-for-admin"],
     queryFn: async () => {
-      const result = await apiFetch<{ items: { id: string; userId: string | null; email: string | null; name: string | null; slug: string | null; isActive: boolean; createdAt: string; activeMenteeCount: number; totalCompletedSessions: number }[] }>("/api/admin/instructors?pageSize=100");
+      const result = await apiFetch<{ instructors: { instructorId: string; userId: string; email: string; displayName: string; oneOnOneInventory: number; groupInventory: number; maxActiveStudents: number; activeMenteeCount: number; createdAt: string }[] }>("/api/admin/instructors?pageSize=100");
       return instructorsResponseSchema.parse(result);
     },
   });
@@ -422,11 +422,11 @@ export default function EditInstructorPage() {
     },
   });
 
-  const addMenteeResultMutation = useMutation({
-    mutationFn: (data: { imageUrl: string; studentName: string }) => addMenteeResult(instructorId, data),
+  const addStudentResultMutation = useMutation({
+    mutationFn: (data: { imageUrl: string; studentName: string }) => addStudentResult(instructorId, data),
     onSuccess: () => {
-      setShowMenteeResultDialog(false);
-      setMenteeResultForm({ imageUrl: "", studentName: "" });
+      setShowStudentResultDialog(false);
+      setStudentResultForm({ imageUrl: "", studentName: "" });
       refetch();
     },
     onError: (error) => {
@@ -434,8 +434,8 @@ export default function EditInstructorPage() {
     },
   });
 
-  const deleteMenteeResultMutation = useMutation({
-    mutationFn: (resultId: string) => deleteMenteeResult(instructorId, resultId),
+  const deleteStudentResultMutation = useMutation({
+    mutationFn: (resultId: string) => deleteStudentResult(instructorId, resultId),
     onSuccess: () => refetch(),
     onError: (error) => {
       alert(error instanceof Error ? error.message : "Failed to delete mentee result");
@@ -630,9 +630,9 @@ export default function EditInstructorPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={NONE_SENTINEL}>None</SelectItem>
-                    {instructorsData?.items?.map((instructor) => (
-                      <SelectItem key={instructor.id} value={instructor.id}>
-                        {instructor.email || instructor.id}
+                    {instructorsData?.instructors?.map((instructor) => (
+                      <SelectItem key={instructor.instructorId} value={instructor.instructorId}>
+                        {instructor.email || instructor.instructorId}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -862,18 +862,18 @@ export default function EditInstructorPage() {
                   <CardTitle>Mentee Results</CardTitle>
                   <CardDescription>Before/after images from mentees</CardDescription>
                 </div>
-                <Button onClick={() => setShowMenteeResultDialog(true)}>
+                <Button onClick={() => setShowStudentResultDialog(true)}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add Result
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
-              {data.menteeResults.length === 0 ? (
+              {data.studentResults.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No mentee results yet</p>
               ) : (
                 <div className="grid grid-cols-4 gap-4">
-                  {data.menteeResults.map((r) => (
+                  {data.studentResults.map((r) => (
                     <div key={r.id} className="relative group">
                       {r.imageUrl && (
                         <img src={r.imageUrl} alt="Mentee result" className="w-full h-32 object-cover rounded" />
@@ -882,8 +882,8 @@ export default function EditInstructorPage() {
                         <Button
                           variant="destructive"
                           size="sm"
-                          onClick={() => deleteMenteeResultMutation.mutate(r.id)}
-                          disabled={deleteMenteeResultMutation.isPending}
+                          onClick={() => deleteStudentResultMutation.mutate(r.id)}
+                          disabled={deleteStudentResultMutation.isPending}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -1014,7 +1014,7 @@ export default function EditInstructorPage() {
       </Dialog>
 
       {/* Mentee Result Dialog */}
-      <Dialog open={showMenteeResultDialog} onOpenChange={setShowMenteeResultDialog}>
+      <Dialog open={showStudentResultDialog} onOpenChange={setShowStudentResultDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Mentee Result</DialogTitle>
@@ -1022,27 +1022,27 @@ export default function EditInstructorPage() {
           <div className="space-y-4">
             <ImageUploadField
               label="Result Image"
-              value={menteeResultForm.imageUrl}
-              onChange={(url) => setMenteeResultForm((prev) => ({ ...prev, imageUrl: url }))}
+              value={studentResultForm.imageUrl}
+              onChange={(url) => setStudentResultForm((prev) => ({ ...prev, imageUrl: url }))}
               instructorId={instructorId}
               type="result"
             />
             <div>
               <Label>Student Name (optional)</Label>
               <Input
-                value={menteeResultForm.studentName}
-                onChange={(e) => setMenteeResultForm((prev) => ({ ...prev, studentName: e.target.value }))}
+                value={studentResultForm.studentName}
+                onChange={(e) => setStudentResultForm((prev) => ({ ...prev, studentName: e.target.value }))}
                 placeholder="Student name"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowMenteeResultDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowStudentResultDialog(false)}>Cancel</Button>
             <Button
-              onClick={() => addMenteeResultMutation.mutate(menteeResultForm)}
-              disabled={!menteeResultForm.imageUrl || addMenteeResultMutation.isPending}
+              onClick={() => addStudentResultMutation.mutate(studentResultForm)}
+              disabled={!studentResultForm.imageUrl || addStudentResultMutation.isPending}
             >
-              {addMenteeResultMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {addStudentResultMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Add
             </Button>
           </DialogFooter>

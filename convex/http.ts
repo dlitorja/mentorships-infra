@@ -516,7 +516,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
 
   if (menteeBeforeAfterImages && menteeBeforeAfterImages.length > 0) {
     for (const imageUrl of menteeBeforeAfterImages) {
-      await ctx.runMutation(api.instructors.createMenteeResult as any, {
+      await ctx.runMutation(api.instructors.createStudentResult as any, {
         instructorId,
         imageUrl,
       });

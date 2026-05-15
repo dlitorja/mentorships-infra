@@ -21,6 +21,7 @@ import type * as legacyMappings from "../legacyMappings.js";
 import type * as menteeInvitations from "../menteeInvitations.js";
 import type * as menteeSessionCounts from "../menteeSessionCounts.js";
 import type * as migrationQueries from "../migrationQueries.js";
+import type * as migrations from "../migrations.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_http from "../mutations/http.js";
 import type * as notifications from "../notifications.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   menteeInvitations: typeof menteeInvitations;
   menteeSessionCounts: typeof menteeSessionCounts;
   migrationQueries: typeof migrationQueries;
+  migrations: typeof migrations;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/http": typeof mutations_http;
   notifications: typeof notifications;
@@ -102,4 +104,6 @@ export declare const internal: FilterApi<
   FunctionReference<any, "internal">
 >;
 
-export declare const components: {};
+export declare const components: {
+  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
+};
