@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
 
     const url = await convex.query(api.instructors.getStorageUrl, { storageId });
 
-    const menteeResultId = await convex.mutation(api.instructors.createMenteeResultWithStorage, {
+    const studentResultId = await convex.mutation(api.instructors.createStudentResultWithStorage, {
       instructorId: instructor._id,
       imageUrl: url ?? `convex://storage/${storageId}`,
       imageStorageId: storageId,
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       url: url ?? `convex://storage/${storageId}`,
       storageId,
       path: `instructors/${instructor.slug}/results/${storageId}`,
-      menteeResultId,
+      studentResultId,
     });
   } catch (error) {
     if (isUnauthorizedError(error)) {
