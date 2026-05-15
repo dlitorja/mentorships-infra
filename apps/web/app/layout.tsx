@@ -31,8 +31,7 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Use Clerk v5 runtime; let Clerk choose script host
-  const clerkJSVersion = "5" as const;
+  // Use default ClerkJS version; let Clerk choose script host
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -62,8 +61,6 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      // Pin ClerkJS major to ensure Client Trust support
-      clerkJSVersion={clerkJSVersion}
     >
       <QueryProvider>
         <ConvexClientProvider>

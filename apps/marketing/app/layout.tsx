@@ -22,12 +22,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>): React.JSX.Element {
-  const clerkJSVersion = "5" as const;
-
   return (
     <ClerkProvider
-      // Pin ClerkJS major to support Client Trust
-      clerkJSVersion={clerkJSVersion}
     >
       <html lang="en" className="bg-background dark">
         <body className={`${inter.className} antialiased bg-background text-foreground`}>
