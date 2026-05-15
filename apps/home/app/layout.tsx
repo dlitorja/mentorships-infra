@@ -26,7 +26,7 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
+  const clerkJSVersion = "5" as const;
 
   const layoutContent = (
     <html lang="en" className="dark">
@@ -46,7 +46,7 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      {...(domainUrl && { domainUrl })}
+      clerkJSVersion={clerkJSVersion}
     >
       {layoutContent}
     </ClerkProvider>
