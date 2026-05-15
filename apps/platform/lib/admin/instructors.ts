@@ -1,7 +1,8 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 
-type Resolved = { instructor: any | null; resolvedId: string | null };
+// Use `unknown` instead of `any` to preserve null checks at call sites
+type Resolved = { instructor: unknown | null; resolvedId: string | null };
 
 /**
  * Resolve an instructor by Convex document id or slug.

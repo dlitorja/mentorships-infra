@@ -68,7 +68,7 @@ export async function GET(
     convex.setAuth(token);
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
-    const instructor = resolved.instructor;
+    const instructor = resolved.instructor as any;
     if (!instructor) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -76,8 +76,14 @@ export async function GET(
       );
     }
 
-    const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, { instructorId: instructor._id as any });
-    const menteeResultsData = await convex.query(api.instructors.getMenteeResultsByInstructorId, { instructorId: instructor._id as any });
+    const testimonials = await convex.query(
+      api.instructors.getTestimonialsByInstructorId,
+      { instructorId: (resolved.resolvedId ?? instructor._id) as any }
+    );
+    const menteeResultsData = await convex.query(
+      api.instructors.getMenteeResultsByInstructorId,
+      { instructorId: (resolved.resolvedId ?? instructor._id) as any }
+    );
 
     return NextResponse.json({
       id: instructor._id,
