@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
-import { ui } from "@clerk/ui";
 import { Toaster } from "sonner";
 import { Header } from "@/components/navigation/header";
 import { HeaderErrorBoundary } from "@/components/navigation/header-error-boundary";
