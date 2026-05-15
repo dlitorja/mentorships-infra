@@ -31,9 +31,9 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Restore pre–May 14 behavior: allow optional domainUrl and let Clerk manage script loading
-  const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
-  const clerkJsPinnedVersion = "5.127.0" as const;
+  // Force ClerkJS to load from CDN to avoid custom-domain 404s and ensure Client Trust support
+  const clerkJSVersion = "5.127.0" as const;
+  const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -63,7 +63,8 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      {...(domainUrl && { domainUrl })}
+      clerkJSUrl={clerkJSUrl}
+      clerkJSVersion={clerkJSVersion}
     >
       <QueryProvider>
         <ConvexClientProvider>

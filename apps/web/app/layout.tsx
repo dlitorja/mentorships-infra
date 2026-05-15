@@ -31,10 +31,8 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Get domain URL for Clerk (helps with network requests)
-  // Only set if explicitly configured via environment variable
-  // Clerk will auto-detect the domain in the browser
-  const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
+  // Force ClerkJS to load from CDN to avoid custom-domain script paths
+  const clerkJSUrl = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" as const;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -64,7 +62,9 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      {...(domainUrl && { domainUrl })}
+      // Pin ClerkJS to version that supports Client Trust
+      clerkJSVersion="5.127.0"
+      clerkJSUrl={clerkJSUrl}
     >
       <QueryProvider>
         <ConvexClientProvider>
@@ -74,4 +74,3 @@ export default function RootLayout({
     </ClerkProvider>
   );
 }
-
