@@ -133,7 +133,7 @@ export async function GET(
         text: t.text,
         createdAt: new Date(t._creationTime).toISOString(),
       })),
-      menteeResults: studentResultsData.map((r: any) => ({
+      studentResults: studentResultsData.map((r: any) => ({
         id: r._id,
         imageUrl: r.imageUrl,
         imageUploadPath: r.imageUploadPath,
