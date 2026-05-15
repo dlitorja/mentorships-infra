@@ -26,12 +26,12 @@ export default function RootLayout({
 }>) {
   const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const hasValidClerkKey = Boolean(
-    clerkPublishableKey && 
+    clerkPublishableKey &&
     clerkPublishableKey !== BUILD_TIME_PLACEHOLDER_KEY &&
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Force ClerkJS to load from CDN to avoid custom-domain 404s
+  // Force ClerkJS to load from CDN to avoid custom-domain 404s and ensure Client Trust support
   const clerkJSVersion = "5.127.0" as const;
   const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
 

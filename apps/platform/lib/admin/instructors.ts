@@ -1,8 +1,8 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
 
-// Use `unknown` instead of `any` to preserve null checks at call sites
-type Resolved = { instructor: unknown | null; resolvedId: string | null };
+// Use `unknown` to force narrowing at call sites (null is a subtype of unknown)
+type Resolved = { instructor: unknown; resolvedId: string | null };
 
 /**
  * Resolve an instructor by Convex document id or slug.
@@ -31,5 +31,5 @@ export async function resolveInstructorByIdOrSlug(
     return { instructor: bySlug, resolvedId: (bySlug as any)._id as string };
   }
 
-  return { instructor: null, resolvedId: null };
+  return { instructor: null as unknown, resolvedId: null };
 }
