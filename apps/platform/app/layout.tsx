@@ -32,7 +32,8 @@ export default function RootLayout({
   );
 
   // Force ClerkJS to load from CDN to avoid custom-domain 404s
-  const clerkJSUrl = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" as const;
+  const clerkJSVersion = "5.127.0" as const;
+  const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -63,7 +64,7 @@ export default function RootLayout({
     <ClerkProvider
       publishableKey={clerkPublishableKey}
       clerkJSUrl={clerkJSUrl}
-      clerkJSVersion="5.127.0"
+      clerkJSVersion={clerkJSVersion}
     >
       <QueryProvider>
         <ConvexClientProvider>
