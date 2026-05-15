@@ -31,11 +31,8 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Force ClerkJS to load from CDN to avoid custom-domain script paths
+  // Use Clerk v5 runtime; let Clerk choose script host
   const clerkJSVersion = "5" as const;
-  const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
-  const clerkUIVersion = "1" as const;
-  const clerkUIUrl = `https://cdn.jsdelivr.net/npm/@clerk/ui@${clerkUIVersion}/dist/ui.browser.js` as const;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -65,11 +62,8 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      // Pin ClerkJS to version that supports Client Trust
+      // Pin ClerkJS major to ensure Client Trust support
       clerkJSVersion={clerkJSVersion}
-      clerkJSUrl={clerkJSUrl}
-      clerkUIVersion={clerkUIVersion}
-      clerkUIUrl={clerkUIUrl}
     >
       <QueryProvider>
         <ConvexClientProvider>
