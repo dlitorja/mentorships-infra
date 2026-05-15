@@ -22,10 +22,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>): React.JSX.Element {
+  const clerkJSUrl = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" as const;
+
   return (
     <ClerkProvider
       // Pin ClerkJS to version that supports Client Trust
       clerkJSVersion="5.127.0"
+      clerkJSUrl={clerkJSUrl}
     >
       <html lang="en" className="bg-background dark">
         <body className={`${inter.className} antialiased bg-background text-foreground`}>

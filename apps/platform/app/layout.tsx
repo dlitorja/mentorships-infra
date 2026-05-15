@@ -31,9 +31,8 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Optional proxy URL only for preview deploys; avoid using in prod domains to prevent script loading from custom domain
-  const isPreviewEnv = process.env.VERCEL_ENV === "preview" || Boolean(process.env.CF_PAGES_BRANCH);
-  const proxyUrl = isPreviewEnv ? (process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined) : undefined;
+  // Force ClerkJS to load from CDN to avoid custom-domain 404s
+  const clerkJSUrl = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js" as const;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -63,10 +62,8 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      // Pin ClerkJS to a version that supports Client Trust
-      // See: https://clerk.com/docs/guides/development/custom-flows/authentication/client-trust (needs_client_trust)
+      clerkJSUrl={clerkJSUrl}
       clerkJSVersion="5.127.0"
-      {...(proxyUrl && { proxyUrl })}
     >
       <QueryProvider>
         <ConvexClientProvider>
