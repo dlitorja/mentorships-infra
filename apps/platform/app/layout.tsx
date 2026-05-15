@@ -31,10 +31,10 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Optional proxy URL for previews; leave unset by default so Clerk uses its CDN
-  // Note: Do NOT pass domainUrl; that forces Clerk to load JS from your domain which
-  // isn't serving the Clerk assets and can 404. This mirrors the previously working setup.
-  const proxyUrl = process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined;
+  // Optional proxy URL only for preview deploys; unset in production to avoid 404s from custom domains
+  const rawProxyUrl = process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined;
+  const isPreviewEnv = process.env.VERCEL_ENV === "preview" || Boolean(process.env.CF_PAGES_BRANCH);
+  const proxyUrl = isPreviewEnv ? rawProxyUrl : undefined;
   const clerkJsPinnedVersion = "5.127.0" as const;
 
   const layoutContent = (
