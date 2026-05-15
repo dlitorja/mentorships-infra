@@ -48,7 +48,7 @@ type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
 
 /**
  * GET /api/admin/instructors/[id]
- * Get a single instructor with testimonials and mentee results
+ * Get a single instructor with testimonials and student results
  */
 export async function GET(
   req: NextRequest,
@@ -68,8 +68,32 @@ export async function GET(
     convex.setAuth(token);
 
     const resolved = await resolveInstructorByIdOrSlug(convex, id);
-    const instructor = resolved.instructor as any;
-    if (!instructor) {
+
+    // Narrow unknown instructor result from resolver to a minimal document shape
+    type InstructorDoc = {
+      _id: string;
+      name?: string;
+      slug?: string;
+      email?: string | null;
+      tagline?: string | null;
+      bio?: string | null;
+      specialties?: any;
+      background?: any;
+      profileImageUrl?: string | null;
+      profileImageUploadPath?: string | null;
+      portfolioImages?: any;
+      socials?: any;
+      isActive?: boolean;
+      userId?: string | null;
+      legacyMentorId?: string | null;
+      updatedAt?: number | string | null;
+      _creationTime?: number;
+    };
+    const isInstructor = (obj: unknown): obj is InstructorDoc =>
+      !!obj && typeof obj === "object" && "_id" in obj;
+
+    const instructor = resolved.instructor;
+    if (!isInstructor(instructor)) {
       return NextResponse.json(
         { error: "Instructor not found" },
         { status: 404 }
@@ -80,7 +104,7 @@ export async function GET(
       api.instructors.getTestimonialsByInstructorId,
       { instructorId: (resolved.resolvedId ?? instructor._id) as any }
     );
-    const menteeResultsData = await convex.query(
+    const studentResultsData = await convex.query(
       api.instructors.getMenteeResultsByInstructorId,
       { instructorId: (resolved.resolvedId ?? instructor._id) as any }
     );
@@ -101,7 +125,7 @@ export async function GET(
       isActive: instructor.isActive,
       userId: instructor.userId,
       legacyMentorId: instructor.legacyMentorId,
-      createdAt: new Date(instructor._creationTime).toISOString(),
+      createdAt: new Date(instructor._creationTime ?? Date.now()).toISOString(),
       updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : null,
       testimonials: testimonials.map((t: any) => ({
         id: t._id,
@@ -109,7 +133,7 @@ export async function GET(
         text: t.text,
         createdAt: new Date(t._creationTime).toISOString(),
       })),
-      menteeResults: menteeResultsData.map((r: any) => ({
+      menteeResults: studentResultsData.map((r: any) => ({
         id: r._id,
         imageUrl: r.imageUrl,
         imageUploadPath: r.imageUploadPath,
@@ -176,8 +200,11 @@ export async function PUT(
       );
     }
 
-    // existing is `unknown` from resolver; cast locally for property access
-    if (data.slug && data.slug !== (existing as any).slug) {
+    // Narrow existing for slug comparison without broad casting
+    const getExistingSlug = (obj: unknown): string | undefined =>
+      obj && typeof obj === "object" && "slug" in obj ? (obj as any).slug : undefined;
+
+    if (data.slug && data.slug !== getExistingSlug(existing)) {
       const slugInstructor = await convex.query(api.instructors.getInstructorBySlugForAdmin, { slug: data.slug });
       if (slugInstructor && slugInstructor._id !== resolvedId) {
         return NextResponse.json(

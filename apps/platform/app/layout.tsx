@@ -31,8 +31,11 @@ export default function RootLayout({
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Optional proxy URL for previews; leave unset by default so Clerk uses its CDN
+  // Optional configuration for Clerk network routing
+  // Prefer proxyUrl when explicitly set (e.g. preview environments);
+  // retain backward compatibility with existing NEXT_PUBLIC_CLERK_DOMAIN_URL if present.
   const proxyUrl = process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined;
+  const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
 
   const layoutContent = (
     <html lang="en" className="bg-background dark">
@@ -65,7 +68,7 @@ export default function RootLayout({
       // Pin ClerkJS to a version that supports Client Trust
       // See: https://clerk.com/docs/guides/development/custom-flows/authentication/client-trust (needs_client_trust)
       clerkJSVersion="5.127.0"
-      {...(proxyUrl && { proxyUrl })}
+      {...(proxyUrl ? { proxyUrl } : domainUrl ? { domainUrl } : {})}
     >
       <QueryProvider>
         <ConvexClientProvider>
