@@ -32,7 +32,8 @@ export default function RootLayout({
   );
 
   // Force ClerkJS to load from CDN to avoid custom-domain 404s and ensure Client Trust support
-  const clerkJSVersion = "5.127.0" as const;
+  // Use latest v5 from CDN to avoid 404 on patch pin
+  const clerkJSVersion = "5" as const;
   const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
 
   const layoutContent = (

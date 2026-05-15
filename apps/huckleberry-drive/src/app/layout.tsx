@@ -23,8 +23,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>): React.ReactElement {
+  const clerkJSVersion = "5" as const;
+  const clerkJSUrl = `https://cdn.jsdelivr.net/npm/@clerk/clerk-js@${clerkJSVersion}/dist/clerk.browser.js` as const;
+
   return (
-    <ClerkProvider>
+    <ClerkProvider clerkJSVersion={clerkJSVersion} clerkJSUrl={clerkJSUrl}>
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
