@@ -26,15 +26,13 @@ export default function RootLayout({
 }>) {
   const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const hasValidClerkKey = Boolean(
-    clerkPublishableKey && 
+    clerkPublishableKey &&
     clerkPublishableKey !== BUILD_TIME_PLACEHOLDER_KEY &&
     clerkPublishableKey.startsWith("pk_")
   );
 
-  // Optional proxy URL only for preview deploys; unset in production to avoid 404s from custom domains
-  const rawProxyUrl = process.env.NEXT_PUBLIC_CLERK_PROXY_URL || undefined;
-  const isPreviewEnv = process.env.VERCEL_ENV === "preview" || Boolean(process.env.CF_PAGES_BRANCH);
-  const proxyUrl = isPreviewEnv ? rawProxyUrl : undefined;
+  // Restore pre–May 14 behavior: allow optional domainUrl and let Clerk manage script loading
+  const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
   const clerkJsPinnedVersion = "5.127.0" as const;
 
   const layoutContent = (
@@ -65,10 +63,7 @@ export default function RootLayout({
   return (
     <ClerkProvider
       publishableKey={clerkPublishableKey}
-      // Pin ClerkJS to a version that supports Client Trust
-      // See: https://clerk.com/docs/guides/development/custom-flows/authentication/client-trust (needs_client_trust)
-      clerkJSVersion={clerkJsPinnedVersion}
-      {...(proxyUrl && { proxyUrl })}
+      {...(domainUrl && { domainUrl })}
     >
       <QueryProvider>
         <ConvexClientProvider>
