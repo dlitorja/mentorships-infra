@@ -9,6 +9,7 @@ import { ProductForm } from "../../_components/product-form";
 const instructorSchema = z.object({
   instructorId: z.string(),
   email: z.string().nullable(),
+  displayName: z.string(),
 });
 
 const instructorsResponseSchema = z.object({
@@ -18,6 +19,7 @@ const instructorsResponseSchema = z.object({
 type Instructor = {
   id: string;
   email: string | null;
+  name: string;
 };
 
 type ProductInfo = {
@@ -73,6 +75,7 @@ export default function EditProductPage() {
             validated.instructors.map((inst) => ({
               id: inst.instructorId,
               email: inst.email || null,
+              name: inst.displayName,
             }))
           );
           setIsLoadingInstructors(false);

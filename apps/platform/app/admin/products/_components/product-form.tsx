@@ -485,16 +485,16 @@ function ProductFieldsForm({
                     <SelectContent>
                       {instructors.map((instructor) => (
                         <SelectItem key={instructor.id} value={instructor.id}>
-                        {instructor.name || instructor.email || instructor.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </form.Field>
+                          {instructor.name || instructor.email || instructor.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </form.Field>
 
-          <form.Field name="mentorshipType">
+            <form.Field name="mentorshipType">
               {(field) => (
                 <div className="space-y-2">
                   <Label htmlFor={field.name}>Mentorship Type *</Label>
