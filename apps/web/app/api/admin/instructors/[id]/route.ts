@@ -38,6 +38,10 @@ const updateInstructorSchema = z.object({
   oneOnOneInventory: z.number().int().min(0).optional(),
   groupInventory: z.number().int().min(0).optional(),
   maxActiveStudents: z.number().int().min(1).optional(),
+  instructorId: z.string().optional().nullable().transform((v) => {
+    if (v === undefined || v === null) return v;
+    return v.trim() === "" ? null : v.trim();
+  }),
 });
 
 type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
@@ -84,6 +88,10 @@ export async function GET(
       isActive: instructor.isActive,
       userId: instructor.userId,
       instructorId: instructor._id,
+      legacyMentorId: instructor.legacyMentorId ?? null,
+      oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
+      groupInventory: (instructor as any).groupInventory ?? 0,
+      maxActiveStudents: (instructor as any).maxActiveStudents ?? 10,
       createdAt: new Date(instructor._creationTime).toISOString(),
       updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : null,
       testimonials: testimonials.map((t: any) => ({
@@ -178,6 +186,7 @@ export async function PUT(
     if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
+    if (data.instructorId !== undefined) updateData.legacyMentorId = data.instructorId;
 
     const updated = await convex.mutation(api.instructors.updateInstructor, {
       id: id as any,
@@ -209,6 +218,10 @@ export async function PUT(
         isActive: updated.isActive,
         userId: updated.userId,
         instructorId: updated._id,
+        legacyMentorId: (updated as any).legacyMentorId ?? null,
+        oneOnOneInventory: (updated as any).oneOnOneInventory ?? 0,
+        groupInventory: (updated as any).groupInventory ?? 0,
+        maxActiveStudents: (updated as any).maxActiveStudents ?? 10,
         updatedAt: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : null,
       },
     });
