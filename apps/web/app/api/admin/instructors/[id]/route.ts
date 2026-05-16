@@ -44,7 +44,7 @@ type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
 
 /**
  * GET /api/admin/instructors/[id]
- * Get a single instructor with testimonials and mentee results
+ * Get a single instructor with testimonials and student results
  */
 export async function GET(
   req: NextRequest,
@@ -66,7 +66,7 @@ export async function GET(
     }
 
     const testimonials = await convex.query(api.instructors.getTestimonialsByInstructorId, { instructorId: id as any });
-    const menteeResultsData = await convex.query(api.instructors.getMenteeResultsByInstructorId, { instructorId: id as any });
+    const studentResultsData = await convex.query(api.instructors.getStudentResultsByInstructorId, { instructorId: id as any });
 
     return NextResponse.json({
       id: instructor._id,
@@ -92,7 +92,7 @@ export async function GET(
         text: t.text,
         createdAt: new Date(t._creationTime).toISOString(),
       })),
-      menteeResults: menteeResultsData.map((r: any) => ({
+      studentResults: studentResultsData.map((r: any) => ({
         id: r._id,
         imageUrl: r.imageUrl,
         imageUploadPath: r.imageUploadPath,

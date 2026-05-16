@@ -84,9 +84,9 @@ export function useInstructorTestimonials(instructorId: string) {
   });
 }
 
-export function useInstructorMenteeResults(instructorId: string) {
+export function useInstructorStudentResults(instructorId: string) {
   return useQuery({
-    ...convexQuery(api.instructors.getMenteeResultsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
+    ...convexQuery(api.instructors.getStudentResultsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,
   });
 }
@@ -146,24 +146,24 @@ export function useDeleteTestimonial() {
   });
 }
 
-export function useCreateMenteeResult() {
+export function useCreateStudentResult() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.createMenteeResult),
+    mutationFn: useConvexMutation(api.instructors.createStudentResult),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["menteeResults"] });
+      queryClient.invalidateQueries({ queryKey: ["studentResults"] });
     },
   });
 }
 
-export function useDeleteMenteeResult() {
+export function useDeleteStudentResult() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.deleteMenteeResult),
+    mutationFn: useConvexMutation(api.instructors.deleteStudentResult),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["menteeResults"] });
+      queryClient.invalidateQueries({ queryKey: ["studentResults"] });
     },
   });
 }

@@ -28,7 +28,7 @@ export function InstructorImageUpload({
   value,
   onChange,
   onUploadComplete,
-  uploadEndpoint = "/api/instructor/mentees-results/upload",
+  uploadEndpoint = "/api/instructor/student-results/upload",
   placeholder = "https://example.com/image.jpg",
 }: InstructorImageUploadProps) {
   const [isUploading, setIsUploading] = useState(false);

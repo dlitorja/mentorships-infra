@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Suspense } from "react";
 import type { ReactElement } from "react";
 import { Menu } from "lucide-react";
-import { SignedIn, SignedOut, UserButton, useUser } from "@clerk/nextjs";
+import { Show, UserButton, useUser } from "@clerk/nextjs";
 import {
   Sheet,
   SheetContent,
@@ -106,20 +106,20 @@ function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactEle
       <div className="flex flex-col gap-4 pt-4 border-t border-border">
         {hasClerk ? (
           <>
-            <SignedOut>
+            <Show when="signed-out">
               <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
                 <Link href="/sign-in">Sign In</Link>
               </Button>
               <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 w-full uppercase tracking-wide font-semibold">
                 <Link href="/sign-up">Get Started</Link>
               </Button>
-            </SignedOut>
-            <SignedIn>
+            </Show>
+            <Show when="signed-in">
               <MobileDashboardButton />
               <div className="flex items-center justify-start">
                 <UserButton />
               </div>
-            </SignedIn>
+            </Show>
           </>
         ) : (
           <FallbackMobileAuthButtons />
@@ -161,18 +161,18 @@ export function Header({ hasClerk = true }: HeaderProps): ReactElement {
 
           {hasClerk ? (
             <>
-              <SignedOut>
+              <Show when="signed-out">
                 <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
                   <Link href="/sign-in">Sign In</Link>
                 </Button>
                 <Button asChild size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90 uppercase tracking-wide text-xs font-semibold">
                   <Link href="/sign-up">Get Started</Link>
                 </Button>
-              </SignedOut>
-              <SignedIn>
+              </Show>
+              <Show when="signed-in">
                 <DashboardButton />
                 <UserButton />
-              </SignedIn>
+              </Show>
             </>
           ) : (
             <FallbackAuthButtons />

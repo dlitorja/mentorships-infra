@@ -105,7 +105,7 @@ export async function GET(
       { instructorId: (resolved.resolvedId ?? instructor._id) as any }
     );
     const studentResultsData = await convex.query(
-      api.instructors.getMenteeResultsByInstructorId,
+      api.instructors.getStudentResultsByInstructorId,
       { instructorId: (resolved.resolvedId ?? instructor._id) as any }
     );
 

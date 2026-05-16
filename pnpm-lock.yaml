@@ -28,6 +28,9 @@ importers:
       '@clerk/nextjs':
         specifier: ^6.36.5
         version: 6.39.1(next@16.1.7(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@convex-dev/migrations':
+        specifier: ^0.3.4
+        version: 0.3.4(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
       '@google/generative-ai':
         specifier: ^0.24.1
         version: 0.24.1
@@ -120,7 +123,7 @@ importers:
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       convex:
         specifier: ^1.35.1
-        version: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+        version: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -489,11 +492,11 @@ importers:
   apps/platform:
     dependencies:
       '@clerk/nextjs':
-        specifier: ^6.36.5
-        version: 6.39.1(next@16.0.10(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        specifier: ^7.3.4
+        version: 7.3.4(next@16.0.10(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@convex-dev/react-query':
         specifier: ^0.1.0
-        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
+        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
       '@mentorships/payments':
         specifier: workspace:*
         version: link:../../packages/payments
@@ -541,7 +544,7 @@ importers:
         version: 2.1.1
       convex:
         specifier: ^1.35.1
-        version: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+        version: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.0)
@@ -620,7 +623,7 @@ importers:
         version: 6.39.1(next@16.0.10(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@convex-dev/react-query':
         specifier: ^0.1.0
-        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
+        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
       '@mentorships/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -1232,6 +1235,10 @@ packages:
     resolution: {integrity: sha512-DRwmFu6gEmzHRUeXXB5y02QxMihHDEgetSQrb0ME6KaYe29+LnenBUQAmlASXmsovIi9cBqk4hE4WHWNRXX+Bw==}
     engines: {node: '>=18.17.0'}
 
+  '@clerk/backend@3.4.8':
+    resolution: {integrity: sha512-Ce4a80q0UqPwXj/ULU6DcLeAhojm5aY9WOL53JPR8w6vDizL6RAM0nyV/JYtpgQP5V3rNOs00WxRMJO0UuvZ0Q==}
+    engines: {node: '>=20.9.0'}
+
   '@clerk/clerk-react@5.61.4':
     resolution: {integrity: sha512-xGvQvzfc5pQEuqCW8CNUgnlR+9nt6gSSMGMYx3l972utIJrFKByQJFCRZpwYBvAHiveuK11Wgy3J39p904jb+w==}
     engines: {node: '>=18.17.0'}
@@ -1247,6 +1254,21 @@ packages:
       react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
       react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
 
+  '@clerk/nextjs@7.3.4':
+    resolution: {integrity: sha512-caso83n7JADx+J4c7l0v3IytdHIyiNVxOq0o06SQGsd+azcMI0IkJSctOwryGf0F5R2vmKlq9TPmUenVWSRUag==}
+    engines: {node: '>=20.9.0'}
+    peerDependencies:
+      next: ^15.2.8 || ^15.3.8 || ^15.4.10 || ^15.5.9 || ^15.6.0-0 || ^16.0.10 || ^16.1.0-0
+      react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+      react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+
+  '@clerk/react@6.6.3':
+    resolution: {integrity: sha512-u4dU7rRjOx5/IcZAjIvPHLPDhaut9Oa9wTOvIJLJ54z1kNR5m+Qnmap++dD9mH8orIPUmW7VlJrF5wVVc2FHdA==}
+    engines: {node: '>=20.9.0'}
+    peerDependencies:
+      react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+      react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+
   '@clerk/shared@3.47.3':
     resolution: {integrity: sha512-jG0wMIZuuc8zaKieg9Os8ocTphG+llluRukUUdyVnu4+ZI1syVf+dkpDP3ZK69yLavTX3D0KAmkmQqTPzQV/Nw==}
     engines: {node: '>=18.17.0'}
@@ -1259,9 +1281,26 @@ packages:
       react-dom:
         optional: true
 
+  '@clerk/shared@4.11.0':
+    resolution: {integrity: sha512-QnduIRldVe+16w+pU24si0TZjbToGCIJI8Hsd0jGNMaloLsjQGA6XLO455JGIN8FFzQYCPS0x+bugjlvM8PGYQ==}
+    engines: {node: '>=20.9.0'}
+    peerDependencies:
+      react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+      react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
   '@clerk/types@4.101.21':
     resolution: {integrity: sha512-/70W603A6bRv1n24dDNAs3kWHLSIgXebEyzXZ46IuROWcq0+guSqqLa+nKekxxIdk6I/vnI9SWjBvBRuZVMnhQ==}
     engines: {node: '>=18.17.0'}
+
+  '@convex-dev/migrations@0.3.4':
+    resolution: {integrity: sha512-fCUkc4hDzkZTgxicjV1WN4QfUdDDPPrMtvC7VgSLTGssg1B8pm+XlPC6NbZ2Aes38Xf5iiodX+y8VnU96narKQ==}
+    peerDependencies:
+      convex: ^1.24.8
 
   '@convex-dev/react-query@0.1.0':
     resolution: {integrity: sha512-ULmBZCtAQDUePdBhUv7hj1Yy4QiCelhi6uEIOtMpjW8db6W9CFKvQwLt9heLngccFyMFfAZdOfSrT+cP4AH0Jw==}
@@ -3438,6 +3477,9 @@ packages:
   '@tanstack/pacer-lite@0.1.1':
     resolution: {integrity: sha512-y/xtNPNt/YeyoVxE/JCx+T7yjEzpezmbb+toK8DDD1P4m7Kzs5YR956+7OKexG3f8aXgC3rLZl7b1V+yNUSy5w==}
     engines: {node: '>=18'}
+
+  '@tanstack/query-core@5.100.10':
+    resolution: {integrity: sha512-8UR0yJR+GiQ40m3lPhUr0xbfAupe6GSQiksSBSa9SM2NjezFyxXCIA69/lz8cSoNKZLrw1/PktIyQBJcVeMi3w==}
 
   '@tanstack/query-core@5.96.2':
     resolution: {integrity: sha512-hzI6cTVh4KNRk8UtoIBS7Lv9g6BnJPXvBKsvYH1aGWvv0347jT3BnSvztOE+kD76XGvZnRC/t6qdW1CaIfwCeA==}
@@ -7521,6 +7563,7 @@ packages:
 
   uuid@9.0.1:
     resolution: {integrity: sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==}
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   vary@1.1.2:
@@ -8528,6 +8571,15 @@ snapshots:
       - react
       - react-dom
 
+  '@clerk/backend@3.4.8(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+    dependencies:
+      '@clerk/shared': 4.11.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      standardwebhooks: 1.0.0
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - react
+      - react-dom
+
   '@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       '@clerk/shared': 3.47.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -8559,6 +8611,24 @@ snapshots:
       server-only: 0.0.1
       tslib: 2.8.1
 
+  '@clerk/nextjs@7.3.4(next@16.0.10(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+    dependencies:
+      '@clerk/backend': 3.4.8(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@clerk/react': 6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@clerk/shared': 4.11.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      next: 16.0.10(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+      server-only: 0.0.1
+      tslib: 2.8.1
+
+  '@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+    dependencies:
+      '@clerk/shared': 4.11.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+      tslib: 2.8.1
+
   '@clerk/shared@3.47.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       csstype: 3.1.3
@@ -8571,6 +8641,17 @@ snapshots:
       react: 19.2.0
       react-dom: 19.2.0(react@19.2.0)
 
+  '@clerk/shared@4.11.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+    dependencies:
+      '@tanstack/query-core': 5.100.10
+      dequal: 2.0.3
+      glob-to-regexp: 0.4.1
+      js-cookie: 3.0.5
+      std-env: 3.10.0
+    optionalDependencies:
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+
   '@clerk/types@4.101.21(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       '@clerk/shared': 3.47.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -8578,10 +8659,14 @@ snapshots:
       - react
       - react-dom
 
-  '@convex-dev/react-query@0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))':
+  '@convex-dev/migrations@0.3.4(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))':
+    dependencies:
+      convex: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+
+  '@convex-dev/react-query@0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))':
     dependencies:
       '@tanstack/react-query': 5.96.2(react@19.2.0)
-      convex: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+      convex: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
 
   '@csstools/color-helpers@6.0.2': {}
 
@@ -10886,6 +10971,8 @@ snapshots:
 
   '@tanstack/pacer-lite@0.1.1': {}
 
+  '@tanstack/query-core@5.100.10': {}
+
   '@tanstack/query-core@5.96.2': {}
 
   '@tanstack/query-devtools@5.96.2': {}
@@ -12348,13 +12435,14 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6):
+  convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6):
     dependencies:
       esbuild: 0.28.0
       prettier: 3.8.3
       ws: 8.18.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     optionalDependencies:
       '@clerk/clerk-react': 5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@clerk/react': 6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       react: 19.2.0
     transitivePeerDependencies:
       - bufferutil
@@ -12823,7 +12911,7 @@ snapshots:
       eslint: 9.39.1(jiti@2.6.1)
       eslint-import-resolver-node: 0.3.10
       eslint-import-resolver-typescript: 3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1))
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@2.6.1))
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.39.1(jiti@2.6.1))
       eslint-plugin-react: 7.37.5(eslint@9.39.1(jiti@2.6.1))
       eslint-plugin-react-hooks: 7.0.1(eslint@9.39.1(jiti@2.6.1))
@@ -12856,7 +12944,7 @@ snapshots:
       tinyglobby: 0.2.15
       unrs-resolver: 1.11.1
     optionalDependencies:
-      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1))
+      eslint-plugin-import: 2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@2.6.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -12897,7 +12985,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1)):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@1.21.7)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -12906,9 +12994,9 @@ snapshots:
       array.prototype.flatmap: 1.3.3
       debug: 3.2.7
       doctrine: 2.1.0
-      eslint: 9.39.1(jiti@2.6.1)
+      eslint: 9.39.1(jiti@1.21.7)
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1))
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@1.21.7))
       hasown: 2.0.2
       is-core-module: 2.16.1
       is-glob: 4.0.3
@@ -12926,7 +13014,7 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
-  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@1.21.7)):
+  eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@2.6.1)):
     dependencies:
       '@rtsao/scc': 1.1.0
       array-includes: 3.1.9
@@ -12935,9 +13023,9 @@ snapshots:
       array.prototype.flatmap: 1.3.3
       debug: 3.2.7
       doctrine: 2.1.0
-      eslint: 9.39.1(jiti@1.21.7)
+      eslint: 9.39.1(jiti@2.6.1)
       eslint-import-resolver-node: 0.3.10
-      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1)(eslint@9.39.1(jiti@1.21.7))
+      eslint-module-utils: 2.12.1(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint-import-resolver-node@0.3.10)(eslint-import-resolver-typescript@3.10.1(eslint-plugin-import@2.32.0(@typescript-eslint/parser@8.58.0(eslint@9.39.1(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1)))(eslint@9.39.1(jiti@2.6.1))
       hasown: 2.0.2
       is-core-module: 2.16.1
       is-glob: 4.0.3

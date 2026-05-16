@@ -34,41 +34,44 @@ export default function RootLayout({
   // Restore May 11–13 behavior: allow optional domainUrl; do not override script URL/version
   const domainUrl = process.env.NEXT_PUBLIC_CLERK_DOMAIN_URL || undefined;
 
-  const layoutContent = (
-    <html lang="en" className="bg-background dark">
-      <body className={`${inter.className} antialiased bg-background text-foreground`}>
-        <HeaderErrorBoundary>
-          <Header hasClerk={hasValidClerkKey} />
-        </HeaderErrorBoundary>
-        {children}
-        <Toaster />
-      </body>
-    </html>
-  );
-
-  // Use placeholder during build without valid key to avoid ClerkProvider errors
   const isBuildTime = !clerkPublishableKey || clerkPublishableKey === BUILD_TIME_PLACEHOLDER_KEY;
-  
+
   if (isBuildTime) {
     return (
-      <QueryProvider>
-        <ConvexClientProvider skipClerk={true}>
-          {layoutContent}
-        </ConvexClientProvider>
-      </QueryProvider>
+      <html lang="en" className="bg-background dark">
+        <body className={`${inter.className} antialiased bg-background text-foreground`}>
+          <QueryProvider>
+            <ConvexClientProvider skipClerk={true}>
+              <HeaderErrorBoundary>
+                <Header hasClerk={hasValidClerkKey} />
+              </HeaderErrorBoundary>
+              {children}
+              <Toaster />
+            </ConvexClientProvider>
+          </QueryProvider>
+        </body>
+      </html>
     );
   }
-  
+
   return (
-    <ClerkProvider
-      publishableKey={clerkPublishableKey}
-      {...(domainUrl && { domainUrl })}
-    >
-      <QueryProvider>
-        <ConvexClientProvider>
-          {layoutContent}
-        </ConvexClientProvider>
-      </QueryProvider>
-    </ClerkProvider>
+    <html lang="en" className="bg-background dark">
+      <body className={`${inter.className} antialiased bg-background text-foreground`}>
+        <ClerkProvider
+          publishableKey={clerkPublishableKey}
+          {...(domainUrl && { domainUrl })}
+        >
+          <QueryProvider>
+            <ConvexClientProvider>
+              <HeaderErrorBoundary>
+                <Header hasClerk={hasValidClerkKey} />
+              </HeaderErrorBoundary>
+              {children}
+              <Toaster />
+            </ConvexClientProvider>
+          </QueryProvider>
+        </ClerkProvider>
+      </body>
+    </html>
   );
 }

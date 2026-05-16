@@ -187,8 +187,8 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
   }).index("by_instructorId", ["instructorId"]),
 
-  menteeResults: defineTable({
-    instructorId: v.optional(v.string()), // Using string to allow legacy IDs
+  studentResults: defineTable({
+    instructorId: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     imageStorageId: v.optional(v.string()),
     imageUploadPath: v.optional(v.string()),

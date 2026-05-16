@@ -157,13 +157,13 @@ export function useCreateTestimonial() {
   });
 }
 
-export function useCreateMenteeResult() {
+export function useCreateStudentResult() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: useConvexMutation(api.instructors.createMenteeResult),
+    mutationFn: useConvexMutation(api.instructors.createStudentResult),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["menteeResults"] });
+      queryClient.invalidateQueries({ queryKey: ["studentResults"] });
     },
   });
 }

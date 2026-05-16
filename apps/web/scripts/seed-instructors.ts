@@ -174,11 +174,11 @@ async function seedInstructor(instructor: any): Promise<any> {
     }
   }
 
-  // Create mentee results
+  // Create student results
   if (instructor.menteeBeforeAfterImages) {
-    console.log(`  Creating ${instructor.menteeBeforeAfterImages.length} mentee results...`);
+    console.log(`  Creating ${instructor.menteeBeforeAfterImages.length} student results...`);
     for (const imageUrl of instructor.menteeBeforeAfterImages) {
-      await runConvexMutation("instructors:createMenteeResult", {
+      await runConvexMutation("instructors:createStudentResult", {
         instructorId,
         imageUrl,
       });

@@ -10,17 +10,17 @@ import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 // Uses shared helper to avoid duplication across routes
  
 
-const createMenteeResultSchema = z.object({
+const createStudentResultSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal("")).default(""),
   imageUploadPath: z.string().optional().default(""),
   studentName: z.string().optional().default(""),
 });
 
-type CreateMenteeResultInput = z.infer<typeof createMenteeResultSchema>;
+type CreateStudentResultInput = z.infer<typeof createStudentResultSchema>;
 
 /**
- * POST /api/admin/instructors/[id]/mentee-results
- * Add a mentee result to an instructor
+ * POST /api/admin/instructors/[id]/student-results
+ * Add a student result to an instructor
  */
 export async function POST(
   req: NextRequest,
@@ -32,7 +32,7 @@ export async function POST(
 
     const { id } = await params;
     const body = await req.json();
-    const validationResult = createMenteeResultSchema.safeParse(body);
+    const validationResult = createStudentResultSchema.safeParse(body);
 
     if (!validationResult.success) {
       return NextResponse.json(
@@ -41,7 +41,7 @@ export async function POST(
       );
     }
 
-    const data = validationResult.data as CreateMenteeResultInput;
+    const data = validationResult.data as CreateStudentResultInput;
     const convex = getConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
@@ -59,7 +59,7 @@ export async function POST(
       );
     }
 
-    const result = await convex.mutation(api.instructors.createMenteeResult, {
+    const result = await convex.mutation(api.instructors.createStudentResult, {
       instructorId: resolved.resolvedId as Id<"instructors">,
       imageUrl: data.imageUrl || "",
       imageUploadPath: data.imageUploadPath || undefined,
@@ -68,8 +68,8 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      message: "Mentee result added successfully",
-      menteeResult: {
+      message: "Student result added successfully",
+      studentResult: {
         id: result._id,
         imageUrl: result.imageUrl,
         imageUploadPath: result.imageUploadPath ?? null,
@@ -85,9 +85,9 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
 
-    console.error("Error adding mentee result:", error);
+    console.error("Error adding student result:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to add mentee result" },
+      { error: error instanceof Error ? error.message : "Failed to add student result" },
       { status: 500 }
     );
   }

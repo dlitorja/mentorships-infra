@@ -7,7 +7,7 @@ interface TestimonialData {
   role?: string;
 }
 
-interface MenteeResultData {
+interface StudentResultData {
   imageUrl: string;
   studentName?: string;
 }
@@ -30,7 +30,7 @@ interface InstructorSeedData {
   isActive: boolean;
   isNew?: boolean;
   testimonials: TestimonialData[];
-  menteeResults: MenteeResultData[];
+  studentResults: StudentResultData[];
   pricing: PricingData;
 }
 
@@ -58,7 +58,7 @@ const instructorData: InstructorSeedData[] = [
     isActive: true,
     isNew: false,
     testimonials: [],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 400 },
   },
   {
@@ -82,7 +82,7 @@ const instructorData: InstructorSeedData[] = [
     isActive: true,
     isNew: false,
     testimonials: [],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 375 },
   },
   {
@@ -106,7 +106,7 @@ const instructorData: InstructorSeedData[] = [
     isActive: true,
     isNew: false,
     testimonials: [],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 475 },
   },
   {
@@ -135,7 +135,7 @@ const instructorData: InstructorSeedData[] = [
         text: "A month of mentoring was an impulse purchase that I don't regret. When I saw that Oliver was offering tutoring, I jumped at the chance because I knew he could teach me creature design, something I'd been trying and failing to learn on my own. I got that and more! In addition to giving me a run down on how creatures are designed in which I learned things I could tell are mainly passed down in a professional setting, he also quickly identified changes I could make to improve old art and to use going forward.\n\nOliver mentioned when things he was teaching me were also things one of his mentors taught him, and I found it really beautiful to be in a chain of information passed down from artist to artist. I can absolutely recommend Oliver!",
       },
     ],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 400 },
   },
   {
@@ -160,7 +160,7 @@ const instructorData: InstructorSeedData[] = [
     isActive: false,
     isNew: false,
     testimonials: [],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 375 },
   },
   {
@@ -200,16 +200,7 @@ const instructorData: InstructorSeedData[] = [
         text: "I've been working with Rakasa for the past few months and the artistic improvement I've seen in such a small amount of time is nothing short of astronomical. She continually pushes me to tackle tough concepts and studies that I can turn into full pieces and provides excellent feedback that can elevate me to the next level within my own art. It as if when we meet, I recognize that I have hit a wall in a piece and she helps me navigate around or break through it. With her guidance, I never feel stuck and am in a constant cycle of improvement. I find that I am more much confident to tackle larger pieces, I have clear goals with my art and am gearing up to send some pieces over to a few clients for freelancing gigs. I intend to fully continue with this mentorship and keep push myself along the path to improving as an artist!",
       },
     ],
-    menteeResults: [
-      {
-        imageUrl: "/instructors/rakasa/mentee-before-after/mentee-success-1.jpg",
-        studentName: "Mentee Success Story",
-      },
-      {
-        imageUrl: "/instructors/rakasa/mentee-before-after/mentee-success-2.jpg",
-        studentName: "Mentee Success Story",
-      },
-    ],
+    studentResults: [],
     pricing: { oneOnOne: 475, group: 250 },
   },
   {
@@ -235,7 +226,7 @@ const instructorData: InstructorSeedData[] = [
         text: "Amanda provided clarity at a time when I truly needed it as an artist. Her capacity to see me, my work, and my aspirations, gave me the confidence to show up week after week. My mentorship assignments provided steady, yet manageable challenge and Amanda authored flexible assignments to meet that pace. I'd encourage anyone looking to sharpen their artistic selves to be Amanda's mentee.",
       },
     ],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 375 },
   },
   {
@@ -280,28 +271,7 @@ const instructorData: InstructorSeedData[] = [
         text: "I had taken online drawing and painting classes for about four years before finding NRC Gray's Mentorship. I decided to give it a try, and I'm very glad I did. Neil's knowledge and guidance have been incredibly helpful. His sessions have clarified concepts I struggled with before, and I appreciate how direct and clear he is in his feedback. He tells me what I'm doing well and exactly what I need to improve.",
       },
     ],
-    menteeResults: [
-      {
-        imageUrl: "/instructors/neil-gray/mentee-before-after/mentee-success-1.jpg",
-        studentName: "Mentee Success Story",
-      },
-      {
-        imageUrl: "/instructors/neil-gray/mentee-before-after/mentee-success-2.jpg",
-        studentName: "Mentee Success Story",
-      },
-      {
-        imageUrl: "/instructors/neil-gray/mentee-before-after/mentee-success-3.jpg",
-        studentName: "Mentee Success Story",
-      },
-      {
-        imageUrl: "/instructors/neil-gray/mentee-before-after/mentee-success-4.jpg",
-        studentName: "Mentee Success Story",
-      },
-      {
-        imageUrl: "/instructors/neil-gray/mentee-before-after/mentee-success-5.jpg",
-        studentName: "Mentee Success Story",
-      },
-    ],
+    studentResults: [],
     pricing: { oneOnOne: 460 },
   },
   {
@@ -362,7 +332,7 @@ const instructorData: InstructorSeedData[] = [
         text: "Ash is a very talented mentor. We've worked together in two stints now. We started in 2023 for a couple of months and we've worked in 2025 for a couple of months. Both instances have been amazing. The level of personalized assignments, weakness drills, painting tutoring and resource management training is far above any class I've taken in the past. I'm always taken to my absolute limit and surprise myself with the quality and quantity I can get done in a week.\n\nI've taken many classes online with feedback from CGMA, and Ash has pushed me much farther in much less time. I look forward to working with Ash again after I've hit a new plateau, so we can break through that one together as well.",
       },
     ],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 375 },
   },
   {
@@ -405,7 +375,7 @@ const instructorData: InstructorSeedData[] = [
         text: "I came to Andrea pretty new to painting, feeling rather directionless in how I was supposed to improve. Andrea has worked with me to find what I wanted to do, taught me a large number of techniques, and has been extremely encouraging throughout. I would highly recommend Andreas mentorship and am very grateful for the help and direction that I have been given.",
       },
     ],
-    menteeResults: [],
+    studentResults: [],
     pricing: { oneOnOne: 300 },
   },
 ];
@@ -413,7 +383,7 @@ const instructorData: InstructorSeedData[] = [
 export const seedInstructorProfiles = mutation({
   args: {},
   handler: async (ctx) => {
-    const results: { instructor: string; profileId: any; testimonials: number; menteeResults: number }[] = [];
+    const results: { instructor: string; profileId: any; testimonials: number; studentResults: number }[] = [];
 
     for (const instructor of instructorData) {
       const existingProfile = await ctx.db
@@ -475,22 +445,22 @@ export const seedInstructorProfiles = mutation({
         }
       }
 
-      let menteeResultCount = 0;
-      for (const result of instructor.menteeResults) {
+      let studentResultCount = 0;
+      for (const result of instructor.studentResults) {
         const existingResult = await ctx.db
-          .query("menteeResults")
+          .query("studentResults")
           .withIndex("by_instructorId", (q) => q.eq("instructorId", instructor.slug))
           .filter((q) => q.eq(q.field("imageUrl"), result.imageUrl))
           .first();
 
         if (!existingResult) {
-          await ctx.db.insert("menteeResults", {
+          await ctx.db.insert("studentResults", {
             instructorId: instructor.slug,
             imageUrl: result.imageUrl,
             studentName: result.studentName,
             createdAt: Date.now(),
           });
-          menteeResultCount++;
+          studentResultCount++;
         }
       }
 
@@ -498,7 +468,7 @@ export const seedInstructorProfiles = mutation({
         instructor: instructor.name,
         profileId,
         testimonials: testimonialCount,
-        menteeResults: menteeResultCount,
+        studentResults: studentResultCount,
       });
     }
 
@@ -704,8 +674,8 @@ export const clearInstructorData = mutation({
       await ctx.db.delete(testimonial._id);
     }
 
-    const results = await ctx.db.query("menteeResults").collect();
-    for (const result of results) {
+    const studentResults = await ctx.db.query("studentResults").collect();
+    for (const result of studentResults) {
       await ctx.db.delete(result._id);
     }
 
@@ -713,7 +683,7 @@ export const clearInstructorData = mutation({
       message: "Cleared all instructor data",
       profilesDeleted: profiles.length,
       testimonialsDeleted: testimonials.length,
-      menteeResultsDeleted: results.length,
+      studentResultsDeleted: studentResults.length,
     };
   },
 });
