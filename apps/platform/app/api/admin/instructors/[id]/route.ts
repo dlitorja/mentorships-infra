@@ -241,7 +241,7 @@ export async function PUT(
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.slug !== undefined) updateData.slug = data.slug;
-    if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : null;
+    if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : undefined;
     if (data.tagline !== undefined) updateData.tagline = data.tagline;
     if (data.bio !== undefined) updateData.bio = data.bio;
     if (data.specialties !== undefined) updateData.specialties = data.specialties;
@@ -251,11 +251,11 @@ export async function PUT(
     if (data.portfolioImages !== undefined) updateData.portfolioImages = data.portfolioImages;
     if (data.socials !== undefined) updateData.socials = data.socials;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
-    if (data.userId !== undefined) updateData.userId = data.userId;
+    if (data.userId !== undefined) updateData.userId = data.userId ?? undefined;
     if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
-    if (data.instructorId !== undefined) updateData.legacyMentorId = data.instructorId;
+    if (data.instructorId !== undefined) updateData.legacyMentorId = data.instructorId ?? undefined;
 
     const updated = await convex.mutation(api.instructors.updateInstructor, {
       id: resolvedId as any,
