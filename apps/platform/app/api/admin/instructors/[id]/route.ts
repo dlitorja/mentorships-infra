@@ -42,7 +42,10 @@ const updateInstructorSchema = z.object({
   oneOnOneInventory: z.number().int().min(0).optional(),
   groupInventory: z.number().int().min(0).optional(),
   maxActiveStudents: z.number().int().min(1).optional(),
-  instructorId: z.string().optional().nullable(),
+  instructorId: z.string().optional().nullable().transform((v) => {
+    if (v === undefined || v === null) return v;
+    return v.trim() === "" ? null : v.trim();
+  }),
 });
 
 type UpdateInstructorInput = z.infer<typeof updateInstructorSchema>;
@@ -130,9 +133,9 @@ export async function GET(
       userId: instructor.userId,
       legacyMentorId: instructor.legacyMentorId,
       instructorId: instructor.legacyMentorId ?? null,
-      oneOnOneInventory: (instructor as any).oneOnOneInventory ?? 0,
-      groupInventory: (instructor as any).groupInventory ?? 0,
-      maxActiveStudents: (instructor as any).maxActiveStudents ?? 10,
+      oneOnOneInventory: instructor.oneOnOneInventory ?? 0,
+      groupInventory: instructor.groupInventory ?? 0,
+      maxActiveStudents: instructor.maxActiveStudents ?? 10,
       createdAt: new Date(instructor._creationTime ?? Date.now()).toISOString(),
       updatedAt: instructor.updatedAt ? new Date(instructor.updatedAt).toISOString() : null,
       testimonials: testimonials.map((t: any) => ({
@@ -271,10 +274,10 @@ export async function PUT(
         isActive: updated.isActive,
         userId: updated.userId,
         legacyMentorId: updated.legacyMentorId,
-        instructorId: (updated as any).legacyMentorId ?? null,
-        oneOnOneInventory: (updated as any).oneOnOneInventory ?? 0,
-        groupInventory: (updated as any).groupInventory ?? 0,
-        maxActiveStudents: (updated as any).maxActiveStudents ?? 10,
+        instructorId: updated?.legacyMentorId ?? null,
+        oneOnOneInventory: updated?.oneOnOneInventory ?? 0,
+        groupInventory: updated?.groupInventory ?? 0,
+        maxActiveStudents: updated?.maxActiveStudents ?? 10,
         updatedAt: updated.updatedAt ? new Date(updated.updatedAt).toISOString() : null,
       },
     });
