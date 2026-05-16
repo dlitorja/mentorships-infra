@@ -346,7 +346,7 @@ export default function EditInstructorPage() {
         background: data.background || [],
         profileImageUrl: data.profileImageUrl || "",
         portfolioImages: data.portfolioImages || [],
-        socials: data.socials || {},
+        socials: data.socials && typeof data.socials === "object" && !Array.isArray(data.socials) ? data.socials : {},
         isActive: data.isActive ?? true,
         userId: data.userId || null,
         instructorId: data.instructorId || null,

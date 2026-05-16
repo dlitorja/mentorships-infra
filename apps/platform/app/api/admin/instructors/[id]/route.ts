@@ -128,7 +128,7 @@ export async function GET(
       profileImageUrl: instructor.profileImageUrl,
       profileImageUploadPath: instructor.profileImageUploadPath,
       portfolioImages: instructor.portfolioImages,
-      socials: instructor.socials,
+      socials: instructor.socials && typeof instructor.socials === "object" && !Array.isArray(instructor.socials) ? instructor.socials : {},
       isActive: instructor.isActive,
       userId: instructor.userId,
       legacyMentorId: instructor.legacyMentorId,
