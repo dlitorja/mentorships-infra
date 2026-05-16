@@ -956,7 +956,7 @@ export default function EditInstructorPage() {
                       setFormData((prev) => ({ ...prev, maxActiveStudents: clamped }));
                     }}
                   />
-                  <p className="text-sm text-muted-foreground mt-1">Maximum concurrent mentees</p>
+                  <p className="text-sm text-muted-foreground mt-1">Maximum concurrent students</p>
                 </div>
               </div>
               <div className="flex justify-between pt-4">

@@ -350,9 +350,9 @@ export default function EditInstructorPage() {
         isActive: data.isActive ?? true,
         userId: data.userId || null,
         instructorId: data.instructorId || null,
-        oneOnOneInventory: (data as any).oneOnOneInventory ?? 0,
-        groupInventory: (data as any).groupInventory ?? 0,
-        maxActiveStudents: (data as any).maxActiveStudents ?? 10,
+        oneOnOneInventory: data.oneOnOneInventory ?? 0,
+        groupInventory: data.groupInventory ?? 0,
+        maxActiveStudents: data.maxActiveStudents ?? 10,
       });
     }
   }, [data]);
@@ -956,7 +956,7 @@ export default function EditInstructorPage() {
                       setFormData((prev) => ({ ...prev, maxActiveStudents: clamped }));
                     }}
                   />
-                  <p className="text-sm text-muted-foreground mt-1">Maximum concurrent mentees</p>
+                  <p className="text-sm text-muted-foreground mt-1">Maximum concurrent students</p>
                 </div>
               </div>
               <div className="flex justify-between pt-4">
