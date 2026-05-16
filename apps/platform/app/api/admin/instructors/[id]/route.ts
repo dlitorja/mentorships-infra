@@ -17,6 +17,19 @@ function getConvexClient() {
 
 // Uses shared helper to avoid duplication across routes
 
+const SOCIALS_KEYS = new Set(["twitter", "instagram", "youtube", "bluesky", "website", "artstation"]);
+
+function sanitizeSocials(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (SOCIALS_KEYS.has(key) && typeof val === "string" && val.length > 0) {
+      result[key] = val;
+    }
+  }
+  return result;
+}
+
 const updateInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200).optional(),
   slug: z.string().min(1, "Slug is required").max(200).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with dashes").optional(),
@@ -128,7 +141,7 @@ export async function GET(
       profileImageUrl: instructor.profileImageUrl,
       profileImageUploadPath: instructor.profileImageUploadPath,
       portfolioImages: instructor.portfolioImages,
-      socials: instructor.socials,
+      socials: sanitizeSocials(instructor.socials),
       isActive: instructor.isActive,
       userId: instructor.userId,
       legacyMentorId: instructor.legacyMentorId,
@@ -270,7 +283,7 @@ export async function PUT(
         background: updated.background,
         profileImageUrl: updated.profileImageUrl,
         portfolioImages: updated.portfolioImages,
-        socials: updated.socials,
+        socials: sanitizeSocials(updated.socials),
         isActive: updated.isActive,
         userId: updated.userId,
         legacyMentorId: updated.legacyMentorId,
