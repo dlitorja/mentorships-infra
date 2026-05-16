@@ -29,6 +29,7 @@ import { createProduct, createProductFromStripe, updateProduct, type MentorshipT
 type Instructor = {
   id: string;
   email: string | null;
+  name: string;
 };
 
 type ProductData = {
@@ -484,7 +485,7 @@ function ProductFieldsForm({
                     <SelectContent>
                       {instructors.map((instructor) => (
                         <SelectItem key={instructor.id} value={instructor.id}>
-                          {instructor.email || instructor.id}
+                          {instructor.name || instructor.email || instructor.id}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -757,7 +758,7 @@ function ImportFromStripeForm({
                     <SelectItem value="__unassigned__">No instructor assigned</SelectItem>
                     {instructors.map((instructor) => (
                       <SelectItem key={instructor.id} value={instructor.id}>
-                        {instructor.email || instructor.id}
+                        {instructor.name || instructor.email || instructor.id}
                       </SelectItem>
                     ))}
                   </SelectContent>
