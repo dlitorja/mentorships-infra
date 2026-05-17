@@ -44,15 +44,19 @@ export function useInstructor(id: string) {
   });
 }
 
-export function useInstructors() {
+export function useInstructors(): {
+  data: PublicInstructor[];
+  isLoading: boolean;
+  isError: boolean;
+} {
   const query = useQuery({
     ...convexQuery(api.instructors.listInstructors, {}),
   });
 
-  const data = useMemo(() => {
+  const data = useMemo<PublicInstructor[]>(() => {
     if (!query.data) return [];
     return query.data
-      .filter((i: any) => i.isActive && !i.deletedAt)
+      .filter((i: PublicInstructor) => i.isActive && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
   }, [query.data]);
 

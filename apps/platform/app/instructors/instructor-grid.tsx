@@ -22,7 +22,12 @@ interface InstructorGridProps {
 }
 
 function InstructorCardImage({ instructor, priority }: { instructor: Instructor; priority: boolean }) {
-  const [src, setSrc] = useState(instructor.profileImageUrl || "/placeholder-instructor.jpg");
+  const [hasError, setHasError] = useState(false);
+  const src = hasError ? "/placeholder-instructor.jpg" : (instructor.profileImageUrl || "/placeholder-instructor.jpg");
+
+  useEffect(() => {
+    setHasError(false);
+  }, [instructor.profileImageUrl]);
 
   return (
     <Link
@@ -36,7 +41,7 @@ function InstructorCardImage({ instructor, priority }: { instructor: Instructor;
         className='object-cover transition-transform hover:scale-105'
         sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
         priority={priority}
-        onError={() => setSrc("/placeholder-instructor.jpg")}
+        onError={() => setHasError(true)}
       />
     </Link>
   );

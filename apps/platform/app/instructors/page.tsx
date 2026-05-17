@@ -16,8 +16,26 @@ function getPriorityIds(instructors: any[]): Set<string> {
 }
 
 export default function InstructorsPage(): React.JSX.Element {
-  const { data: instructors, isLoading } = useInstructors();
+  const { data: instructors, isLoading, isError } = useInstructors();
   const priorityIds = getPriorityIds(instructors);
+
+  if (isError) {
+    return (
+      <div className='min-h-screen bg-background'>
+        <div className='container mx-auto px-4 py-16'>
+          <div className='mx-auto max-w-7xl'>
+            <div className='mb-16 text-center'>
+              <h1 className='section-title'>Our Instructors</h1>
+              <p className='mt-4 text-muted-foreground'>Browse our roster of world-class art instructors</p>
+            </div>
+            <p className='text-center text-muted-foreground'>
+              We couldn&apos;t load instructors right now. Please try again.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

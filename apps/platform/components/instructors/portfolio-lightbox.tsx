@@ -26,6 +26,7 @@ export function PortfolioLightbox({
   instructorName,
 }: PortfolioLightboxProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [imageError, setImageError] = useState(false);
 
   // Update current index when initialIndex changes (when opening a different image)
   useEffect(() => {
@@ -33,6 +34,10 @@ export function PortfolioLightbox({
       setCurrentIndex(initialIndex);
     }
   }, [open, initialIndex]);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [currentIndex, open]);
 
   // Handle keyboard navigation
   useEffect(() => {
@@ -98,7 +103,7 @@ export function PortfolioLightbox({
 
           {/* Image */}
           <div className="relative w-full h-full flex items-center justify-center p-4 md:p-8">
-            {currentImage ? (
+            {currentImage && !imageError ? (
               <Image
                 src={currentImage}
                 alt={`${instructorName} portfolio work ${currentIndex + 1}`}
@@ -106,9 +111,7 @@ export function PortfolioLightbox({
                 className="object-contain"
                 sizes="100vw"
                 priority
-                onError={(e: any) => {
-                  e.currentTarget.style.display = "none";
-                }}
+                onError={() => setImageError(true)}
               />
             ) : (
               <p className="text-muted-foreground">Image unavailable</p>

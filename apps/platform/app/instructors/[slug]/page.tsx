@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -78,6 +78,10 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: studentResultsData } = useInstructorStudentResults(instructor?._id as string);
   const { data: productsData } = useProductsByInstructor(instructor?._id as string);
   const [profileImageError, setProfileImageError] = useState(false);
+
+  useEffect(() => {
+    setProfileImageError(false);
+  }, [instructor?.profileImageUrl]);
 
   const activeProducts = productsData?.filter((p: any) => p.active) || [];
   const oneOnOneProduct = activeProducts.find((p: any) => p.mentorshipType === "one-on-one");

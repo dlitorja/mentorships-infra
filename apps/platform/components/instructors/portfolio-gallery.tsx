@@ -10,10 +10,21 @@ interface PortfolioGalleryProps {
   instructorName: string;
 }
 
-function GalleryImage({ src, alt }: { src: string; alt: string }) {
+function GalleryImage({ src, alt, onError }: { src: string; alt: string; onError?: () => void }) {
   const [error, setError] = useState(false);
 
-  if (error) return null;
+  const handleError = () => {
+    setError(true);
+    onError?.();
+  };
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center w-full h-full bg-muted">
+        <span className="text-xs text-muted-foreground">Failed to load</span>
+      </div>
+    );
+  }
 
   return (
     <Image
@@ -22,7 +33,7 @@ function GalleryImage({ src, alt }: { src: string; alt: string }) {
       fill
       className="object-cover"
       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-      onError={() => setError(true)}
+      onError={handleError}
     />
   );
 }
@@ -33,10 +44,16 @@ export function PortfolioGallery({
 }: PortfolioGalleryProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [failedImages, setFailedImages] = useState<Set<number>>(new Set());
 
   const handleImageClick = (index: number) => {
+    if (failedImages.has(index)) return;
     setSelectedIndex(index);
     setLightboxOpen(true);
+  };
+
+  const handleImageError = (index: number) => {
+    setFailedImages((prev) => new Set(prev).add(index));
   };
 
   return (
@@ -45,13 +62,16 @@ export function PortfolioGallery({
         {images.map((image, index) => (
           <Card
             key={index}
-            className="overflow-hidden cursor-pointer transition-transform hover:scale-105 hover:shadow-lg"
+            className={`overflow-hidden transition-transform hover:scale-105 hover:shadow-lg ${
+              failedImages.has(index) ? "opacity-60 cursor-default" : "cursor-pointer"
+            }`}
             onClick={() => handleImageClick(index)}
           >
             <div className="relative aspect-[4/3] w-full">
               <GalleryImage
                 src={image}
                 alt={`${instructorName} portfolio work ${index + 1}`}
+                onError={() => handleImageError(index)}
               />
             </div>
           </Card>
