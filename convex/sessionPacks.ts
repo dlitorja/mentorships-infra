@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 /** Returns a session pack by its ID, or null if not authenticated. */
 export const getSessionPackById = query({
@@ -112,7 +113,9 @@ export const getUserSessionPacksWithInstructors = query({
             name: instructor.name,
             bio: instructor.bio,
             tagline: instructor.tagline,
-            profileImageUrl: instructor.profileImageUrl,
+            profileImageUrl: instructor.profileImageStorageId
+              ? (await ctx.storage.getUrl(instructor.profileImageStorageId as Id<"_storage">)) ?? instructor.profileImageUrl
+              : instructor.profileImageUrl,
           } : null,
           instructorUser: instructorUser ? {
             email: instructorUser.email,

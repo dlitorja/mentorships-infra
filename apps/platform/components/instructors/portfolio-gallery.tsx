@@ -10,6 +10,23 @@ interface PortfolioGalleryProps {
   instructorName: string;
 }
 
+function GalleryImage({ src, alt }: { src: string; alt: string }) {
+  const [error, setError] = useState(false);
+
+  if (error) return null;
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      className="object-cover"
+      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      onError={() => setError(true)}
+    />
+  );
+}
+
 export function PortfolioGallery({
   images,
   instructorName,
@@ -32,12 +49,9 @@ export function PortfolioGallery({
             onClick={() => handleImageClick(index)}
           >
             <div className="relative aspect-[4/3] w-full">
-              <Image
+              <GalleryImage
                 src={image}
                 alt={`${instructorName} portfolio work ${index + 1}`}
-                fill
-                className="object-cover"
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
               />
             </div>
           </Card>

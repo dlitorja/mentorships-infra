@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -77,6 +77,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: testimonialsData } = useInstructorTestimonials(instructor?._id as string);
   const { data: studentResultsData } = useInstructorStudentResults(instructor?._id as string);
   const { data: productsData } = useProductsByInstructor(instructor?._id as string);
+  const [profileImageError, setProfileImageError] = useState(false);
 
   const activeProducts = productsData?.filter((p: any) => p.active) || [];
   const oneOnOneProduct = activeProducts.find((p: any) => p.mentorshipType === "one-on-one");
@@ -143,12 +144,13 @@ function InstructorProfileContent({ slug }: { slug: string }) {
             <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
               <div className="relative aspect-square w-full overflow-hidden rounded-lg">
                 <Image
-                  src={instructor.profileImageUrl || "/placeholder.jpg"}
+                  src={profileImageError ? "/placeholder.jpg" : (instructor.profileImageUrl || "/placeholder.jpg")}
                   alt={instructor.name}
                   fill
                   className="object-cover"
                   sizes="(max-width: 768px) 100vw, 50vw"
                   priority
+                  onError={() => setProfileImageError(true)}
                 />
               </div>
 

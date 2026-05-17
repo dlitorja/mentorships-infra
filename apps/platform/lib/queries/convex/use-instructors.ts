@@ -45,16 +45,18 @@ export function useInstructor(id: string) {
 }
 
 export function useInstructors() {
-  const instructors = useQuery({
+  const query = useQuery({
     ...convexQuery(api.instructors.listInstructors, {}),
   });
 
-  return useMemo(() => {
-    if (!instructors.data) return [];
-    return instructors.data
-      .filter((i) => i.isActive && !i.deletedAt)
+  const data = useMemo(() => {
+    if (!query.data) return [];
+    return query.data
+      .filter((i: any) => i.isActive && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
-  }, [instructors.data]);
+  }, [query.data]);
+
+  return { data, isLoading: query.isLoading, isError: query.isError };
 }
 
 export function usePublicInstructorBySlug(slug: string) {

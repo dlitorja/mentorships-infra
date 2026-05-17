@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,27 @@ interface InstructorGridProps {
   priorityIds: Set<string>;
 }
 
+function InstructorCardImage({ instructor, priority }: { instructor: Instructor; priority: boolean }) {
+  const [src, setSrc] = useState(instructor.profileImageUrl || "/placeholder-instructor.jpg");
+
+  return (
+    <Link
+      href={`/instructors/${instructor.slug}`}
+      className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0 rounded-lg'
+    >
+      <Image
+        src={src}
+        alt={`${instructor.name} profile picture`}
+        fill
+        className='object-cover transition-transform hover:scale-105'
+        sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
+        priority={priority}
+        onError={() => setSrc("/placeholder-instructor.jpg")}
+      />
+    </Link>
+  );
+}
+
 export function InstructorGrid({ instructors, priorityIds }: InstructorGridProps): React.JSX.Element {
   useEffect(() => {
     sessionStorage.setItem('instructorOrder', JSON.stringify(instructors.map((i) => i.slug)));
@@ -33,19 +54,7 @@ export function InstructorGrid({ instructors, priorityIds }: InstructorGridProps
           key={instructor._id}
           className='flex flex-col'
         >
-          <Link
-            href={`/instructors/${instructor.slug}`}
-            className='relative aspect-[4/3] w-full overflow-hidden cursor-pointer flex-shrink-0 rounded-lg'
-          >
-            <Image
-              src={instructor.profileImageUrl || "/placeholder-instructor.jpg"}
-              alt={`${instructor.name} profile picture`}
-              fill
-              className='object-cover transition-transform hover:scale-105'
-              sizes='(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
-              priority={priorityIds.has(instructor._id)}
-            />
-          </Link>
+          <InstructorCardImage instructor={instructor} priority={priorityIds.has(instructor._id)} />
 
           <div className='pt-4 text-center'>
             <h3 className='text-lg font-bold uppercase tracking-wide'>{instructor.name}</h3>

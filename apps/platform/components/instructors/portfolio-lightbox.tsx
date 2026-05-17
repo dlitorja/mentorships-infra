@@ -98,14 +98,21 @@ export function PortfolioLightbox({
 
           {/* Image */}
           <div className="relative w-full h-full flex items-center justify-center p-4 md:p-8">
-            <Image
-              src={currentImage}
-              alt={`${instructorName} portfolio work ${currentIndex + 1}`}
-              fill
-              className="object-contain"
-              sizes="100vw"
-              priority
-            />
+            {currentImage ? (
+              <Image
+                src={currentImage}
+                alt={`${instructorName} portfolio work ${currentIndex + 1}`}
+                fill
+                className="object-contain"
+                sizes="100vw"
+                priority
+                onError={(e: any) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+            ) : (
+              <p className="text-muted-foreground">Image unavailable</p>
+            )}
           </div>
 
           {/* Next Button */}
