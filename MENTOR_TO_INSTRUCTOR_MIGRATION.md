@@ -14,6 +14,48 @@
 
 ---
 
+## Update (May 17, 2026)
+
+This checkpoint eliminates interactive migration prompts, finishes the Convex widen/backfill/narrow for instructor legacy refs, and moves onboarding submissions off Postgres to Convex.
+
+### Shipped
+
+- Postgres (via Supabase CLI)
+  - Added idempotent migration `packages/db/drizzle/0028_noninteractive_instructor_student_migration.sql` and applied with:
+    `supabase db query --linked -f packages/db/drizzle/0028_noninteractive_instructor_student_migration.sql`
+  - Renamed tables: mentors → instructor_integrations; mentee_* → student_*
+  - Added instructor/convex columns and FKs; dropped all mentor_id columns with CASCADE
+  - `mentorship_products` RLS set to public SELECT only; all writes expected via server/service role
+
+- Convex
+  - Added `convex/migrations.ts` runner; implemented and ran `migrations:backfillLegacyInstructorRef`
+  - Removed `instructors.legacyId` (narrow); code updated to use `legacyInstructorRef` exclusively
+  - Removed last `mentorId` from Convex API payloads; cleaned comments
+  - New `convex/studentOnboarding.ts` with getByLegacyId, create, and markReviewed
+  - Ran `npx convex codegen`
+
+- API Routes (apps/web)
+  - Onboarding endpoints now use Convex submissions:
+    - GET signed-urls: reads via `api.studentOnboarding.getByLegacyId`
+    - POST submit: writes via `api.studentOnboarding.create` (Discord queue unchanged)
+    - POST review: marks reviewed via `api.studentOnboarding.markReviewed`
+
+### How To Verify
+
+1. Submit flow: upload images → POST `/api/onboarding/submit` → expect `{ success: true }`
+2. Review flow: POST `/api/instructor/onboarding/review` → should redirect without error
+3. Signed URLs: GET `/api/onboarding/submissions/[submissionId]/signed-urls` → valid URLs
+
+### Next Steps
+
+1. Optional RLS tightening: keep `mentorship_products` public SELECT; add server-role-only write policies if desired
+2. Optional backfills: populate Postgres text `convex_id`/`instructor_id` columns from Convex for analytics via one-off script
+3. Migrate any remaining routes touching onboarding submissions fully to Convex
+4. Final narrow & cleanup: remove dead legacy paths; confirm no active code uses mentor/mentee identifiers (marketing text unaffected)
+5. QA: `pnpm check`, tests; Supabase null-distribution checks; spot-check Convex docs for `legacyInstructorRef`
+
+Notes: prefer Supabase CLI for DB changes (no prompts). For large refactors, use widen/migrate/narrow or manual idempotent SQL; avoid `drizzle-kit generate` in CI.
+
 ## Key Challenges
 
 1. `instructors.mentorId` is a FK bridge to `mentors.id` — must be replaced with direct `instructors.id` reference.
