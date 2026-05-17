@@ -12,6 +12,21 @@
 Convex is the source of truth for instructor data (profile, tokens, inventory).
 Supabase/Postgres should NOT be used for instructor data in apps/platform and apps/web.
 
+## Operational Policy: Assistants run CLIs
+
+We prefer automating ops via CLI tools instead of asking humans to run them manually.
+
+- Database migrations and queries: use Supabase CLI with committed SQL files under `packages/db/drizzle/`
+  - Apply: `supabase db query --linked -f <path-to-sql>`
+- One-off data fixes/backfills: prefer committed SQL; only use scripts when logic can’t be expressed deterministically in SQL
+- GitHub PRs: use `gh` CLI to create and manage pull requests
+- Long-running jobs: use Trigger.dev tasks (`@trigger.dev/sdk`), but prefer SQL where safe and deterministic
+
+This repo’s DB changes follow widen-migrate-narrow using Supabase CLI. Assistants will:
+1. Commit SQL migrations or backfill scripts
+2. Apply them to the linked Supabase project with the CLI
+3. Open a PR with a summary and verification steps
+
 <!-- CLERK POLICY - DO NOT TOUCH -->
 # Clerk Changes Policy (Do Not Touch)
 
