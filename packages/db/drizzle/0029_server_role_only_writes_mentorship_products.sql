@@ -7,13 +7,13 @@ begin;
 -- Ensure RLS is enabled
 alter table public.mentorship_products enable row level security;
 
--- Drop any lingering write policies (INSERT/UPDATE/DELETE)
+-- Drop any lingering write policies (ALL/INSERT/UPDATE/DELETE)
 do $$
 declare pol record;
 begin
   for pol in
     select policyname from pg_policies
-    where schemaname='public' and tablename='mentorship_products' and cmd in ('INSERT','UPDATE','DELETE')
+    where schemaname='public' and tablename='mentorship_products' and cmd in ('ALL','INSERT','UPDATE','DELETE')
   loop
     execute format('drop policy %I on public.mentorship_products', pol.policyname);
   end loop;

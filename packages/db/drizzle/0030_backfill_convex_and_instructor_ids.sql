@@ -25,8 +25,14 @@ update public.seat_reservations sr
 set instructor_id = ii.id
 from public.session_packs sp
 join public.instructors i on i.id = sp.instructor_id::uuid
-join public.instructor_integrations ii on ii.user_id = i.user_id
+join lateral (
+  select id from public.instructor_integrations
+  where user_id = i.user_id
+  order by id
+  limit 1
+) ii on true
 where sr.session_pack_id = sp.id
-  and sr.instructor_id is null;
+  and sr.instructor_id is null
+  and sp.instructor_id is not null;
 
 commit;
