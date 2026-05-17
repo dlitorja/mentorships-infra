@@ -10,16 +10,50 @@ interface PortfolioGalleryProps {
   instructorName: string;
 }
 
+function GalleryImage({ src, alt, onError }: { src: string; alt: string; onError?: () => void }) {
+  const [error, setError] = useState(false);
+
+  const handleError = () => {
+    setError(true);
+    onError?.();
+  };
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center w-full h-full bg-muted">
+        <span className="text-xs text-muted-foreground">Failed to load</span>
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      fill
+      className="object-cover"
+      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+      onError={handleError}
+    />
+  );
+}
+
 export function PortfolioGallery({
   images,
   instructorName,
 }: PortfolioGalleryProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [failedImages, setFailedImages] = useState<Set<number>>(new Set());
 
   const handleImageClick = (index: number) => {
+    if (failedImages.has(index)) return;
     setSelectedIndex(index);
     setLightboxOpen(true);
+  };
+
+  const handleImageError = (index: number) => {
+    setFailedImages((prev) => new Set(prev).add(index));
   };
 
   return (
@@ -28,16 +62,16 @@ export function PortfolioGallery({
         {images.map((image, index) => (
           <Card
             key={index}
-            className="overflow-hidden cursor-pointer transition-transform hover:scale-105 hover:shadow-lg"
+            className={`overflow-hidden transition-transform hover:scale-105 hover:shadow-lg ${
+              failedImages.has(index) ? "opacity-60 cursor-default" : "cursor-pointer"
+            }`}
             onClick={() => handleImageClick(index)}
           >
             <div className="relative aspect-[4/3] w-full">
-              <Image
+              <GalleryImage
                 src={image}
                 alt={`${instructorName} portfolio work ${index + 1}`}
-                fill
-                className="object-cover"
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                onError={() => handleImageError(index)}
               />
             </div>
           </Card>

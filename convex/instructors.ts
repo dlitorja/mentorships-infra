@@ -11,6 +11,32 @@ export const getStorageUrl = query({
   },
 });
 
+async function getFreshProfileUrl(
+  ctx: QueryCtx,
+  storageId: string | undefined,
+  fallbackUrl: string | undefined
+): Promise<string | undefined> {
+  if (!storageId) return fallbackUrl;
+  const url = await ctx.storage.getUrl(storageId as Id<"_storage">);
+  return url ?? fallbackUrl;
+}
+
+async function getFreshPortfolioUrls(
+  ctx: QueryCtx,
+  storageIds: string[] | undefined,
+  fallbackUrls: string[] | undefined
+): Promise<string[] | undefined> {
+  if (!storageIds || storageIds.length === 0) return fallbackUrls;
+  const urls = await Promise.all(
+    storageIds.map(async (sid, i) => {
+      if (!sid) return fallbackUrls?.[i];
+      const url = await ctx.storage.getUrl(sid as Id<"_storage">);
+      return url ?? fallbackUrls?.[i];
+    })
+  );
+  return urls.filter((u): u is string => u !== undefined);
+}
+
 export const getMigrationStatus = query({
   args: {},
   handler: async (ctx) => {
@@ -66,10 +92,13 @@ export const getInstructorByUserIdExternal = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    return await ctx.db
+    const instructor = await ctx.db
       .query("instructors")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
+    if (!instructor) return null;
+    const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
+    return { ...instructor, profileImageUrl };
   },
 });
 
@@ -91,10 +120,16 @@ export const listInstructorsInternal = query({
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
     if (user?.role !== "admin") throw new Error("Forbidden");
-    return await ctx.db
+    const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .collect();
+    return Promise.all(
+      instructors.map(async (inst) => {
+        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
+        return { ...inst, profileImageUrl };
+      })
+    );
   },
 });
 
@@ -134,10 +169,13 @@ export const getInstructorByUserId = query({
     if (!user) {
       return null;
     }
-    return await ctx.db
+    const instructor = await ctx.db
       .query("instructors")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
+    if (!instructor) return null;
+    const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
+    return { ...instructor, profileImageUrl };
   },
 });
 
@@ -149,7 +187,10 @@ export const getInstructorById = query({
     if (!user) {
       return null;
     }
-    return await ctx.db.get(args.id);
+    const instructor = await ctx.db.get(args.id);
+    if (!instructor) return null;
+    const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
+    return { ...instructor, profileImageUrl };
   },
 });
 
@@ -166,7 +207,13 @@ export const getInstructorsByIds = query({
       args.ids.map((id) => ctx.db.get(id))
     );
     
-    return instructors.filter((inst): inst is Doc<"instructors"> => inst !== null && !inst.deletedAt);
+    const filtered = instructors.filter((inst): inst is Doc<"instructors"> => inst !== null && !inst.deletedAt);
+    return Promise.all(
+      filtered.map(async (inst) => {
+        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
+        return { ...inst, profileImageUrl };
+      })
+    );
   },
 });
 
@@ -181,7 +228,9 @@ export const getInstructorBySlug = query({
     if (!profile) {
       return null;
     }
-    return profile;
+    const profileImageUrl = await getFreshProfileUrl(ctx, profile.profileImageStorageId, profile.profileImageUrl);
+    const portfolioImages = await getFreshPortfolioUrls(ctx, profile.portfolioImageStorageIds, profile.portfolioImages);
+    return { ...profile, profileImageUrl, portfolioImages };
   },
 });
 
@@ -192,10 +241,16 @@ export const listInstructors = query({
     if (!user) {
       return [];
     }
-    return await ctx.db
+    const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .collect();
+    return Promise.all(
+      instructors.map(async (inst) => {
+        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
+        return { ...inst, profileImageUrl };
+      })
+    );
   },
 });
 
@@ -208,10 +263,16 @@ export const getActiveInstructors = query({
     }
     const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .filter((q) => q.gt(q.field("oneOnOneInventory"), 0))
       .collect();
-    return instructors.map(({ googleRefreshToken, ...rest }) => rest);
+    const refreshed = await Promise.all(
+      instructors.map(async (inst) => {
+        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
+        return { ...inst, profileImageUrl };
+      })
+    );
+    return refreshed.map(({ googleRefreshToken, ...rest }) => rest);
   },
 });
 
@@ -220,10 +281,16 @@ export const getPublicInstructors = query({
   handler: async (ctx) => {
     const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .filter((q) => q.gt(q.field("oneOnOneInventory"), 0))
       .collect();
-    return instructors.map(({ googleRefreshToken, ...rest }) => rest);
+    const refreshed = await Promise.all(
+      instructors.map(async (inst) => {
+        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
+        return { ...inst, profileImageUrl };
+      })
+    );
+    return refreshed.map(({ googleRefreshToken, ...rest }) => rest);
   },
 });
 
@@ -232,9 +299,15 @@ export const getInstructorsForAdmin = query({
   handler: async (ctx) => {
     const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .collect();
-    return instructors.map(({ googleRefreshToken, ...rest }) => rest);
+    const refreshed = await Promise.all(
+      instructors.map(async (inst) => {
+        const profileImageUrl = await getFreshProfileUrl(ctx, inst.profileImageStorageId, inst.profileImageUrl);
+        return { ...inst, profileImageUrl };
+      })
+    );
+    return refreshed.map(({ googleRefreshToken, ...rest }) => rest);
   },
 });
 
@@ -257,7 +330,8 @@ export const getInstructorBySlugForAdmin = query({
     if (!instructor) {
       return null;
     }
-    return instructor;
+    const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
+    return { ...instructor, profileImageUrl };
   },
 });
 

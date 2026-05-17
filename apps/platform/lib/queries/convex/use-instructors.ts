@@ -44,17 +44,23 @@ export function useInstructor(id: string) {
   });
 }
 
-export function useInstructors() {
-  const instructors = useQuery({
+export function useInstructors(): {
+  data: PublicInstructor[];
+  isLoading: boolean;
+  isError: boolean;
+} {
+  const query = useQuery({
     ...convexQuery(api.instructors.listInstructors, {}),
   });
 
-  return useMemo(() => {
-    if (!instructors.data) return [];
-    return instructors.data
-      .filter((i) => i.isActive && !i.deletedAt)
+  const data = useMemo<PublicInstructor[]>(() => {
+    if (!query.data) return [];
+    return query.data
+      .filter((i: PublicInstructor) => i.isActive && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
-  }, [instructors.data]);
+  }, [query.data]);
+
+  return { data, isLoading: query.isLoading, isError: query.isError };
 }
 
 export function usePublicInstructorBySlug(slug: string) {

@@ -108,29 +108,35 @@ export const getInstructorsForAdmin = query({
     const seatReservations = await ctx.db.query("seatReservations").collect();
     const sessions = await ctx.db.query("sessions").collect();
 
-    const results: InstructorForAdmin[] = sortedInstructors.map(instructor => {
-      const activeMenteeCount = seatReservations.filter(
-        sr => sr.instructorId === instructor._id && sr.status === "active"
-      ).length;
+    const results: InstructorForAdmin[] = await Promise.all(
+      sortedInstructors.map(async (instructor) => {
+        const activeMenteeCount = seatReservations.filter(
+          sr => sr.instructorId === instructor._id && sr.status === "active"
+        ).length;
 
-      const totalCompletedSessions = sessions.filter(
-        s => s.instructorId === instructor._id && s.status === "completed"
-      ).length;
+        const totalCompletedSessions = sessions.filter(
+          s => s.instructorId === instructor._id && s.status === "completed"
+        ).length;
 
-      return {
-        id: instructor._id,
-        name: instructor.name ?? null,
-        slug: instructor.slug ?? null,
-        email: instructor.email ?? null,
-        userId: instructor.userId ?? null,
-        bio: instructor.bio ?? null,
-        profileImageUrl: instructor.profileImageUrl ?? null,
-        isActive: instructor.isActive ?? true,
-        createdAt: instructor._creationTime,
-        activeMenteeCount,
-        totalCompletedSessions,
-      };
-    });
+        const profileImageUrl = instructor.profileImageStorageId
+          ? (await ctx.storage.getUrl(instructor.profileImageStorageId as Id<"_storage">)) ?? instructor.profileImageUrl
+          : instructor.profileImageUrl;
+
+        return {
+          id: instructor._id,
+          name: instructor.name ?? null,
+          slug: instructor.slug ?? null,
+          email: instructor.email ?? null,
+          userId: instructor.userId ?? null,
+          bio: instructor.bio ?? null,
+          profileImageUrl: profileImageUrl ?? null,
+          isActive: instructor.isActive ?? true,
+          createdAt: instructor._creationTime,
+          activeMenteeCount,
+          totalCompletedSessions,
+        };
+      })
+    );
 
     return { items: results, total, page, pageSize };
   },
