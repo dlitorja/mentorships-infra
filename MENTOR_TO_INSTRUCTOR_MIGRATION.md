@@ -7,12 +7,54 @@
 **Scope**: ~2,500 references across ~280 files (excludes `apps/marketing` — maintained as-is during platform/web focus)
 
 **Current State**:
-- Convex: `mentorId` removed from most tables, `instructorId` used instead. `mentors` table still exists but is largely unused.
-- Postgres/Drizzle: **Phase 1 complete** — `instructor_id` columns added and backfilled across 6 tables. Columns are nullable (NOT NULL enforcement deferred to before Phase 1.5). Both `mentor_id` and `instructor_id` columns exist. `mentors` table still exists.
+- Convex: `mentorId` removed from API payloads; `instructorId` used instead. `legacyInstructorRef` is the sole legacy field for lookups. `instructors.legacyId` has been removed (narrow complete).
+- Postgres/Drizzle: **Phase 1 complete** — non-interactive migration `0028_noninteractive_instructor_student_migration.sql` (applied via Supabase CLI) renamed `mentors` → `instructor_integrations`, renamed `mentee_*` → `student_*`, added `instructor_id`/`convex_id` columns, and dropped all `mentor_id` columns. `mentorship_products` retains public SELECT RLS; writes go through server/service role.
 - API layer: Still returns `mentorId` in responses, accepts it in request bodies.
 - Frontend: ~1,500 refs across `platform`, `web`, `home` apps. `marketing` excluded from this migration.
 
 ---
+
+## Update (May 17, 2026)
+
+This checkpoint eliminates interactive migration prompts, finishes the Convex widen/backfill/narrow for instructor legacy refs, and moves onboarding submissions off Postgres to Convex.
+
+### Shipped
+
+- Postgres (via Supabase CLI)
+  - Added idempotent migration `packages/db/drizzle/0028_noninteractive_instructor_student_migration.sql` and applied with:
+    `supabase db query --linked -f packages/db/drizzle/0028_noninteractive_instructor_student_migration.sql`
+  - Renamed tables: mentors → instructor_integrations; mentee_* → student_*
+  - Added instructor/convex columns and FKs; dropped all mentor_id columns with CASCADE
+  - `mentorship_products` RLS set to public SELECT only; all writes expected via server/service role
+
+- Convex
+  - Added `convex/migrations.ts` runner; implemented and ran `migrations:backfillLegacyInstructorRef`
+  - Removed `instructors.legacyId` (narrow); code updated to use `legacyInstructorRef` exclusively
+  - Removed last `mentorId` from Convex API payloads; cleaned comments
+  - New `convex/studentOnboarding.ts` with getByLegacyId, create, and markReviewed
+  - Ran `npx convex codegen`
+
+- API Routes (apps/web)
+  - Onboarding endpoints now use Convex submissions:
+    - GET signed-urls: reads via `api.studentOnboarding.getByLegacyId`
+    - POST submit: writes via `api.studentOnboarding.create` (Discord queue unchanged)
+    - POST review: marks reviewed via `api.studentOnboarding.markReviewed`
+
+### How To Verify
+
+1. Submit flow: upload images → POST `/api/onboarding/submit` → expect `{ success: true }`
+2. Review flow: POST `/api/instructor/onboarding/review` → should redirect without error
+3. Signed URLs: GET `/api/onboarding/submissions/[submissionId]/signed-urls` → valid URLs
+
+### Next Steps
+
+1. Optional RLS tightening: keep `mentorship_products` public SELECT; add server-role-only write policies if desired
+2. Optional backfills: populate Postgres text `convex_id`/`instructor_id` columns from Convex for analytics via one-off script
+3. Migrate any remaining routes touching onboarding submissions fully to Convex
+4. Final narrow & cleanup: remove dead legacy paths; confirm no active code uses mentor/mentee identifiers (marketing text unaffected)
+5. QA: `pnpm check`, tests; Supabase null-distribution checks; spot-check Convex docs for `legacyInstructorRef`
+
+Notes: prefer Supabase CLI for DB changes (no prompts). For large refactors, use widen/migrate/narrow or manual idempotent SQL; avoid `drizzle-kit generate` in CI.
 
 ## Key Challenges
 
@@ -39,7 +81,7 @@
   - Note: 1 orphaned mentor (`6aaa6fc1-9af3-4583-b7a1-b31fb531bac7`) had no instructor record — created instructor and backfilled 5 orphaned rows
 - [x] **1.3** Make `instructor_id` NOT NULL (deferred — columns remain nullable during transition phase for safe rollback; will enforce NOT NULL before Phase 1.5 drop)
 - [x] **1.4** Update Drizzle schema to use `instructorId` (both columns during transition)
-- [ ] **1.5** Drop `mentor_id` columns + `mentors` table (narrow) — final step (after Phase 2-4 complete)
+- [x] **1.5** Narrow: drop `mentor_id` columns and retire mentors table naming — completed via `0028_noninteractive_instructor_student_migration.sql` which dropped all `mentor_id` columns and renamed `mentors` → `instructor_integrations` (kept integrations data under new name).
 
 ### Tables Modified
 
