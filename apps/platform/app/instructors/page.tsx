@@ -1,22 +1,25 @@
 'use client';
 
 import { InstructorGrid } from './instructor-grid';
-import { useInstructors } from '@/lib/queries/convex';
+import { usePublicInstructors } from '@/lib/queries/convex';
 
 export const dynamic = 'force-dynamic';
 
-function getPriorityIds(instructors: any[]): Set<string> {
+type InstructorSummary = { _id: string; name?: string };
+
+function getPriorityIds(instructors: InstructorSummary[]): Set<string> {
   return new Set(
     instructors
       .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
       .slice(0, 6)
       .map((i) => i._id)
   );
 }
 
 export default function InstructorsPage(): React.JSX.Element {
-  const { data: instructors, isLoading, isError } = useInstructors();
+  // Public-facing page: use the public query that does not require auth
+  const { data: instructors, isLoading, isError } = usePublicInstructors();
   const priorityIds = getPriorityIds(instructors);
 
   if (isError) {

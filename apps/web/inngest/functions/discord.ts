@@ -75,11 +75,10 @@ export const processDiscordActionQueue = inngest.createFunction(
                 roleId: payload.roleId,
               });
             } else {
-              // Prefer DISCORD_STUDENT_ROLE_NAME, fall back to legacy DISCORD_MENTEE_ROLE_NAME for compatibility
+              // Resolve role name without legacy mentee fallback
               const roleName =
                 payload.roleName ??
                 process.env.DISCORD_STUDENT_ROLE_NAME ??
-                process.env.DISCORD_MENTEE_ROLE_NAME ??
                 null;
               if (!roleName) {
                 throw new Error("Missing roleName for assign_student_role");
