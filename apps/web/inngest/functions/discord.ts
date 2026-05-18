@@ -13,7 +13,8 @@ import {
 import { reportError, reportInfo } from "@/lib/observability";
 import { DiscordApiError, addGuildMemberRoleByName, addGuildMemberRole, sendDm } from "@/lib/discord";
 
-const assignMenteeRolePayloadSchema = z.object({
+// Legacy payload naming updated: use "student" terminology in code
+const assignStudentRolePayloadSchema = z.object({
   discordId: z.string().min(1),
   guildId: z.string().min(1).nullable().optional(),
   roleName: z.string().min(1).nullable().optional(),
@@ -60,11 +61,11 @@ export const processDiscordActionQueue = inngest.createFunction(
       await step.run(`process-${action.id}`, async () => {
         try {
           if (action.type === "assign_student_role") {
-            const payload = assignMenteeRolePayloadSchema.parse(action.payload);
+            const payload = assignStudentRolePayloadSchema.parse(action.payload);
             const guildId = payload.guildId ?? process.env.DISCORD_GUILD_ID ?? null;
 
             if (!guildId) {
-              throw new Error("Missing guildId for assign_mentee_role");
+              throw new Error("Missing guildId for assign_student_role");
             }
 
             if (payload.roleId && payload.roleId.trim().length > 0) {
@@ -74,9 +75,10 @@ export const processDiscordActionQueue = inngest.createFunction(
                 roleId: payload.roleId,
               });
             } else {
+              // Note: environment variable retains legacy name for compatibility
               const roleName = payload.roleName ?? process.env.DISCORD_MENTEE_ROLE_NAME ?? null;
               if (!roleName) {
-                throw new Error("Missing roleName for assign_mentee_role");
+                throw new Error("Missing roleName for assign_student_role");
               }
               await addGuildMemberRoleByName({
                 guildId,

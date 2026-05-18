@@ -642,7 +642,7 @@ export type StudentWithSessions = {
 };
 
 /**
- * Get all mentees for an instructor with their session pack information
+ * Get all students for an instructor with their session pack information
  * Includes last completed session date and session counts
  * Includes packs with null expiresAt (no expiration)
  */
@@ -696,7 +696,7 @@ export async function getInstructorStudentsWithSessionInfo(
 }
 
 /**
- * Get mentees with only 1 session remaining (for instructor alerts)
+ * Get students with only 1 session remaining (for instructor alerts)
  * Includes packs with null expiresAt (no expiration)
  */
 export async function getInstructorStudentsWithLowSessions(
@@ -817,7 +817,6 @@ export async function getUserInstructorsWithSessionInfo(
     instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
     instructorBio: r.instructorBio,
-    instructorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
@@ -877,7 +876,6 @@ export async function getUserLowSessionPacks(
     instructorId: r.instructorId,
     instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
-    instructorBio: r.instructorBio,
     instructorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
