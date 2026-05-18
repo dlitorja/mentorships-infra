@@ -279,13 +279,15 @@ export const getActiveInstructors = query({
 /** Returns publicly available instructors (non-deleted), with a computed sold-out flag per their active offerings. */
 export const getPublicInstructors = query({
   handler: async (ctx) => {
-    const instructors = await ctx.db
+    // Fetch non-deleted instructors; then filter to public-visible ones only
+    const all = await ctx.db
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .collect();
+    const publicVisible = all.filter((inst) => (inst.isActive ?? false) && !(inst.isHidden ?? false));
 
     const refreshed = await Promise.all(
-      instructors.map(async (inst) => {
+      publicVisible.map(async (inst) => {
         const profileImageUrl = await getFreshProfileUrl(
           ctx,
           inst.profileImageStorageId,
