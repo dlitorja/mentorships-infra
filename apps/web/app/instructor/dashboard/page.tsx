@@ -2,8 +2,8 @@ import { requireRole } from "@/lib/auth-helpers";
 import { UserButton } from "@clerk/nextjs";
 import {
   getInstructorByUserId,
-  getMentorUpcomingSessions,
-  getMentorPastSessions,
+  getInstructorUpcomingSessions,
+  getInstructorPastSessions,
   getMentorActiveSeats,
   checkSeatAvailability,
 } from "@mentorships/db";
@@ -58,8 +58,8 @@ export default async function InstructorDashboardPage() {
   // Fetch all dashboard data in parallel
   const [upcomingSessions, pastSessions, activeSeats, seatAvailability] =
     await Promise.all([
-      getMentorUpcomingSessions(instructorRecord.id, 10),
-      getMentorPastSessions(instructorRecord.id, 5),
+      getInstructorUpcomingSessions(instructorRecord.id, 10),
+      getInstructorPastSessions(instructorRecord.id, 5),
       getMentorActiveSeats(instructorRecord.id),
       checkSeatAvailability(instructorRecord.id),
     ]);
@@ -293,4 +293,3 @@ export default async function InstructorDashboardPage() {
     </ProtectedLayout>
   );
 }
-

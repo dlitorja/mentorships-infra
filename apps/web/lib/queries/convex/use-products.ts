@@ -52,5 +52,5 @@ export function useProductsByInstructorAndType(instructorId: Id<"instructors">, 
   });
 }
 
-// Alias for backward compatibility
-export const useProductsByMentorId = useInstructorProducts;
+// Alias for backward compatibility (old name -> new function)
+export const useProductsByInstructorIdAlias = useInstructorProducts;
