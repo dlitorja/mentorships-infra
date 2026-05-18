@@ -759,7 +759,6 @@ export type InstructorWithSessions = {
   instructorUserId: string;
   instructorEmail: string;
   instructorBio: string | null;
-  instructorBio: string | null;
   sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
