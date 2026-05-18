@@ -93,13 +93,13 @@ export const processDiscordActionQueue = inngest.createFunction(
           if (action.type === "dm_instructor_new_signup") {
             const payload = dmInstructorNewSignupPayloadSchema.parse(action.payload);
 
-            if (!action.mentorUserId) {
-              throw new Error("Missing mentorUserId for dm_instructor_new_signup");
+            if (!action.instructorUserId) {
+              throw new Error("Missing instructorUserId for dm_instructor_new_signup");
             }
 
-            const mentorDiscordId = await getDiscordIdentityForUserId(action.mentorUserId);
-            if (!mentorDiscordId) {
-              throw new Error("Mentor Discord identity not connected");
+            const instructorDiscordId = await getDiscordIdentityForUserId(action.instructorUserId);
+            if (!instructorDiscordId) {
+              throw new Error("Instructor Discord identity not connected");
             }
 
             const content =
@@ -109,7 +109,7 @@ export const processDiscordActionQueue = inngest.createFunction(
               `Dashboard: ${payload.dashboardUrl}\n` +
               `Onboarding: ${payload.onboardingUrl}`;
 
-            await sendDm({ discordUserId: mentorDiscordId, content });
+            await sendDm({ discordUserId: instructorDiscordId, content });
 
             await markDiscordActionDone(action.id);
             done += 1;
@@ -154,5 +154,4 @@ export const processDiscordActionQueue = inngest.createFunction(
     return { success: true, processed, done, failed, requeued };
   }
 );
-
 

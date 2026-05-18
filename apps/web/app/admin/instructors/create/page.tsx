@@ -621,7 +621,7 @@ export default function CreateInstructorPage() {
                       }}
                       placeholder="10"
                     />
-                    <p className="text-sm text-muted-foreground mt-1">Maximum concurrent mentees</p>
+                    <p className="text-sm text-muted-foreground mt-1">Maximum concurrent students</p>
                   </div>
                 </div>
               )}

@@ -382,8 +382,8 @@ export default function EditInstructorPage() {
       if (response?.requiresProductDeactivation) {
         setActiveProducts((response.activeProducts as ActiveProduct[]) || []);
         setShowProductDeactivationDialog(true);
-      } else if (response?.activeMenteeCount) {
-        alert(`Cannot deactivate instructor: ${response.activeMenteeCount} active mentee(s) with remaining sessions.`);
+      } else if (response?.activeStudentCount) {
+        alert(`Cannot deactivate instructor: ${response.activeStudentCount} active student(s) with remaining sessions.`);
       } else {
         alert(error.message || "Failed to update instructor");
       }
@@ -876,7 +876,7 @@ export default function EditInstructorPage() {
                   {data.studentResults.map((r) => (
                     <div key={r.id} className="relative group">
                       {r.imageUrl && (
-                        <img src={r.imageUrl} alt="Mentee result" className="w-full h-32 object-cover rounded" />
+                        <img src={r.imageUrl} alt="Student result" className="w-full h-32 object-cover rounded" />
                       )}
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button
@@ -1006,7 +1006,7 @@ export default function EditInstructorPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Mentee Result Dialog */}
+      {/* Student Result Dialog */}
       <Dialog open={showStudentResultDialog} onOpenChange={setShowStudentResultDialog}>
         <DialogContent>
           <DialogHeader>

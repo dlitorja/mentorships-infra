@@ -5,14 +5,14 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-import { MenteeOnboardingForm } from "@/components/dashboard/mentee-onboarding-form";
+import { StudentOnboardingForm } from "@/components/dashboard/student-onboarding-form";
 
 function hasDiscordConnected(clerkUser: Awaited<ReturnType<typeof getUser>>): boolean {
   if (!clerkUser) return false;
   return clerkUser.externalAccounts.some((a) => a.provider?.toLowerCase?.().includes("discord"));
 }
 
-export default async function MenteeOnboardingPage() {
+export default async function StudentOnboardingPage() {
   const dbUser = await requireDbUser();
   const clerkUser = await getUser();
   const discordConnected = hasDiscordConnected(clerkUser);
@@ -44,7 +44,7 @@ export default async function MenteeOnboardingPage() {
           <CardHeader>
             <CardTitle>Connect Discord</CardTitle>
             <CardDescription>
-              Connect Discord in your Dashboard so we can assign your mentee role and unlock mentorship channels.
+              Connect Discord in your Dashboard so we can assign your student role and unlock mentorship channels.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -68,10 +68,9 @@ export default async function MenteeOnboardingPage() {
           </CardContent>
         </Card>
       ) : (
-        <MenteeOnboardingForm packs={packs} />
+        <StudentOnboardingForm packs={packs} />
       )}
     </div>
   );
 }
-
 
