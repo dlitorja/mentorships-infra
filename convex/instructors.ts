@@ -284,7 +284,8 @@ export const getPublicInstructors = query({
       .query("instructors")
       .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
       .collect();
-    const publicVisible = all.filter((inst) => (inst.isActive ?? false) && !(inst.isHidden ?? false));
+    // Filter to active instructors only (hidden flag not present in schema; defer any additional filtering to client-side if needed)
+    const publicVisible = all.filter((inst) => (inst.isActive ?? false));
 
     const refreshed = await Promise.all(
       publicVisible.map(async (inst) => {
