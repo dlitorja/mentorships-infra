@@ -337,7 +337,7 @@ export async function canUseSeatForBooking(seatId: string): Promise<boolean> {
  * @param instructorId - UUID of the instructor
  * @returns Array of active seat reservations
  */
-export async function getMentorActiveSeats(
+export async function getInstructorActiveSeats(
   instructorId: string
 ): Promise<Array<{
   id: string;
@@ -360,3 +360,6 @@ export async function getMentorActiveSeats(
 
   return seats;
 }
+
+// Deprecated alias for backward compatibility; prefer getInstructorActiveSeats
+export const getMentorActiveSeats = getInstructorActiveSeats;

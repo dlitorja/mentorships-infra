@@ -4,7 +4,7 @@ import {
   getInstructorByUserId,
   getInstructorUpcomingSessions,
   getInstructorPastSessions,
-  getMentorActiveSeats,
+  getInstructorActiveSeats,
   checkSeatAvailability,
 } from "@mentorships/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,7 +60,7 @@ export default async function InstructorDashboardPage() {
     await Promise.all([
       getInstructorUpcomingSessions(instructorRecord.id, 10),
       getInstructorPastSessions(instructorRecord.id, 5),
-      getMentorActiveSeats(instructorRecord.id),
+      getInstructorActiveSeats(instructorRecord.id),
       checkSeatAvailability(instructorRecord.id),
     ]);
 
