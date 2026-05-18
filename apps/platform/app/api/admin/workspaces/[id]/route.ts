@@ -19,7 +19,7 @@ function getConvexClient() {
 
 /**
  * GET /api/admin/workspaces/[id]
- * Get workspace details by ID for admin, including owner/mentor info,
+ * Get workspace details by ID for admin, including owner/instructor info,
  * messages, and audit logs. Logs a view_workspace audit event.
  */
 export async function GET(

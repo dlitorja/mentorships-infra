@@ -317,19 +317,8 @@ await step.run("queue-discord-actions", async () => {
         },
       });
 
-      if (discordId) {
-        await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
-          type: "assign_student_role",
-          subjectUserId: clerkId,
-          instructorId: instructor._id,
-          instructorUserId: instructor.userId ?? undefined,
-          payload: {
-            discordId,
-            guildId: process.env.DISCORD_GUILD_ID ?? null,
-            roleName: process.env.DISCORD_MENTEE_ROLE_NAME ?? null,
-          },
-        });
-      }
+      // Role assignment discontinued: workspaces replace Discord roles.
+      // We intentionally do not enqueue assign_student_role actions anymore.
     });
 
     return {

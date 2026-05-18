@@ -1,5 +1,7 @@
 import { inngest } from "../client";
-import { db, instructors, menteeInvitations, eq, ilike, and, gt } from "@mentorships/db";
+import { db, instructors, eq, ilike } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 
 export const linkClerkUserToInstructor = inngest.createFunction(
   {
@@ -16,7 +18,7 @@ export const linkClerkUserToInstructor = inngest.createFunction(
         linked: false, 
         reason: "No email in event data, skipping", 
         instructorLinking: { linked: false, reason: "No email provided" },
-        menteeLinking: { linked: false, reason: "No email provided" }
+        studentLinking: { linked: false, reason: "No email provided" }
       };
     }
 
@@ -39,7 +41,7 @@ export const linkClerkUserToInstructor = inngest.createFunction(
         return { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor.id };
       }
 
-      // Update instructor with userId only - no mentorId bridge needed (Convex is source of truth)
+      // Update instructor with userId only - no legacy bridge needed (Convex is source of truth)
       await db
         .update(instructors)
         .set({ userId, updatedAt: new Date() })
@@ -54,34 +56,29 @@ export const linkClerkUserToInstructor = inngest.createFunction(
       };
     });
 
-    const menteeResult = await step.run("link-mentee", async () => {
-      const pendingInvitation = await db
-        .select()
-        .from(menteeInvitations)
-        .where(
-          and(
-            eq(menteeInvitations.email, normalizedEmail),
-            eq(menteeInvitations.status, "pending"),
-            gt(menteeInvitations.expiresAt, new Date())
-          )
-        )
-        .limit(1);
+    const studentResult = await step.run("link-student", async () => {
+      const convex = getConvexClient();
+      const result = await convex.query(api.studentInvitations.listStudentInvitations, {
+        status: "pending",
+      });
 
-      if (pendingInvitation.length === 0) {
-        return { linked: false, reason: "No pending mentee invitation found", email };
+      const pendingInvitation = (result.items as any[]).find(
+        (inv: any) => inv.email.toLowerCase() === normalizedEmail
+      );
+
+      if (!pendingInvitation) {
+        return { linked: false, reason: "No pending student invitation found", email };
       }
 
-      const invitation = pendingInvitation[0];
-
-      await db
-        .update(menteeInvitations)
-        .set({ status: "accepted", updatedAt: new Date() })
-        .where(eq(menteeInvitations.id, invitation.id));
+      await convex.mutation(api.studentInvitations.updateStudentInvitationStatus, {
+        id: pendingInvitation.id,
+        status: "accepted",
+      });
 
       return {
         linked: true,
-        invitationId: invitation.id,
-        mentorId: invitation.instructorId,
+        invitationId: pendingInvitation.id,
+        instructorId: pendingInvitation.instructorId,
         email,
         needsSessionPack: true,
       };
@@ -89,7 +86,7 @@ export const linkClerkUserToInstructor = inngest.createFunction(
 
     return {
       instructorLinking: instructorResult,
-      menteeLinking: menteeResult,
+      studentLinking: studentResult,
     };
   }
 );

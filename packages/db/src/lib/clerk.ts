@@ -207,9 +207,9 @@ export async function getOrCreateUser() {
 
   // Sync user to Supabase
   const rawRole = clerkUser.publicMetadata?.role ?? "student";
+  // Handle legacy "mentor" role value from older Clerk metadata
   const normalizedRole = rawRole === "mentor" ? "instructor" : rawRole;
   const parsed = ClerkRoleSchema.safeParse(normalizedRole);
   const role = parsed.success ? parsed.data : "student";
   return await syncClerkUserToSupabase(clerkUser.id, email, role);
 }
-

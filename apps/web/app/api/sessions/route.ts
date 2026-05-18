@@ -13,7 +13,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
 import { requireDbUser } from "@/lib/auth";
 import { getGoogleCalendarClient } from "@/lib/google";
-import { decryptMentorRefreshToken } from "@/lib/crypto";
+import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { inngest } from "@/inngest/client";
 import {
   forbidden,
@@ -134,7 +134,7 @@ function overlapsBusyWindow(
  *
  * Books a session by:
  * 1) validating pack/seat eligibility
- * 2) re-checking mentor's Google Calendar free/busy
+ * 2) re-checking instructor's Google Calendar free/busy
  * 3) creating a Google Calendar event
  * 4) inserting a session row with googleCalendarEventId (idempotency)
  */
@@ -207,7 +207,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json(errorResponse, { status: 404 });
     }
 
-    const refreshToken = decryptMentorRefreshToken(instructor);
+    const refreshToken = decryptInstructorRefreshToken(instructor);
     if (!refreshToken) {
       const { response: errorResponse } = validationError(
         "Instructor has not connected Google Calendar"
@@ -282,7 +282,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const [created] = await db
         .insert(sessions)
         .values({
-          mentorId: pack.instructorId,
+          instructorId: pack.instructorId,
           studentId: user.id,
           sessionPackId,
           scheduledAt: start,
@@ -307,7 +307,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             sessionId,
             sessionPackId,
             studentId: user.id,
-            mentorId: instructor._id,
+            instructorId: instructor._id,
             scheduledAt,
           },
         }),
@@ -318,7 +318,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             sessionId,
             sessionPackId,
             studentId: user.id,
-            mentorId: instructor._id,
+            instructorId: instructor._id,
             scheduledAt,
           },
         }),
@@ -350,4 +350,3 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(errorResponse, { status: 500 });
   }
 }
-
