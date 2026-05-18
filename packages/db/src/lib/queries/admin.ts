@@ -34,7 +34,7 @@ export type StudentWithSessionInfo = {
 };
 
 export type InstructorWithStudents = InstructorWithStats & {
-  mentees: StudentWithSessionInfo[];
+  students: StudentWithSessionInfo[];
 };
 
 export async function getAllInstructorsWithStats(
@@ -208,7 +208,7 @@ export async function getInstructorWithStudents(
     .where(eq(sessionPacks.instructorId, instructorId))
     .orderBy(desc(sessionPacks.createdAt));
 
-  const mentees: StudentWithSessionInfo[] = menteesResult.map((m: typeof menteesResult[number]) => ({
+  const students: StudentWithSessionInfo[] = menteesResult.map((m: typeof menteesResult[number]) => ({
     userId: m.userId,
     email: m.email,
     sessionPackId: m.sessionPackId,
@@ -233,7 +233,7 @@ export async function getInstructorWithStudents(
     activeStudentCount: Number(instructor.activeStudentCount) || 0,
     totalCompletedSessions: instructor.totalCompletedSessions,
     createdAt: instructor.createdAt,
-    mentees,
+    students,
   };
 }
 

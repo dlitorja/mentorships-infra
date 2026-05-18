@@ -62,8 +62,9 @@ export const linkClerkUserToInstructor = inngest.createFunction(
         status: "pending",
       });
 
-      const pendingInvitation = (result.items as any[]).find(
-        (inv: any) => inv.email.toLowerCase() === normalizedEmail
+      const items = result.items;
+      const pendingInvitation = items.find(
+        (inv) => inv.email.toLowerCase() === normalizedEmail
       );
 
       if (!pendingInvitation) {

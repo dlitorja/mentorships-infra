@@ -80,13 +80,18 @@ export async function checkSeatAvailability(instructorId: string): Promise<{
   remainingSeats: number;
 }> {
   // Get instructor's max active students
-  const [instructor] = await db
-    .select({ maxActiveStudents: instructorIntegrations.maxActiveStudents })
+  // Map instructors.id (UUID) -> instructorIntegrations via shared userId
+  const [integration] = await db
+    .select({
+      maxActiveStudents: instructorIntegrations.maxActiveStudents,
+      integrationId: instructorIntegrations.id,
+    })
     .from(instructorIntegrations)
-    .where(eq(instructorIntegrations.id, instructorId))
+    .innerJoin(instructors, eq(instructorIntegrations.userId, instructors.userId))
+    .where(eq(instructors.id, instructorId))
     .limit(1);
 
-  if (!instructor) {
+  if (!integration) {
     throw new Error(`Instructor ${instructorId} not found`);
   }
 
@@ -102,7 +107,7 @@ export async function checkSeatAvailability(instructorId: string): Promise<{
     );
 
   const activeSeats = Number(activeSeatsResult?.count ?? 0);
-  const maxSeats = instructor.maxActiveStudents;
+  const maxSeats = integration.maxActiveStudents;
   const remainingSeats = Math.max(0, maxSeats - activeSeats);
 
   return {
@@ -355,4 +360,3 @@ export async function getMentorActiveSeats(
 
   return seats;
 }
-
