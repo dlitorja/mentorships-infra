@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [ main ]
+
+jobs:
+  convex-codegen:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Convex codegen
+        run: npx convex codegen
+      - name: Fail if codegen produced unstaged changes
+        run: |
+          git status --porcelain
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Generated files changed; commit codegen artifacts."
+            git diff --name-only
+            exit 1
+          fi
+
+  typecheck-convex:
+    runs-on: ubuntu-latest
+    needs: convex-codegen
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck Convex server
+        run: pnpm run typecheck
+
+  typecheck-apps:
+    runs-on: ubuntu-latest
+    needs: [convex-codegen]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck apps/web
+        run: pnpm --filter @mentorships/web run typecheck
+      - name: Typecheck apps/platform
+        run: pnpm --filter @mentorships/platform run typecheck
+
+  build-apps:
+    runs-on: ubuntu-latest
+    needs: [typecheck-apps]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+      - name: Build apps/web
+        run: pnpm --filter @mentorships/web run build
+      - name: Build apps/platform
+        run: pnpm --filter @mentorships/platform run build

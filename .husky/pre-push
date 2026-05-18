@@ -1,0 +1,16 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Convex codegen must be current before pushing
+echo "Running Convex codegen..."
+npx convex codegen || exit 1
+
+# Fail if codegen changed files
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Generated files changed; commit codegen artifacts before pushing."
+  git diff --name-only
+  exit 1
+fi
+
+echo "Typechecking workspace..."
+pnpm run typecheck || exit 1
