@@ -203,9 +203,9 @@ export default async function DashboardPage() {
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="font-semibold">{instructor.instructorEmail}</p>
-                        {instructor.mentorBio && (
+                        {instructor.instructorBio && (
                           <p className="text-sm text-muted-foreground mt-1">
-                            {instructor.mentorBio}
+                            {instructor.instructorBio}
                           </p>
                         )}
                         <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
