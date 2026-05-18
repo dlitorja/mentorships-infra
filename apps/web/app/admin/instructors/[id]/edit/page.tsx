@@ -146,7 +146,7 @@ const instructorsResponseSchema = z.object({
     slug: z.string().nullable(),
     isActive: z.boolean(),
     createdAt: z.string(),
-    activeMenteeCount: z.number(),
+    activeStudentCount: z.number(),
     totalCompletedSessions: z.number(),
   })),
 });

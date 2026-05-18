@@ -6,12 +6,12 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import type { Id } from "@/convex/_generated/dataModel";
 
 const createSchema = z.object({
-  sessionCount: z.number().int("Must be an integer"),
+  sessionCount: z.number().int("Must be an integer").min(0, "Must be >= 0"),
   notes: z.string().optional(),
 });
 
 const updateSchema = z.object({
-  sessionCount: z.number().int("Must be an integer"),
+  sessionCount: z.number().int("Must be an integer").min(0, "Must be >= 0"),
   notes: z.string().optional(),
 });
 
@@ -95,6 +95,22 @@ export async function POST(
 
     const { sessionCount, notes } = validation.data;
 
+    // Ownership check: ensure the target user has a session pack with this instructor
+    const packs = await convex.query(api.sessionPacks.getUserSessionPacksWithInstructors, {
+      userId,
+      limit: 1,
+      offset: 0,
+    });
+    const isStudentOfInstructor = Boolean(
+      packs?.items?.some((p: any) => p.instructorId === instructor._id)
+    );
+    if (!isStudentOfInstructor) {
+      return NextResponse.json(
+        { error: "Forbidden: Only your own students can have session counts" },
+        { status: 403 }
+      );
+    }
+
     const result = await convex.mutation(api.studentSessionCounts.upsertSessionCount, {
       userId,
       instructorId: instructor._id as Id<"instructors">,
@@ -158,6 +174,10 @@ export async function PATCH(
 
     if (record.instructorId !== instructor._id) {
       return NextResponse.json({ error: "Forbidden: You can only modify your own student session counts" }, { status: 403 });
+    }
+
+    if (adjustment !== undefined && sessionCount !== undefined) {
+      return NextResponse.json({ error: "Specify either adjustment or sessionCount, not both" }, { status: 400 });
     }
 
     if (adjustment !== undefined) {

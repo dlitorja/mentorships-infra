@@ -30,7 +30,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       reviewedByUserId: user.id,
     });
     if (!result.ok) {
-      const status = result.error === "not_found" ? 404 : 403;
+      let status = 500;
+      if (result.error === "not_found") status = 404;
+      else if (result.error === "forbidden") status = 403;
+      else if (result.error === "unauthorized") status = 401;
+      else if (result.error === "bad_request" || result.error === "validation") status = 400;
       return NextResponse.json({ error: result.error, errorId }, { status });
     }
 

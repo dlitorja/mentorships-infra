@@ -7,10 +7,11 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const sessionPackIdSchema = z.string().min(1, "Session pack ID is required");
-const updateSessionCountSchema = z.object({
-  action: z.enum(["increment", "decrement", "set"]),
-  amount: z.number().int().min(1).default(1),
-});
+const updateSessionCountSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("increment"), amount: z.number().int().min(1).default(1) }),
+  z.object({ action: z.literal("decrement"), amount: z.number().int().min(1).default(1) }),
+  z.object({ action: z.literal("set"), amount: z.number().int().min(0) }),
+]);
 
 /**
  * PATCH /api/instructor/students/[sessionPackId]
@@ -24,9 +25,9 @@ export async function PATCH(
     const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
 
-    const rawParams = await params;
-    const rawSessionPackId = sessionPackIdSchema.parse(rawParams.sessionPackId);
-    const sessionPackId = rawSessionPackId as Id<"sessionPacks">;
+  const rawParams = await params;
+  const rawSessionPackId = sessionPackIdSchema.parse(rawParams.sessionPackId);
+  const sessionPackId = rawSessionPackId as Id<"sessionPacks">;
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,

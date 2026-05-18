@@ -319,7 +319,7 @@ await step.run("queue-discord-actions", async () => {
 
       if (discordId) {
         await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
-          type: "assign_mentee_role",
+          type: "assign_student_role",
           subjectUserId: clerkId,
           instructorId: instructor._id,
           instructorUserId: instructor.userId ?? undefined,
@@ -343,4 +343,3 @@ await step.run("queue-discord-actions", async () => {
     };
   }
 );
-

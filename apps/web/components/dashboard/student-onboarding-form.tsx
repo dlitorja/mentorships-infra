@@ -73,7 +73,7 @@ export function StudentOnboardingForm({ packs }: { packs: PackOption[] }) {
   const uploading = uploadImagesMutation.isPending;
   const submitting = submitOnboardingMutation.isPending;
 
-  const canUpload = files.length >= 1 && files.length <= 4 && !uploading && !submitting;
+  const canUpload = files.length >= 2 && files.length <= 4 && !uploading && !submitting;
   const canSubmit =
     goals.trim().length >= 10 &&
     sessionPackId.length > 0 &&
@@ -111,6 +111,9 @@ export function StudentOnboardingForm({ packs }: { packs: PackOption[] }) {
     const selectedFiles = e.target.files;
     if (selectedFiles) {
       setFiles(Array.from(selectedFiles));
+      // Reset prior upload state when files change to avoid stale submission reuse
+      setSubmissionId(null);
+      setUploadedImages([]);
     }
   }
 

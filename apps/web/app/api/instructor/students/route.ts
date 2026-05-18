@@ -9,7 +9,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
  * GET /api/instructor/students
  * Get all students for the authenticated instructor
  */
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
@@ -25,23 +25,23 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const mentees = await convex.query(api.instructors.getInstructorStudentsWithSessionInfo, {
+    const students = await convex.query(api.instructors.getInstructorStudentsWithSessionInfo, {
       instructorId: instructor._id,
-    }) as any[];
-
-    return NextResponse.json({
-      items: mentees.map((m: any) => ({
-        userId: m.userId,
-        email: m.email,
-        sessionPackId: m.sessionPackId,
-        totalSessions: m.totalSessions,
-        remainingSessions: m.remainingSessions,
-        expiresAt: m.expiresAt ? new Date(m.expiresAt).toISOString() : null,
-        status: m.status,
-        lastSessionCompletedAt: m.lastSessionCompletedAt ? new Date(m.lastSessionCompletedAt).toISOString() : null,
-        completedSessionCount: m.completedSessionCount,
-      })),
     });
+
+    const items = (Array.isArray(students) ? students : []).map((m: any) => ({
+      userId: m.userId,
+      email: m.email,
+      sessionPackId: m.sessionPackId,
+      totalSessions: m.totalSessions,
+      remainingSessions: m.remainingSessions,
+      expiresAt: m.expiresAt ? new Date(m.expiresAt).toISOString() : null,
+      status: m.status,
+      lastSessionCompletedAt: m.lastSessionCompletedAt ? new Date(m.lastSessionCompletedAt).toISOString() : null,
+      completedSessionCount: m.completedSessionCount,
+    }));
+
+    return NextResponse.json({ items });
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -59,7 +59,7 @@ export const processDiscordActionQueue = inngest.createFunction(
 
       await step.run(`process-${action.id}`, async () => {
         try {
-          if (action.type === "assign_mentee_role") {
+          if (action.type === "assign_student_role") {
             const payload = assignMenteeRolePayloadSchema.parse(action.payload);
             const guildId = payload.guildId ?? process.env.DISCORD_GUILD_ID ?? null;
 
@@ -154,4 +154,3 @@ export const processDiscordActionQueue = inngest.createFunction(
     return { success: true, processed, done, failed, requeued };
   }
 );
-
