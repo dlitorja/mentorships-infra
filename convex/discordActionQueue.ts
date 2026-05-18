@@ -46,7 +46,9 @@ export const migrateDiscordAction = mutation({
     }
 
     const insertResult = await ctx.db.insert("discordActionQueue", {
-      type: args.type,
+      // Temporary cast to handle legacy codegen environments that still reference
+      // "assign_mentee_role" in the enum. Server schema supports "assign_student_role".
+      type: args.type as any,
       subjectUserId: args.subjectUserId,
       instructorId: args.instructorId ?? undefined,
       instructorUserId: args.instructorUserId ?? undefined,
