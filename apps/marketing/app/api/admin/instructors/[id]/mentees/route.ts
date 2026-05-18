@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getInstructorWithMentees } from "@mentorships/db";
+import { getInstructorWithStudents } from "@mentorships/db";
 
 export async function GET(
   request: Request,
@@ -18,7 +18,7 @@ export async function GET(
       );
     }
 
-    const instructor = await getInstructorWithMentees(id);
+    const instructor = await getInstructorWithStudents(id);
 
     if (!instructor) {
       return NextResponse.json(

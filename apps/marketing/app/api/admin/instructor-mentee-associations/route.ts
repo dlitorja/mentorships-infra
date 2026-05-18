@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
-import { createInstructorMenteeAssociations } from "@mentorships/db";
+import { createInstructorStudentAssociations } from "@mentorships/db";
 
 const associationSchema = z.object({
-  mentorUserId: z.string().min(1, "Mentor user ID is required"),
-  menteeUserIds: z.array(z.string()).min(1, "At least one mentee is required"),
+  instructorUserId: z.string().min(1, "Instructor user ID is required"),
+  studentUserIds: z.array(z.string()).min(1, "At least one student is required"),
   sessionsPerPack: z.number().int().positive().optional().default(4),
 });
 
@@ -23,11 +23,11 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const { mentorUserId, menteeUserIds, sessionsPerPack } = parseResult.data;
+    const { instructorUserId, studentUserIds, sessionsPerPack } = parseResult.data;
 
-    const result = await createInstructorMenteeAssociations({
-      mentorUserId,
-      menteeUserIds,
+    const result = await createInstructorStudentAssociations({
+      instructorUserId: instructorUserId,
+      studentUserIds,
       sessionsPerPack,
     });
 
@@ -44,7 +44,7 @@ export async function POST(request: Request): Promise<Response> {
       errors: result.errors.length > 0 ? result.errors : undefined,
     });
   } catch (error) {
-    console.error("Error creating instructor-mentee associations:", error);
+    console.error("Error creating instructor-student associations:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
