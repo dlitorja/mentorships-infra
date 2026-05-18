@@ -7,14 +7,17 @@ const listStudentsQuerySchema = z.object({
   search: z.string().optional(),
   instructorId: z.string().optional(),
   status: z.enum(["active", "depleted", "expired", "refunded"]).optional(),
-  expiresAfter: z.coerce.number().optional(),
-  expiresBefore: z.coerce.number().optional(),
-  purchasedAfter: z.coerce.number().optional(),
-  purchasedBefore: z.coerce.number().optional(),
-  remainingMin: z.coerce.number().optional(),
-  remainingMax: z.coerce.number().optional(),
-  page: z.coerce.number().optional(),
-  pageSize: z.coerce.number().optional(),
+  // Timestamps: integers >= 0
+  expiresAfter: z.coerce.number().int().min(0).optional(),
+  expiresBefore: z.coerce.number().int().min(0).optional(),
+  purchasedAfter: z.coerce.number().int().min(0).optional(),
+  purchasedBefore: z.coerce.number().int().min(0).optional(),
+  // Remaining sessions: integers >= 0
+  remainingMin: z.coerce.number().int().min(0).optional(),
+  remainingMax: z.coerce.number().int().min(0).optional(),
+  // Pagination: integers >= 1
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).optional(),
 });
 
 function getConvexClient() {
@@ -45,8 +48,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(result);
   } catch (error: unknown) {
+    // Log full error server-side; return generic messages to clients
     console.error("Error listing students:", error);
-    const message = error instanceof Error ? error.message : "Failed to list students";
-    return NextResponse.json({ error: message }, { status: 500 });
+    let status = 500;
+    if (error instanceof Error) {
+      if (error.message === "Unauthorized") status = 401;
+      else if (error.message.includes("Forbidden")) status = 403;
+    }
+    const payload =
+      status === 401
+        ? { error: "Unauthorized" }
+        : status === 403
+        ? { error: "Forbidden" }
+        : { error: "Internal server error" };
+    return NextResponse.json(payload, { status });
   }
 }

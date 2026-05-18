@@ -5,11 +5,13 @@ import { usePublicInstructors } from '@/lib/queries/convex';
 
 export const dynamic = 'force-dynamic';
 
-function getPriorityIds(instructors: any[]): Set<string> {
+type InstructorSummary = { _id: string; name?: string };
+
+function getPriorityIds(instructors: InstructorSummary[]): Set<string> {
   return new Set(
     instructors
       .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
       .slice(0, 6)
       .map((i) => i._id)
   );
