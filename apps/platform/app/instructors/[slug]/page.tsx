@@ -288,7 +288,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
 
             {studentResultsData && studentResultsData.length > 0 && (
               <div className="mt-12">
-                <h2 className="text-3xl font-bold mb-6">Mentee Success Stories</h2>
+                <h2 className="text-3xl font-bold mb-6">Student Success Stories</h2>
                 <PortfolioGallery images={(studentResultsData as Array<{imageUrl?: string}>).map((r) => r.imageUrl).filter((url): url is string => Boolean(url))} instructorName={instructor.name} />
               </div>
             )}
