@@ -47,10 +47,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       cursor: cursor ?? null,
     };
 
-  const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
-    paginationOpts,
-    type,
-  });
+    const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
+      paginationOpts,
+      type,
+    });
 
     return NextResponse.json({
       items: result.page,
