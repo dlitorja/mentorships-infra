@@ -1,6 +1,6 @@
 import { eq, and, sql, count, or, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
-import { seatReservations, instructorIntegrations, sessionPacks, sessions } from "../../schema";
+import { seatReservations, instructorIntegrations, sessionPacks, sessions, instructors } from "../../schema";
 import type { SeatStatus } from "../../schema/seatReservations";
 
 /**
