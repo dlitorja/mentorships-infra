@@ -1,13 +1,13 @@
 import { eq, desc, sql, and, gte, lte, gt, isNull, or } from "drizzle-orm";
 import { db } from "../drizzle";
-import { sessionPacks, seatReservations, sessions, mentors, users, instructors } from "../../schema";
+import { sessionPacks, seatReservations, sessions, instructorIntegrations, users, instructors } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 
 type SessionPack = typeof sessionPacks.$inferSelect;
 type SeatReservation = typeof seatReservations.$inferSelect;
-type SessionPackWithMentor = SessionPack & {
-  mentor: typeof mentors.$inferSelect;
-  mentorUser: typeof users.$inferSelect;
+type SessionPackWithInstructor = SessionPack & {
+  instructorIntegration: typeof instructorIntegrations.$inferSelect;
+  instructorUser: typeof users.$inferSelect;
 };
 
 /**
@@ -80,7 +80,7 @@ export async function createSessionPackWithoutPayment(
   return pack;
 }
 
-export type InstructorMenteeAssociation = {
+export type InstructorStudentAssociation = {
   sessionPackId: string;
   userId: string;
   email: string;
@@ -92,46 +92,42 @@ export type InstructorMenteeAssociation = {
   createdAt: Date;
 };
 
-export type CreateInstructorMenteeAssociationParams = {
-  mentorUserId: string;
-  menteeUserIds: string[];
+export type CreateInstructorStudentAssociationParams = {
+  instructorUserId: string;
+  studentUserIds: string[];
   sessionsPerPack?: number;
 };
 
-export async function createInstructorMenteeAssociations(
-  params: CreateInstructorMenteeAssociationParams
-): Promise<{ associations: InstructorMenteeAssociation[]; errors: string[] }> {
-  const { mentorUserId, menteeUserIds, sessionsPerPack = 4 } = params;
-  const associations: InstructorMenteeAssociation[] = [];
+/**
+ * Create instructor-student associations by creating session packs
+ */
+export async function createInstructorStudentAssociations(
+  params: CreateInstructorStudentAssociationParams
+): Promise<{ associations: InstructorStudentAssociation[]; errors: string[] }> {
+  const { instructorUserId, studentUserIds, sessionsPerPack = 4 } = params;
+  const associations: InstructorStudentAssociation[] = [];
   const errors: string[] = [];
 
   await db.transaction(async (tx: typeof db) => {
-    for (const menteeUserId of menteeUserIds) {
+    // Resolve instructor by userId once
+    const instructorRow = await tx.query.instructors.findFirst({
+      where: eq(instructors.userId, instructorUserId),
+    });
+    if (!instructorRow) {
+      errors.push(`Instructor not found for userId: ${instructorUserId}`);
+      return;
+    }
+
+    for (const studentUserId of studentUserIds) {
       try {
-        const instructor = await tx
-          .select()
-          .from(instructors)
-          .where(eq(instructors.userId, mentorUserId))
-          .limit(1);
-
-        if (instructor.length === 0) {
-          errors.push(`Instructor with userId ${mentorUserId} not found`);
-          continue;
-        }
-
-        const conditions = [
-          eq(sessionPacks.userId, menteeUserId),
-          eq(sessionPacks.instructorId, instructor[0].id),
-        ];
-
-        const existingPack = await tx
-          .select()
+        // Skip if association already exists
+        const existing = await tx
+          .select({ id: sessionPacks.id })
           .from(sessionPacks)
-          .where(and(...conditions))
+          .where(and(eq(sessionPacks.instructorId, instructorRow.id), eq(sessionPacks.userId, studentUserId)))
           .limit(1);
-
-        if (existingPack.length > 0) {
-          errors.push(`Mentee ${menteeUserId} already associated with this instructor`);
+        if (existing.length > 0) {
+          errors.push(`Student ${studentUserId} already associated with this instructor`);
           continue;
         }
 
@@ -139,8 +135,8 @@ export async function createInstructorMenteeAssociations(
           .insert(sessionPacks)
           .values({
             id: crypto.randomUUID(),
-            userId: menteeUserId,
-            instructorId: instructor[0].id,
+            instructorId: instructorRow.id,
+            userId: studentUserId,
             paymentId: crypto.randomUUID() as any,
             expiresAt: null,
             totalSessions: sessionsPerPack,
@@ -150,31 +146,33 @@ export async function createInstructorMenteeAssociations(
           })
           .returning();
 
-        const [menteeUser] = await tx
-          .select()
+        const [studentUser] = await tx
+          .select({ email: users.email })
           .from(users)
-          .where(eq(users.id, menteeUserId))
+          .where(eq(users.id, studentUserId))
           .limit(1);
 
         const [instructorUser] = await tx
-          .select()
+          .select({ email: users.email })
           .from(users)
-          .where(eq(users.id, mentorUserId))
+          .where(eq(users.id, instructorUserId))
           .limit(1);
 
         associations.push({
           sessionPackId: pack.id,
-          userId: menteeUserId,
-          email: menteeUser?.email || "Unknown",
-          instructorId: instructor[0].id,
-          instructorEmail: instructorUser?.email || "Unknown",
+          userId: studentUserId,
+          email: studentUser?.email ?? "Unknown",
+          instructorId: instructorRow.id,
+          instructorEmail: instructorUser?.email ?? "Unknown",
           totalSessions: pack.totalSessions,
           remainingSessions: pack.remainingSessions,
           status: pack.status,
-          createdAt: pack.createdAt,
+          createdAt: pack.createdAt!,
         });
       } catch (error) {
-        errors.push(`Failed to associate mentee ${menteeUserId}: ${error instanceof Error ? error.message : "Unknown error"}`);
+        errors.push(
+          `Failed to associate student ${studentUserId}: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
       }
     }
   });
@@ -423,15 +421,15 @@ export async function incrementRemainingSessions(
 }
 
 /**
- * Get user's active session packs with mentor information
+ * Get user's active session packs with instructor information
  * Includes packs with null expiresAt (no expiration)
  */
-export async function getUserSessionPacksWithMentors(
+export async function getUserSessionPacksWithInstructors(
   userId: string,
   limit: number = 100,
   offset: number = 0
 ): Promise<{
-  items: SessionPackWithMentor[];
+  items: SessionPackWithInstructor[];
   total: number;
   limit: number;
   offset: number;
@@ -446,8 +444,8 @@ export async function getUserSessionPacksWithMentors(
       count: sql<number>`count(*)`,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
-    .innerJoin(users, eq(mentors.userId, users.id))
+    .innerJoin(instructorIntegrations, eq(sessionPacks.instructorId, instructorIntegrations.id))
+    .innerJoin(users, eq(instructorIntegrations.userId, users.id))
     .where(
       and(
         eq(sessionPacks.userId, userId),
@@ -464,12 +462,12 @@ export async function getUserSessionPacksWithMentors(
   const results = await db
     .select({
       sessionPack: sessionPacks,
-      mentor: mentors,
-      mentorUser: users,
+      instructorIntegration: instructorIntegrations,
+      instructorUser: users,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
-    .innerJoin(users, eq(mentors.userId, users.id))
+    .innerJoin(instructorIntegrations, eq(sessionPacks.instructorId, instructorIntegrations.id))
+    .innerJoin(users, eq(instructorIntegrations.userId, users.id))
     .where(
       and(
         eq(sessionPacks.userId, userId),
@@ -487,8 +485,8 @@ export async function getUserSessionPacksWithMentors(
   return {
     items: results.map((r: typeof results[number]) => ({
       ...r.sessionPack,
-      mentor: r.mentor,
-      mentorUser: r.mentorUser,
+      instructorIntegration: r.instructorIntegration,
+      instructorUser: r.instructorUser,
     })),
     total,
     limit: validatedLimit,
@@ -761,7 +759,7 @@ export type InstructorWithSessions = {
   instructorUserId: string;
   instructorEmail: string;
   instructorBio: string | null;
-  mentorBio: string | null;
+  instructorBio: string | null;
   sessionPackId: string;
   totalSessions: number;
   remainingSessions: number;
@@ -783,10 +781,10 @@ export async function getUserInstructorsWithSessionInfo(
 
   const results = await db
     .select({
-      instructorId: mentors.id,
+      instructorId: instructorIntegrations.id,
       instructorUserId: users.id,
       instructorEmail: users.email,
-      instructorBio: mentors.bio,
+      instructorBio: instructorIntegrations.bio,
       sessionPackId: sessionPacks.id,
       totalSessions: sessionPacks.totalSessions,
       remainingSessions: sessionPacks.remainingSessions,
@@ -801,8 +799,8 @@ export async function getUserInstructorsWithSessionInfo(
       completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
-    .innerJoin(users, eq(mentors.userId, users.id))
+    .innerJoin(instructorIntegrations, eq(sessionPacks.instructorId, instructorIntegrations.id))
+    .innerJoin(users, eq(instructorIntegrations.userId, users.id))
     .where(
       and(
         eq(sessionPacks.userId, userId),
@@ -820,7 +818,7 @@ export async function getUserInstructorsWithSessionInfo(
     instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
     instructorBio: r.instructorBio,
-    mentorBio: r.instructorBio,
+    instructorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
@@ -843,10 +841,10 @@ export async function getUserLowSessionPacks(
 
   const results = await db
     .select({
-      instructorId: mentors.id,
+      instructorId: instructorIntegrations.id,
       instructorUserId: users.id,
       instructorEmail: users.email,
-      instructorBio: mentors.bio,
+      instructorBio: instructorIntegrations.bio,
       sessionPackId: sessionPacks.id,
       totalSessions: sessionPacks.totalSessions,
       remainingSessions: sessionPacks.remainingSessions,
@@ -861,8 +859,8 @@ export async function getUserLowSessionPacks(
       completedSessionCount: sql<number>`(SELECT COUNT(*) FROM ${sessions} WHERE ${sessions.sessionPackId} = ${sessionPacks.id} AND ${sessions.status} = 'completed')`,
     })
     .from(sessionPacks)
-    .innerJoin(mentors, eq(sessionPacks.instructorId, mentors.id))
-    .innerJoin(users, eq(mentors.userId, users.id))
+    .innerJoin(instructorIntegrations, eq(sessionPacks.instructorId, instructorIntegrations.id))
+    .innerJoin(users, eq(instructorIntegrations.userId, users.id))
     .where(
       and(
         eq(sessionPacks.userId, userId),
@@ -881,7 +879,7 @@ export async function getUserLowSessionPacks(
     instructorUserId: r.instructorUserId,
     instructorEmail: r.instructorEmail,
     instructorBio: r.instructorBio,
-    mentorBio: r.instructorBio,
+    instructorBio: r.instructorBio,
     sessionPackId: r.sessionPackId,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
