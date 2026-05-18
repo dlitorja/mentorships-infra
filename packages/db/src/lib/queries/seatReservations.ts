@@ -362,4 +362,4 @@ export async function getInstructorActiveSeats(
 }
 
 // Deprecated alias for backward compatibility; prefer getInstructorActiveSeats
-export const getMentorActiveSeats = getInstructorActiveSeats;
+// Removed legacy alias to enforce naming consistency
