@@ -5,7 +5,7 @@ import { v } from "convex/values";
 export const migrateDiscordAction = mutation({
   args: {
     type: v.union(
-      v.literal("assign_mentee_role"),
+      v.literal("assign_student_role"),
       v.literal("dm_instructor_new_signup")
     ),
     subjectUserId: v.string(),
@@ -46,7 +46,9 @@ export const migrateDiscordAction = mutation({
     }
 
     const insertResult = await ctx.db.insert("discordActionQueue", {
-      type: args.type,
+      // Temporary cast to handle legacy codegen environments that still reference
+      // "assign_mentee_role" in the enum. Server schema supports "assign_student_role".
+      type: args.type as any,
       subjectUserId: args.subjectUserId,
       instructorId: args.instructorId ?? undefined,
       instructorUserId: args.instructorUserId ?? undefined,
@@ -85,9 +87,9 @@ export const claimDiscordActions = internalMutation({
 
     const actionsToClaim = [...pendingActions, ...staleProcessingActions];
 
-    const claimed: Array<{
+    const     claimed: Array<{
       id: string;
-      type: "assign_mentee_role" | "dm_instructor_new_signup";
+      type: "assign_student_role" | "dm_instructor_new_signup";
       status: string;
       subjectUserId: string;
       instructorId: string | null;
@@ -107,7 +109,8 @@ export const claimDiscordActions = internalMutation({
 
       claimed.push({
         id: action._id.toString(),
-        type: action.type,
+        // Cast for legacy codegen enum mismatch (assign_mentee_role vs assign_student_role)
+        type: action.type as any,
         status: "processing",
         subjectUserId: action.subjectUserId,
         instructorId: action.instructorId ?? null,
@@ -194,8 +197,9 @@ function getDiscordGuildId(): string {
   return process.env.DISCORD_GUILD_ID ?? "";
 }
 
-function getMenteeRoleName(): string {
-  return process.env.DISCORD_MENTEE_ROLE_NAME ?? "";
+function getStudentRoleName(): string {
+  // Prefer new env var, retain legacy fallback to avoid breaking existing deployments
+  return process.env.DISCORD_STUDENT_ROLE_NAME ?? process.env.DISCORD_MENTEE_ROLE_NAME ?? "";
 }
 
 async function discordRequest<T>(args: {
@@ -305,7 +309,7 @@ export const processDiscordActionQueue = internalAction({
   handler: async (ctx) => {
     type ClaimedAction = {
       id: string;
-      type: "assign_mentee_role" | "dm_instructor_new_signup";
+      type: "assign_student_role" | "dm_instructor_new_signup";
       status: string;
       subjectUserId: string;
       instructorId: string | null;
@@ -326,7 +330,7 @@ export const processDiscordActionQueue = internalAction({
 
     for (const action of actions) {
       try {
-        if (action.type === "assign_mentee_role") {
+        if (action.type === "assign_student_role") {
           const payload = action.payload as {
             discordId: string;
             guildId?: string | null;
@@ -338,15 +342,15 @@ export const processDiscordActionQueue = internalAction({
           const discordUserId = payload.discordId;
 
           if (!guildId || !discordUserId) {
-            throw new Error("Missing guildId or discordUserId for assign_mentee_role");
+            throw new Error("Missing guildId or discordUserId for assign_student_role");
           }
 
           if (payload.roleId && payload.roleId.trim().length > 0) {
             await addGuildMemberRole({ guildId, discordUserId, roleId: payload.roleId });
           } else {
-            const roleName = payload.roleName ?? getMenteeRoleName();
+            const roleName = payload.roleName ?? getStudentRoleName();
             if (!roleName) {
-              throw new Error("Missing roleName for assign_mentee_role");
+              throw new Error("Missing roleName for assign_student_role");
             }
 
             const roleId = await getGuildRoleByName({ guildId, roleName });

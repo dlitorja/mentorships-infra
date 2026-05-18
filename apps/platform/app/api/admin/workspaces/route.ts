@@ -47,9 +47,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       cursor: cursor ?? null,
     };
 
-    // Note: Convex codegen types may still reference a legacy student alias.
-    // Runtime expects "admin_student" and server code supports it.
-    // Cast here to avoid a transient TS mismatch blocking the build.
+    // Temporary cast: some environments still expect legacy alias in codegen
+    // Server supports "admin_student"; remove cast after all codegen refreshes land
     const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
       paginationOpts,
       type: type as any,

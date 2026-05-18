@@ -47,7 +47,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       cursor: cursor ?? null,
     };
 
-    // Cast to handle legacy codegen mismatch; server expects "admin_student".
+    // Temporary cast: some environments still expect legacy alias in codegen
+    // Server supports "admin_student"; remove cast after all codegen refreshes land
     const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
       paginationOpts,
       type: type as any,
