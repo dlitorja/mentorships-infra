@@ -47,11 +47,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       cursor: cursor ?? null,
     };
 
-    // Cast to handle legacy codegen mismatch; server expects "admin_student".
-    const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
-      paginationOpts,
-      type: type as any,
-    });
+  const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
+    paginationOpts,
+    type,
+  });
 
     return NextResponse.json({
       items: result.page,
