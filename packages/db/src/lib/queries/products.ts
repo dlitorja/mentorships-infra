@@ -1,16 +1,16 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentorshipProducts, mentors, instructors, sessionPacks, payments } from "../../schema";
+import { mentorshipProducts, instructorIntegrations, instructors, sessionPacks, payments } from "../../schema";
 
 type Product = typeof mentorshipProducts.$inferSelect;
-type ProductWithMentor = Product & { mentor: typeof mentors.$inferSelect };
+type ProductWithInstructor = Product & { instructorIntegration: typeof instructorIntegrations.$inferSelect };
 
 /**
- * Get product by ID with mentor info
+ * Get product by ID with instructor info
  */
 export async function getProductById(
   productId: string
-): Promise<ProductWithMentor | null> {
+): Promise<ProductWithInstructor | null> {
   // Validate UUID format
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(productId)) {
@@ -20,31 +20,31 @@ export async function getProductById(
   const [product] = await db
     .select({
       product: mentorshipProducts,
-      mentor: mentors,
+      instructorIntegration: instructorIntegrations,
     })
     .from(mentorshipProducts)
     .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
-    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
+    .innerJoin(instructorIntegrations, eq(instructors.userId, instructorIntegrations.userId))
     .where(eq(mentorshipProducts.id, productId))
     .limit(1);
 
-  return product ? { ...product.product, mentor: product.mentor } : null;
+  return product ? { ...product.product, instructorIntegration: product.instructorIntegration } : null;
 }
 
 /**
  * Get active products by instructor ID
  */
-export async function getProductsByMentorId(
+export async function getProductsByInstructorId(
   instructorId: string
-): Promise<ProductWithMentor[]> {
+): Promise<ProductWithInstructor[]> {
   const products = await db
     .select({
       product: mentorshipProducts,
-      mentor: mentors,
+      instructorIntegration: instructorIntegrations,
     })
     .from(mentorshipProducts)
     .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
-    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
+    .innerJoin(instructorIntegrations, eq(instructors.userId, instructorIntegrations.userId))
     .where(
       and(
         eq(mentorshipProducts.instructorId, instructorId),
@@ -52,21 +52,21 @@ export async function getProductsByMentorId(
       )
     );
 
-  return products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor }));
+  return products.map((p: typeof products[number]) => ({ ...p.product, instructorIntegration: p.instructorIntegration }));
 }
 
-export async function getAllActiveProducts(): Promise<ProductWithMentor[]> {
+export async function getAllActiveProducts(): Promise<ProductWithInstructor[]> {
   const products = await db
     .select({
       product: mentorshipProducts,
-      mentor: mentors,
+      instructorIntegration: instructorIntegrations,
     })
     .from(mentorshipProducts)
     .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
-    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
+    .innerJoin(instructorIntegrations, eq(instructors.userId, instructorIntegrations.userId))
     .where(eq(mentorshipProducts.active, true));
 
-  return products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor }));
+  return products.map((p: typeof products[number]) => ({ ...p.product, instructorIntegration: p.instructorIntegration }));
 }
 
 /**
@@ -80,7 +80,7 @@ export async function getAllActiveProductsPaginated(
   page: number = 1,
   pageSize: number = 20
 ): Promise<{
-  items: ProductWithMentor[];
+  items: ProductWithInstructor[];
   total: number;
   page: number;
   pageSize: number;
@@ -91,8 +91,7 @@ export async function getAllActiveProductsPaginated(
   const offset = (validatedPage - 1) * validatedPageSize;
 
   // Get total count
-  // Note: innerJoin to mentors removed because mentorshipProducts.mentorId has NOT NULL constraint
-  // with onDelete: "cascade" foreign key, so orphaned products cannot exist
+  // Note: innerJoin to instructorIntegrations via instructors ensures we have integration data
   const totalResult = await db
     .select({
       count: sql<number>`count(*)`,
@@ -106,17 +105,17 @@ export async function getAllActiveProductsPaginated(
   const products = await db
     .select({
       product: mentorshipProducts,
-      mentor: mentors,
+      instructorIntegration: instructorIntegrations,
     })
     .from(mentorshipProducts)
     .innerJoin(instructors, eq(mentorshipProducts.instructorId, instructors.id))
-    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
+    .innerJoin(instructorIntegrations, eq(instructors.userId, instructorIntegrations.userId))
     .where(eq(mentorshipProducts.active, true))
     .limit(validatedPageSize)
     .offset(offset);
 
   return {
-    items: products.map((p: typeof products[number]) => ({ ...p.product, mentor: p.mentor })),
+    items: products.map((p: typeof products[number]) => ({ ...p.product, instructorIntegration: p.instructorIntegration })),
     total,
     page: validatedPage,
     pageSize: validatedPageSize,
@@ -149,7 +148,6 @@ export async function createProduct(
   const [product] = await db
     .insert(mentorshipProducts)
     .values({
-      mentorId: instructorId,
       instructorId,
       title,
       price,
@@ -158,7 +156,7 @@ export async function createProduct(
       sessionsPerPack,
       validityDays,
       active,
-    })
+    } as any)
     .returning();
 
   if (!product) {

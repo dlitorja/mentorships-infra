@@ -8,7 +8,7 @@ import {
   desc,
   eq,
   getInstructorByUserId,
-  menteeOnboardingSubmissions,
+  studentOnboardingSubmissions,
   users,
 } from "@mentorships/db";
 import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
@@ -49,18 +49,18 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     studentEmail: string;
   }[] = await db
     .select({
-      id: menteeOnboardingSubmissions.id,
-      goals: menteeOnboardingSubmissions.goals,
-      imageObjects: menteeOnboardingSubmissions.imageObjects,
-      createdAt: menteeOnboardingSubmissions.createdAt,
-      reviewedAt: menteeOnboardingSubmissions.reviewedAt,
-      studentId: menteeOnboardingSubmissions.userId,
+      id: studentOnboardingSubmissions.id,
+      goals: studentOnboardingSubmissions.goals,
+      imageObjects: studentOnboardingSubmissions.imageObjects,
+      createdAt: studentOnboardingSubmissions.createdAt,
+      reviewedAt: studentOnboardingSubmissions.reviewedAt,
+      studentId: studentOnboardingSubmissions.userId,
       studentEmail: users.email,
     })
-    .from(menteeOnboardingSubmissions)
-    .innerJoin(users, eq(users.id, menteeOnboardingSubmissions.userId))
-    .where(eq(menteeOnboardingSubmissions.mentorId, instructorRecord.id))
-    .orderBy(desc(menteeOnboardingSubmissions.createdAt));
+    .from(studentOnboardingSubmissions)
+    .innerJoin(users, eq(users.id, studentOnboardingSubmissions.userId))
+    .where(eq(studentOnboardingSubmissions.instructorId, instructorRecord.id))
+    .orderBy(desc(studentOnboardingSubmissions.createdAt));
 
   const selected =
     (submissionId ? submissions.find((s) => s.id === submissionId) : null) ?? submissions[0] ?? null;
@@ -89,7 +89,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
         <div>
           <h1 className="text-3xl font-bold">Onboarding</h1>
           <p className="text-muted-foreground mt-1">
-            Review mentee onboarding submissions (goals + work images).
+            Review student onboarding submissions (goals + work images).
           </p>
         </div>
 
@@ -181,5 +181,4 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     </ProtectedLayout>
   );
 }
-
 

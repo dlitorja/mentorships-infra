@@ -4,8 +4,8 @@ ALTER TABLE instructors ADD COLUMN email TEXT;
 -- Add index for faster lookups when matching Clerk users to instructors
 CREATE INDEX IF NOT EXISTS instructors_email_idx ON instructors (email);
 
--- Backfill email from existing mentor relationships
--- This assumes mentors have a user_id that links to the users table which has email
+-- Backfill email from existing legacy relationships
+-- This assumes the legacy mentors table has a user_id linking to users with email
 UPDATE instructors
 SET email = (
   SELECT u.email

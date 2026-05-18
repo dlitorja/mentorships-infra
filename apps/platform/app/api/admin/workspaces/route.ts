@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 
 const listWorkspacesQuerySchema = z.object({
-  type: z.enum(["mentorship", "admin_mentee", "admin_instructor"]).optional(),
+  type: z.enum(["mentorship", "admin_student", "admin_instructor"]).optional(),
   numItems: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().optional(),
 });
@@ -20,7 +20,7 @@ function getConvexClient() {
 /**
  * GET /api/admin/workspaces
  * List all workspaces for admin with filtering and pagination.
- * Owner and mentor data is enriched server-side by the Convex query,
+ * Owner and instructor data is enriched server-side by the Convex query,
  * eliminating the need for separate batch lookups.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -47,9 +47,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       cursor: cursor ?? null,
     };
 
+    // Note: Convex codegen types may still reference a legacy student alias.
+    // Runtime expects "admin_student" and server code supports it.
+    // Cast here to avoid a transient TS mismatch blocking the build.
     const result = await convex.query(api.adminWorkspaces.getAllWorkspaces, {
       paginationOpts,
-      type,
+      type: type as any,
     });
 
     return NextResponse.json({

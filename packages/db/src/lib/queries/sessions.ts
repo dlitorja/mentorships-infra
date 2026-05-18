@@ -1,11 +1,11 @@
 import { eq, and, gte, desc, sql, asc, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
-import { sessions, sessionPacks, mentors, users, instructors } from "../../schema";
+import { sessions, sessionPacks, instructorIntegrations, users, instructors } from "../../schema";
 
 type Session = typeof sessions.$inferSelect;
-type SessionWithMentor = Session & {
-  mentor: typeof mentors.$inferSelect;
-  mentorUser: typeof users.$inferSelect;
+type SessionWithInstructor = Session & {
+  instructorIntegration: typeof instructorIntegrations.$inferSelect;
+  instructorUser: typeof users.$inferSelect;
   sessionPack: typeof sessionPacks.$inferSelect;
 };
 
@@ -20,21 +20,21 @@ type SessionWithStudent = Session & {
 export async function getUserUpcomingSessions(
   userId: string,
   limit: number = 10
-): Promise<SessionWithMentor[]> {
+): Promise<SessionWithInstructor[]> {
   const now = new Date();
 
   const results = await db
     .select({
       session: sessions,
-      mentor: mentors,
-      mentorUser: users,
+      instructorIntegration: instructorIntegrations,
+      instructorUser: users,
       sessionPack: sessionPacks,
     })
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
     .innerJoin(instructors, eq(sessions.instructorId, instructors.id))
-    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
-    .innerJoin(users, eq(mentors.userId, users.id))
+    .innerJoin(instructorIntegrations, eq(instructors.userId, instructorIntegrations.userId))
+    .innerJoin(users, eq(instructors.userId, users.id))
     .where(
       and(
         eq(sessions.studentId, userId),
@@ -47,8 +47,8 @@ export async function getUserUpcomingSessions(
 
   return results.map((r: typeof results[number]) => ({
     ...r.session,
-    mentor: r.mentor,
-    mentorUser: r.mentorUser,
+    instructorIntegration: r.instructorIntegration,
+    instructorUser: r.instructorUser,
     sessionPack: r.sessionPack,
   }));
 }
@@ -59,19 +59,19 @@ export async function getUserUpcomingSessions(
 export async function getUserRecentSessions(
   userId: string,
   limit: number = 5
-): Promise<SessionWithMentor[]> {
+): Promise<SessionWithInstructor[]> {
   const results = await db
     .select({
       session: sessions,
-      mentor: mentors,
-      mentorUser: users,
+      instructorIntegration: instructorIntegrations,
+      instructorUser: users,
       sessionPack: sessionPacks,
     })
     .from(sessions)
     .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
     .innerJoin(instructors, eq(sessions.instructorId, instructors.id))
-    .innerJoin(mentors, eq(instructors.mentorId, mentors.id))
-    .innerJoin(users, eq(mentors.userId, users.id))
+    .innerJoin(instructorIntegrations, eq(instructors.userId, instructorIntegrations.userId))
+    .innerJoin(users, eq(instructors.userId, users.id))
     .where(
       and(
         eq(sessions.studentId, userId),
@@ -83,8 +83,8 @@ export async function getUserRecentSessions(
 
   return results.map((r: typeof results[number]) => ({
     ...r.session,
-    mentor: r.mentor,
-    mentorUser: r.mentorUser,
+    instructorIntegration: r.instructorIntegration,
+    instructorUser: r.instructorUser,
     sessionPack: r.sessionPack,
   }));
 }
@@ -129,7 +129,7 @@ export async function getSessionById(
 /**
  * Get instructor's upcoming sessions (scheduled, not completed/canceled)
  */
-export async function getMentorUpcomingSessions(
+export async function getInstructorUpcomingSessions(
   instructorId: string,
   limit: number = 50
 ): Promise<SessionWithStudent[]> {
@@ -164,7 +164,7 @@ export async function getMentorUpcomingSessions(
 /**
  * Get instructor's past sessions (completed, canceled, or no_show)
  */
-export async function getMentorPastSessions(
+export async function getInstructorPastSessions(
   instructorId: string,
   limit: number = 50
 ): Promise<SessionWithStudent[]> {
@@ -196,7 +196,7 @@ export async function getMentorPastSessions(
 /**
  * Get all instructor's sessions (all statuses)
  */
-export async function getMentorSessions(
+export async function getInstructorSessions(
   instructorId: string,
   limit: number = 100
 ): Promise<SessionWithStudent[]> {

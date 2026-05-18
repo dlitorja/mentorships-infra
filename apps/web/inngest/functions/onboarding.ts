@@ -301,7 +301,7 @@ export const onboardingFlow = inngest.createFunction(
 
 await step.run("queue-discord-actions", async () => {
       // A lightweight "new purchase" DM can be sent later by the bot (once it's live).
-      // Detailed DM with onboarding submission will be queued when the mentee completes the form.
+      // Detailed DM with onboarding submission will be queued when the student completes the form.
       await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
         type: "dm_instructor_new_signup",
         subjectUserId: clerkId,
@@ -316,19 +316,8 @@ await step.run("queue-discord-actions", async () => {
         },
       });
 
-      if (discordId) {
-        await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
-          type: "assign_mentee_role",
-          subjectUserId: clerkId,
-          instructorId: instructor._id,
-          instructorUserId: instructor.userId ?? undefined,
-          payload: {
-            discordId,
-            guildId: process.env.DISCORD_GUILD_ID ?? null,
-            roleName: process.env.DISCORD_MENTEE_ROLE_NAME ?? null,
-          },
-        });
-      }
+      // Role assignment discontinued: workspaces replace Discord roles.
+      // We intentionally do not enqueue assign_student_role actions anymore.
     });
 
     return {
@@ -342,5 +331,3 @@ await step.run("queue-discord-actions", async () => {
     };
   }
 );
-
-

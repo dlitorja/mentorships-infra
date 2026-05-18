@@ -20,16 +20,25 @@ export default async function AdminInstructorsPage({ searchParams }: PageProps):
 
   const result = await getAllInstructorsWithStats(search, page, 50);
 
-  const instructors = result.instructors.map((i) => ({
-    ...i,
-    createdAt: i.createdAt.toISOString(),
+  // Map DB result to UI shape, handling legacy field names if present
+  const instructors = result.instructors.map((i: any) => ({
+    instructorId: i.instructorId ?? i.mentorId,
+    userId: i.userId,
+    email: i.email,
+    bio: i.bio ?? null,
+    oneOnOneInventory: i.oneOnOneInventory,
+    groupInventory: i.groupInventory,
+    maxActiveStudents: i.maxActiveStudents,
+    activeStudentCount: i.activeStudentCount ?? i.activeMenteeCount ?? 0,
+    totalCompletedSessions: i.totalCompletedSessions ?? 0,
+    createdAt: (i.createdAt instanceof Date ? i.createdAt : new Date(i.createdAt)).toISOString(),
   }));
 
   return (
     <div>
       <h1 className="text-3xl font-bold mb-2">Instructors</h1>
       <p className="text-muted-foreground mb-8">
-        View all instructors, their active mentees, and session details.
+        View all instructors, their active students, and session details.
       </p>
 
       <InstructorsTable

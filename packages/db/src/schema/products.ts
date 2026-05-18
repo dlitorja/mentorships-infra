@@ -1,5 +1,4 @@
 import { pgTable, uuid, text, integer, numeric, boolean, timestamp, index } from "drizzle-orm/pg-core";
-import { mentors } from "./mentors";
 import { instructors } from "./instructors";
 
 export const mentorshipProducts = pgTable(
@@ -8,9 +7,6 @@ export const mentorshipProducts = pgTable(
     id: uuid("id")
       .primaryKey()
       .defaultRandom(),
-    mentorId: uuid("mentor_id")
-      .notNull()
-      .references(() => mentors.id, { onDelete: "cascade" }),
     instructorId: uuid("instructor_id").references(() => instructors.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     description: text("description"),

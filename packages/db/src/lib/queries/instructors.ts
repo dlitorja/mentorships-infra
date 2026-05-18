@@ -1,5 +1,15 @@
 import { db } from "../drizzle";
-import { instructors, instructorTestimonials, menteeResults, type Instructor, type InstructorTestimonial, type MenteeResult, type NewInstructor, type NewInstructorTestimonial, type NewMenteeResult } from "../../schema/instructors";
+import {
+  instructors,
+  instructorTestimonials,
+  studentResults,
+  type Instructor,
+  type InstructorTestimonial,
+  type StudentResult,
+  type NewInstructor,
+  type NewInstructorTestimonial,
+  type NewStudentResult,
+} from "../../schema/instructors";
 import { eq, desc, asc, ilike, or, and, sql } from "drizzle-orm";
 
 export async function getInstructorByUserId(userId: string): Promise<Instructor | null> {
@@ -105,29 +115,29 @@ export async function deleteTestimonial(id: string): Promise<void> {
   await db.delete(instructorTestimonials).where(eq(instructorTestimonials.id, id));
 }
 
-export async function getMenteeResultsByInstructorId(instructorId: string): Promise<MenteeResult[]> {
+export async function getStudentResultsByInstructorId(instructorId: string): Promise<StudentResult[]> {
   return db.select()
-    .from(menteeResults)
-    .where(eq(menteeResults.instructorId, instructorId))
-    .orderBy(desc(menteeResults.createdAt));
+    .from(studentResults)
+    .where(eq(studentResults.instructorId, instructorId))
+    .orderBy(desc(studentResults.createdAt));
 }
 
-export async function getMenteeResultsByUserId(userId: string): Promise<MenteeResult[]> {
+export async function getStudentResultsByUserId(userId: string): Promise<StudentResult[]> {
   return db.select()
-    .from(menteeResults)
-    .where(eq(menteeResults.createdBy, userId))
-    .orderBy(desc(menteeResults.createdAt));
+    .from(studentResults)
+    .where(eq(studentResults.createdBy, userId))
+    .orderBy(desc(studentResults.createdAt));
 }
 
-export async function createMenteeResult(data: Omit<NewMenteeResult, "id" | "createdAt">): Promise<MenteeResult> {
-  const result = await db.insert(menteeResults)
+export async function createStudentResult(data: Omit<NewStudentResult, "id" | "createdAt">): Promise<StudentResult> {
+  const result = await db.insert(studentResults)
     .values(data)
     .returning();
   return result[0];
 }
 
-export async function deleteMenteeResult(id: string): Promise<void> {
-  await db.delete(menteeResults).where(eq(menteeResults.id, id));
+export async function deleteStudentResult(id: string): Promise<void> {
+  await db.delete(studentResults).where(eq(studentResults.id, id));
 }
 
 export async function getTestimonialsByUserId(userId: string): Promise<(InstructorTestimonial & { instructor: Instructor })[]> {

@@ -36,7 +36,7 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
     "Important — join Discord:",
     ...(shouldShowConnectDiscordCopy
       ? [
-          "Please connect your Discord account in your Dashboard so we can assign your mentee role and unlock access to the mentorship Discord channels.",
+          "Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the mentorship Discord channels.",
         ]
       : []),
     "Join the Discord server so you can access the mentorship Discord channels.",
@@ -50,8 +50,8 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
       <div style="font-weight:800;margin-bottom:6px">Important — join Discord</div>
       ${
         shouldShowConnectDiscordCopy
-          ? `<div style="color:#374151;line-height:1.6;margin-bottom:10px">
-               Please connect your Discord account in your Dashboard so we can assign your mentee role and unlock access to the mentorship Discord channels.
+           ? `<div style="color:#374151;line-height:1.6;margin-bottom:10px">
+               Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the mentorship Discord channels.
              </div>`
           : `<div style="color:#374151;line-height:1.6;margin-bottom:10px">
                Join the Discord server so you can access the mentorship Discord channels.
@@ -118,5 +118,4 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
 

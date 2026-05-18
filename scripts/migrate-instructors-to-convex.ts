@@ -127,7 +127,7 @@ async function migrate(): Promise<void> {
 
   let profilesCreated = 0;
   let testimonialsCreated = 0;
-  let menteeResultsCreated = 0;
+  let studentResultsCreated = 0;
   let errors = 0;
 
   for (const instructor of visibleInstructors) {
@@ -159,17 +159,17 @@ async function migrate(): Promise<void> {
     }
 
     if (instructor.menteeBeforeAfterImages && instructor.menteeBeforeAfterImages.length > 0) {
-      console.log(`  - Upserting ${instructor.menteeBeforeAfterImages.length} mentee results...`);
+      console.log(`  - Upserting ${instructor.menteeBeforeAfterImages.length} student results...`);
       for (const imageUrl of instructor.menteeBeforeAfterImages) {
         try {
           await upsertMenteeResult(instructor.slug, imageUrl);
-          menteeResultsCreated++;
+          studentResultsCreated++;
         } catch (e: any) {
-          console.error(`    ✗ Mentee result failed: ${e.message}`);
+          console.error(`    ✗ Student result failed: ${e.message}`);
           errors++;
         }
       }
-      console.log(`    ✓ ${instructor.menteeBeforeAfterImages.length} mentee results upserted`);
+      console.log(`    ✓ ${instructor.menteeBeforeAfterImages.length} student results upserted`);
     }
   }
 
@@ -177,7 +177,7 @@ async function migrate(): Promise<void> {
   console.log(`Migration complete:`);
   console.log(`  - ${profilesCreated} instructor profiles`);
   console.log(`  - ${testimonialsCreated} testimonials`);
-  console.log(`  - ${menteeResultsCreated} mentee results`);
+  console.log(`  - ${studentResultsCreated} student results`);
   console.log(`  - ${errors} errors`);
   console.log('========================================\n');
 }

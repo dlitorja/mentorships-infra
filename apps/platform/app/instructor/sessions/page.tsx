@@ -1,7 +1,7 @@
 import { requireRole } from "@/lib/auth-helpers";
 import {
   getInstructorByUserId,
-  getMentorSessions,
+  getInstructorSessions,
 } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,7 +54,7 @@ export default async function InstructorSessionsPage() {
     );
   }
 
-  const allSessions = await getMentorSessions(instructorRecord.id, 100);
+  const allSessions = await getInstructorSessions(instructorRecord.id, 100);
 
   // Separate sessions by status
   const upcomingSessions = allSessions.filter(
@@ -190,4 +190,3 @@ export default async function InstructorSessionsPage() {
     </ProtectedLayout>
   );
 }
-

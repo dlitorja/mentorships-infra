@@ -140,7 +140,7 @@ export const onboardingFlow = inngest.createFunction(
       });
     }
 
-    const clerkMentor = await step.run("get-mentor-clerk-user", async () => {
+    const clerkInstructor = await step.run("get-instructor-clerk-user", async () => {
       const clerk = await getClerkApi();
       if (!instructor.userId) {
         throw new Error(`Instructor ${pack.instructorId} has no linked Clerk user`);
@@ -148,10 +148,10 @@ export const onboardingFlow = inngest.createFunction(
       return await clerk.users.getUser(instructor.userId);
     });
 
-    const mentorName =
-      (clerkMentor.firstName || clerkMentor.lastName
-        ? `${clerkMentor.firstName ?? ""} ${clerkMentor.lastName ?? ""}`.trim()
-        : null) ?? clerkMentor.username ?? "your instructor";
+    const instructorName =
+      (clerkInstructor.firstName || clerkInstructor.lastName
+        ? `${clerkInstructor.firstName ?? ""} ${clerkInstructor.lastName ?? ""}`.trim()
+        : null) ?? clerkInstructor.username ?? "your instructor";
 
     const baseUrl = getBaseUrl();
     const dashboardUrl = `${baseUrl}/dashboard`;
@@ -160,7 +160,7 @@ export const onboardingFlow = inngest.createFunction(
 
     const emailContent = buildPurchaseOnboardingEmail({
       studentName,
-      instructorName: mentorName,
+      instructorName: instructorName,
       dashboardUrl,
       onboardingUrl,
       discordConnected,
@@ -228,7 +228,7 @@ export const onboardingFlow = inngest.createFunction(
       const dashboardUrl = `${baseUrl}/dashboard`;
 
       const instructorEmailContent = buildInstructorOnboardingEmail({
-        instructorName: mentorName,
+        instructorName: instructorName,
         studentName: studentName,
         studentEmail: studentEmail,
         sessionsPurchased: pack.totalSessions,
@@ -267,7 +267,7 @@ export const onboardingFlow = inngest.createFunction(
         orderId,
         studentName: studentName,
         studentEmail: studentEmail,
-        instructorName: mentorName,
+        instructorName: instructorName,
         sessionCount: pack.totalSessions,
         purchaseAmount: order.totalAmount,
         currency: order.currency ?? "USD",
@@ -302,7 +302,7 @@ export const onboardingFlow = inngest.createFunction(
 
 await step.run("queue-discord-actions", async () => {
       // A lightweight "new purchase" DM can be sent later by the bot (once it's live).
-      // Detailed DM with onboarding submission will be queued when the mentee completes the form.
+      // Detailed DM with onboarding submission will be queued when the student completes the form.
       await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
         type: "dm_instructor_new_signup",
         subjectUserId: clerkId,
@@ -317,19 +317,8 @@ await step.run("queue-discord-actions", async () => {
         },
       });
 
-      if (discordId) {
-        await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
-          type: "assign_mentee_role",
-          subjectUserId: clerkId,
-          instructorId: instructor._id,
-          instructorUserId: instructor.userId ?? undefined,
-          payload: {
-            discordId,
-            guildId: process.env.DISCORD_GUILD_ID ?? null,
-            roleName: process.env.DISCORD_MENTEE_ROLE_NAME ?? null,
-          },
-        });
-      }
+      // Role assignment discontinued: workspaces replace Discord roles.
+      // We intentionally do not enqueue assign_student_role actions anymore.
     });
 
     return {
@@ -343,5 +332,3 @@ await step.run("queue-discord-actions", async () => {
     };
   }
 );
-
-

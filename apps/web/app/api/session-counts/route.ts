@@ -15,7 +15,7 @@ function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string 
   return user.emailAddresses[0]?.emailAddress ?? null;
 }
 
-async function requireAdminOrMentor(convex: ReturnType<typeof getConvexClient>, sessionPackId: string) {
+async function requireAdminOrInstructor(convex: ReturnType<typeof getConvexClient>, sessionPackId: string) {
   const { userId } = await auth();
   if (!userId) {
     throw new UnauthorizedError("Authentication required");
@@ -38,11 +38,11 @@ async function requireAdminOrMentor(convex: ReturnType<typeof getConvexClient>, 
 
   const instructor = await convex.query(api.instructors.getInstructorByUserId, { userId });
   if (!instructor) {
-    throw new UnauthorizedError("Mentor access required");
+    throw new UnauthorizedError("Instructor access required");
   }
 
   if (instructor._id !== pack.instructorId) {
-    throw new UnauthorizedError("You can only modify session packs for your own mentees");
+    throw new UnauthorizedError("You can only modify session packs for your own students");
   }
 
   return { userId, isAdmin: false };
@@ -67,7 +67,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const { sessionPackId, action } = parseResult.data;
-    await requireAdminOrMentor(convex, sessionPackId);
+    await requireAdminOrInstructor(convex, sessionPackId);
 
     if (action === "increment") {
       const updated = await convex.mutation(api.sessionPacks.addSessionsToPack, {

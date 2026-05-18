@@ -24,7 +24,7 @@ export async function GET(): Promise<Response> {
 
     const headers = [
       "Instructor Email",
-      "Mentee Email",
+      "Student Email",
       "Total Sessions",
       "Remaining Sessions",
       "Pack Status",
@@ -39,7 +39,7 @@ export async function GET(): Promise<Response> {
       ...data.map((row) =>
         [
           escapeCsvField(row.instructorEmail),
-          escapeCsvField(row.menteeEmail),
+          escapeCsvField(row.studentEmail),
           escapeCsvField(row.totalSessions),
           escapeCsvField(row.remainingSessions),
           escapeCsvField(row.packStatus),
@@ -57,7 +57,7 @@ export async function GET(): Promise<Response> {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="instructors-mentees-report-${new Date().toISOString().split("T")[0]}.csv"`,
+        "Content-Disposition": `attachment; filename="instructors-students-report-${new Date().toISOString().split("T")[0]}.csv"`,
       },
     });
   } catch (error) {

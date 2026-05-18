@@ -314,7 +314,7 @@ async function exportSessionPacks(): Promise<void> {
     }
     
     if (!convexMentorId || !convexPaymentId) {
-      console.warn(`  Skipping sessionPack ${row.id}: mentor=${convexMentorId}, payment=${convexPaymentId}`);
+      console.warn(`  Skipping sessionPack ${row.id}: instructor=${convexMentorId}, payment=${convexPaymentId}`);
       continue;
     }
     
@@ -371,7 +371,7 @@ async function exportSessions(): Promise<void> {
     }
     
     if (!convexMentorId || !convexSessionPackId) {
-      console.warn(`  Skipping session ${row.id}: mentor=${convexMentorId}, pack=${convexSessionPackId}`);
+      console.warn(`  Skipping session ${row.id}: instructor=${convexMentorId}, pack=${convexSessionPackId}`);
       continue;
     }
     
@@ -430,7 +430,7 @@ async function exportSeatReservations(): Promise<void> {
     }
     
     if (!convexMentorId || !convexSessionPackId) {
-      console.warn(`  Skipping seatReservation ${row.id}: mentor=${convexMentorId}, pack=${convexSessionPackId}`);
+      console.warn(`  Skipping seatReservation ${row.id}: instructor=${convexMentorId}, pack=${convexSessionPackId}`);
       continue;
     }
     

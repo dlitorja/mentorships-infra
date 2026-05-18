@@ -1,13 +1,12 @@
 import { eq, desc, sql, and, gte, ilike, or, isNull, aliasedTable, count, sum, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
-import { mentors, users, sessionPacks, sessions, seatReservations, orders, payments, instructors, mentorshipProducts } from "../../schema";
+import { instructorIntegrations, users, sessionPacks, sessions, seatReservations, orders, payments, instructors, mentorshipProducts } from "../../schema";
 import type { SessionPackStatus } from "../../schema/sessionPacks";
 import type { OrderStatus } from "../../schema/orders";
 
 const instructorUsers = aliasedTable(users, "instructor_users");
 
 export type InstructorWithStats = {
-  mentorId: string;
   instructorId: string;
   userId: string;
   email: string;
@@ -15,12 +14,12 @@ export type InstructorWithStats = {
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
-  activeMenteeCount: number;
+  activeStudentCount: number;
   totalCompletedSessions: number;
   createdAt: Date;
 };
 
-export type MenteeWithSessionInfo = {
+export type StudentWithSessionInfo = {
   userId: string;
   email: string;
   sessionPackId: string;
@@ -34,8 +33,8 @@ export type MenteeWithSessionInfo = {
   seatExpiresAt: Date | null;
 };
 
-export type InstructorWithMentees = InstructorWithStats & {
-  mentees: MenteeWithSessionInfo[];
+export type InstructorWithStudents = InstructorWithStats & {
+  students: StudentWithSessionInfo[];
 };
 
 export async function getAllInstructorsWithStats(
@@ -51,42 +50,41 @@ export async function getAllInstructorsWithStats(
       ilike(users.email, searchTerm)
     );
 
-    return await db.transaction(async (tx: typeof db) => {
-      const totalResult = await tx
-        .select({ count: sql<number>`count(*)` })
-        .from(mentors)
-        .innerJoin(users, eq(mentors.userId, users.id))
-        .where(and(isNull(mentors.deletedAt), searchCondition));
+      return await db.transaction(async (tx: typeof db) => {
+        const totalResult = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(instructorIntegrations)
+          .innerJoin(users, eq(instructorIntegrations.userId, users.id))
+          .where(and(isNull(instructorIntegrations.deletedAt), searchCondition));
 
-      const total = Number(totalResult[0]?.count || 0);
+        const total = Number(totalResult[0]?.count || 0);
 
-      const results = await tx
-        .select({
-          instructorId: mentors.id,
-          userId: users.id,
-          email: users.email,
-          bio: mentors.bio,
-          oneOnOneInventory: mentors.oneOnOneInventory,
-          groupInventory: mentors.groupInventory,
-          maxActiveStudents: mentors.maxActiveStudents,
-          createdAt: mentors.createdAt,
-          activeMenteeCount: sql<number>`COUNT(DISTINCT ${seatReservations.id})`,
-          totalCompletedSessions: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
-        })
-        .from(mentors)
-        .innerJoin(users, eq(mentors.userId, users.id))
-        .leftJoin(seatReservations, and(eq(seatReservations.instructorId, mentors.id), eq(seatReservations.status, "active")))
-        .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
-        .leftJoin(sessions, and(eq(sessions.sessionPackId, sessionPacks.id), eq(sessions.status, "completed")))
-        .where(and(isNull(mentors.deletedAt), searchCondition))
-        .groupBy(mentors.id, users.id, users.email, mentors.bio, mentors.oneOnOneInventory, mentors.groupInventory, mentors.maxActiveStudents, mentors.createdAt)
-        .orderBy(desc(mentors.createdAt))
+        const results = await tx
+          .select({
+            instructorId: instructorIntegrations.id,
+            userId: users.id,
+            email: users.email,
+            bio: instructorIntegrations.bio,
+            oneOnOneInventory: instructorIntegrations.oneOnOneInventory,
+            groupInventory: instructorIntegrations.groupInventory,
+            maxActiveStudents: instructorIntegrations.maxActiveStudents,
+            createdAt: instructorIntegrations.createdAt,
+            activeStudentCount: sql<number>`COUNT(DISTINCT ${seatReservations.id})`,
+            totalCompletedSessions: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
+          })
+          .from(instructorIntegrations)
+          .innerJoin(users, eq(instructorIntegrations.userId, users.id))
+          .leftJoin(seatReservations, and(eq(seatReservations.instructorId, instructorIntegrations.id), eq(seatReservations.status, "active")))
+          .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, instructorIntegrations.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
+          .leftJoin(sessions, and(eq(sessions.sessionPackId, sessionPacks.id), eq(sessions.status, "completed")))
+          .where(and(isNull(instructorIntegrations.deletedAt), searchCondition))
+          .groupBy(instructorIntegrations.id, users.id, users.email, instructorIntegrations.bio, instructorIntegrations.oneOnOneInventory, instructorIntegrations.groupInventory, instructorIntegrations.maxActiveStudents, instructorIntegrations.createdAt)
+          .orderBy(desc(instructorIntegrations.createdAt))
         .limit(pageSize)
         .offset(offset);
 
       return {
         instructors: results.map((r: typeof results[number]) => ({
-          mentorId: r.instructorId,
           instructorId: r.instructorId,
           userId: r.userId,
           email: r.email,
@@ -94,7 +92,7 @@ export async function getAllInstructorsWithStats(
           oneOnOneInventory: r.oneOnOneInventory,
           groupInventory: r.groupInventory,
           maxActiveStudents: r.maxActiveStudents,
-          activeMenteeCount: Number(r.activeMenteeCount) || 0,
+          activeStudentCount: Number(r.activeStudentCount) || 0,
           totalCompletedSessions: r.totalCompletedSessions,
           createdAt: r.createdAt,
         })),
@@ -106,39 +104,38 @@ export async function getAllInstructorsWithStats(
   return await db.transaction(async (tx: typeof db) => {
     const totalResult = await tx
       .select({ count: sql<number>`count(*)` })
-      .from(mentors)
-      .innerJoin(users, eq(mentors.userId, users.id))
-      .where(isNull(mentors.deletedAt));
+      .from(instructorIntegrations)
+      .innerJoin(users, eq(instructorIntegrations.userId, users.id))
+      .where(isNull(instructorIntegrations.deletedAt));
 
     const total = Number(totalResult[0]?.count || 0);
 
     const results = await tx
       .select({
-        instructorId: mentors.id,
+        instructorId: instructorIntegrations.id,
         userId: users.id,
         email: users.email,
-        bio: mentors.bio,
-        oneOnOneInventory: mentors.oneOnOneInventory,
-        groupInventory: mentors.groupInventory,
-        maxActiveStudents: mentors.maxActiveStudents,
-        createdAt: mentors.createdAt,
-        activeMenteeCount: sql<number>`COUNT(DISTINCT ${seatReservations.id})`,
+        bio: instructorIntegrations.bio,
+        oneOnOneInventory: instructorIntegrations.oneOnOneInventory,
+        groupInventory: instructorIntegrations.groupInventory,
+        maxActiveStudents: instructorIntegrations.maxActiveStudents,
+        createdAt: instructorIntegrations.createdAt,
+        activeStudentCount: sql<number>`COUNT(DISTINCT ${seatReservations.id})`,
         totalCompletedSessions: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
       })
-      .from(mentors)
-      .innerJoin(users, eq(mentors.userId, users.id))
-      .leftJoin(seatReservations, and(eq(seatReservations.instructorId, mentors.id), eq(seatReservations.status, "active")))
-      .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
+      .from(instructorIntegrations)
+      .innerJoin(users, eq(instructorIntegrations.userId, users.id))
+      .leftJoin(seatReservations, and(eq(seatReservations.instructorId, instructorIntegrations.id), eq(seatReservations.status, "active")))
+      .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, instructorIntegrations.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
       .leftJoin(sessions, and(eq(sessions.sessionPackId, sessionPacks.id), eq(sessions.status, "completed")))
-      .where(isNull(mentors.deletedAt))
-      .groupBy(mentors.id, users.id, users.email, mentors.bio, mentors.oneOnOneInventory, mentors.groupInventory, mentors.maxActiveStudents, mentors.createdAt)
-      .orderBy(desc(mentors.createdAt))
+      .where(isNull(instructorIntegrations.deletedAt))
+      .groupBy(instructorIntegrations.id, users.id, users.email, instructorIntegrations.bio, instructorIntegrations.oneOnOneInventory, instructorIntegrations.groupInventory, instructorIntegrations.maxActiveStudents, instructorIntegrations.createdAt)
+      .orderBy(desc(instructorIntegrations.createdAt))
       .limit(pageSize)
       .offset(offset);
 
     return {
       instructors: results.map((r: typeof results[number]) => ({
-        mentorId: r.instructorId,
         instructorId: r.instructorId,
         userId: r.userId,
         email: r.email,
@@ -146,7 +143,7 @@ export async function getAllInstructorsWithStats(
         oneOnOneInventory: r.oneOnOneInventory,
         groupInventory: r.groupInventory,
         maxActiveStudents: r.maxActiveStudents,
-        activeMenteeCount: Number(r.activeMenteeCount) || 0,
+        activeStudentCount: Number(r.activeStudentCount) || 0,
         totalCompletedSessions: r.totalCompletedSessions,
         createdAt: r.createdAt,
       })),
@@ -155,29 +152,29 @@ export async function getAllInstructorsWithStats(
   });
 }
 
-export async function getInstructorWithMentees(
+export async function getInstructorWithStudents(
   instructorId: string
-): Promise<InstructorWithMentees | null> {
+): Promise<InstructorWithStudents | null> {
   const instructorResult = await db
     .select({
-      instructorId: mentors.id,
+      instructorId: instructorIntegrations.id,
       userId: users.id,
       email: users.email,
-      bio: mentors.bio,
-      oneOnOneInventory: mentors.oneOnOneInventory,
-      groupInventory: mentors.groupInventory,
-      maxActiveStudents: mentors.maxActiveStudents,
-      createdAt: mentors.createdAt,
-      activeMenteeCount: sql<number>`COUNT(DISTINCT ${seatReservations.id})`,
+      bio: instructorIntegrations.bio,
+      oneOnOneInventory: instructorIntegrations.oneOnOneInventory,
+      groupInventory: instructorIntegrations.groupInventory,
+      maxActiveStudents: instructorIntegrations.maxActiveStudents,
+      createdAt: instructorIntegrations.createdAt,
+      activeStudentCount: sql<number>`COUNT(DISTINCT ${seatReservations.id})`,
       totalCompletedSessions: sql<number>`COALESCE(SUM(CASE WHEN ${sessions.status} = 'completed' THEN 1 ELSE 0 END), 0)::int`,
     })
-    .from(mentors)
-    .innerJoin(users, eq(mentors.userId, users.id))
-    .leftJoin(seatReservations, and(eq(seatReservations.instructorId, mentors.id), eq(seatReservations.status, "active")))
-    .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, mentors.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
+    .from(instructorIntegrations)
+    .innerJoin(users, eq(instructorIntegrations.userId, users.id))
+    .leftJoin(seatReservations, and(eq(seatReservations.instructorId, instructorIntegrations.id), eq(seatReservations.status, "active")))
+    .leftJoin(sessionPacks, and(eq(sessionPacks.instructorId, instructorIntegrations.id), eq(sessionPacks.id, seatReservations.sessionPackId)))
     .leftJoin(sessions, eq(sessions.sessionPackId, sessionPacks.id))
-    .where(and(eq(mentors.id, instructorId), isNull(mentors.deletedAt)))
-    .groupBy(mentors.id, users.id, users.email, mentors.bio, mentors.oneOnOneInventory, mentors.groupInventory, mentors.maxActiveStudents, mentors.createdAt)
+    .where(and(eq(instructorIntegrations.id, instructorId), isNull(instructorIntegrations.deletedAt)))
+    .groupBy(instructorIntegrations.id, users.id, users.email, instructorIntegrations.bio, instructorIntegrations.oneOnOneInventory, instructorIntegrations.groupInventory, instructorIntegrations.maxActiveStudents, instructorIntegrations.createdAt)
     .limit(1);
 
   if (instructorResult.length === 0) {
@@ -211,7 +208,7 @@ export async function getInstructorWithMentees(
     .where(eq(sessionPacks.instructorId, instructorId))
     .orderBy(desc(sessionPacks.createdAt));
 
-  const mentees: MenteeWithSessionInfo[] = menteesResult.map((m: typeof menteesResult[number]) => ({
+  const students: StudentWithSessionInfo[] = menteesResult.map((m: typeof menteesResult[number]) => ({
     userId: m.userId,
     email: m.email,
     sessionPackId: m.sessionPackId,
@@ -226,7 +223,6 @@ export async function getInstructorWithMentees(
   }));
 
   return {
-    mentorId: instructor.instructorId,
     instructorId: instructor.instructorId,
     userId: instructor.userId,
     email: instructor.email,
@@ -234,16 +230,16 @@ export async function getInstructorWithMentees(
     oneOnOneInventory: instructor.oneOnOneInventory,
     groupInventory: instructor.groupInventory,
     maxActiveStudents: instructor.maxActiveStudents,
-    activeMenteeCount: Number(instructor.activeMenteeCount) || 0,
+    activeStudentCount: Number(instructor.activeStudentCount) || 0,
     totalCompletedSessions: instructor.totalCompletedSessions,
     createdAt: instructor.createdAt,
-    mentees,
+    students,
   };
 }
 
-export async function getInstructorMenteesForCsv(
+export async function getInstructorStudentsForCsv(
   instructorId: string
-): Promise<MenteeWithSessionInfo[]> {
+): Promise<StudentWithSessionInfo[]> {
   const results = await db
     .select({
       userId: users.id,
@@ -286,7 +282,7 @@ export async function getInstructorMenteesForCsv(
 
 export type FullAdminReportRow = {
   instructorEmail: string;
-  menteeEmail: string;
+  studentEmail: string;
   totalSessions: number;
   remainingSessions: number;
   packStatus: SessionPackStatus;
@@ -300,7 +296,7 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
   const results = await db
     .select({
       instructorEmail: instructorUsers.email,
-      menteeEmail: users.email,
+      studentEmail: users.email,
       totalSessions: sessionPacks.totalSessions,
       remainingSessions: sessionPacks.remainingSessions,
       packStatus: sessionPacks.status,
@@ -317,13 +313,13 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
     .from(sessionPacks)
     .innerJoin(users, eq(sessionPacks.userId, users.id))
     .innerJoin(seatReservations, eq(seatReservations.sessionPackId, sessionPacks.id))
-    .innerJoin(mentors, and(eq(sessionPacks.instructorId, mentors.id), isNull(mentors.deletedAt)))
-    .innerJoin(instructorUsers, eq(mentors.userId, instructorUsers.id))
+    .innerJoin(instructorIntegrations, and(eq(sessionPacks.instructorId, instructorIntegrations.id), isNull(instructorIntegrations.deletedAt)))
+    .innerJoin(instructorUsers, eq(instructorIntegrations.userId, instructorUsers.id))
     .orderBy(desc(sessionPacks.createdAt));
 
   return results.map((r: typeof results[number]) => ({
     instructorEmail: r.instructorEmail,
-    menteeEmail: r.menteeEmail,
+    studentEmail: r.studentEmail,
     totalSessions: r.totalSessions,
     remainingSessions: r.remainingSessions,
     packStatus: r.packStatus,
@@ -335,13 +331,13 @@ export async function getFullAdminCsvData(): Promise<FullAdminReportRow[]> {
 }
 
 export type AdminStats = {
-  totalActiveMentees: number;
+  totalActiveStudents: number;
   revenueThisMonth: number;
   revenueLastMonth: number;
   revenueChange: number;
   revenueThisYear: number;
   hasRevenueData: boolean;
-  hasMenteeData: boolean;
+  hasStudentData: boolean;
   hasHistoricalRevenue: boolean;
 };
 
@@ -370,7 +366,7 @@ export async function getAdminStats(): Promise<AdminStats> {
       .where(eq(payments.status, "completed")),
   ]);
 
-  const totalActiveMentees = Number(statsResult[0]?.count || 0);
+  const totalActiveStudents = Number(statsResult[0]?.count || 0);
   const revenueStats = revenueResult[0] || {
     revenueThisMonth: "0",
     revenueLastMonth: "0",
@@ -389,18 +385,18 @@ export async function getAdminStats(): Promise<AdminStats> {
   }
 
   return {
-    totalActiveMentees,
+    totalActiveStudents,
     revenueThisMonth,
     revenueLastMonth,
     revenueChange: Math.round(revenueChange * 10) / 10,
     revenueThisYear,
     hasRevenueData: revenueThisYear > 0,
-    hasMenteeData: totalActiveMentees > 0,
+    hasStudentData: totalActiveStudents > 0,
     hasHistoricalRevenue: revenueLastMonth > 0,
   };
 }
 
-export type AdminMenteeItem = {
+export type AdminStudentItem = {
   id: string;
   userId: string;
   email: string;
@@ -415,19 +411,19 @@ export type AdminMenteeItem = {
   createdAt: Date;
 };
 
-export type AdminMenteeResult = {
-  items: AdminMenteeItem[];
+export type AdminStudentResult = {
+  items: AdminStudentItem[];
   total: number;
   page: number;
   pageSize: number;
 };
 
-export async function getAdminMentees(
+export async function getAdminStudents(
   search?: string,
   instructorId?: string,
   page: number = 1,
   pageSize: number = 20
-): Promise<AdminMenteeResult> {
+): Promise<AdminStudentResult> {
   const offset = (page - 1) * pageSize;
 
   return await db.transaction(async (tx) => {
@@ -628,7 +624,7 @@ export type AdminInstructorItem = {
   groupInventory: number | null;
   maxActiveStudents: number | null;
   createdAt: Date;
-  activeMenteeCount: number;
+  activeStudentCount: number;
   totalCompletedSessions: number;
 };
 
@@ -687,14 +683,14 @@ export async function getAdminInstructors(
         background: instructors.background,
         profileImageUrl: instructors.profileImageUrl,
         isActive: instructors.isActive,
-        oneOnOneInventory: mentors.oneOnOneInventory,
-        groupInventory: mentors.groupInventory,
-        maxActiveStudents: mentors.maxActiveStudents,
+        oneOnOneInventory: instructorIntegrations.oneOnOneInventory,
+        groupInventory: instructorIntegrations.groupInventory,
+        maxActiveStudents: instructorIntegrations.maxActiveStudents,
         createdAt: instructors.createdAt,
-        activeMenteeCount: sql<number>`COALESCE((
+        activeStudentCount: sql<number>`COALESCE((
           SELECT COUNT(DISTINCT ${seatReservations.id})
           FROM ${seatReservations}
-          WHERE ${seatReservations.mentorId} = ${instructors.mentorId}
+          WHERE ${seatReservations.instructorId} = ${instructors.id}
             AND ${seatReservations.status} = 'active'
         ), 0)`,
         totalCompletedSessions: sql<number>`COALESCE((
@@ -707,7 +703,7 @@ export async function getAdminInstructors(
       })
       .from(instructors)
       .leftJoin(users, eq(instructors.userId, users.id))
-      .leftJoin(mentors, eq(instructors.mentorId, mentors.id))
+      .leftJoin(instructorIntegrations, eq(instructors.userId, instructorIntegrations.userId))
       .where(whereCondition)
       .orderBy(desc(instructors.createdAt))
       .limit(pageSize)
@@ -730,7 +726,7 @@ export async function getAdminInstructors(
         groupInventory: r.groupInventory,
         maxActiveStudents: r.maxActiveStudents,
         createdAt: r.createdAt,
-        activeMenteeCount: Number(r.activeMenteeCount) || 0,
+        activeStudentCount: Number(r.activeStudentCount) || 0,
         totalCompletedSessions: Number(r.totalCompletedSessions) || 0,
       })),
       total,
@@ -742,7 +738,6 @@ export async function getAdminInstructors(
 
 export type AdminProductItem = {
   id: string;
-  mentorId: string | null;
   instructorId: string | null;
   instructorName: string | null;
   title: string;
@@ -816,7 +811,6 @@ export async function getAdminProducts(
     const results = await tx
       .select({
         id: mentorshipProducts.id,
-        mentorId: mentorshipProducts.mentorId,
         instructorId: mentorshipProducts.instructorId,
         instructorName: instructors.name,
         title: mentorshipProducts.title,
@@ -843,7 +837,6 @@ export async function getAdminProducts(
     return {
       items: results.map(r => ({
         id: r.id,
-        mentorId: r.mentorId,
         instructorId: r.instructorId,
         instructorName: r.instructorName || "Unknown Instructor",
         title: r.title,

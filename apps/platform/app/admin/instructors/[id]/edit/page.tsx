@@ -146,7 +146,7 @@ const instructorsResponseSchema = z.object({
     oneOnOneInventory: z.number(),
     groupInventory: z.number(),
     maxActiveStudents: z.number(),
-    activeMenteeCount: z.number(),
+    activeStudentCount: z.number(),
     createdAt: z.string(),
   })),
 });
@@ -175,7 +175,7 @@ const SOCIAL_PLATFORMS = [
 ];
 
 /**
- * Fetches instructor details by ID including testimonials and mentee results.
+ * Fetches instructor details by ID including testimonials and student results.
  */
 async function fetchInstructor(id: string): Promise<InstructorDetail> {
   return apiFetch<InstructorDetail>(`/api/admin/instructors/${id}`);
@@ -247,7 +247,7 @@ async function deleteTestimonial(instructorId: string, testimonialId: string) {
 }
 
 /**
- * Adds a mentee result (before/after image) to an instructor.
+   * Adds a student result (before/after image) to an instructor.
  */
 async function addStudentResult(instructorId: string, data: { imageUrl: string; studentName: string }) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/student-results`, {
@@ -257,13 +257,13 @@ async function addStudentResult(instructorId: string, data: { imageUrl: string; 
   });
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || "Failed to add mentee result");
+    throw new Error(error.error || "Failed to add student result");
   }
   return response.json();
 }
 
 /**
- * Deletes a mentee result from an instructor.
+   * Deletes a student result from an instructor.
  */
 async function deleteStudentResult(instructorId: string, resultId: string) {
   const response = await fetch(`/api/admin/instructors/${instructorId}/student-results/${resultId}`, {
@@ -271,7 +271,7 @@ async function deleteStudentResult(instructorId: string, resultId: string) {
   });
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.error || "Failed to delete mentee result");
+    throw new Error(error.error || "Failed to delete student result");
   }
   return response.json();
 }
@@ -329,7 +329,7 @@ export default function EditInstructorPage() {
   const { data: instructorsData } = useQuery({
     queryKey: ["instructors-for-admin"],
     queryFn: async () => {
-      const result = await apiFetch<{ instructors: { instructorId: string; userId: string; email: string; displayName: string; oneOnOneInventory: number; groupInventory: number; maxActiveStudents: number; activeMenteeCount: number; createdAt: string }[] }>("/api/admin/instructors?pageSize=100");
+      const result = await apiFetch<{ instructors: { instructorId: string; userId: string; email: string; displayName: string; oneOnOneInventory: number; groupInventory: number; maxActiveStudents: number; activeStudentCount: number; createdAt: string }[] }>("/api/admin/instructors?pageSize=100");
       return instructorsResponseSchema.parse(result);
     },
   });
@@ -382,8 +382,8 @@ export default function EditInstructorPage() {
       if (response?.requiresProductDeactivation) {
         setActiveProducts((response.activeProducts as ActiveProduct[]) || []);
         setShowProductDeactivationDialog(true);
-      } else if (response?.activeMenteeCount) {
-        alert(`Cannot deactivate instructor: ${response.activeMenteeCount} active mentee(s) with remaining sessions.`);
+      } else if (response?.activeStudentCount) {
+        alert(`Cannot deactivate instructor: ${response.activeStudentCount} active student(s) with remaining sessions.`);
       } else {
         alert(error.message || "Failed to update instructor");
       }
@@ -430,7 +430,7 @@ export default function EditInstructorPage() {
       refetch();
     },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to add mentee result");
+      alert(error instanceof Error ? error.message : "Failed to add student result");
     },
   });
 
@@ -438,7 +438,7 @@ export default function EditInstructorPage() {
     mutationFn: (resultId: string) => deleteStudentResult(instructorId, resultId),
     onSuccess: () => refetch(),
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to delete mentee result");
+      alert(error instanceof Error ? error.message : "Failed to delete student result");
     },
   });
 
@@ -859,8 +859,8 @@ export default function EditInstructorPage() {
             <CardHeader>
               <div className="flex justify-between items-center">
                 <div>
-                  <CardTitle>Mentee Results</CardTitle>
-                  <CardDescription>Before/after images from mentees</CardDescription>
+                  <CardTitle>Student Results</CardTitle>
+                  <CardDescription>Before/after images from students</CardDescription>
                 </div>
                 <Button onClick={() => setShowStudentResultDialog(true)}>
                   <Plus className="mr-2 h-4 w-4" />
@@ -870,13 +870,13 @@ export default function EditInstructorPage() {
             </CardHeader>
             <CardContent>
               {data.studentResults.length === 0 ? (
-                <p className="text-muted-foreground text-center py-8">No mentee results yet</p>
+                <p className="text-muted-foreground text-center py-8">No student results yet</p>
               ) : (
                 <div className="grid grid-cols-4 gap-4">
                   {data.studentResults.map((r) => (
                     <div key={r.id} className="relative group">
                       {r.imageUrl && (
-                        <img src={r.imageUrl} alt="Mentee result" className="w-full h-32 object-cover rounded" />
+                        <img src={r.imageUrl} alt="Student result" className="w-full h-32 object-cover rounded" />
                       )}
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button
@@ -1006,11 +1006,11 @@ export default function EditInstructorPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Mentee Result Dialog */}
+      {/* Student Result Dialog */}
       <Dialog open={showStudentResultDialog} onOpenChange={setShowStudentResultDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Mentee Result</DialogTitle>
+            <DialogTitle>Add Student Result</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <ImageUploadField

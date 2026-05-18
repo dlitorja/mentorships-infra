@@ -1,6 +1,6 @@
 import { eq, and, sql, count, or, inArray } from "drizzle-orm";
 import { db } from "../drizzle";
-import { seatReservations, mentors, sessionPacks, sessions } from "../../schema";
+import { seatReservations, instructorIntegrations, sessionPacks, sessions, instructors } from "../../schema";
 import type { SeatStatus } from "../../schema/seatReservations";
 
 /**
@@ -9,13 +9,7 @@ import type { SeatStatus } from "../../schema/seatReservations";
 const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Reserve a seat for a student with a mentor
- * 
- * @param mentorId - UUID of the mentor
- * @param userId - Clerk user ID of the student
- * @param sessionPackId - UUID of the session pack
- * @param seatExpiresAt - When the seat expires (typically when pack expires)
- * @returns Created seat reservation
+ * Reserve a seat for a student with an instructor
  */
 export async function reserveSeat(
   instructorId: string,
@@ -62,7 +56,6 @@ export async function reserveSeat(
     .insert(seatReservations)
     .values({
       id: crypto.randomUUID(),
-      mentorId: instructorId,
       instructorId,
       userId,
       sessionPackId,
@@ -87,13 +80,18 @@ export async function checkSeatAvailability(instructorId: string): Promise<{
   remainingSeats: number;
 }> {
   // Get instructor's max active students
-  const [instructor] = await db
-    .select({ maxActiveStudents: mentors.maxActiveStudents })
-    .from(mentors)
-    .where(eq(mentors.id, instructorId))
+  // Map instructors.id (UUID) -> instructorIntegrations via shared userId
+  const [integration] = await db
+    .select({
+      maxActiveStudents: instructorIntegrations.maxActiveStudents,
+      integrationId: instructorIntegrations.id,
+    })
+    .from(instructorIntegrations)
+    .innerJoin(instructors, eq(instructorIntegrations.userId, instructors.userId))
+    .where(eq(instructors.id, instructorId))
     .limit(1);
 
-  if (!instructor) {
+  if (!integration) {
     throw new Error(`Instructor ${instructorId} not found`);
   }
 
@@ -109,7 +107,7 @@ export async function checkSeatAvailability(instructorId: string): Promise<{
     );
 
   const activeSeats = Number(activeSeatsResult?.count ?? 0);
-  const maxSeats = instructor.maxActiveStudents;
+  const maxSeats = integration.maxActiveStudents;
   const remainingSeats = Math.max(0, maxSeats - activeSeats);
 
   return {
@@ -362,4 +360,3 @@ export async function getMentorActiveSeats(
 
   return seats;
 }
-

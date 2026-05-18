@@ -40,7 +40,7 @@ export function buildInstructorOnboardingEmail(
     "",
     `Next steps:`,
     `- View your student in your Dashboard: ${args.dashboardUrl}`,
-    `- Reach out to schedule sessions with your new mentee`,
+    `- Reach out to schedule sessions with your new student`,
     "",
     "Important: Please complete onboarding with your new student within 48 hours to ensure the best experience.",
     "",

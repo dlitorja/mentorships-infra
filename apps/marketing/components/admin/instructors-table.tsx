@@ -7,20 +7,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
-type InstructorWithStats = {
-  mentorId: string;
+type UIInstructorStats = {
+  instructorId: string;
   userId: string;
   email: string;
   bio: string | null;
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
-  activeMenteeCount: number;
+  activeStudentCount: number;
   totalCompletedSessions: number;
   createdAt: string;
 };
 
-type MenteeWithSessionInfo = {
+type StudentWithSessionInfo = {
   userId: string;
   email: string;
   sessionPackId: string;
@@ -34,8 +34,8 @@ type MenteeWithSessionInfo = {
   seatExpiresAt: string | null;
 };
 
-type InstructorWithMentees = InstructorWithStats & {
-  mentees: MenteeWithSessionInfo[];
+type InstructorWithStudents = UIInstructorStats & {
+  students: StudentWithSessionInfo[];
 };
 
 function formatDate(dateString: string | null): string {
@@ -87,7 +87,7 @@ function getSeatStatusBadgeVariant(status: string): "default" | "secondary" | "d
   }
 }
 
-function MenteeSessionControls({ sessionPackId, currentRemaining }: { sessionPackId: string; currentRemaining: number }) {
+function StudentSessionControls({ sessionPackId, currentRemaining }: { sessionPackId: string; currentRemaining: number }) {
   const [remaining, setRemaining] = useState(currentRemaining);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -142,11 +142,11 @@ function MenteeSessionControls({ sessionPackId, currentRemaining }: { sessionPac
   );
 }
 
-function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
-  if (mentees.length === 0) {
+function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
+  if (students.length === 0) {
     return (
       <div className="p-4 text-center text-muted-foreground">
-        No active mentees for this instructor
+        No active students for this instructor
       </div>
     );
   }
@@ -156,7 +156,7 @@ function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b bg-muted/50">
-            <th className="text-left p-3 font-medium">Mentee Email</th>
+            <th className="text-left p-3 font-medium">Student Email</th>
             <th className="text-left p-3 font-medium">Sessions</th>
             <th className="text-left p-3 font-medium">Remaining</th>
             <th className="text-left p-3 font-medium">Status</th>
@@ -166,44 +166,44 @@ function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
           </tr>
         </thead>
         <tbody>
-          {mentees.map((mentee) => (
-            <tr key={mentee.sessionPackId} className="border-b hover:bg-muted/25">
+          {students.map((student) => (
+            <tr key={student.sessionPackId} className="border-b hover:bg-muted/25">
               <td className="p-3">
-                <p className="font-medium">{mentee.email}</p>
+                <p className="font-medium">{student.email}</p>
               </td>
               <td className="p-3">
-                <span className="font-medium">{mentee.completedSessionCount}</span>
-                <span className="text-muted-foreground">/ {mentee.totalSessions}</span>
+                <span className="font-medium">{student.completedSessionCount}</span>
+                <span className="text-muted-foreground">/ {student.totalSessions}</span>
               </td>
               <td className="p-3">
-                <span className={mentee.remainingSessions <= 1 ? "text-red-600 font-medium" : ""}>
-                  {mentee.remainingSessions}
+                <span className={student.remainingSessions <= 1 ? "text-red-600 font-medium" : ""}>
+                  {student.remainingSessions}
                 </span>
               </td>
               <td className="p-3">
-                <Badge variant={getStatusBadgeVariant(mentee.status)}>
-                  {mentee.status}
+                <Badge variant={getStatusBadgeVariant(student.status)}>
+                  {student.status}
                 </Badge>
               </td>
               <td className="p-3">
-                {formatDate(mentee.lastSessionCompletedAt)}
+                {formatDate(student.lastSessionCompletedAt)}
               </td>
               <td className="p-3">
                 <div className="flex flex-col gap-1">
-                  <Badge variant={getSeatStatusBadgeVariant(mentee.seatStatus)}>
-                    {mentee.seatStatus}
+                  <Badge variant={getSeatStatusBadgeVariant(student.seatStatus)}>
+                    {student.seatStatus}
                   </Badge>
-                  {mentee.seatExpiresAt && (
+                  {student.seatExpiresAt && (
                     <span className="text-xs text-muted-foreground">
-                      Expires: {formatDate(mentee.seatExpiresAt)}
+                      Expires: {formatDate(student.seatExpiresAt)}
                     </span>
                   )}
                 </div>
               </td>
               <td className="p-3">
-                <MenteeSessionControls
-                  sessionPackId={mentee.sessionPackId}
-                  currentRemaining={mentee.remainingSessions}
+                <StudentSessionControls
+                  sessionPackId={student.sessionPackId}
+                  currentRemaining={student.remainingSessions}
                 />
               </td>
             </tr>
@@ -218,38 +218,38 @@ function InstructorRow({
   instructor,
   isExpanded,
   onToggle,
-  expandedMentees,
+  expandedStudents,
 }: {
-  instructor: InstructorWithStats;
+  instructor: UIInstructorStats;
   isExpanded: boolean;
   onToggle: () => void;
-  expandedMentees: InstructorWithMentees | null;
+  expandedStudents: InstructorWithStudents | null;
 }) {
-  const [mentees, setMentees] = useState<MenteeWithSessionInfo[]>([]);
+  const [students, setStudents] = useState<StudentWithSessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (isExpanded && !expandedMentees && !loading) {
+    if (isExpanded && !expandedStudents && !loading) {
       setLoading(true);
-      fetch(`/api/admin/instructors/${instructor.mentorId}/mentees`)
+      fetch(`/api/admin/instructors/${instructor.instructorId}/mentees`)
         .then((res) => res.json())
         .then((data) => {
-          if (data.mentees) {
-            setMentees(data.mentees);
+          if (data.students) {
+            setStudents(data.students);
           }
         })
         .catch((err) => {
-          console.error("Error loading mentees:", err);
+          console.error("Error loading students:", err);
         })
         .finally(() => {
           setLoading(false);
         });
-    } else if (expandedMentees) {
-      setMentees(expandedMentees.mentees);
+    } else if (expandedStudents) {
+      setStudents(expandedStudents.students);
     }
-  }, [isExpanded, instructor.mentorId, loading, expandedMentees]);
+  }, [isExpanded, instructor.instructorId, loading, expandedStudents]);
 
-  const displayMentees = expandedMentees?.mentees || mentees;
+  const displayStudents = expandedStudents?.students || students;
 
   return (
     <>
@@ -274,7 +274,7 @@ function InstructorRow({
         <td className="p-4">
           <div className="flex items-center gap-2">
             <Users className="h-4 w-4 text-muted-foreground" />
-            <span>{instructor.activeMenteeCount}</span>
+            <span>{instructor.activeStudentCount}</span>
           </div>
         </td>
         <td className="p-4">
@@ -303,13 +303,13 @@ function InstructorRow({
         <tr className="bg-muted/30">
           <td colSpan={7} className="p-0">
             <div className="p-4">
-              <h4 className="font-medium mb-3">Mentees ({displayMentees.length})</h4>
+              <h4 className="font-medium mb-3">Students ({displayStudents.length})</h4>
               {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 </div>
               ) : (
-                <MenteesTable mentees={displayMentees} />
+                <StudentsTable students={displayStudents} />
               )}
             </div>
           </td>
@@ -325,7 +325,7 @@ export function InstructorsTable({
   initialPage,
   initialSearch,
 }: {
-  initialInstructors: InstructorWithStats[];
+  initialInstructors: UIInstructorStats[];
   initialTotal: number;
   initialPage: number;
   initialSearch: string;
@@ -338,8 +338,8 @@ export function InstructorsTable({
   const [page, setPage] = useState(initialPage);
   const [search, setSearch] = useState(initialSearch);
   const [searchInput, setSearchInput] = useState(initialSearch);
-  const [expandedMentorId, setExpandedMentorId] = useState<string | null>(null);
-  const [expandedMentees, setExpandedMentees] = useState<InstructorWithMentees | null>(null);
+  const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
+  const [expandedStudents, setExpandedStudents] = useState<InstructorWithStudents | null>(null);
   const [loading, setLoading] = useState(false);
 
   const pageSize = 50;
@@ -392,24 +392,24 @@ export function InstructorsTable({
     router.push(`/admin/instructors?${params.toString()}`);
   };
 
-  const handleToggleExpand = async (mentorId: string) => {
-    if (expandedMentorId === mentorId) {
-      setExpandedMentorId(null);
-      setExpandedMentees(null);
+  const handleToggleExpand = async (instructorId: string) => {
+    if (expandedInstructorId === instructorId) {
+      setExpandedInstructorId(null);
+      setExpandedStudents(null);
       return;
     }
 
-    setExpandedMentorId(mentorId);
-    setExpandedMentees(null);
+    setExpandedInstructorId(instructorId);
+    setExpandedStudents(null);
 
     try {
-      const res = await fetch(`/api/admin/instructors/${mentorId}/mentees`);
+      const res = await fetch(`/api/admin/instructors/${instructorId}/mentees`);
       const data = await res.json();
-      if (data.mentees) {
-        setExpandedMentees(data);
+      if (data.students) {
+        setExpandedStudents(data);
       }
     } catch (error) {
-      console.error("Error loading mentees:", error);
+      console.error("Error loading students:", error);
     }
   };
 
@@ -462,7 +462,7 @@ export function InstructorsTable({
             <tr className="border-b bg-muted/50">
               <th className="text-left p-4 w-10"></th>
               <th className="text-left p-4 font-medium">Instructor</th>
-              <th className="text-left p-4 font-medium">Active Mentees</th>
+              <th className="text-left p-4 font-medium">Active Students</th>
               <th className="text-left p-4 font-medium">Sessions Completed</th>
               <th className="text-left p-4 font-medium">Inventory</th>
               <th className="text-left p-4 font-medium">Joined</th>
@@ -487,11 +487,11 @@ export function InstructorsTable({
             ) : (
               instructors.map((instructor) => (
                 <InstructorRow
-                  key={instructor.mentorId}
+                  key={instructor.instructorId}
                   instructor={instructor}
-                  isExpanded={expandedMentorId === instructor.mentorId}
-                  onToggle={() => handleToggleExpand(instructor.mentorId)}
-                  expandedMentees={expandedMentees?.mentorId === instructor.mentorId ? expandedMentees : null}
+                  isExpanded={expandedInstructorId === instructor.instructorId}
+                  onToggle={() => handleToggleExpand(instructor.instructorId)}
+                  expandedStudents={expandedStudents?.instructorId === instructor.instructorId ? expandedStudents : null}
                 />
               ))
             )}

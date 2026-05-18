@@ -1,13 +1,11 @@
-import { pgTable, uuid, text, boolean, timestamp, jsonb, index, unique } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, boolean, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 import { users } from "./users";
-import { mentors } from "./mentors";
 
 export const instructors = pgTable(
   "instructors",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-    mentorId: uuid("mentor_id").references(() => mentors.id, { onDelete: "set null" }),
     email: text("email"),
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
@@ -34,7 +32,6 @@ export const instructors = pgTable(
     slugIdx: index("instructors_slug_idx").on(t.slug),
     userIdIdx: index("instructors_user_id_idx").on(t.userId),
     emailIdx: index("instructors_email_idx").on(t.email),
-    mentorIdUnique: unique("instructors_mentor_id_unique").on(t.mentorId),
     isActiveIdx: index("instructors_is_active_idx").on(t.isActive),
     createdAtIdx: index("instructors_created_at_idx").on(t.createdAt),
   })
@@ -57,8 +54,8 @@ export const instructorTestimonials = pgTable(
   })
 );
 
-export const menteeResults = pgTable(
-  "mentee_results",
+export const studentResults = pgTable(
+  "student_results",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     instructorId: uuid("instructor_id")
@@ -71,9 +68,9 @@ export const menteeResults = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => ({
-    instructorIdIdx: index("mentee_results_instructor_id_idx").on(t.instructorId),
-    createdByIdx: index("mentee_results_created_by_idx").on(t.createdBy),
-    createdAtIdx: index("mentee_results_created_at_idx").on(t.createdAt),
+    instructorIdIdx: index("student_results_instructor_id_idx").on(t.instructorId),
+    createdByIdx: index("student_results_created_by_idx").on(t.createdBy),
+    createdAtIdx: index("student_results_created_at_idx").on(t.createdAt),
   })
 );
 
@@ -81,5 +78,5 @@ export type Instructor = typeof instructors.$inferSelect;
 export type NewInstructor = typeof instructors.$inferInsert;
 export type InstructorTestimonial = typeof instructorTestimonials.$inferSelect;
 export type NewInstructorTestimonial = typeof instructorTestimonials.$inferInsert;
-export type MenteeResult = typeof menteeResults.$inferSelect;
-export type NewMenteeResult = typeof menteeResults.$inferInsert;
+export type StudentResult = typeof studentResults.$inferSelect;
+export type NewStudentResult = typeof studentResults.$inferInsert;

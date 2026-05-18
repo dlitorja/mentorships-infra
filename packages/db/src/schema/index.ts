@@ -1,6 +1,6 @@
 // Export all schemas
 export * from "./users";
-export * from "./mentors";
+export * from "./instructorIntegrations";
 export * from "./products";
 export * from "./orders";
 export * from "./payments";
@@ -8,7 +8,6 @@ export * from "./sessionPacks";
 export * from "./seatReservations";
 export * from "./sessions";
 export * from "./userIdentities";
-export * from "./menteeOnboardingSubmissions";
 export * from "./discordActionQueue";
 export * from "./contacts";
 export * from "./waitlist";
@@ -18,8 +17,7 @@ export * from "./videoEditorAssignments";
 export * from "./instructorUploads";
 export * from "./monthlyStorageCosts";
 export * from "./instructors";
-export * from "./menteeInvitations";
-export * from "./menteeSessionCounts";
+export * from "./studentOnboardingSubmissions";
 
 // Re-export drizzle-orm for convenience
 export * from "drizzle-orm";
