@@ -8,7 +8,6 @@ const instructorUsers = aliasedTable(users, "instructor_users");
 
 export type InstructorWithStats = {
   instructorId: string;
-  instructorId: string;
   userId: string;
   email: string;
   bio: string | null;
