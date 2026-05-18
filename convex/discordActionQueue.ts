@@ -109,7 +109,8 @@ export const claimDiscordActions = internalMutation({
 
       claimed.push({
         id: action._id.toString(),
-        type: action.type,
+        // Cast for legacy codegen enum mismatch (assign_mentee_role vs assign_student_role)
+        type: action.type as any,
         status: "processing",
         subjectUserId: action.subjectUserId,
         instructorId: action.instructorId ?? null,
