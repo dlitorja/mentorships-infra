@@ -156,7 +156,7 @@ export async function createProduct(
       sessionsPerPack,
       validityDays,
       active,
-    })
+    } as any)
     .returning();
 
   if (!product) {
