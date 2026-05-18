@@ -86,7 +86,6 @@ export async function getAllInstructorsWithStats(
       return {
         instructors: results.map((r: typeof results[number]) => ({
           instructorId: r.instructorId,
-          instructorId: r.instructorId,
           userId: r.userId,
           email: r.email,
           bio: r.bio,
@@ -137,7 +136,6 @@ export async function getAllInstructorsWithStats(
 
     return {
       instructors: results.map((r: typeof results[number]) => ({
-        instructorId: r.instructorId,
         instructorId: r.instructorId,
         userId: r.userId,
         email: r.email,
