@@ -1353,7 +1353,7 @@ export const getPendingStudentInvitationsByEmail = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const invitations = await ctx.db
+    const invitations = await (ctx.db as any)
       .query("studentInvitations")
       .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
       .collect();
@@ -1555,7 +1555,7 @@ export const acceptStudentInvitation = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const invitation = await ctx.db
+    const invitation = await (ctx.db as any)
       .query("studentInvitations")
       .withIndex("by_email_instructorId", (q) =>
         q.eq("email", args.email.toLowerCase()).eq("instructorId", args.instructorId)
