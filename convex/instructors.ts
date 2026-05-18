@@ -458,7 +458,7 @@ export const migrateInstructor = mutation({
     profileImageUrl: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
-    legacyInstructorRef: v.optional(v.string()),
+    legacyId: v.optional(v.string()),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     timeZone: v.optional(v.string()),
@@ -490,7 +490,7 @@ export const migrateInstructor = mutation({
       if (args.profileImageUrl !== undefined) updates.profileImageUrl = args.profileImageUrl;
       if (args.profileImageUploadPath !== undefined) updates.profileImageUploadPath = args.profileImageUploadPath;
       if (args.profileImageStorageId !== undefined) updates.profileImageStorageId = args.profileImageStorageId;
-      if (args.legacyInstructorRef !== undefined) updates.legacyInstructorRef = args.legacyInstructorRef;
+      if (args.legacyId !== undefined) updates.legacyId = args.legacyId;
       if (args.googleCalendarId !== undefined) updates.googleCalendarId = args.googleCalendarId;
       if (args.googleRefreshToken !== undefined) updates.googleRefreshToken = args.googleRefreshToken;
       if (args.timeZone !== undefined) updates.timeZone = args.timeZone;
@@ -522,7 +522,7 @@ export const migrateInstructor = mutation({
       profileImageUrl: args.profileImageUrl ?? undefined,
       profileImageUploadPath: args.profileImageUploadPath ?? undefined,
       profileImageStorageId: args.profileImageStorageId ?? undefined,
-      legacyInstructorRef: args.legacyInstructorRef ?? undefined,
+      legacyId: args.legacyId ?? undefined,
       googleCalendarId: args.googleCalendarId ?? undefined,
       googleRefreshToken: args.googleRefreshToken ?? undefined,
       timeZone: args.timeZone ?? undefined,
@@ -563,7 +563,7 @@ export const updateInstructor = mutation({
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
     specialties: v.optional(v.array(v.string())),
-    legacyInstructorRef: v.optional(v.string()),
+    legacyId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
@@ -1532,7 +1532,7 @@ export const unlinkClerkUserFromInstructor = internalAction({
 export const linkInstructorToLegacyMentor = internalMutation({
   args: {
     instructorId: v.id("instructors"),
-    legacyInstructorRef: v.optional(v.string()),
+    legacyId: v.optional(v.string()),
     userId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -1540,8 +1540,8 @@ export const linkInstructorToLegacyMentor = internalMutation({
       userId: args.userId,
       updatedAt: Date.now(),
     };
-    if (args.legacyInstructorRef) {
-      updates.legacyInstructorRef = args.legacyInstructorRef;
+    if (args.legacyId) {
+      updates.legacyId = args.legacyId;
     }
     await ctx.db.patch(args.instructorId, updates);
     return { success: true };
@@ -1583,7 +1583,7 @@ type LinkResult = {
   reason?: string;
   instructorId?: Id<"instructors">;
   instructorName?: string | null;
-  legacyInstructorRef?: string;
+  legacyId?: string;
   email?: string;
   userId?: string;
   invitationId?: Id<"studentInvitations">;
@@ -1622,7 +1622,7 @@ export const linkClerkUserToInstructor = internalAction({
       } else {
         await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
           instructorId: instructor._id,
-          legacyInstructorRef: instructor.legacyInstructorRef,
+          legacyId: instructor.legacyId,
           userId,
         });
 
@@ -1631,7 +1631,7 @@ export const linkClerkUserToInstructor = internalAction({
           instructorId: instructor._id,
           instructorName: instructor.name ?? null,
           userId,
-          legacyInstructorRef: instructor.legacyInstructorRef ?? undefined,
+          legacyId: instructor.legacyId ?? undefined,
           email,
         };
       }
@@ -1654,7 +1654,7 @@ export const linkClerkUserToInstructor = internalAction({
       studentResult = {
         linked: true,
         invitationId: pendingInvitation._id,
-        legacyInstructorRef: pendingInvitation.instructorId.toString(),
+        legacyId: pendingInvitation.instructorId.toString(),
         email,
         needsSessionPack: true,
       };
