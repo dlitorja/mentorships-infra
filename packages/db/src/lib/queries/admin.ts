@@ -224,7 +224,6 @@ export async function getInstructorWithStudents(
 
   return {
     instructorId: instructor.instructorId,
-    instructorId: instructor.instructorId,
     userId: instructor.userId,
     email: instructor.email,
     bio: instructor.bio,
