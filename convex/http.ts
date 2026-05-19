@@ -437,7 +437,7 @@ http.route({
     }
 
     try {
-      const result = await ctx.runMutation(internal.adminWorkspaces.ensureAdminStudentWorkspace as any, {
+      const result = await ctx.runMutation(internal.adminWorkspaces.ensureAdminStudentWorkspace, {
         studentUserId,
       });
       return new Response(JSON.stringify(result), {

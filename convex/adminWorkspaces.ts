@@ -292,6 +292,9 @@ export const ensureAdminStudentWorkspace = internalMutation({
       type: "admin_student",
     });
 
+    // Record audit log with a system actor to preserve traceability
+    await logWorkspaceAudit(ctx as any, wsId as any, "system", "create_admin_student_workspace", "Auto-created post-payment");
+
     return { id: wsId, created: true };
   },
 });
