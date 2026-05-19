@@ -31,12 +31,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    type WorkspaceDoc = {
+      _id: string;
+      name: string;
+      description?: string;
+      type?: string;
+      ownerId: string;
+    };
+
     const workspace = (await convex.mutation(
       api.adminWorkspaces.createAdminStudentWorkspace,
-      {
-        studentUserId,
-      }
-    )) as any;
+      { studentUserId }
+    )) as WorkspaceDoc;
 
     if (!workspace) {
       return NextResponse.json(
@@ -46,11 +52,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({
-      id: workspace?._id,
-      name: workspace?.name,
-      description: workspace?.description,
-      type: workspace?.type,
-      ownerId: workspace?.ownerId,
+      id: workspace._id,
+      name: workspace.name,
+      description: workspace.description,
+      type: workspace.type,
+      ownerId: workspace.ownerId,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create workspace";
