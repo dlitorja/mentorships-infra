@@ -458,7 +458,7 @@ export const migrateInstructor = mutation({
     profileImageUrl: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
-    legacyId: v.optional(v.string()),
+    legacyInstructorRef: v.optional(v.string()),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     timeZone: v.optional(v.string()),
@@ -490,7 +490,7 @@ export const migrateInstructor = mutation({
       if (args.profileImageUrl !== undefined) updates.profileImageUrl = args.profileImageUrl;
       if (args.profileImageUploadPath !== undefined) updates.profileImageUploadPath = args.profileImageUploadPath;
       if (args.profileImageStorageId !== undefined) updates.profileImageStorageId = args.profileImageStorageId;
-      if (args.legacyId !== undefined) updates.legacyId = args.legacyId;
+      if (args.legacyInstructorRef !== undefined) updates.legacyInstructorRef = args.legacyInstructorRef;
       if (args.googleCalendarId !== undefined) updates.googleCalendarId = args.googleCalendarId;
       if (args.googleRefreshToken !== undefined) updates.googleRefreshToken = args.googleRefreshToken;
       if (args.timeZone !== undefined) updates.timeZone = args.timeZone;
@@ -522,7 +522,7 @@ export const migrateInstructor = mutation({
       profileImageUrl: args.profileImageUrl ?? undefined,
       profileImageUploadPath: args.profileImageUploadPath ?? undefined,
       profileImageStorageId: args.profileImageStorageId ?? undefined,
-      legacyId: args.legacyId ?? undefined,
+      legacyInstructorRef: args.legacyInstructorRef ?? undefined,
       googleCalendarId: args.googleCalendarId ?? undefined,
       googleRefreshToken: args.googleRefreshToken ?? undefined,
       timeZone: args.timeZone ?? undefined,
@@ -563,7 +563,7 @@ export const updateInstructor = mutation({
     profileImageUploadPath: v.optional(v.string()),
     profileImageStorageId: v.optional(v.string()),
     specialties: v.optional(v.array(v.string())),
-    legacyId: v.optional(v.string()),
+    legacyInstructorRef: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
@@ -1353,7 +1353,7 @@ export const getPendingStudentInvitationsByEmail = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const invitations: Doc<"studentInvitations">[] = await ctx.db
+    const invitations: StudentInvitationDoc[] = await ctx.db
       .query("studentInvitations")
       .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
       .collect();
@@ -1532,7 +1532,7 @@ export const unlinkClerkUserFromInstructor = internalAction({
 export const linkInstructorToLegacyMentor = internalMutation({
   args: {
     instructorId: v.id("instructors"),
-    legacyId: v.optional(v.string()),
+    legacyInstructorRef: v.optional(v.string()),
     userId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -1540,8 +1540,8 @@ export const linkInstructorToLegacyMentor = internalMutation({
       userId: args.userId,
       updatedAt: Date.now(),
     };
-    if (args.legacyId) {
-      updates.legacyId = args.legacyId;
+    if (args.legacyInstructorRef) {
+      updates.legacyInstructorRef = args.legacyInstructorRef;
     }
     await ctx.db.patch(args.instructorId, updates);
     return { success: true };
@@ -1583,7 +1583,7 @@ type LinkResult = {
   reason?: string;
   instructorId?: Id<"instructors">;
   instructorName?: string | null;
-  legacyId?: string;
+  legacyInstructorRef?: string;
   email?: string;
   userId?: string;
   invitationId?: Id<"studentInvitations">;
@@ -1622,7 +1622,7 @@ export const linkClerkUserToInstructor = internalAction({
       } else {
         await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
           instructorId: instructor._id,
-          legacyId: instructor.legacyId,
+          legacyInstructorRef: instructor.legacyInstructorRef,
           userId,
         });
 
@@ -1631,7 +1631,7 @@ export const linkClerkUserToInstructor = internalAction({
           instructorId: instructor._id,
           instructorName: instructor.name ?? null,
           userId,
-          legacyId: instructor.legacyId ?? undefined,
+          legacyInstructorRef: instructor.legacyInstructorRef ?? undefined,
           email,
         };
       }
@@ -1654,7 +1654,7 @@ export const linkClerkUserToInstructor = internalAction({
       studentResult = {
         linked: true,
         invitationId: pendingInvitation._id,
-        legacyId: pendingInvitation.instructorId.toString(),
+        legacyInstructorRef: pendingInvitation.instructorId.toString(),
         email,
         needsSessionPack: true,
       };
@@ -1666,3 +1666,16 @@ export const linkClerkUserToInstructor = internalAction({
     };
   },
 });
+// Structural type for studentInvitations to avoid reliance on TableNames when
+// generated types are stale in certain build environments.
+type StudentInvitationDoc = {
+  _id: Id<"studentInvitations">;
+  _creationTime: number;
+  email: string;
+  instructorId: Id<"instructors">;
+  clerkInvitationId?: string;
+  expiresAt: number;
+  status: "pending" | "accepted" | "expired" | "cancelled";
+  deletedAt?: number;
+  legacyId?: string;
+};
