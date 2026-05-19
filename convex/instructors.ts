@@ -490,7 +490,7 @@ export const migrateInstructor = mutation({
       if (args.profileImageUrl !== undefined) updates.profileImageUrl = args.profileImageUrl;
       if (args.profileImageUploadPath !== undefined) updates.profileImageUploadPath = args.profileImageUploadPath;
       if (args.profileImageStorageId !== undefined) updates.profileImageStorageId = args.profileImageStorageId;
-      if (args.legacyInstructorRef !== undefined) updates.legacyInstructorRef = args.legacyInstructorRef;
+      if (args.legacyInstructorRef !== undefined) updates.legacyId = args.legacyInstructorRef;
       if (args.googleCalendarId !== undefined) updates.googleCalendarId = args.googleCalendarId;
       if (args.googleRefreshToken !== undefined) updates.googleRefreshToken = args.googleRefreshToken;
       if (args.timeZone !== undefined) updates.timeZone = args.timeZone;
@@ -534,7 +534,7 @@ export const migrateInstructor = mutation({
 
     // If legacy reference provided, patch after insert to avoid type mismatches across environments.
     if (args.legacyInstructorRef !== undefined) {
-      await ctx.db.patch(id, { legacyInstructorRef: args.legacyInstructorRef });
+      await ctx.db.patch(id, { legacyId: args.legacyInstructorRef });
     }
 
     return { action: "inserted", id };
@@ -1545,7 +1545,7 @@ export const linkInstructorToLegacyMentor = internalMutation({
       updatedAt: Date.now(),
     };
     if (args.legacyInstructorRef) {
-      updates.legacyInstructorRef = args.legacyInstructorRef;
+      updates.legacyId = args.legacyInstructorRef;
     }
     await ctx.db.patch(args.instructorId, updates);
     return { success: true };
@@ -1626,7 +1626,7 @@ export const linkClerkUserToInstructor = internalAction({
       } else {
         await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
           instructorId: instructor._id,
-          legacyInstructorRef: instructor.legacyInstructorRef,
+          legacyInstructorRef: instructor.legacyId,
           userId,
         });
 
@@ -1635,7 +1635,7 @@ export const linkClerkUserToInstructor = internalAction({
           instructorId: instructor._id,
           instructorName: instructor.name ?? null,
           userId,
-          legacyInstructorRef: instructor.legacyInstructorRef ?? undefined,
+          legacyInstructorRef: instructor.legacyId ?? undefined,
           email,
         };
       }
