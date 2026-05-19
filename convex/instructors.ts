@@ -475,7 +475,7 @@ export const migrateInstructor = mutation({
       .first();
 
     if (existingByUserId) {
-      const updates: Partial<Doc<"instructors">> = {};
+      const updates: Record<string, unknown> = {};
       if (args.name !== undefined) updates.name = args.name;
       if (args.slug !== undefined) updates.slug = args.slug;
       if (args.email !== undefined) updates.email = args.email;
