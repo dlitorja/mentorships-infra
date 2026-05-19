@@ -534,7 +534,7 @@ export const migrateInstructor = mutation({
 
     // If legacy reference provided, patch after insert to avoid type mismatches across environments.
     if (args.legacyInstructorRef !== undefined) {
-      await ctx.db.patch(id, { legacyId: args.legacyInstructorRef });
+      await ctx.db.patch(id as any, { legacyInstructorRef: args.legacyInstructorRef });
     }
 
     return { action: "inserted", id };
@@ -1546,7 +1546,7 @@ export const linkInstructorToLegacyMentor = internalMutation({
       updatedAt: Date.now(),
     };
     if (args.legacyInstructorRef) {
-      updates.legacyId = args.legacyInstructorRef;
+      updates.legacyInstructorRef = args.legacyInstructorRef;
     }
     await ctx.db.patch(args.instructorId, updates);
     return { success: true };
@@ -1575,7 +1575,7 @@ export const acceptStudentInvitation = internalMutation({
       return { accepted: false, reason: "No pending invitation found" };
     }
 
-    await ctx.db.patch(invitation._id, {
+    await ctx.db.patch(invitation._id as any, {
       status: "accepted",
     });
 
@@ -1627,7 +1627,7 @@ export const linkClerkUserToInstructor = internalAction({
       } else {
         await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
           instructorId: instructor._id,
-          legacyInstructorRef: instructor.legacyId,
+          legacyInstructorRef: instructor.legacyInstructorRef,
           userId,
         });
 
@@ -1636,7 +1636,7 @@ export const linkClerkUserToInstructor = internalAction({
           instructorId: instructor._id,
           instructorName: instructor.name ?? null,
           userId,
-          legacyInstructorRef: instructor.legacyId ?? undefined,
+          legacyInstructorRef: instructor.legacyInstructorRef ?? undefined,
           email,
         };
       }
