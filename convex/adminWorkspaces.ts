@@ -89,8 +89,8 @@ async function enrichWorkspaces(
     isPublic: w.isPublic,
     endedAt: w.endedAt,
     createdAt: w._creationTime,
-    // Support both legacy (menteeImageCount) and new (studentImageCount) deployments
-    studentImageCount: (w as any).studentImageCount ?? (w as any).menteeImageCount ?? 0,
+    // Narrowed: use studentImageCount only after migration
+    studentImageCount: (w as any).studentImageCount ?? 0,
     instructorImageCount: w.instructorImageCount,
   }));
 }
@@ -115,8 +115,7 @@ export const getAllWorkspaces = query({
     const result = args.type
       ? await ctx.db
           .query("workspaces")
-          // Map new value to legacy for compatibility with older deployments
-          .withIndex("by_type", (q) => q.eq("type", (args.type === "admin_student" ? ("admin_mentee" as any) : args.type)))
+          .withIndex("by_type", (q) => q.eq("type", args.type))
           .order("desc")
           .paginate(args.paginationOpts)
       : await ctx.db
@@ -185,7 +184,7 @@ export const createAdminStudentWorkspace = mutation({
       .first();
 
     if (existingWorkspace) {
-      await logWorkspaceAudit(ctx, existingWorkspace._id, user.subject, "create_admin_mentee_workspace" as any, "Returned existing workspace");
+      await logWorkspaceAudit(ctx, existingWorkspace._id, user.subject, "create_admin_student_workspace", "Returned existing workspace");
       return existingWorkspace;
     }
 
@@ -194,19 +193,17 @@ export const createAdminStudentWorkspace = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", args.studentUserId))
       .first();
 
-    const workspaceId = await (ctx.db as any).insert("workspaces", {
+    const workspaceId = await ctx.db.insert("workspaces", {
       name: `Admin Communication - ${student?.firstName || student?.email || "User"}`,
       description: "Private workspace for admin-student communication",
       ownerId: args.studentUserId,
       isPublic: false,
-      // Legacy field name for compatibility with older deployments
-      menteeImageCount: 0,
+      studentImageCount: 0,
       instructorImageCount: 0,
-      // Legacy type value for compatibility with older deployments
-      type: "admin_mentee",
+      type: "admin_student",
     });
 
-    await logWorkspaceAudit(ctx, workspaceId, user.subject, "create_admin_mentee_workspace" as any);
+    await logWorkspaceAudit(ctx, workspaceId, user.subject, "create_admin_student_workspace");
 
     return await ctx.db.get(workspaceId);
   },
@@ -243,14 +240,13 @@ export const createAdminInstructorWorkspace = mutation({
       return existingWorkspace;
     }
 
-    const workspaceId = await (ctx.db as any).insert("workspaces", {
+    const workspaceId = await ctx.db.insert("workspaces", {
       name: "Admin Communication - Instructor",
       description: "Private workspace for admin-instructor communication",
       ownerId: user.subject,
       instructorId: args.instructorId,
       isPublic: false,
-      // Legacy-compatible field name
-      menteeImageCount: 0,
+      studentImageCount: 0,
       instructorImageCount: 0,
       type: "admin_instructor",
     });
@@ -272,7 +268,7 @@ export const ensureAdminStudentWorkspace = internalMutation({
       .filter((q) =>
         q.and(
           q.eq(q.field("ownerId"), args.studentUserId),
-          q.eq(q.field("type"), "admin_mentee"),
+          q.eq(q.field("type"), "admin_student"),
         )
       )
       .first();
@@ -287,16 +283,14 @@ export const ensureAdminStudentWorkspace = internalMutation({
       .first();
 
     const name = `Admin Communication - ${student?.firstName || student?.email || "User"}`;
-    const wsId = await (ctx.db as any).insert("workspaces", {
+    const wsId = await ctx.db.insert("workspaces", {
       name,
       description: "Private workspace for admin-student communication",
       ownerId: args.studentUserId,
       isPublic: false,
-      // Legacy field for compatibility with older deployments
-      menteeImageCount: 0,
+      studentImageCount: 0,
       instructorImageCount: 0,
-      // Legacy type value for compatibility
-      type: "admin_mentee",
+      type: "admin_student",
     });
 
     // Record audit log with a system actor to preserve traceability

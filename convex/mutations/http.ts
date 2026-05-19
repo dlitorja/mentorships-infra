@@ -39,8 +39,8 @@ export const deleteAllWorkspaceContent = mutation({
       await ctx.db.delete(message._id);
     }
 
-    await (ctx.db as any).patch(workspaceId, {
-      menteeImageCount: 0,
+    await ctx.db.patch(workspaceId, {
+      studentImageCount: 0,
       instructorImageCount: 0,
     });
 

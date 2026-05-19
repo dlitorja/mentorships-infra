@@ -127,15 +127,14 @@ export const createSeatReservation = mutation({
 
     const seatReservation = await ctx.db.get(seatId);
 
-    const workspaceId = await (ctx.db as any).insert("workspaces", {
+    const workspaceId = await ctx.db.insert("workspaces", {
       name: `Mentorship Workspace`,
       description: `Workspace for mentorship with ${instructor.userId}`,
       ownerId: args.userId,
       instructorId: args.instructorId,
       isPublic: false,
       seatReservationId: seatId,
-      // Legacy field for compatibility with older deployments
-      menteeImageCount: 0,
+      studentImageCount: 0,
       instructorImageCount: 0,
     });
 
