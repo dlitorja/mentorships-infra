@@ -75,10 +75,12 @@ export const processDiscordActionQueue = inngest.createFunction(
                 roleId: payload.roleId,
               });
             } else {
-              // Resolve role name without legacy mentee fallback
+              // Resolve role name with a neutral fallback env var. We do not use legacy "mentee" naming in code.
+              // Operators can set DISCORD_DEFAULT_ROLE_NAME for backward compatibility if needed.
               const roleName =
                 payload.roleName ??
                 process.env.DISCORD_STUDENT_ROLE_NAME ??
+                process.env.DISCORD_DEFAULT_ROLE_NAME ??
                 null;
               if (!roleName) {
                 throw new Error("Missing roleName for assign_student_role");
