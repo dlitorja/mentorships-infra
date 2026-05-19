@@ -66,6 +66,22 @@ export default function InstructorsPage(): React.JSX.Element {
     );
   }
 
+  if (!instructors || instructors.length === 0) {
+    return (
+      <div className='min-h-screen bg-background'>
+        <div className='container mx-auto px-4 py-16'>
+          <div className='mx-auto max-w-7xl text-center'>
+            <div className='mb-6'>
+              <h1 className='section-title'>Our Instructors</h1>
+              <p className='mt-4 text-muted-foreground'>Browse our roster of world-class art instructors</p>
+            </div>
+            <p className='text-muted-foreground'>No instructors available at this time.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className='min-h-screen bg-background'>
       <div className='container mx-auto px-4 py-16'>

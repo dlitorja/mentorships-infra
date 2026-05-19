@@ -17,6 +17,8 @@ export type PublicInstructor = {
   isActive?: boolean;
   isHidden?: boolean;
   deletedAt?: number;
+  // Computed on the server: true if sold out of all mentorship types they currently offer
+  isCompletelySoldOut?: boolean;
 };
 
 export function usePublicInstructors() {

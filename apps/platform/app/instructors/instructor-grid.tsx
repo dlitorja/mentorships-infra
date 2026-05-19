@@ -14,6 +14,7 @@ interface Instructor {
   profileImageUrl?: string;
   portfolioImages?: string[];
   specialties?: string[];
+  isCompletelySoldOut?: boolean;
 }
 
 interface InstructorGridProps {
@@ -21,7 +22,7 @@ interface InstructorGridProps {
   priorityIds: Set<string>;
 }
 
-function InstructorCardImage({ instructor, priority }: { instructor: Instructor; priority: boolean }) {
+function InstructorCardImage({ instructor, priority, soldOut }: { instructor: Instructor; priority: boolean; soldOut: boolean }) {
   const [hasError, setHasError] = useState(false);
   const src = hasError ? "/placeholder-instructor.jpg" : (instructor.profileImageUrl || "/placeholder-instructor.jpg");
 
@@ -43,6 +44,14 @@ function InstructorCardImage({ instructor, priority }: { instructor: Instructor;
         priority={priority}
         onError={() => setHasError(true)}
       />
+      {soldOut && (
+        <div
+          aria-label='Sold out'
+          className='absolute top-2 right-2 bg-red-600/90 text-white text-xs font-semibold px-2 py-1 rounded shadow-sm'
+        >
+          SOLD OUT
+        </div>
+      )}
     </Link>
   );
 }
@@ -59,7 +68,7 @@ export function InstructorGrid({ instructors, priorityIds }: InstructorGridProps
           key={instructor._id}
           className='flex flex-col'
         >
-          <InstructorCardImage instructor={instructor} priority={priorityIds.has(instructor._id)} />
+          <InstructorCardImage instructor={instructor} priority={priorityIds.has(instructor._id)} soldOut={Boolean(instructor.isCompletelySoldOut)} />
 
           <div className='pt-4 text-center'>
             <h3 className='text-lg font-bold uppercase tracking-wide'>{instructor.name}</h3>

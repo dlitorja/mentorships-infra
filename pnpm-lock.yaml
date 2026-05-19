@@ -30,7 +30,7 @@ importers:
         version: 6.39.1(next@16.1.7(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@convex-dev/migrations':
         specifier: ^0.3.4
-        version: 0.3.4(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
+        version: 0.3.4(convex@1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
       '@google/generative-ai':
         specifier: ^0.24.1
         version: 0.24.1
@@ -122,8 +122,8 @@ importers:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       convex:
-        specifier: ^1.35.1
-        version: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+        specifier: ^1.39.1
+        version: 1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
@@ -224,6 +224,9 @@ importers:
       '@vitest/ui':
         specifier: 2.1.9
         version: 2.1.9(vitest@2.1.9)
+      baseline-browser-mapping:
+        specifier: ^1.0.0
+        version: 1.0.0
       drizzle-kit:
         specifier: 0.31.7
         version: 0.31.7
@@ -496,7 +499,7 @@ importers:
         version: 7.3.4(next@16.0.10(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@convex-dev/react-query':
         specifier: ^0.1.0
-        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
+        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
       '@mentorships/payments':
         specifier: workspace:*
         version: link:../../packages/payments
@@ -543,8 +546,8 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       convex:
-        specifier: ^1.35.1
-        version: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+        specifier: ^1.39.1
+        version: 1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
       embla-carousel-react:
         specifier: ^8.6.0
         version: 8.6.0(react@19.2.0)
@@ -605,7 +608,7 @@ importers:
         version: 10.4.27(postcss@8.5.8)
       baseline-browser-mapping:
         specifier: latest
-        version: 2.10.30
+        version: 2.10.31
       eslint:
         specifier: 9.39.1
         version: 9.39.1(jiti@2.6.1)
@@ -626,7 +629,7 @@ importers:
         version: 6.39.1(next@16.0.10(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@convex-dev/react-query':
         specifier: ^0.1.0
-        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
+        version: 0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))
       '@mentorships/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -741,7 +744,7 @@ importers:
         version: 10.4.27(postcss@8.5.8)
       baseline-browser-mapping:
         specifier: latest
-        version: 2.10.30
+        version: 2.10.31
       eslint:
         specifier: 9.39.1
         version: 9.39.1(jiti@2.6.1)
@@ -1793,6 +1796,9 @@ packages:
 
   '@jsonhero/path@1.0.21':
     resolution: {integrity: sha512-gVUDj/92acpVoJwsVJ/RuWOaHyG4oFzn898WNGQItLCTQ+hOaVlEaImhwE1WqOTf+l3dGOUkbSiVKlb3q1hd1Q==}
+
+  '@mdn/browser-compat-data@7.3.16':
+    resolution: {integrity: sha512-JQ6SGcHeyqSYGVwWe7NzOeXfp/vZgo2yz+fsEbMOyWLyNRVP4RoG8+dqaF/VTx1zPtF4J8XvxiWXH1l2cMZTwQ==}
 
   '@microsoft/fetch-event-source@2.0.1':
     resolution: {integrity: sha512-W6CLUJ2eBMw3Rec70qrsEW0jOm/3twwJv21mrmj2yORiaVmVYGS4sSS5yUwvQc1ZlDLYGPnClVWmUUMagKNsfA==}
@@ -4507,13 +4513,11 @@ packages:
     resolution: {integrity: sha512-lGe34o6EHj9y3Kts9R4ZYs/Gr+6N7MCaMlIFA3F1R2O5/m7K06AxfSeO5530PEERE6/WyEg3lsuyw4GHlPZHog==}
     engines: {node: ^4.5.0 || >= 5.9}
 
-  baseline-browser-mapping@2.10.15:
-    resolution: {integrity: sha512-1nfKCq9wuAZFTkA2ey/3OXXx7GzFjLdkTiFVNwlJ9WqdI706CZRIhEqjuwanjMIja+84jDLa9rcyZDPDiVkASQ==}
-    engines: {node: '>=6.0.0'}
-    hasBin: true
+  baseline-browser-mapping@1.0.0:
+    resolution: {integrity: sha512-vLDBi7uXQlXG3NTMCWGHUJFwUAMFgbs7aHANu6u2b3tf0PB1j7btkHwDDukr0EBx5R3//9FObo47KBsimsNJ4w==}
 
-  baseline-browser-mapping@2.10.30:
-    resolution: {integrity: sha512-xjOFN16Ha1+Rz4nFYKqHU/LSB+gx/Vi3yQLX7r7sAW+Wa+8hhF2h4pvqTrTMc8+WcDBEunnUurr46Jvv0jk3Vg==}
+  baseline-browser-mapping@2.10.31:
+    resolution: {integrity: sha512-MujYO3eP72uvmSE0i4wltsodRfIpZATP3jvzRNRGGxgzId7aVocVJJV3nf01qnzzKFGxQVC9bpWxl5cjxTr/7Q==}
     engines: {node: '>=6.0.0'}
     hasBin: true
 
@@ -4722,14 +4726,14 @@ packages:
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
-  convex@1.35.1:
-    resolution: {integrity: sha512-g23KrTjBiXqRHzWIN0PVFagKjrmFxWUaOSiBsAWPTpXX2rXl0L1F4PR0YpAcMJEzMgfZR9AGymJvLTM+KA6lsQ==}
+  convex@1.39.1:
+    resolution: {integrity: sha512-W+gVXA7BpRF1xLlS1kGTtKVaqd5yonqbGESKiPtIUXjV744GdDz8IG7RVsSY5KzHbgxuJBHKaJYk+92OIHTskQ==}
     engines: {node: '>=18.0.0', npm: '>=7.0.0'}
     hasBin: true
     peerDependencies:
       '@auth0/auth0-react': ^2.0.1
       '@clerk/clerk-react': ^4.12.8 || ^5.0.0
-      '@clerk/react': ^6.0.0
+      '@clerk/react': ^6.4.3
       react: ^18.0.0 || ^19.0.0-0 || ^19.0.0
     peerDependenciesMeta:
       '@auth0/auth0-react':
@@ -7652,6 +7656,9 @@ packages:
     resolution: {integrity: sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==}
     engines: {node: '>=18'}
 
+  web-features@3.28.0:
+    resolution: {integrity: sha512-MFo2BqJPuEDPxj5WosjkUL56ijUKdPz2HJzq0tZQ0SWFLEhdZFsB/rxTI8Kek6L2IkRwxrslYcgOExndd9iZ1w==}
+
   web-streams-polyfill@3.3.3:
     resolution: {integrity: sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw==}
     engines: {node: '>= 8'}
@@ -8670,14 +8677,14 @@ snapshots:
       - react
       - react-dom
 
-  '@convex-dev/migrations@0.3.4(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))':
+  '@convex-dev/migrations@0.3.4(convex@1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))':
     dependencies:
-      convex: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+      convex: 1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
 
-  '@convex-dev/react-query@0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))':
+  '@convex-dev/react-query@0.1.0(@tanstack/react-query@5.96.2(react@19.2.0))(convex@1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6))':
     dependencies:
       '@tanstack/react-query': 5.96.2(react@19.2.0)
-      convex: 1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
+      convex: 1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
 
   '@csstools/color-helpers@6.0.2': {}
 
@@ -9055,6 +9062,8 @@ snapshots:
   '@js-sdsl/ordered-map@4.4.2': {}
 
   '@jsonhero/path@1.0.21': {}
+
+  '@mdn/browser-compat-data@7.3.16': {}
 
   '@microsoft/fetch-event-source@2.0.1': {}
 
@@ -12227,9 +12236,12 @@ snapshots:
 
   base64id@2.0.0: {}
 
-  baseline-browser-mapping@2.10.15: {}
+  baseline-browser-mapping@1.0.0:
+    dependencies:
+      '@mdn/browser-compat-data': 7.3.16
+      web-features: 3.28.0
 
-  baseline-browser-mapping@2.10.30: {}
+  baseline-browser-mapping@2.10.31: {}
 
   bidi-js@1.0.3:
     dependencies:
@@ -12262,7 +12274,7 @@ snapshots:
 
   browserslist@4.28.2:
     dependencies:
-      baseline-browser-mapping: 2.10.30
+      baseline-browser-mapping: 2.10.31
       caniuse-lite: 1.0.30001785
       electron-to-chromium: 1.5.331
       node-releases: 2.0.37
@@ -12448,7 +12460,7 @@ snapshots:
 
   convert-source-map@2.0.0: {}
 
-  convex@1.35.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6):
+  convex@1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6):
     dependencies:
       esbuild: 0.28.0
       prettier: 3.8.3
@@ -14314,7 +14326,7 @@ snapshots:
     dependencies:
       '@next/env': 16.1.7
       '@swc/helpers': 0.5.15
-      baseline-browser-mapping: 2.10.15
+      baseline-browser-mapping: 2.10.31
       caniuse-lite: 1.0.30001785
       postcss: 8.4.31
       react: 19.2.0
@@ -15847,6 +15859,8 @@ snapshots:
   w3c-xmlserializer@5.0.0:
     dependencies:
       xml-name-validator: 5.0.0
+
+  web-features@3.28.0: {}
 
   web-streams-polyfill@3.3.3: {}
 

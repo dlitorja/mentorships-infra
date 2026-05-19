@@ -27,6 +27,17 @@ This repo’s DB changes follow widen-migrate-narrow using Supabase CLI. Assista
 2. Apply them to the linked Supabase project with the CLI
 3. Open a PR with a summary and verification steps
 
+## Engineering Quality Policy
+
+Always prefer sound, durable engineering solutions over band-aids or temporary fixes.
+
+- Do not disable type-checking, linting, or build checks to “get it green.” Fix the root cause.
+- Avoid temporary casts like `any`, ignoring errors, or selectively excluding files from builds. Use correct typings and update codegen when schemas change.
+- Follow widen–migrate–narrow for schema changes; backfill first, then remove legacy paths only after verification.
+- Keep CI deterministic: refresh codegen for Convex or other generated types whenever schemas change, and fail fast if generated artifacts are outdated.
+- Prefer server-side filtering and validation to avoid leaking hidden/sensitive data to clients.
+- Keep changes minimal but correct; do not introduce partial fixes that increase technical debt.
+
 <!-- CLERK POLICY - DO NOT TOUCH -->
 # Clerk Changes Policy (Do Not Touch)
 
