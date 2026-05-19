@@ -11,7 +11,7 @@ jobs:
   convex-codegen:
     runs-on: ubuntu-latest
     env:
-      CONVEX_ACCESS_TOKEN: ${{ secrets.CONVEX_ACCESS_TOKEN }}
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,13 +28,13 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
       - name: Convex codegen
-        if: ${{ env.CONVEX_ACCESS_TOKEN != '' }}
+        if: ${{ env.CONVEX_DEPLOY_KEY != '' }}
         run: npx convex codegen
         env:
-          CONVEX_ACCESS_TOKEN: ${{ env.CONVEX_ACCESS_TOKEN }}
-      - name: Skip codegen (no token)
-        if: ${{ env.CONVEX_ACCESS_TOKEN == '' }}
-        run: echo "Skipping convex codegen: missing CONVEX_ACCESS_TOKEN"
+          CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
+      - name: Skip codegen (no deploy key)
+        if: ${{ env.CONVEX_DEPLOY_KEY == '' }}
+        run: echo "Skipping convex codegen: missing CONVEX_DEPLOY_KEY"
       - name: Fail if codegen produced unstaged changes
         run: |
           git status --porcelain

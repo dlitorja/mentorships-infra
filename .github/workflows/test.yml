@@ -36,6 +36,8 @@ jobs:
   lint-and-typecheck:
     name: Lint & Type Check
     runs-on: ubuntu-22.04
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
     steps:
       - uses: actions/checkout@v4
       
@@ -52,6 +54,8 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
       
       - name: Lint
         run: pnpm lint
@@ -63,6 +67,8 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-22.04
     environment: Preview
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
     steps:
       - uses: actions/checkout@v4
       
@@ -79,6 +85,8 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
       
       - name: Run unit tests
         run: pnpm test:unit
@@ -102,6 +110,8 @@ jobs:
     environment:
       name: Preview
       deployment: false
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
     steps:
       - uses: actions/checkout@v4
       
@@ -118,6 +128,8 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
       
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -156,6 +168,8 @@ jobs:
     runs-on: ubuntu-22.04
     needs: [changes, lint-and-typecheck, unit-tests, e2e-tests]
     environment: Preview
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
     steps:
       - uses: actions/checkout@v4
       
@@ -172,6 +186,8 @@ jobs:
       
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
       
 
       - name: Build Web
