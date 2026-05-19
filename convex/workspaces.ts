@@ -2,14 +2,14 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
 const WORKSPACE_IMAGE_CAPS = {
-  mentee: 75,
+  student: 75,
   instructor: 150,
   admin: 150,
 } as const;
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 
-type WorkspaceRole = "instructor" | "mentee" | "admin" | null;
+type WorkspaceRole = "instructor" | "student" | "admin" | null;
 
 async function isAdmin(ctx: any, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -29,8 +29,8 @@ async function getWorkspaceRole(
     return "admin";
   }
 
-  if (workspace.type === "admin_mentee") {
-    return workspace.ownerId === userId ? "mentee" : null;
+  if (workspace.type === "admin_student" || (workspace as any).type === "admin_mentee") {
+    return workspace.ownerId === userId ? "student" : null;
   }
 
   if (workspace.type === "admin_instructor") {
@@ -56,7 +56,7 @@ async function getWorkspaceRole(
     }
   }
   if (workspace.ownerId === userId) {
-    return "mentee";
+    return "student";
   }
   if (workspace.instructorId) {
     const seatReservation = await ctx.db
@@ -65,7 +65,7 @@ async function getWorkspaceRole(
       .filter((q: any) => q.eq(q.field("instructorId"), workspace.instructorId))
       .first();
     if (seatReservation) {
-      return "mentee";
+      return "student";
     }
   }
   return null;
@@ -75,7 +75,7 @@ async function logWorkspaceAudit(
   ctx: any,
   workspaceId: any,
   adminId: string,
-  action: "view_workspace" | "send_message" | "create_workspace" | "create_admin_mentee_workspace" | "create_admin_instructor_workspace",
+  action: "view_workspace" | "send_message" | "create_workspace" | "create_admin_student_workspace" | "create_admin_instructor_workspace",
   details?: string
 ) {
   await ctx.db.insert("workspaceAuditLogs", {
@@ -209,7 +209,7 @@ export const getWorkspacesForRetentionNotification = query({
   },
 });
 
-/** Returns the authenticated user's role (instructor/mentee/admin) in a workspace. Requires auth. */
+/** Returns the authenticated user's role (instructor/student/admin) in a workspace. Requires auth. */
 export const getUserWorkspaceRole = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -241,7 +241,7 @@ export const createWorkspace = mutation({
     return await ctx.db.insert("workspaces", {
       ...args,
       isPublic: args.isPublic ?? false,
-      menteeImageCount: 0,
+      studentImageCount: 0,
       instructorImageCount: 0,
     });
   },
@@ -360,7 +360,7 @@ export const deleteWorkspaceLink = mutation({
   },
 });
 
-/** Returns images for a workspace, filtered by role (instructors see all, mentees see own and instructor's). Requires auth. */
+/** Returns images for a workspace, filtered by role (instructors see all, students see own and instructor's). Requires auth. */
 export const getWorkspaceImages = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -414,13 +414,13 @@ export const createWorkspaceImage = mutation({
       throw new Error("Not authorized to add images to this workspace");
     }
 
-    const isMentee = role === "mentee";
+    const isStudent = role === "student";
     const isAdmin = role === "admin";
-    const currentCount = isMentee
-      ? (workspace.menteeImageCount ?? 0)
+    const currentCount = isStudent
+      ? (workspace.studentImageCount ?? 0)
       : (workspace.instructorImageCount ?? 0);
-    const cap = isMentee
-      ? WORKSPACE_IMAGE_CAPS.mentee
+    const cap = isStudent
+      ? WORKSPACE_IMAGE_CAPS.student
       : isAdmin
         ? WORKSPACE_IMAGE_CAPS.admin
         : WORKSPACE_IMAGE_CAPS.instructor;
@@ -434,10 +434,10 @@ export const createWorkspaceImage = mutation({
     const imageId = await ctx.db.insert("workspaceImages", args);
 
     await ctx.db.patch(args.workspaceId, {
-      menteeImageCount: isMentee
-        ? (workspace.menteeImageCount ?? 0) + 1
-        : workspace.menteeImageCount ?? 0,
-      instructorImageCount: !isMentee
+      studentImageCount: isStudent
+        ? (workspace.studentImageCount ?? 0) + 1
+        : workspace.studentImageCount ?? 0,
+      instructorImageCount: !isStudent
         ? (workspace.instructorImageCount ?? 0) + 1
         : workspace.instructorImageCount ?? 0,
     });
@@ -505,13 +505,13 @@ export const deleteWorkspaceImage = mutation({
     const workspace = await ctx.db.get(image.workspaceId);
     if (!workspace) return;
 
-    const isMentee = image.createdBy === workspace.ownerId;
+    const isStudent = image.createdBy === workspace.ownerId;
     const instructor = workspace.instructorId ? await ctx.db.get(workspace.instructorId) : null;
     const isInstructor = instructor && image.createdBy === instructor.userId;
 
-    if (isMentee) {
+    if (isStudent) {
       await ctx.db.patch(workspace._id, {
-        menteeImageCount: Math.max(0, (workspace.menteeImageCount ?? 1) - 1),
+        studentImageCount: Math.max(0, (workspace.studentImageCount ?? 1) - 1),
       });
     } else if (isInstructor) {
       await ctx.db.patch(workspace._id, {
@@ -777,7 +777,7 @@ export const deleteAllWorkspaceContent = mutation({
     }
 
     await ctx.db.patch(args.workspaceId, {
-      menteeImageCount: 0,
+      studentImageCount: 0,
       instructorImageCount: 0,
     });
 
