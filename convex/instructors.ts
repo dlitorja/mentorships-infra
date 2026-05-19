@@ -534,7 +534,7 @@ export const migrateInstructor = mutation({
 
     // If legacy reference provided, patch after insert to avoid type mismatches across environments.
     if (args.legacyInstructorRef !== undefined) {
-      await ctx.db.patch(id as any, { legacyInstructorRef: args.legacyInstructorRef });
+      await ctx.db.patch(id as any, { legacyInstructorRef: args.legacyInstructorRef } as any);
     }
 
     return { action: "inserted", id };
