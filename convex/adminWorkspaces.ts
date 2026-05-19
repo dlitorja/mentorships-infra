@@ -185,7 +185,7 @@ export const createAdminStudentWorkspace = mutation({
       .first();
 
     if (existingWorkspace) {
-      await logWorkspaceAudit(ctx, existingWorkspace._id, user.subject, "create_admin_student_workspace", "Returned existing workspace");
+      await logWorkspaceAudit(ctx, existingWorkspace._id, user.subject, "create_admin_mentee_workspace" as any, "Returned existing workspace");
       return existingWorkspace;
     }
 
@@ -206,7 +206,7 @@ export const createAdminStudentWorkspace = mutation({
       type: "admin_mentee",
     });
 
-    await logWorkspaceAudit(ctx, workspaceId, user.subject, "create_admin_student_workspace");
+    await logWorkspaceAudit(ctx, workspaceId, user.subject, "create_admin_mentee_workspace" as any);
 
     return await ctx.db.get(workspaceId);
   },

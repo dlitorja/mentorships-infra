@@ -238,10 +238,11 @@ export const createWorkspace = mutation({
     seatReservationId: v.optional(v.id("seatReservations")),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaces", {
+    // Use legacy field names for compatibility with existing deployment schema
+    return await (ctx.db as any).insert("workspaces", {
       ...args,
       isPublic: args.isPublic ?? false,
-      studentImageCount: 0,
+      menteeImageCount: 0,
       instructorImageCount: 0,
     });
   },
@@ -416,8 +417,9 @@ export const createWorkspaceImage = mutation({
 
     const isStudent = role === "student";
     const isAdmin = role === "admin";
+    const studentCount = ((workspace as any).studentImageCount ?? (workspace as any).menteeImageCount ?? 0) as number;
     const currentCount = isStudent
-      ? (workspace.studentImageCount ?? 0)
+      ? studentCount
       : (workspace.instructorImageCount ?? 0);
     const cap = isStudent
       ? WORKSPACE_IMAGE_CAPS.student
@@ -433,10 +435,9 @@ export const createWorkspaceImage = mutation({
 
     const imageId = await ctx.db.insert("workspaceImages", args);
 
-    await ctx.db.patch(args.workspaceId, {
-      studentImageCount: isStudent
-        ? (workspace.studentImageCount ?? 0) + 1
-        : workspace.studentImageCount ?? 0,
+    const nextStudentCount = isStudent ? studentCount + 1 : studentCount;
+    await (ctx.db as any).patch(args.workspaceId, {
+      menteeImageCount: nextStudentCount,
       instructorImageCount: !isStudent
         ? (workspace.instructorImageCount ?? 0) + 1
         : workspace.instructorImageCount ?? 0,
@@ -510,8 +511,9 @@ export const deleteWorkspaceImage = mutation({
     const isInstructor = instructor && image.createdBy === instructor.userId;
 
     if (isStudent) {
-      await ctx.db.patch(workspace._id, {
-        studentImageCount: Math.max(0, (workspace.studentImageCount ?? 1) - 1),
+      const cur = ((workspace as any).studentImageCount ?? (workspace as any).menteeImageCount ?? 1) as number;
+      await (ctx.db as any).patch(workspace._id, {
+        menteeImageCount: Math.max(0, cur - 1),
       });
     } else if (isInstructor) {
       await ctx.db.patch(workspace._id, {
@@ -776,8 +778,8 @@ export const deleteAllWorkspaceContent = mutation({
       await ctx.db.delete(message._id);
     }
 
-    await ctx.db.patch(args.workspaceId, {
-      studentImageCount: 0,
+    await (ctx.db as any).patch(args.workspaceId, {
+      menteeImageCount: 0,
       instructorImageCount: 0,
     });
 
