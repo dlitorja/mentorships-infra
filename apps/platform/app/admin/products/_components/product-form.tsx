@@ -480,7 +480,11 @@ function ProductFieldsForm({
                   <Label htmlFor={field.name}>Instructor *</Label>
                   <Select
                     value={field.state.value}
-                    onValueChange={field.handleChange}
+                    onValueChange={(v) => {
+                      field.handleChange(v);
+                      // Mark as touched to control error display
+                      field.handleBlur();
+                    }}
                     disabled={isLoadingInstructors}
                     // Mark field as touched when menu closes
                   >
@@ -495,7 +499,7 @@ function ProductFieldsForm({
                       ))}
                     </SelectContent>
                   </Select>
-                  {(!field.state.value || field.state.value.length === 0) && (
+                  {field.state.meta.isTouched && (!field.state.value || field.state.value.length === 0) && (
                     <p className="text-sm text-red-600">Instructor is required.</p>
                   )}
                 </div>
@@ -508,7 +512,10 @@ function ProductFieldsForm({
                   <Label htmlFor={field.name}>Mentorship Type *</Label>
                   <Select
                     value={field.state.value}
-                    onValueChange={(v) => field.handleChange(v as MentorshipType)}
+                    onValueChange={(v) => {
+                      field.handleChange(v as MentorshipType);
+                      field.handleBlur();
+                    }}
                   >
                     <SelectTrigger id={field.name}>
                       <SelectValue placeholder="Select type" />
@@ -518,7 +525,7 @@ function ProductFieldsForm({
                       <SelectItem value="group">Group Mentorship</SelectItem>
                     </SelectContent>
                   </Select>
-                  {(!field.state.value || (field.state.value !== "one-on-one" && field.state.value !== "group")) && (
+                  {field.state.meta.isTouched && (!field.state.value || (field.state.value !== "one-on-one" && field.state.value !== "group")) && (
                     <p className="text-sm text-red-600">Please select a mentorship type.</p>
                   )}
                 </div>
@@ -538,7 +545,7 @@ function ProductFieldsForm({
                   placeholder="e.g., 4-Session Mentorship Pack"
                   disabled={isSubmitting}
                 />
-                {(!field.state.value || field.state.value.trim().length === 0) && (
+                {field.state.meta.isTouched && (!field.state.value || field.state.value.trim().length === 0) && (
                   <p className="text-sm text-red-600">Title is required.</p>
                 )}
               </div>
@@ -578,7 +585,7 @@ function ProductFieldsForm({
                     placeholder="199.00"
                     disabled={isSubmitting}
                   />
-                  {(() => {
+                  {field.state.meta.isTouched && (() => {
                     const v = field.state.value;
                     const num = parseFloat(v as any);
                     if (!v || v.toString().trim().length === 0) {
@@ -607,7 +614,7 @@ function ProductFieldsForm({
                     onBlur={field.handleBlur}
                     disabled={isSubmitting}
                   />
-                  {(() => {
+                  {field.state.meta.isTouched && (() => {
                     const v = Number(field.state.value);
                     if (!Number.isInteger(v) || v < 1 || v > 100) {
                       return <p className="text-sm text-red-600">Must be between 1 and 100.</p>;
@@ -632,7 +639,7 @@ function ProductFieldsForm({
                     onBlur={field.handleBlur}
                     disabled={isSubmitting}
                   />
-                  {(() => {
+                  {field.state.meta.isTouched && (() => {
                     const v = Number(field.state.value);
                     if (!Number.isInteger(v) || v < 1 || v > 365) {
                       return <p className="text-sm text-red-600">Must be between 1 and 365.</p>;
