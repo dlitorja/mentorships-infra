@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireMentor, canAccessFile } from "@/lib/auth";
+import { requireInstructor, canAccessFile } from "@/lib/auth";
 import { getUploadById } from "@mentorships/db";
 import { getDownloadUrlWithContentDisposition } from "@mentorships/storage";
 import { ForbiddenError, UnauthorizedError } from "@mentorships/db";
@@ -14,7 +14,7 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    await requireMentor();
+    await requireInstructor();
     
     const url = new URL(request.url);
     const expiresIn = Math.max(60, Math.min(

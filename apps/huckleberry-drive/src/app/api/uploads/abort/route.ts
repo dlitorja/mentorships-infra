@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireMentor } from "@/lib/auth";
+import { requireInstructor } from "@/lib/auth";
 import { abortMultipartUpload } from "@mentorships/storage";
 import { getUploadById, softDeleteUpload } from "@mentorships/db";
 import { UnauthorizedError, ForbiddenError } from "@mentorships/db";
@@ -13,7 +13,7 @@ const abortSchema = z.object({
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const dbUser = await requireMentor();
+    const dbUser = await requireInstructor();
     const body = await request.json();
     
     const parsed = abortSchema.safeParse(body);

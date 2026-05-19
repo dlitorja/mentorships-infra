@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { mentors } from "@mentorships/db";
+import { instructorIntegrations } from "@mentorships/db";
 import { eq, sql, and } from "drizzle-orm";
 
 export interface InstructorInventory {
@@ -10,8 +10,8 @@ export interface InstructorInventory {
 export async function getInstructorInventory(
   userId: string
 ): Promise<InstructorInventory | null> {
-  const instructor = await db.query.mentors.findFirst({
-    where: eq(mentors.userId, userId),
+  const instructor = await db.query.instructorIntegrations.findFirst({
+    where: eq(instructorIntegrations.userId, userId),
     columns: {
       oneOnOneInventory: true,
       groupInventory: true,
@@ -32,7 +32,7 @@ export async function updateInstructorInventory(
   userId: string,
   updates: Partial<InstructorInventory>
 ): Promise<InstructorInventory | null> {
-  const updateData: Partial<typeof mentors.$inferSelect> = {
+  const updateData: Partial<typeof instructorIntegrations.$inferSelect> = {
     updatedAt: new Date(),
   };
 
@@ -45,9 +45,9 @@ export async function updateInstructorInventory(
   }
 
   const [updated] = await db
-    .update(mentors)
+    .update(instructorIntegrations)
     .set(updateData)
-    .where(eq(mentors.userId, userId))
+    .where(eq(instructorIntegrations.userId, userId))
     .returning();
 
   if (!updated) {
@@ -68,18 +68,18 @@ export async function decrementInventory(
   const isOneOnOne = type === "one-on-one";
 
   const result = await db
-    .update(mentors)
+    .update(instructorIntegrations)
     .set(
       isOneOnOne
-        ? { oneOnOneInventory: sql`${mentors.oneOnOneInventory} - ${quantity}`, updatedAt: new Date() }
-        : { groupInventory: sql`${mentors.groupInventory} - ${quantity}`, updatedAt: new Date() }
+        ? { oneOnOneInventory: sql`${instructorIntegrations.oneOnOneInventory} - ${quantity}`, updatedAt: new Date() }
+        : { groupInventory: sql`${instructorIntegrations.groupInventory} - ${quantity}`, updatedAt: new Date() }
     )
     .where(
       isOneOnOne
-        ? and(eq(mentors.userId, userId), sql`${mentors.oneOnOneInventory} >= ${quantity}`)
-        : and(eq(mentors.userId, userId), sql`${mentors.groupInventory} >= ${quantity}`)
+        ? and(eq(instructorIntegrations.userId, userId), sql`${instructorIntegrations.oneOnOneInventory} >= ${quantity}`)
+        : and(eq(instructorIntegrations.userId, userId), sql`${instructorIntegrations.groupInventory} >= ${quantity}`)
     )
-    .returning({ userId: mentors.userId });
+    .returning({ userId: instructorIntegrations.userId });
 
   return result.length > 0;
 }

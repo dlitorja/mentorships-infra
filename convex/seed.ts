@@ -590,7 +590,7 @@ export const backfillInstructorProfileMentorIds = mutation({
   args: {},
   handler: async (ctx) => {
     const profiles = await ctx.db.query("instructorProfiles").collect();
-    const results: { slug: string; legacyMentorId: string | null }[] = [];
+    const results: { slug: string; legacyInstructorRef: string | null }[] = [];
 
     for (const profile of profiles) {
       const instructor = await ctx.db
@@ -600,11 +600,11 @@ export const backfillInstructorProfileMentorIds = mutation({
 
       if (instructor) {
         await ctx.db.patch(profile._id, {
-          legacyMentorId: instructor._id.toString(),
+          legacyInstructorRef: instructor._id.toString(),
         });
-        results.push({ slug: profile.slug, legacyMentorId: instructor._id.toString() });
+        results.push({ slug: profile.slug, legacyInstructorRef: instructor._id.toString() });
       } else {
-        results.push({ slug: profile.slug, legacyMentorId: null });
+        results.push({ slug: profile.slug, legacyInstructorRef: null });
       }
     }
 

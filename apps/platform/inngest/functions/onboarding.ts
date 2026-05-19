@@ -2,7 +2,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { api } from "../../../../convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { sendEmail } from "@/lib/email";
+import { sendEmail, sendTemplateEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
@@ -158,16 +158,42 @@ export const onboardingFlow = inngest.createFunction(
     const onboardingUrl = `${baseUrl}/dashboard/onboarding`;
     const discordServerInviteUrl = process.env.DISCORD_SERVER_INVITE_URL || null;
 
-    const emailContent = buildPurchaseOnboardingEmail({
-      studentName,
-      instructorName: instructorName,
-      dashboardUrl,
-      onboardingUrl,
-      discordConnected,
-      discordServerInviteUrl,
-    });
+    const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
+    const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
 
     const sendResult = await step.run("send-onboarding-email", async () => {
+      if (useTemplates && templateId) {
+        const templateData = {
+          studentName: studentName ?? "",
+          instructorName: instructorName,
+          dashboardUrl,
+          // Secondary link still provided for potential future use
+          onboardingUrl,
+          discordConnected,
+          discordServerInviteUrl,
+        } as const;
+        return await sendTemplateEmail({
+          to: studentEmail,
+          templateId,
+          templateData,
+          headers: {
+            "X-Email-Type": "purchase_onboarding",
+            "X-Order-Id": orderId,
+            "X-Session-Pack-Id": pack._id,
+            "X-Instructor-Id": instructor._id,
+          },
+        });
+      }
+
+      const emailContent = buildPurchaseOnboardingEmail({
+        studentName,
+        instructorName: instructorName,
+        dashboardUrl,
+        onboardingUrl,
+        discordConnected,
+        discordServerInviteUrl,
+      });
+
       return await sendEmail({
         to: studentEmail,
         subject: emailContent.subject,
@@ -204,7 +230,7 @@ export const onboardingFlow = inngest.createFunction(
       });
     });
 
-    // Send instructor notification email
+    // Send instructor notification email (template-first)
     await step.run("send-instructor-email", async () => {
       // Get instructor's Clerk user to find their email
       const clerk = await getClerkApi();
@@ -226,6 +252,31 @@ export const onboardingFlow = inngest.createFunction(
       }
 
       const dashboardUrl = `${baseUrl}/dashboard`;
+
+      const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
+      const tmplId = process.env.RESEND_TEMPLATE_ID_INSTRUCTOR_PURCHASE;
+
+      if (useTemplates && tmplId) {
+        const templateData = {
+          instructorName,
+          studentName,
+          studentEmail,
+          sessionCount: pack.totalSessions,
+          dashboardUrl,
+        } as const;
+        const res = await sendTemplateEmail({
+          to: instructorEmail,
+          templateId: tmplId,
+          templateData,
+          headers: {
+            "X-Email-Type": "instructor_purchase_notification",
+            "X-Order-Id": orderId,
+            "X-Session-Pack-Id": pack._id,
+            "X-Instructor-Id": instructor._id,
+          },
+        });
+        return { sent: res.ok, resendId: res.ok ? res.id : null };
+      }
 
       const instructorEmailContent = buildInstructorOnboardingEmail({
         instructorName: instructorName,
@@ -263,6 +314,45 @@ export const onboardingFlow = inngest.createFunction(
 
       const dashboardUrl = `${baseUrl}/admin`;
 
+      const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
+      const adminTmplId = process.env.RESEND_TEMPLATE_ID_ADMIN_PURCHASE;
+
+      if (useTemplates && adminTmplId) {
+        const results = await Promise.all(
+          adminEmails.map(async (adminEmail) => {
+            const templateData = {
+              orderId,
+              studentName,
+              studentEmail,
+              instructorName,
+              sessionCount: pack.totalSessions,
+              purchaseAmount: order.totalAmount,
+              currency: order.currency ?? "USD",
+              paymentProvider: provider as "stripe" | "paypal",
+              dashboardUrl,
+            } as const;
+            const res = await sendTemplateEmail({
+              to: adminEmail,
+              templateId: adminTmplId,
+              templateData,
+              headers: {
+                "X-Email-Type": "admin_purchase_notification",
+                "X-Order-Id": orderId,
+                "X-Session-Pack-Id": pack._id,
+                "X-Instructor-Id": instructor._id,
+              },
+            });
+            return res;
+          })
+        );
+        const allSuccessful = results.every((r) => r.ok);
+        return {
+          sent: allSuccessful,
+          recipients: adminEmails,
+          results: results.map((r) => (r.ok ? { ok: true, id: r.id } : { ok: false, error: (r as any).error || "unknown" })),
+        };
+      }
+
       const adminEmailContent = buildAdminPurchaseEmail({
         orderId,
         studentName: studentName,
@@ -286,7 +376,7 @@ export const onboardingFlow = inngest.createFunction(
               ...adminEmailContent.headers,
               "X-Order-Id": orderId,
               "X-Session-Pack-Id": pack._id,
-"X-Instructor-Id": instructor._id,
+              "X-Instructor-Id": instructor._id,
             },
           })
         )

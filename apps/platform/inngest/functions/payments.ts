@@ -204,6 +204,28 @@ const completedOrder = await step.run("update-order", async () => {
       throw new Error("Failed to create or find seat reservation");
     }
 
+    // Ensure an admin-student workspace exists (post-payment) for buyer ↔ admins
+    await step.run("ensure-admin-student-workspace", async () => {
+      const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+      const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
+      if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+        return { skipped: true } as const;
+      }
+      const res = await fetch(`${CONVEX_DEPLOYMENT_URL}/api/workspaces/ensure-admin-student`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${CONVEX_HTTP_KEY}`,
+        },
+        body: JSON.stringify({ studentUserId: userId }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`ensure-admin-student failed: ${res.status} ${body}`);
+      }
+      return await res.json();
+    });
+
     await step.run("sync-seat-reservation-created", async () => {
       await inngest.send({
         name: "data.sync/seatReservation.created",
@@ -498,6 +520,28 @@ export const processPayPalCheckout = inngest.createFunction(
     if (!seatReservation) {
       throw new Error("Failed to create or find seat reservation");
     }
+
+    // Ensure an admin-student workspace exists (post-payment) for buyer ↔ admins
+    await step.run("ensure-admin-student-workspace", async () => {
+      const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+      const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
+      if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+        return { skipped: true } as const;
+      }
+      const res = await fetch(`${CONVEX_DEPLOYMENT_URL}/api/workspaces/ensure-admin-student`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${CONVEX_HTTP_KEY}`,
+        },
+        body: JSON.stringify({ studentUserId: order.userId }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`ensure-admin-student failed: ${res.status} ${body}`);
+      }
+      return await res.json();
+    });
 
     await step.run("sync-seat-reservation-created", async () => {
       await inngest.send({

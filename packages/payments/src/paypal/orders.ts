@@ -14,7 +14,7 @@ import type { PayPalOrderMetadata, PayPalOrderResult } from "./types";
  * 
  * @param amount - Amount in dollars (e.g., "99.99")
  * @param currency - Currency code (e.g., "USD")
- * @param metadata - Metadata to include in order (userId, mentorId, etc.)
+ * @param metadata - Metadata to include in order (userId, instructorId, etc.)
  * @param returnUrl - URL to redirect after successful payment
  * @param cancelUrl - URL to redirect if payment is canceled
  * @returns PayPal order with approval URL

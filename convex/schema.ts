@@ -30,7 +30,6 @@ export default defineSchema({
     oneOnOneInventory: v.optional(v.number()),
     groupInventory: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
-    legacyId: v.optional(v.string()),
     isActive: v.optional(v.boolean()),
     isNew: v.optional(v.boolean()),
     background: v.optional(v.array(v.string())),
@@ -41,7 +40,7 @@ export default defineSchema({
     profileImageStorageId: v.optional(v.string()),
     profileImageUploadPath: v.optional(v.string()),
     socials: v.optional(v.any()),
-    legacyMentorId: v.optional(v.string()),
+    legacyInstructorRef: v.optional(v.string()),
     tagline: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
   }).index("by_userId", ["userId"])
@@ -155,7 +154,7 @@ export default defineSchema({
 
   instructorProfiles: defineTable({
     userId: v.optional(v.string()),
-    legacyMentorId: v.optional(v.string()),
+    legacyInstructorRef: v.optional(v.string()),
     email: v.optional(v.string()),
     name: v.string(),
     slug: v.string(),
@@ -171,11 +170,10 @@ export default defineSchema({
     socials: v.optional(v.any()),
     isActive: v.boolean(),
     isNew: v.optional(v.boolean()),
-    legacyId: v.optional(v.string()),
   }).index("by_slug", ["slug"])
     .index("by_userId", ["userId"])
     .index("by_email", ["email"])
-    .index("by_legacyMentorId", ["legacyMentorId"])
+    .index("by_legacyInstructorRef", ["legacyInstructorRef"])
     .index("by_isActive", ["isActive"]),
 
   instructorTestimonials: defineTable({
@@ -209,9 +207,9 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     seatReservationId: v.optional(v.id("seatReservations")),
     endedAt: v.optional(v.number()),
-    menteeImageCount: v.number(),
+    studentImageCount: v.number(),
     instructorImageCount: v.number(),
-    type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_mentee"), v.literal("admin_instructor"))),
+    type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_student"), v.literal("admin_instructor"))),
   }).index("by_ownerId", ["ownerId"])
     .index("by_instructorId", ["instructorId"])
     .index("by_seatReservationId", ["seatReservationId"])
@@ -282,7 +280,7 @@ export default defineSchema({
       v.literal("view_workspace"),
       v.literal("send_message"),
       v.literal("create_workspace"),
-      v.literal("create_admin_mentee_workspace"),
+      v.literal("create_admin_student_workspace"),
       v.literal("create_admin_instructor_workspace")
     ),
     details: v.optional(v.string()),
@@ -300,7 +298,7 @@ export default defineSchema({
   }).index("by_instructorSlug_mentorshipType", ["instructorSlug", "mentorshipType"])
     .index("by_email_instructorSlug", ["email", "instructorSlug"]),
 
-  menteeSessionCounts: defineTable({
+  studentSessionCounts: defineTable({
     userId: v.string(),
     instructorId: v.id("instructors"),
     sessionCount: v.number(),
@@ -320,7 +318,7 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
   }).index("by_email", ["email"]),
 
-  menteeInvitations: defineTable({
+  studentInvitations: defineTable({
     email: v.string(),
     instructorId: v.id("instructors"),
     clerkInvitationId: v.optional(v.string()),
@@ -347,7 +345,7 @@ export default defineSchema({
     .index("by_userId_provider", ["userId", "provider"]),
 
   discordActionQueue: defineTable({
-    type: v.union(v.literal("assign_mentee_role"), v.literal("dm_instructor_new_signup")),
+    type: v.union(v.literal("assign_student_role"), v.literal("dm_instructor_new_signup")),
     status: v.union(v.literal("pending"), v.literal("processing"), v.literal("done"), v.literal("failed")),
     subjectUserId: v.string(),
     instructorId: v.optional(v.string()),
@@ -401,7 +399,7 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"]),
 
-  menteeOnboardingSubmissions: defineTable({
+  studentOnboardingSubmissions: defineTable({
     userId: v.string(),
     instructorId: v.id("instructors"),
     sessionPackId: v.id("sessionPacks"),

@@ -6,7 +6,7 @@ import type { CheckoutSessionMetadata, CheckoutSessionResult } from "./types";
  * Create a Stripe Checkout session for a one-time payment
  * 
  * @param priceId - Stripe Price ID (e.g., price_1234567890)
- * @param metadata - Metadata to include in session (userId, mentorId, etc.)
+ * @param metadata - Metadata to include in session (userId, instructorId, etc.)
  * @param successUrl - URL to redirect after successful payment
  * @param cancelUrl - URL to redirect if payment is canceled
  * @returns Checkout session with redirect URL
@@ -19,6 +19,7 @@ export async function createCheckoutSession(
 ): Promise<CheckoutSessionResult> {
   const stripe = getStripeClient();
 
+  const idemKey = `checkout:${priceId}:${metadata.userId}:${successUrl}:${cancelUrl}`;
   const session = await stripe.checkout.sessions.create({
     mode: "payment", // One-time payment (not subscription)
     payment_method_types: ["card"],
@@ -40,7 +41,7 @@ export async function createCheckoutSession(
     customer_email: undefined, // Will be collected by Stripe Checkout
     // Expire checkout session after 24 hours
     expires_at: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
-  });
+  }, { idempotencyKey: idemKey });
 
   if (!session.url) {
     throw new Error("Failed to create checkout session URL");
@@ -92,4 +93,3 @@ export function parseCheckoutSessionMetadata(
     orderId: metadata.orderId,
   };
 }
-

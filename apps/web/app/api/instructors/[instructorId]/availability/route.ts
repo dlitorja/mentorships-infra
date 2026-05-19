@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { getGoogleCalendarClient } from "@/lib/google";
-import { decryptMentorRefreshToken } from "@/lib/crypto";
+import { decryptInstructorRefreshToken } from "@/lib/crypto";
 
 const querySchema = z.object({
   start: z.string().datetime(),
@@ -172,7 +172,7 @@ export async function GET(
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
-    const refreshToken = decryptMentorRefreshToken(instructor);
+    const refreshToken = decryptInstructorRefreshToken(instructor);
     if (!refreshToken) {
       return NextResponse.json(
         { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },

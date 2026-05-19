@@ -56,7 +56,6 @@ export type PublicInstructor = {
   profileImageStorageId?: string;
   profileImageUploadPath?: string;
   socials?: any;
-  mentorId?: string;
   tagline?: string;
   updatedAt?: number;
 };

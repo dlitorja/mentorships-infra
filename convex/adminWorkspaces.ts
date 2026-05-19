@@ -1,4 +1,5 @@
 import { query, mutation } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
 import type { QueryCtx, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -15,7 +16,7 @@ async function logWorkspaceAudit(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
   adminId: string,
-  action: "view_workspace" | "send_message" | "create_workspace" | "create_admin_mentee_workspace" | "create_admin_instructor_workspace",
+  action: Doc<"workspaceAuditLogs">["action"],
   details?: string
 ) {
   await ctx.db.insert("workspaceAuditLogs", {
@@ -39,7 +40,7 @@ type WorkspaceListItem = {
   isPublic: boolean;
   endedAt: number | undefined;
   createdAt: number;
-  menteeImageCount: number;
+  studentImageCount: number;
   instructorImageCount: number;
 };
 
@@ -88,16 +89,17 @@ async function enrichWorkspaces(
     isPublic: w.isPublic,
     endedAt: w.endedAt,
     createdAt: w._creationTime,
-    menteeImageCount: w.menteeImageCount,
+    // Support both legacy (menteeImageCount) and new (studentImageCount) deployments
+    studentImageCount: (w as any).studentImageCount ?? (w as any).menteeImageCount ?? 0,
     instructorImageCount: w.instructorImageCount,
   }));
 }
 
-/** List all workspaces with pagination, filtering by type. Returns enriched items with owner and mentor data. Requires admin auth. */
+/** List all workspaces with pagination, filtering by type. Returns enriched items with owner and instructor data. Requires admin auth. */
 export const getAllWorkspaces = query({
   args: {
     paginationOpts: v.any(),
-    type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_mentee"), v.literal("admin_instructor"))),
+    type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_student"), v.literal("admin_instructor"))),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -113,7 +115,8 @@ export const getAllWorkspaces = query({
     const result = args.type
       ? await ctx.db
           .query("workspaces")
-          .withIndex("by_type", (q) => q.eq("type", args.type))
+          // Map new value to legacy for compatibility with older deployments
+          .withIndex("by_type", (q) => q.eq("type", (args.type === "admin_student" ? ("admin_mentee" as any) : args.type)))
           .order("desc")
           .paginate(args.paginationOpts)
       : await ctx.db
@@ -131,7 +134,7 @@ export const getAllWorkspaces = query({
   },
 });
 
-/** Fetch a single workspace by ID with enriched owner and mentor data. Requires admin auth. */
+/** Fetch a single workspace by ID with enriched owner and instructor data. Requires admin auth. */
 export const getWorkspaceByIdAdmin = query({
   args: { id: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -155,10 +158,10 @@ export const getWorkspaceByIdAdmin = query({
   },
 });
 
-/** Create a private admin-mentee workspace for communication with a mentee. Returns existing workspace if one already exists. Requires admin auth. */
-export const createAdminMenteeWorkspace = mutation({
+/** Create a private admin-student workspace for communication with a student. Returns existing workspace if one already exists. Requires admin auth. */
+export const createAdminStudentWorkspace = mutation({
   args: {
-    menteeUserId: v.string(),
+    studentUserId: v.string(),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -175,33 +178,35 @@ export const createAdminMenteeWorkspace = mutation({
       .query("workspaces")
       .filter((q) =>
         q.and(
-          q.eq(q.field("ownerId"), args.menteeUserId),
-          q.eq(q.field("type"), "admin_mentee")
+          q.eq(q.field("ownerId"), args.studentUserId),
+          q.eq(q.field("type"), "admin_student")
         )
       )
       .first();
 
     if (existingWorkspace) {
-      await logWorkspaceAudit(ctx, existingWorkspace._id, user.subject, "create_admin_mentee_workspace", "Returned existing workspace");
+      await logWorkspaceAudit(ctx, existingWorkspace._id, user.subject, "create_admin_mentee_workspace" as any, "Returned existing workspace");
       return existingWorkspace;
     }
 
-    const mentee = await ctx.db
+    const student = await ctx.db
       .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", args.menteeUserId))
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentUserId))
       .first();
 
-    const workspaceId = await ctx.db.insert("workspaces", {
-      name: `Admin Communication - ${mentee?.firstName || mentee?.email || "User"}`,
-      description: "Private workspace for admin-mentee communication",
-      ownerId: args.menteeUserId,
+    const workspaceId = await (ctx.db as any).insert("workspaces", {
+      name: `Admin Communication - ${student?.firstName || student?.email || "User"}`,
+      description: "Private workspace for admin-student communication",
+      ownerId: args.studentUserId,
       isPublic: false,
+      // Legacy field name for compatibility with older deployments
       menteeImageCount: 0,
       instructorImageCount: 0,
+      // Legacy type value for compatibility with older deployments
       type: "admin_mentee",
     });
 
-    await logWorkspaceAudit(ctx, workspaceId, user.subject, "create_admin_mentee_workspace");
+    await logWorkspaceAudit(ctx, workspaceId, user.subject, "create_admin_mentee_workspace" as any);
 
     return await ctx.db.get(workspaceId);
   },
@@ -238,12 +243,13 @@ export const createAdminInstructorWorkspace = mutation({
       return existingWorkspace;
     }
 
-    const workspaceId = await ctx.db.insert("workspaces", {
+    const workspaceId = await (ctx.db as any).insert("workspaces", {
       name: "Admin Communication - Instructor",
       description: "Private workspace for admin-instructor communication",
       ownerId: user.subject,
       instructorId: args.instructorId,
       isPublic: false,
+      // Legacy-compatible field name
       menteeImageCount: 0,
       instructorImageCount: 0,
       type: "admin_instructor",
@@ -252,6 +258,57 @@ export const createAdminInstructorWorkspace = mutation({
     await logWorkspaceAudit(ctx, workspaceId, user.subject, "create_admin_instructor_workspace");
 
     return await ctx.db.get(workspaceId);
+  },
+});
+
+/** Internal-only: Ensure an admin-student workspace exists for a given student user. No auth check; protect via HTTP key. */
+export const ensureAdminStudentWorkspace = internalMutation({
+  args: {
+    studentUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existingWorkspace = await ctx.db
+      .query("workspaces")
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("ownerId"), args.studentUserId),
+          q.eq(q.field("type"), "admin_mentee"),
+        )
+      )
+      .first();
+
+    if (existingWorkspace) {
+      return { id: existingWorkspace._id, created: false };
+    }
+
+    const student = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentUserId))
+      .first();
+
+    const name = `Admin Communication - ${student?.firstName || student?.email || "User"}`;
+    const wsId = await (ctx.db as any).insert("workspaces", {
+      name,
+      description: "Private workspace for admin-student communication",
+      ownerId: args.studentUserId,
+      isPublic: false,
+      // Legacy field for compatibility with older deployments
+      menteeImageCount: 0,
+      instructorImageCount: 0,
+      // Legacy type value for compatibility
+      type: "admin_mentee",
+    });
+
+    // Record audit log with a system actor to preserve traceability
+    await logWorkspaceAudit(
+      ctx as any,
+      wsId as any,
+      "system",
+      "create_admin_student_workspace" as Doc<"workspaceAuditLogs">["action"],
+      "Auto-created post-payment",
+    );
+
+    return { id: wsId, created: true };
   },
 });
 

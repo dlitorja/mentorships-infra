@@ -64,8 +64,8 @@ export default function AuditLogsPage() {
         return <Badge variant="default">Message</Badge>;
       case "create_workspace":
         return <Badge variant="secondary">Create</Badge>;
-      case "create_admin_mentee_workspace":
-        return <Badge variant="secondary">Create Mentee</Badge>;
+      case "create_admin_student_workspace":
+        return <Badge variant="secondary">Create Student</Badge>;
       case "create_admin_instructor_workspace":
         return <Badge variant="secondary">Create Instructor</Badge>;
       default:

@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
       validityDays: product.validityDays,
       stripePriceId: product.stripePriceId,
       paypalProductId: product.paypalProductId,
-      mentorId: product.mentorId,
+      instructorId: product.instructorId,
     }));
 
     return NextResponse.json({ items: publicProducts });

@@ -37,7 +37,7 @@ const instructorOptionSchema = z.object({
 
 type ProductInfo = {
   id: string;
-  mentorId: string;
+  instructorId: string;
   mentorName: string;
   title: string;
   description: string | null;
@@ -57,7 +57,7 @@ type ProductInfo = {
 
 const productSchema = z.object({
   id: z.string(),
-  mentorId: z.string(),
+  instructorId: z.string(),
   mentorName: z.string(),
   title: z.string(),
   description: z.string().nullable(),
@@ -92,7 +92,7 @@ export default function ProductsPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [mentorId, setMentorId] = useState("");
+  const [instructorId, setInstructorId] = useState("");
   const [mentorshipType, setMentorshipType] = useState("");
   const [activeFilter, setActiveFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -128,7 +128,7 @@ export default function ProductsPage() {
       params.set("page", page.toString());
       params.set("pageSize", pageSize.toString());
       if (search) params.set("search", search);
-      if (mentorId) params.set("mentorId", mentorId);
+      if (instructorId) params.set("instructorId", instructorId);
       if (mentorshipType) params.set("mentorshipType", mentorshipType);
       if (activeFilter) params.set("active", activeFilter);
 
@@ -157,11 +157,11 @@ export default function ProductsPage() {
 
   useEffect(() => {
     fetchProducts();
-  }, [page, mentorId, mentorshipType, activeFilter]);
+  }, [page, instructorId, mentorshipType, activeFilter]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, mentorId, mentorshipType, activeFilter]);
+  }, [search, instructorId, mentorshipType, activeFilter]);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -316,7 +316,7 @@ export default function ProductsPage() {
               <Button type="submit" variant="secondary">Search</Button>
             </form>
 
-            <Select value={mentorId || "__all__"} onValueChange={(v) => { setMentorId(v === "__all__" ? "" : v); setPage(1); }}>
+            <Select value={instructorId || "__all__"} onValueChange={(v) => { setInstructorId(v === "__all__" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[220px]">
                 <SelectValue placeholder="All Instructors" />
               </SelectTrigger>

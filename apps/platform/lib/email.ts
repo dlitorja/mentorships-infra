@@ -100,3 +100,53 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     };
   }
 }
+
+type SendTemplateEmailArgs = {
+  to: string;
+  /** Optional subject to override template default */
+  subject?: string;
+  templateId: string;
+  templateData: Record<string, any>;
+  headers?: Record<string, string>;
+};
+
+/**
+ * Send an email using a Resend hosted Template.
+ * Template takes precedence for body; do not include html/text/react.
+ * In production, missing config throws; in dev, we skip sending.
+ */
+export async function sendTemplateEmail(args: SendTemplateEmailArgs): Promise<SendEmailResult> {
+  const resend = getResendClient();
+  const from = getFromAddress();
+
+  if (!resend || !from) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "Email provider not configured (missing RESEND_API_KEY and/or EMAIL_FROM)",
+    };
+  }
+
+  try {
+    const result = await resend.emails.send({
+      from,
+      to: args.to,
+      subject: args.subject, // optional; omit to use template subject
+      template: {
+        id: args.templateId,
+        variables: args.templateData,
+      },
+      headers: {
+        ...args.headers,
+        "X-App-Base-Url": getBaseUrl(),
+      },
+    } as any);
+
+    return { ok: true, id: typeof (result as any)?.data?.id === "string" ? (result as any).data.id : null };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

@@ -102,7 +102,7 @@ export async function GET(
       socials?: any;
       isActive?: boolean;
       userId?: string | null;
-      legacyMentorId?: string | null;
+      legacyInstructorRef?: string | null;
       oneOnOneInventory?: number;
       groupInventory?: number;
       maxActiveStudents?: number;
@@ -144,8 +144,8 @@ export async function GET(
       socials: sanitizeSocials(instructor.socials),
       isActive: instructor.isActive,
       userId: instructor.userId ?? null,
-      legacyMentorId: instructor.legacyMentorId ?? null,
-      instructorId: instructor.legacyMentorId ?? null,
+      legacyInstructorRef: instructor.legacyInstructorRef ?? null,
+      instructorId: instructor.legacyInstructorRef ?? null,
       oneOnOneInventory: instructor.oneOnOneInventory ?? 0,
       groupInventory: instructor.groupInventory ?? 0,
       maxActiveStudents: instructor.maxActiveStudents ?? 10,
@@ -255,7 +255,7 @@ export async function PUT(
     if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
-    if (data.instructorId !== undefined) updateData.legacyMentorId = data.instructorId ?? undefined;
+    if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId ?? undefined;
 
     const updated = await convex.mutation(api.instructors.updateInstructor, {
       id: resolvedId as any,
@@ -286,8 +286,8 @@ export async function PUT(
         socials: sanitizeSocials(updated.socials),
         isActive: updated.isActive,
         userId: updated.userId ?? null,
-        legacyMentorId: updated.legacyMentorId ?? null,
-        instructorId: updated?.legacyMentorId ?? null,
+        legacyInstructorRef: updated.legacyInstructorRef ?? null,
+        instructorId: updated?.legacyInstructorRef ?? null,
         oneOnOneInventory: updated?.oneOnOneInventory ?? 0,
         groupInventory: updated?.groupInventory ?? 0,
         maxActiveStudents: updated?.maxActiveStudents ?? 10,

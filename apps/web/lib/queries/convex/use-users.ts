@@ -9,7 +9,7 @@ export type CurrentUser = {
   email: string;
   firstName?: string;
   lastName?: string;
-  role?: "student" | "mentor" | "admin" | "video_editor";
+  role?: "student" | "instructor" | "admin" | "video_editor";
   timeZone?: string;
   clerkId: string;
 };

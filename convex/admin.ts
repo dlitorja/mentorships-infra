@@ -31,7 +31,7 @@ type InstructorForAdmin = {
   profileImageUrl: string | null;
   isActive: boolean;
   createdAt: number;
-  activeMenteeCount: number;
+  activeStudentCount: number;
   totalCompletedSessions: number;
 };
 
@@ -110,7 +110,7 @@ export const getInstructorsForAdmin = query({
 
     const results: InstructorForAdmin[] = await Promise.all(
       sortedInstructors.map(async (instructor) => {
-        const activeMenteeCount = seatReservations.filter(
+        const activeStudentCount = seatReservations.filter(
           sr => sr.instructorId === instructor._id && sr.status === "active"
         ).length;
 
@@ -132,7 +132,7 @@ export const getInstructorsForAdmin = query({
           profileImageUrl: profileImageUrl ?? null,
           isActive: instructor.isActive ?? true,
           createdAt: instructor._creationTime,
-          activeMenteeCount,
+          activeStudentCount,
           totalCompletedSessions,
         };
       })
@@ -179,11 +179,11 @@ export const getStats = query({
       }
     }
 
-    let totalActiveMentees = 0;
+    let totalActiveStudents = 0;
     for (const packId of sessionPackIds) {
       const pack = await ctx.db.get(packId as Id<"sessionPacks">);
       if (pack && pack.status === "active") {
-        totalActiveMentees++;
+        totalActiveStudents++;
       }
     }
 
@@ -225,19 +225,19 @@ export const getStats = query({
     }
 
     return {
-      totalActiveMentees,
+      totalActiveStudents,
       revenueThisMonth: revenueThisMonth / 100,
       revenueLastMonth: revenueLastMonth / 100,
       revenueChange: Math.round(revenueChange * 10) / 10,
       revenueThisYear: revenueThisYear / 100,
       hasRevenueData,
-      hasMenteeData: totalActiveMentees > 0,
+      hasStudentData: totalActiveStudents > 0,
       hasHistoricalRevenue: revenueLastMonth > 0,
     };
   },
 });
 
-type MenteeWithSessionInfo = {
+type StudentWithSessionInfo = {
   id: string;
   userId: string;
   email: string | null;

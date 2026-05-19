@@ -42,7 +42,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // convexIdSchema validates format only; table affinity is enforced by Convex at runtime
     const workspace = await convex.mutation(api.adminWorkspaces.createAdminInstructorWorkspace, {
       instructorId: instructorId as Id<"instructors">,
-    });
+    }) as any;
 
     if (!workspace) {
       return NextResponse.json(
@@ -52,11 +52,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({
-      id: workspace._id,
-      name: workspace.name,
-      description: workspace.description,
-      type: workspace.type,
-      instructorId: workspace.instructorId,
+      id: workspace?._id,
+      name: workspace?.name,
+      description: workspace?.description,
+      type: workspace?.type,
+      instructorId: workspace?.instructorId,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create workspace";

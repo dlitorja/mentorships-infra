@@ -11,7 +11,7 @@ import { decrypt } from "@mentorships/db";
  * @param instructor - Object with optional googleRefreshToken field
  * @returns Decrypted token string, or null if not present/invalid
  */
-export function decryptMentorRefreshToken(instructor: { googleRefreshToken?: string | null }): string | null {
+export function decryptInstructorRefreshToken(instructor: { googleRefreshToken?: string | null }): string | null {
   const token = instructor.googleRefreshToken;
   if (!token) return null;
 

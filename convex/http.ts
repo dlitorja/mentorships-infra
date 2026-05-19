@@ -418,6 +418,41 @@ http.route({
   handler: httpNotifyWaitlist,
 });
 
+/**
+ * Ensure an admin-student workspace exists for a given student user.
+ * Protected by CONVEX_HTTP_KEY. Returns { id, created }.
+ */
+http.route({
+  path: "/workspaces/ensure-admin-student",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!verifyAuth(request)) return unauthorizedResponse();
+
+    const { studentUserId } = await request.json();
+    if (!studentUserId || typeof studentUserId !== "string") {
+      return new Response(JSON.stringify({ error: "studentUserId is required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    try {
+      const result = await ctx.runMutation(internal.adminWorkspaces.ensureAdminStudentWorkspace, {
+        studentUserId,
+      });
+      return new Response(JSON.stringify(result), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (error) {
+      const message = (error as Error).message;
+      return new Response(JSON.stringify({ error: message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }),
+});
+
 http.route({
   path: "/inventory/admin-sync",
   method: "POST",
@@ -439,7 +474,7 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
     socials, 
     pricing,
     testimonials,
-    menteeBeforeAfterImages,
+    studentBeforeAfterImages,
     isNew
   } = await request.json();
 
@@ -514,8 +549,8 @@ const httpSeedInstructor = httpAction(async (ctx, request) => {
     }
   }
 
-  if (menteeBeforeAfterImages && menteeBeforeAfterImages.length > 0) {
-    for (const imageUrl of menteeBeforeAfterImages) {
+  if (studentBeforeAfterImages && studentBeforeAfterImages.length > 0) {
+    for (const imageUrl of studentBeforeAfterImages) {
       await ctx.runMutation(api.instructors.createStudentResult as any, {
         instructorId,
         imageUrl,

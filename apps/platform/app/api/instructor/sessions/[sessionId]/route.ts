@@ -7,7 +7,7 @@ import {
   isUnauthorizedError,
   isForbiddenError,
 } from "@/lib/errors";
-import { decryptMentorRefreshToken } from "@/lib/crypto";
+import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { inngest } from "@/inngest/client";
@@ -124,7 +124,7 @@ export async function PATCH(
         if (!instructorDoc) {
           console.error("Instructor not found for calendar cleanup");
         } else {
-          const decryptedToken = decryptMentorRefreshToken(instructorDoc);
+          const decryptedToken = decryptInstructorRefreshToken(instructorDoc);
           if (decryptedToken) {
             try {
               const calendar = await getGoogleCalendarClient(decryptedToken);

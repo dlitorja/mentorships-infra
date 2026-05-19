@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as menteeRoute from "../../mentees/invite/route";
+import { GET as getStudents } from "../route";
 
-// Alias students invite to mentees invite implementation (until Convex schema rename)
+// Backward-compatible alias: nested students route delegates to parent students handler
 export async function GET(req: NextRequest) {
-  return menteeRoute.GET(req);
-}
-
-export async function POST(req: NextRequest) {
-  return menteeRoute.POST(req);
+  // Delegate to students handler
+  return getStudents(req);
 }

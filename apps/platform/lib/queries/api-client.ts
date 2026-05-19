@@ -43,7 +43,7 @@ export async function fetchProduct(id: string) {
     sessionsPerPack: number;
     validityDays: number;
     stripePriceId: string | null;
-    mentor: {
+    instructor: {
       id: string;
       userId: string;
     };
@@ -63,7 +63,7 @@ export async function fetchProducts() {
       validityDays: number;
       stripePriceId: string | null;
       paypalProductId: string | null;
-      mentorId: string;
+      instructorId: string;
     }>;
   }>("/api/products");
 }
@@ -77,7 +77,7 @@ export async function fetchMySessionPacks() {
       id: string;
       remainingSessions: number;
       expiresAt: Date;
-      mentor: {
+      instructor: {
         id: string;
         userId: string;
       };
@@ -350,7 +350,7 @@ const UpdateProductResponseSchema = z.object({
   message: z.string(),
   product: z.object({
     id: z.string(),
-    mentorId: z.string(),
+    instructorId: z.string(),
     title: z.string(),
     description: z.string().nullable(),
     imageUrl: z.string().nullable(),
