@@ -522,7 +522,6 @@ export const migrateInstructor = mutation({
       profileImageUrl: args.profileImageUrl ?? undefined,
       profileImageUploadPath: args.profileImageUploadPath ?? undefined,
       profileImageStorageId: args.profileImageStorageId ?? undefined,
-      legacyInstructorRef: args.legacyInstructorRef ?? undefined,
       googleCalendarId: args.googleCalendarId ?? undefined,
       googleRefreshToken: args.googleRefreshToken ?? undefined,
       timeZone: args.timeZone ?? undefined,
