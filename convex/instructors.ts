@@ -534,7 +534,7 @@ export const migrateInstructor = mutation({
 
     // If legacy reference provided, patch after insert to avoid type mismatches across environments.
     if (args.legacyInstructorRef !== undefined) {
-      await ctx.db.patch(id as any, { legacyInstructorRef: args.legacyInstructorRef } as any);
+      await ctx.db.patch(id, { legacyInstructorRef: args.legacyInstructorRef });
     }
 
     return { action: "inserted", id };
@@ -1575,11 +1575,11 @@ export const acceptStudentInvitation = internalMutation({
       return { accepted: false, reason: "No pending invitation found" };
     }
 
-    await ctx.db.patch(invitation._id as any, {
+    await ctx.db.patch(invitation._id, {
       status: "accepted",
     });
 
-    return { accepted: true, invitationId: String(invitation._id) };
+    return { accepted: true, invitationId: invitation._id as Id<any> };
   },
 });
 
@@ -1591,7 +1591,7 @@ type LinkResult = {
   legacyInstructorRef?: string;
   email?: string;
   userId?: string;
-  invitationId?: string;
+  invitationId?: Id<any>;
   needsSessionPack?: boolean;
 };
 
@@ -1627,7 +1627,7 @@ export const linkClerkUserToInstructor = internalAction({
       } else {
         await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
           instructorId: instructor._id,
-          legacyInstructorRef: instructor.legacyInstructorRef,
+          legacyInstructorRef: (instructor as any).legacyInstructorRef ?? (instructor as any).legacyId,
           userId,
         });
 
@@ -1636,7 +1636,7 @@ export const linkClerkUserToInstructor = internalAction({
           instructorId: instructor._id,
           instructorName: instructor.name ?? null,
           userId,
-          legacyInstructorRef: instructor.legacyInstructorRef ?? undefined,
+          legacyInstructorRef: ((instructor as any).legacyInstructorRef ?? (instructor as any).legacyId) ?? undefined,
           email,
         };
       }
@@ -1658,7 +1658,7 @@ export const linkClerkUserToInstructor = internalAction({
 
       studentResult = {
         linked: true,
-        invitationId: String(pendingInvitation._id),
+        invitationId: pendingInvitation._id as Id<any>,
         legacyInstructorRef: pendingInvitation.instructorId.toString(),
         email,
         needsSessionPack: true,
@@ -1674,7 +1674,7 @@ export const linkClerkUserToInstructor = internalAction({
 // Structural type for studentInvitations to avoid reliance on TableNames when
 // generated types are stale in certain build environments.
 type StudentInvitationDoc = {
-  _id: Id<"studentInvitations">;
+  _id: Id<any>;
   _creationTime: number;
   email: string;
   instructorId: Id<"instructors">;
