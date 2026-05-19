@@ -4,6 +4,10 @@ Note: Convex codegen runs in Vercel builds via postinstall. Ensure `CONVEX_DEPLO
 
 Next.js App Router application for the mentorship platform.
 
+Important: Primary App
+
+apps/platform is the canonical, feature-complete public-facing mentorship app. New features should be implemented in apps/platform first. apps/web exists for legacy reference; apps/marketing remains a temporary marketing site until apps/platform is production-ready.
+
 ## Authentication
 
 Authentication is handled by Clerk with automatic user sync to Supabase.

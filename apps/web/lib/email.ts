@@ -100,3 +100,58 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
     };
   }
 }
+
+type SendTemplateEmailArgs = {
+  to: string;
+  /** Optional subject to override template default */
+  subject?: string;
+  templateId: string;
+  /** Variables passed to the Resend hosted template */
+  templateData: Record<string, any>;
+  headers?: Record<string, string>;
+};
+
+/**
+ * Send an email using a Resend hosted Template.
+ * If RESEND is not configured in non-production, we skip sending.
+ * If configuration is missing in production, we throw to surface misconfig.
+ *
+ * Important: When `template` is provided to Resend, do not pass html/text/react.
+ */
+export async function sendTemplateEmail(args: SendTemplateEmailArgs): Promise<SendEmailResult> {
+  const resend = getResendClient();
+  const from = getFromAddress();
+
+  if (!resend || !from) {
+    return {
+      ok: false,
+      skipped: true,
+      reason: "Email provider not configured (missing RESEND_API_KEY and/or EMAIL_FROM)",
+    };
+  }
+
+  try {
+    const result = await resend.emails.send({
+      from,
+      to: args.to,
+      subject: args.subject, // optional override; template default used if undefined
+      // Resend hosted template usage (Context7 docs):
+      // https://resend.com/docs/dashboard/templates/introduction
+      template: {
+        id: args.templateId,
+        variables: args.templateData,
+      },
+      headers: {
+        ...args.headers,
+        "X-App-Base-Url": getBaseUrl(),
+      },
+    } as any);
+
+    return { ok: true, id: typeof (result as any)?.data?.id === "string" ? (result as any).data.id : null };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
