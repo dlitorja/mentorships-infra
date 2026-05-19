@@ -243,13 +243,14 @@ export const createAdminInstructorWorkspace = mutation({
       return existingWorkspace;
     }
 
-    const workspaceId = await ctx.db.insert("workspaces", {
+    const workspaceId = await (ctx.db as any).insert("workspaces", {
       name: "Admin Communication - Instructor",
       description: "Private workspace for admin-instructor communication",
       ownerId: user.subject,
       instructorId: args.instructorId,
       isPublic: false,
-      studentImageCount: 0,
+      // Legacy-compatible field name
+      menteeImageCount: 0,
       instructorImageCount: 0,
       type: "admin_instructor",
     });
@@ -271,7 +272,7 @@ export const ensureAdminStudentWorkspace = internalMutation({
       .filter((q) =>
         q.and(
           q.eq(q.field("ownerId"), args.studentUserId),
-          q.eq(q.field("type"), "admin_student"),
+          q.eq(q.field("type"), "admin_mentee"),
         )
       )
       .first();
