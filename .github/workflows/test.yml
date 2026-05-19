@@ -38,6 +38,7 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      CONVEX_DEPLOYMENT: production
     steps:
       - uses: actions/checkout@v4
       
@@ -56,6 +57,7 @@ jobs:
         run: pnpm install --frozen-lockfile
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
+          CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
       
       - name: Lint
         run: pnpm lint
@@ -69,6 +71,7 @@ jobs:
     environment: Preview
     env:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      CONVEX_DEPLOYMENT: production
     steps:
       - uses: actions/checkout@v4
       
@@ -87,6 +90,7 @@ jobs:
         run: pnpm install --frozen-lockfile
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
+          CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
       
       - name: Run unit tests
         run: pnpm test:unit
@@ -112,6 +116,7 @@ jobs:
       deployment: false
     env:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      CONVEX_DEPLOYMENT: production
     steps:
       - uses: actions/checkout@v4
       
@@ -130,6 +135,7 @@ jobs:
         run: pnpm install --frozen-lockfile
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
+          CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
       
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -170,6 +176,7 @@ jobs:
     environment: Preview
     env:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      CONVEX_DEPLOYMENT: production
     steps:
       - uses: actions/checkout@v4
       
@@ -188,6 +195,7 @@ jobs:
         run: pnpm install --frozen-lockfile
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
+          CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
       
 
       - name: Build Web

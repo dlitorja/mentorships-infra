@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+      CONVEX_DEPLOYMENT: production
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,6 +33,7 @@ jobs:
         run: npx convex codegen
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
+          CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
       - name: Skip codegen (no deploy key)
         if: ${{ env.CONVEX_DEPLOY_KEY == '' }}
         run: echo "Skipping convex codegen: missing CONVEX_DEPLOY_KEY"
