@@ -27,6 +27,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
   const [message, setMessage] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,10 +67,19 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     if (!file || !workspaceId) return;
 
     if (!file.type.startsWith('image/')) {
+      setUploadError('Only image files are supported.');
+      return;
+    }
+
+    // 5MB max to avoid very large data URLs
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    if (file.size > MAX_IMAGE_BYTES) {
+      setUploadError('Image is too large. Maximum size is 5MB.');
       return;
     }
 
     setIsUploading(true);
+    setUploadError(null);
     const reader = new FileReader();
     reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
@@ -93,10 +103,18 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     if (!file || !workspaceId) return;
 
     if (!file.type.startsWith('image/')) {
+      setUploadError('Only image files are supported.');
+      return;
+    }
+
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    if (file.size > MAX_IMAGE_BYTES) {
+      setUploadError('Image is too large. Maximum size is 5MB.');
       return;
     }
 
     setIsUploading(true);
+    setUploadError(null);
     const reader = new FileReader();
     reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
@@ -117,13 +135,16 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
         createdBy: currentUserId,
       });
       setPreviewImage(null);
+      setUploadError(null);
     } catch (error) {
       console.error('Failed to upload image:', error);
+      setUploadError('Failed to upload image. Please try again.');
     }
   };
 
   const cancelPreview = () => {
     setPreviewImage(null);
+    setUploadError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -220,6 +241,9 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
               <X className="h-3 w-3" />
             </Button>
           </div>
+          {uploadError && (
+            <div className="mt-2 text-sm text-red-500">{uploadError}</div>
+          )}
           <div className="mt-2 flex gap-2">
             <Button size="sm" onClick={handleSendImage} disabled={createImage.isPending}>
               <Send className="h-4 w-4 mr-1" />
