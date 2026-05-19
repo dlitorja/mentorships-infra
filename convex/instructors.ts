@@ -1358,15 +1358,21 @@ export const getPendingStudentInvitationsByEmail = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const invitations = (await ctx.db
-      .query("studentInvitations" as any)
-      .withIndex("by_email" as any)
-      .filter((q) => q.eq(q.field("email"), args.email.toLowerCase()))
-      .collect()) as unknown as StudentInvitationDoc[];
+    try {
+      const invitations = (await ctx.db
+        .query("studentInvitations" as any)
+        .withIndex("by_email" as any)
+        .filter((q) => q.eq(q.field("email"), args.email.toLowerCase()))
+        .collect()) as unknown as StudentInvitationDoc[];
 
-    return invitations.filter(
-      inv => inv.status === "pending" && inv.expiresAt > now
-    );
+      return invitations.filter(
+        inv => inv.status === "pending" && inv.expiresAt > now
+      );
+    } catch (err) {
+      console.error("getPendingStudentInvitationsByEmail: invitation query failed", err);
+      // Gracefully degrade until schema/codegen is updated to remove casts
+      return [];
+    }
   },
 });
 
@@ -1561,16 +1567,22 @@ export const acceptStudentInvitation = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const invitation = (await ctx.db
-      .query("studentInvitations" as any)
-      .withIndex("by_email_instructorId" as any)
-      .filter((q) => q.and(
-        q.eq(q.field("email"), args.email.toLowerCase()),
-        q.eq(q.field("instructorId"), args.instructorId),
-        q.eq(q.field("status"), "pending"),
-        q.gt(q.field("expiresAt"), now)
-      ))
-      .first()) as unknown as StudentInvitationDoc | null;
+    let invitation: StudentInvitationDoc | null = null;
+    try {
+      invitation = (await ctx.db
+        .query("studentInvitations" as any)
+        .withIndex("by_email_instructorId" as any)
+        .filter((q) => q.and(
+          q.eq(q.field("email"), args.email.toLowerCase()),
+          q.eq(q.field("instructorId"), args.instructorId),
+          q.eq(q.field("status"), "pending"),
+          q.gt(q.field("expiresAt"), now)
+        ))
+        .first()) as unknown as StudentInvitationDoc | null;
+    } catch (err) {
+      console.error("acceptStudentInvitation: invitation query failed", err);
+      return { accepted: false, reason: "Invitation lookup unavailable" };
+    }
 
     if (!invitation) {
       return { accepted: false, reason: "No pending invitation found" };
