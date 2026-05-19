@@ -27,6 +27,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Convex codegen
         run: npx convex codegen
+        env:
+          CONVEX_DEPLOYMENT: local
       - name: Fail if codegen produced unstaged changes
         run: |
           git status --porcelain
