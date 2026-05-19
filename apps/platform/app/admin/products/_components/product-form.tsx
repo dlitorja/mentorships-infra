@@ -25,6 +25,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, CheckCircle2, XCircle, ExternalLink, CreditCard, Wallet } from "lucide-react";
 import { createProduct, createProductFromStripe, updateProduct, type MentorshipType } from "@/lib/queries/api-client";
+import { AdminImageUpload } from "@/components/admin/admin-image-upload";
 
 type Instructor = {
   id: string;
@@ -448,6 +449,9 @@ function ProductFieldsForm({
         enablePayPal: value.enablePayPal,
       });
     },
+    validators: {
+      // Keep form-level free; we handle cross-field provider error inline below
+    },
   });
 
   return (
@@ -478,6 +482,7 @@ function ProductFieldsForm({
                     value={field.state.value}
                     onValueChange={field.handleChange}
                     disabled={isLoadingInstructors}
+                    // Mark field as touched when menu closes
                   >
                     <SelectTrigger id={field.name}>
                       <SelectValue placeholder="Select an instructor" />
@@ -490,6 +495,9 @@ function ProductFieldsForm({
                       ))}
                     </SelectContent>
                   </Select>
+                  {(!field.state.value || field.state.value.length === 0) && (
+                    <p className="text-sm text-red-600">Instructor is required.</p>
+                  )}
                 </div>
               )}
             </form.Field>
@@ -510,12 +518,15 @@ function ProductFieldsForm({
                       <SelectItem value="group">Group Mentorship</SelectItem>
                     </SelectContent>
                   </Select>
+                  {(!field.state.value || (field.state.value !== "one-on-one" && field.state.value !== "group")) && (
+                    <p className="text-sm text-red-600">Please select a mentorship type.</p>
+                  )}
                 </div>
               )}
             </form.Field>
           </div>
 
-          <form.Field name="title">
+            <form.Field name="title">
             {(field) => (
               <div className="space-y-2">
                 <Label htmlFor={field.name}>Product Title *</Label>
@@ -523,28 +534,33 @@ function ProductFieldsForm({
                   id={field.name}
                   value={field.state.value}
                   onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
                   placeholder="e.g., 4-Session Mentorship Pack"
                   disabled={isSubmitting}
                 />
+                {(!field.state.value || field.state.value.trim().length === 0) && (
+                  <p className="text-sm text-red-600">Title is required.</p>
+                )}
               </div>
             )}
           </form.Field>
 
-          <form.Field name="description">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Description</Label>
-                <Textarea
-                  id={field.name}
-                  value={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="Optional description for this product"
-                  rows={3}
-                  disabled={isSubmitting}
-                />
-              </div>
-            )}
-          </form.Field>
+            <form.Field name="description">
+              {(field) => (
+                <div className="space-y-2">
+                  <Label htmlFor={field.name}>Description</Label>
+                  <Textarea
+                    id={field.name}
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    placeholder="Optional description for this product"
+                    rows={3}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              )}
+            </form.Field>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <form.Field name="price">
@@ -558,9 +574,21 @@ function ProductFieldsForm({
                     min="0"
                     value={field.state.value}
                     onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
                     placeholder="199.00"
                     disabled={isSubmitting}
                   />
+                  {(() => {
+                    const v = field.state.value;
+                    const num = parseFloat(v as any);
+                    if (!v || v.toString().trim().length === 0) {
+                      return <p className="text-sm text-red-600">Price is required.</p>;
+                    }
+                    if (Number.isNaN(num) || num <= 0) {
+                      return <p className="text-sm text-red-600">Enter a positive price.</p>;
+                    }
+                    return null;
+                  })()}
                 </div>
               )}
             </form.Field>
@@ -576,8 +604,16 @@ function ProductFieldsForm({
                     max="100"
                     value={field.state.value}
                     onChange={(e) => field.handleChange(parseInt(e.target.value) || 1)}
+                    onBlur={field.handleBlur}
                     disabled={isSubmitting}
                   />
+                  {(() => {
+                    const v = Number(field.state.value);
+                    if (!Number.isInteger(v) || v < 1 || v > 100) {
+                      return <p className="text-sm text-red-600">Must be between 1 and 100.</p>;
+                    }
+                    return null;
+                  })()}
                 </div>
               )}
             </form.Field>
@@ -593,34 +629,33 @@ function ProductFieldsForm({
                     max="365"
                     value={field.state.value}
                     onChange={(e) => field.handleChange(parseInt(e.target.value) || 30)}
+                    onBlur={field.handleBlur}
                     disabled={isSubmitting}
                   />
+                  {(() => {
+                    const v = Number(field.state.value);
+                    if (!Number.isInteger(v) || v < 1 || v > 365) {
+                      return <p className="text-sm text-red-600">Must be between 1 and 365.</p>;
+                    }
+                    return null;
+                  })()}
                 </div>
               )}
             </form.Field>
           </div>
 
-          <form.Field name="imageUrl">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Product Image URL</Label>
-                <Input
-                  id={field.name}
-                  type="url"
+            <form.Field name="imageUrl">
+              {(field) => (
+                <AdminImageUpload
+                  label="Product Image (optional)"
                   value={field.state.value}
-                  onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="https://example.com/image.jpg"
-                  disabled={isSubmitting}
+                  onChange={(url) => field.handleChange(url)}
                 />
-                <p className="text-sm text-muted-foreground">
-                  Optional: Add an image URL for this product
-                </p>
-              </div>
-            )}
-          </form.Field>
+              )}
+            </form.Field>
 
           <div className="border-t pt-6">
-            <h3 className="font-semibold mb-4">Payment Providers</h3>
+            <h3 className="font-semibold mb-2">Payment Providers <span className="text-red-600">(at least one required)</span></h3>
             <div className="flex flex-col gap-3">
               <form.Field name="enableStripe">
                 {(field) => (
@@ -664,6 +699,9 @@ function ProductFieldsForm({
                 )}
               </form.Field>
             </div>
+            {!(form.state.values.enableStripe || form.state.values.enablePayPal) && (
+              <p className="mt-2 text-sm text-red-600">Select at least one provider (Stripe or PayPal).</p>
+            )}
           </div>
 
           <div className="flex gap-3 pt-4">
@@ -674,7 +712,9 @@ function ProductFieldsForm({
                 isLoadingInstructors ||
                 !form.state.values.instructorId ||
                 !form.state.values.title ||
-                !form.state.values.price
+                !form.state.values.price ||
+                Number(form.state.values.price) <= 0 ||
+                !(form.state.values.enableStripe || form.state.values.enablePayPal)
               }
             >
               {isSubmitting ? (
