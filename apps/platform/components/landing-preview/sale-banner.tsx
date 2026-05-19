@@ -45,12 +45,12 @@ const SALE_ITEMS: SaleItem[] = [
     link: 'https://home.huckleberry.art/resource_redirect/landing_pages/2151610810',
   },
   {
-    id: 'mentor-kim',
+    id: 'instructor-kim',
     title: 'New Instructor — Kim Myatt',
     badge: 'MENTORSHIPS',
     description: '1-on-1 mentorships available',
     endsAt: null,
-    image: '/images/preview/mentor-kim-myatt.jpg',
+    image: '/images/preview/instructor-kim-myatt.jpg',
     link: 'https://mentorships.huckleberry.art',
   },
   {

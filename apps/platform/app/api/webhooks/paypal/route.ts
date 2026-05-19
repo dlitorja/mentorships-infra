@@ -28,6 +28,56 @@ const paypalWebhookEnvelopeSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  // Test bypass for CI and local integration tests (non-production only)
+  // Requires env TEST_WEBHOOK_BYPASS=true and header x-test-bypass: 1
+  if (
+    process.env.TEST_WEBHOOK_BYPASS === "true" &&
+    process.env.NODE_ENV !== "production" &&
+    req.headers.get("x-test-bypass") === "1"
+  ) {
+    try {
+      const payload = await req.json();
+      const eventType: string | undefined = payload?.event_type;
+
+      if (eventType === "PAYMENT.CAPTURE.COMPLETED") {
+        const captureId: string | undefined = payload?.data?.captureId || payload?.resource?.id;
+        const orderId: string | undefined = payload?.data?.orderId;
+        const packId: string | undefined = payload?.data?.packId;
+        if (!captureId || !orderId || !packId) {
+          return NextResponse.json({ error: "Missing fields in bypass payload" }, { status: 400 });
+        }
+        await inngest.send({
+          name: "paypal/payment.capture.completed",
+          data: { captureId, orderId, packId },
+        });
+        return NextResponse.json({ received: true, bypass: true });
+      }
+
+      if (eventType === "PAYMENT.CAPTURE.REFUNDED") {
+        const captureId: string | undefined = payload?.data?.captureId;
+        const refundId: string | undefined = payload?.data?.refundId || payload?.resource?.id;
+        if (!captureId) {
+          return NextResponse.json({ error: "Missing captureId in bypass payload" }, { status: 400 });
+        }
+        await inngest.send({
+          name: "paypal/payment.capture.refunded",
+          data: { captureId, refundId },
+        });
+        return NextResponse.json({ received: true, bypass: true });
+      }
+
+      return NextResponse.json({ received: true, bypass: true, message: "Unhandled event type" });
+    } catch (err) {
+      await reportError({
+        source: "webhooks/paypal",
+        error: err,
+        message: "Bypass processing error",
+        level: "error",
+      });
+      return NextResponse.json({ error: "Bypass failed" }, { status: 500 });
+    }
+  }
+
   const body = await req.text();
   const headers: Record<string, string | string[] | undefined> = {};
 
