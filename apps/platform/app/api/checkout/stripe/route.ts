@@ -25,9 +25,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   try {
     const userId = await requireAuth();
-    const body = await req.json();
+    const rawBody = await req.json();
+    // Minimal compatibility: accept either `packId` or `productId`
+    const body =
+      typeof rawBody === "object" && rawBody !== null
+        ? {
+            packId: rawBody.packId ?? rawBody.productId,
+            promotionCode: rawBody.promotionCode,
+          }
+        : rawBody;
 
-    const validationResult = checkoutSchema.safeParse(body);
+    const validationResult = checkoutSchema.safeParse(body as unknown);
     if (!validationResult.success) {
       return NextResponse.json(
         { error: "Invalid request", details: validationResult.error.issues },

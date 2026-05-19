@@ -125,20 +125,31 @@ export async function POST(req: NextRequest) {
 
     const refundAmountStr = refundAmount.toFixed(2);
     const currency = payment.currency || "usd";
+    const priorRefunded = payment.refundedAmount
+      ? parseFloat(payment.refundedAmount)
+      : 0;
 
     let providerRefundId: string | null = null;
 
     if (payment.provider === "stripe") {
       try {
-        const refund = await stripe.refunds.create({
-          payment_intent: payment.providerPaymentId,
-          amount: Math.round(refundAmount * 100),
-          reason: reason === "Fraudulent"
-            ? "fraudulent"
-            : reason === "Duplicate"
-            ? "duplicate"
-            : "requested_by_customer",
-        });
+        // Idempotency avoids duplicate refunds on retries.
+        // Include priorRefunded in the key to allow distinct partial refunds of the same amount
+        // to proceed as separate operations while still deduplicating true retries.
+        const idemKey = `refund:${paymentId}:${refundType}:${refundAmountStr}:${priorRefunded.toFixed(2)}`;
+        const refund = await stripe.refunds.create(
+          {
+            payment_intent: payment.providerPaymentId,
+            amount: Math.round(refundAmount * 100),
+            reason:
+              reason === "Fraudulent"
+                ? "fraudulent"
+                : reason === "Duplicate"
+                ? "duplicate"
+                : "requested_by_customer",
+          },
+          { idempotencyKey: idemKey }
+        );
         providerRefundId = refund.id;
       } catch (stripeError) {
         console.error("Stripe refund failed:", stripeError);

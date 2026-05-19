@@ -5,6 +5,62 @@ import { stripe } from "@/lib/stripe";
 import { reportError, reportInfo } from "@/lib/observability";
 
 export async function POST(req: NextRequest) {
+  // Test bypass for CI and local integration tests (non-production only)
+  // Requires env TEST_WEBHOOK_BYPASS=true and header x-test-bypass: 1
+  if (
+    process.env.TEST_WEBHOOK_BYPASS === "true" &&
+    process.env.NODE_ENV !== "production" &&
+    req.headers.get("x-test-bypass") === "1"
+  ) {
+    try {
+      const payload = await req.json();
+      const type: string | undefined = (payload && payload.type) || undefined;
+
+      if (type === "checkout.session.completed") {
+        const session = payload.data?.object;
+        const orderId = session?.metadata?.order_id;
+        const userId = session?.metadata?.user_id;
+        const packId = session?.metadata?.pack_id;
+        const sessionId = session?.id;
+        if (!orderId || !userId || !packId || !sessionId) {
+          return NextResponse.json({ error: "Missing fields in bypass payload" }, { status: 400 });
+        }
+        await inngest.send({
+          name: "stripe/checkout.session.completed",
+          data: { sessionId, orderId, userId, packId },
+        });
+        return NextResponse.json({ received: true, bypass: true });
+      }
+
+      if (type === "charge.refunded") {
+        const charge = payload.data?.object;
+        const paymentIntentId = charge?.payment_intent;
+        const chargeId = charge?.id;
+        if (!paymentIntentId) {
+          return NextResponse.json({ error: "Missing payment_intent in bypass payload" }, { status: 400 });
+        }
+        if (!chargeId) {
+          return NextResponse.json({ error: "Missing charge id in bypass payload" }, { status: 400 });
+        }
+        await inngest.send({
+          name: "stripe/charge.refunded",
+          data: { chargeId, paymentIntentId },
+        });
+        return NextResponse.json({ received: true, bypass: true });
+      }
+
+      return NextResponse.json({ received: true, bypass: true, message: "Unhandled event type" });
+    } catch (err) {
+      await reportError({
+        source: "webhooks/stripe",
+        error: err,
+        message: "Bypass processing error",
+        level: "error",
+      });
+      return NextResponse.json({ error: "Bypass failed" }, { status: 500 });
+    }
+  }
+
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
     await reportError({
