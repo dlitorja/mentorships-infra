@@ -1,5 +1,7 @@
 # Mentorship Platform Web App
 
+Note: Convex codegen runs in Vercel builds via postinstall. Ensure `CONVEX_DEPLOY_KEY` and `CONVEX_DEPLOYMENT` are set for Preview and Production environments.
+
 Next.js App Router application for the mentorship platform.
 
 ## Authentication
