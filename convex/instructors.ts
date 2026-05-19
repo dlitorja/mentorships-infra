@@ -1579,7 +1579,7 @@ export const acceptStudentInvitation = internalMutation({
       status: "accepted",
     });
 
-    return { accepted: true, invitationId: invitation._id };
+    return { accepted: true, invitationId: String(invitation._id) };
   },
 });
 
@@ -1591,7 +1591,7 @@ type LinkResult = {
   legacyInstructorRef?: string;
   email?: string;
   userId?: string;
-  invitationId?: Id<"studentInvitations">;
+  invitationId?: string;
   needsSessionPack?: boolean;
 };
 
@@ -1658,7 +1658,7 @@ export const linkClerkUserToInstructor = internalAction({
 
       studentResult = {
         linked: true,
-        invitationId: pendingInvitation._id,
+        invitationId: String(pendingInvitation._id),
         legacyInstructorRef: pendingInvitation.instructorId.toString(),
         email,
         needsSessionPack: true,
