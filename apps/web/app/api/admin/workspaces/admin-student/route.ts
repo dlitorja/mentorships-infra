@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
 
 function getConvexClient() {
@@ -31,18 +32,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    type WorkspaceDoc = {
-      _id: string;
-      name: string;
-      description?: string;
-      type?: string;
-      ownerId: string;
-    };
-
     const workspace = (await convex.mutation(
       api.adminWorkspaces.createAdminStudentWorkspace,
       { studentUserId }
-    )) as WorkspaceDoc;
+    )) as Doc<"workspaces"> | null;
 
     if (!workspace) {
       return NextResponse.json(
