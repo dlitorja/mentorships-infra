@@ -41,10 +41,9 @@ export const backfillWorkspaceStudentCountsAndType = migrations.define({
     // Backfill studentImageCount from menteeImageCount if missing or out of sync
     const menteeCount = ws.menteeImageCount;
     const studentCount = ws.studentImageCount;
-    if (typeof menteeCount === "number") {
-      if (typeof studentCount !== "number" || studentCount !== menteeCount) {
-        patch.studentImageCount = menteeCount;
-      }
+    // Only backfill when studentImageCount is absent; do not overwrite if it exists and differs
+    if (typeof menteeCount === "number" && typeof studentCount !== "number") {
+      patch.studentImageCount = menteeCount;
     }
 
     // Rename workspace type

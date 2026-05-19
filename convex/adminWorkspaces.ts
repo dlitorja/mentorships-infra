@@ -178,7 +178,10 @@ export const createAdminStudentWorkspace = mutation({
       .filter((q) =>
         q.and(
           q.eq(q.field("ownerId"), args.studentUserId),
-          q.eq(q.field("type"), "admin_student")
+          q.or(
+            q.eq(q.field("type"), "admin_student"),
+            q.eq(q.field("type"), "admin_mentee" as any)
+          )
         )
       )
       .first();
@@ -268,7 +271,10 @@ export const ensureAdminStudentWorkspace = internalMutation({
       .filter((q) =>
         q.and(
           q.eq(q.field("ownerId"), args.studentUserId),
-          q.eq(q.field("type"), "admin_student"),
+          q.or(
+            q.eq(q.field("type"), "admin_student"),
+            q.eq(q.field("type"), "admin_mentee" as any)
+          ),
         )
       )
       .first();
