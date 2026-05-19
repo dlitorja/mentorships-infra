@@ -28,11 +28,11 @@ const paypalWebhookEnvelopeSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  // Test bypass for CI and local integration tests (non-production only)
+  // Test bypass for CI and local integration tests (development only)
   // Requires env TEST_WEBHOOK_BYPASS=true and header x-test-bypass: 1
   if (
     process.env.TEST_WEBHOOK_BYPASS === "true" &&
-    process.env.NODE_ENV !== "production" &&
+    process.env.NODE_ENV === "development" &&
     req.headers.get("x-test-bypass") === "1"
   ) {
     try {
