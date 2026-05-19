@@ -56,6 +56,9 @@ export async function POST(req: NextRequest) {
       if (eventType === "PAYMENT.CAPTURE.REFUNDED") {
         const captureId: string | undefined = payload?.data?.captureId;
         const refundId: string | undefined = payload?.data?.refundId || payload?.resource?.id;
+        if (!refundId) {
+          return NextResponse.json({ error: "Missing refund id in bypass payload" }, { status: 400 });
+        }
         if (!captureId) {
           return NextResponse.json({ error: "Missing captureId in bypass payload" }, { status: 400 });
         }

@@ -112,10 +112,10 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     try {
       // Upload the image using Convex mutation; data URL is acceptable for imageUrl
       await createImage.mutateAsync({
-        workspaceId: workspaceId as any,
+        workspaceId,
         imageUrl: previewImage,
         createdBy: currentUserId,
-      } as any);
+      });
       setPreviewImage(null);
     } catch (error) {
       console.error('Failed to upload image:', error);

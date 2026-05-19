@@ -39,6 +39,9 @@ export async function POST(req: NextRequest) {
         if (!paymentIntentId) {
           return NextResponse.json({ error: "Missing payment_intent in bypass payload" }, { status: 400 });
         }
+        if (!chargeId) {
+          return NextResponse.json({ error: "Missing charge id in bypass payload" }, { status: 400 });
+        }
         await inngest.send({
           name: "stripe/charge.refunded",
           data: { chargeId, paymentIntentId },
