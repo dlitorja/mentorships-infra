@@ -532,6 +532,11 @@ export const migrateInstructor = mutation({
       groupInventory: args.groupInventory ?? 0,
     });
 
+    // If legacy reference provided, patch after insert to avoid type mismatches across environments.
+    if (args.legacyInstructorRef !== undefined) {
+      await ctx.db.patch(id, { legacyInstructorRef: args.legacyInstructorRef });
+    }
+
     return { action: "inserted", id };
   },
 });
