@@ -29,3 +29,36 @@ export const backfillLegacyInstructorRef = migrations.define({
 
 // Convenient runner bound to the backfill
 export const runBackfillLegacyInstructorRef = migrations.runner(internal.migrations.backfillLegacyInstructorRef);
+
+// Rename admin_mentee -> admin_student and backfill studentImageCount from menteeImageCount
+// Idempotent: safe to re-run. This is the migrate step between widen and narrow.
+export const backfillWorkspaceStudentCountsAndType = migrations.define({
+  table: "workspaces",
+  // If you have a lot of workspaces, consider lowering batchSize here
+  migrateOne: async (_ctx, ws: any) => {
+    const patch: Record<string, any> = {};
+
+    // Backfill studentImageCount from menteeImageCount if missing or out of sync
+    const menteeCount = ws.menteeImageCount;
+    const studentCount = ws.studentImageCount;
+    // Only backfill when studentImageCount is absent; do not overwrite if it exists and differs
+    if (typeof menteeCount === "number" && typeof studentCount !== "number") {
+      patch.studentImageCount = menteeCount;
+    }
+
+    // Rename workspace type
+    if (ws.type === "admin_mentee") {
+      patch.type = "admin_student";
+    }
+
+    // Only return a patch if there is something to change
+    if (Object.keys(patch).length > 0) {
+      return patch;
+    }
+  },
+});
+
+// Runner alias for convenience
+export const runBackfillWorkspaceStudentCountsAndType = migrations.runner(
+  internal.migrations.backfillWorkspaceStudentCountsAndType,
+);
