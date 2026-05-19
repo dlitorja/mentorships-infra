@@ -3,14 +3,7 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
-import {
-  and,
-  db,
-  discordActionQueue,
-  eq,
-  menteeOnboardingSubmissions,
-  sessionPacks,
-} from "@mentorships/db";
+import { and, db, discordActionQueue, eq, sessionPacks } from "@mentorships/db";
 import { requireDbUser } from "@/lib/auth";
 
 const imageObjectSchema = z.object({
@@ -72,17 +65,9 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
       );
     }
 
-    const [existing] = await db
-      .select()
-      .from(menteeOnboardingSubmissions)
-      .where(
-        and(
-          eq(menteeOnboardingSubmissions.id, parsed.submissionId),
-          eq(menteeOnboardingSubmissions.userId, user.id)
-        )
-      )
-      .limit(1);
-
+    // Check Convex for idempotency
+    const convex = getConvexClient();
+    const existing = await convex.query(api.studentOnboarding.getByLegacyId, { legacyId: parsed.submissionId });
     if (existing) {
       return NextResponse.json(
         { error: "Submission already exists. Please refresh and try again.", errorId },
@@ -90,7 +75,6 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
       );
     }
 
-    const convex = getConvexClient();
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: sessionPack.userId,
     });
@@ -102,41 +86,15 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
       );
     }
 
-    try {
-      await db.insert(menteeOnboardingSubmissions).values({
-        id: parsed.submissionId,
-        userId: user.id,
-        mentorId: instructor._id,
-        sessionPackId: sessionPack.id,
-        goals: parsed.goals,
-        imageObjects: parsed.imageObjects,
-      });
-    } catch (error) {
-      let isUniqueConstraintError = false;
-
-      if (error instanceof Error) {
-        const errorCode = (error as { code?: string }).code;
-        if (errorCode === "23505") {
-          isUniqueConstraintError = true;
-        }
-
-        const cause = (error as { cause?: unknown }).cause;
-        if (cause && typeof cause === "object") {
-          const causeCode = (cause as { code?: string }).code;
-          if (causeCode === "23505") {
-            isUniqueConstraintError = true;
-          }
-        }
-      }
-
-      if (isUniqueConstraintError) {
-        return NextResponse.json(
-          { error: "Submission already exists. Please refresh and try again.", errorId },
-          { status: 409 }
-        );
-      }
-      throw error;
-    }
+    // Create submission in Convex (idempotent)
+    const created = await convex.mutation(api.studentOnboarding.create, {
+      legacyId: parsed.submissionId,
+      userId: user.id,
+      instructorId: instructor._id,
+      sessionPackId: sessionPack.id, // legacy UUID stored in Postgres; Convex maps by legacyId
+      goals: parsed.goals,
+      imageObjects: parsed.imageObjects,
+    });
 
     const baseUrl = getBaseUrl();
     const instructorOnboardingUrl = `${baseUrl}/instructor/onboarding?submissionId=${encodeURIComponent(
@@ -147,8 +105,8 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
       type: "dm_instructor_new_signup",
       status: "pending",
       subjectUserId: user.id,
-      mentorId: instructor._id,
-      mentorUserId: instructor.userId ?? sessionPack.userId,
+      instructorId: instructor._id,
+      instructorUserId: instructor.userId ?? sessionPack.userId,
       payload: {
         kind: "onboarding_submission",
         submissionId: parsed.submissionId,

@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
         isActive: inst.isActive,
         instructorId: inst.id,
         createdAt: new Date(inst.createdAt).toISOString(),
-        activeMenteeCount: inst.activeMenteeCount,
+        activeStudentCount: inst.activeStudentCount,
         totalCompletedSessions: inst.totalCompletedSessions,
       })),
       total: result.total,

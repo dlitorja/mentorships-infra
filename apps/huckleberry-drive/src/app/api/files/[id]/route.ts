@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireMentor, canAccessFile } from "@/lib/auth";
+import { requireInstructor, canAccessFile } from "@/lib/auth";
 import { getUploadById, softDeleteUpload, type InstructorUpload } from "@mentorships/db";
 import { deleteFile } from "@mentorships/storage";
 import { ForbiddenError, UnauthorizedError } from "@mentorships/db";
@@ -46,7 +46,7 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    await requireMentor();
+    await requireInstructor();
     
     const upload = await getUploadById(id);
     if (!upload) {
@@ -89,7 +89,7 @@ export async function DELETE(
 ): Promise<NextResponse> {
   try {
     const { id } = await params;
-    const dbUser = await requireMentor();
+    const dbUser = await requireInstructor();
     
     const upload = await getUploadById(id);
     if (!upload) {

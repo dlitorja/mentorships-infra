@@ -97,7 +97,7 @@ You should receive **3 emails**:
 - Instructor card displayed with "4 sessions remaining"
 
 **Instructor Dashboard** (`/instructor/dashboard`):
-- Mentees list shows test customer
+- Active Students list shows test customer
 - Session pack shown with 4 sessions
 
 **Admin Dashboard** (`/admin`):
@@ -123,7 +123,7 @@ Manually decrement customer's session pack to 1 remaining session (via admin API
 - CTA button → `/instructors`
 
 **Instructor Dashboard**:
-- Alert: "Mentee Renewal Opportunities"
+- Alert: "Student Renewal Opportunities"
 - Lists customer with 1 session remaining
 
 ---
@@ -134,7 +134,7 @@ When all 4 sessions are used:
 
 1. **Seat Status**: Changes to `grace`
 2. **Grace Period**: 7 days (was 72 hours)
-3. **Final Warning Email**: Sent 12 hours before grace period ends
+3. **Final Warning Email**: Sent shortly before grace period ends
 4. **Workspace Access**: Maintained during grace period
 
 ---
@@ -227,7 +227,7 @@ NEXT_PUBLIC_URL=http://localhost:3000
 - [ ] Instructor receives new student email
 - [ ] Admin receives purchase notification email
 - [ ] Student dashboard shows session pack
-- [ ] Instructor dashboard shows new mentee
+- [ ] Instructor dashboard shows new student
 - [ ] Admin sees order in orders list
 - [ ] Low session warning appears at 1 session
 - [ ] Grace period works (7 days)

@@ -130,15 +130,21 @@ export async function POST(req: NextRequest) {
 
     if (payment.provider === "stripe") {
       try {
-        const refund = await stripe.refunds.create({
-          payment_intent: payment.providerPaymentId,
-          amount: Math.round(refundAmount * 100),
-          reason: reason === "Fraudulent"
-            ? "fraudulent"
-            : reason === "Duplicate"
-            ? "duplicate"
-            : "requested_by_customer",
-        });
+        // Use idempotency key per Stripe Node docs to avoid duplicate refunds on retries
+        const idemKey = `refund:${payment.id}:${refundType}:${refundAmountStr}`;
+        const refund = await stripe.refunds.create(
+          {
+            payment_intent: payment.providerPaymentId,
+            amount: Math.round(refundAmount * 100),
+            reason:
+              reason === "Fraudulent"
+                ? "fraudulent"
+                : reason === "Duplicate"
+                ? "duplicate"
+                : "requested_by_customer",
+          },
+          { idempotencyKey: idemKey }
+        );
         providerRefundId = refund.id;
       } catch (stripeError) {
         console.error("Stripe refund failed:", stripeError);

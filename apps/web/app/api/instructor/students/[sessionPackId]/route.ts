@@ -13,7 +13,7 @@ const updateSessionCountSchema = z.object({
 });
 
 /**
- * PATCH /api/instructor/mentees/[sessionPackId]
+ * PATCH /api/instructor/students/[sessionPackId]
  * Update session count for a student's session pack
  */
 export async function PATCH(

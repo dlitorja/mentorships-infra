@@ -17,8 +17,8 @@ import { Loader2, ArrowLeft, User, Users } from "lucide-react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/queries/api-client";
 
-type MenteeItem = {
-  kind: "mentee";
+type StudentItem = {
+  kind: "student";
   id: string;
   userId: string;
   email: string;
@@ -34,20 +34,20 @@ type InstructorItem = {
   email?: string;
 };
 
-type SelectableItem = MenteeItem | InstructorItem;
+type SelectableItem = StudentItem | InstructorItem;
 
-/** Type guard that narrows a SelectableItem to MenteeItem. */
-function isMenteeItem(item: SelectableItem): item is MenteeItem {
-  return item.kind === "mentee";
+/** Type guard that narrows a SelectableItem to StudentItem. */
+function isStudentItem(item: SelectableItem): item is StudentItem {
+  return item.kind === "student";
 }
 
 /** Fetches mentees from the admin API, optionally filtered by search. */
-async function fetchUsers(search?: string): Promise<{ items: MenteeItem[] }> {
+async function fetchUsers(search?: string): Promise<{ items: StudentItem[] }> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   params.set("includeInactive", "true");
   
-  return apiFetch<{ items: MenteeItem[] }>(`/api/admin/mentees?${params.toString()}`);
+  return apiFetch<{ items: StudentItem[] }>(`/api/admin/students?${params.toString()}`);
 }
 
 /** Fetches all instructors from the admin API. */
@@ -55,12 +55,12 @@ async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
   return apiFetch<{ items: InstructorItem[] }>("/api/admin/instructors?includeInactive=true");
 }
 
-/** Creates an admin-mentee workspace and returns the result. */
-async function createAdminMenteeWorkspace(menteeUserId: string) {
-  const response = await fetch("/api/admin/workspaces/admin-mentee", {
+/** Creates an admin-student workspace and returns the result. */
+async function createAdminStudentWorkspace(studentUserId: string) {
+  const response = await fetch("/api/admin/workspaces/admin-student", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ menteeUserId }),
+    body: JSON.stringify({ studentUserId }),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -83,11 +83,11 @@ async function createAdminInstructorWorkspace(instructorId: string) {
   return response.json();
 }
 
-/** Page for creating admin workspaces (mentee or instructor type). */
+/** Page for creating admin workspaces (student or instructor type). */
 export default function CreateWorkspacePage({ searchParams }: { searchParams: Promise<{ type?: string }> }) {
   const resolvedSearchParams = use(searchParams);
   const router = useRouter();
-  const workspaceType = resolvedSearchParams.type || "admin_mentee";
+  const workspaceType = resolvedSearchParams.type || "admin_student";
   
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
@@ -96,7 +96,7 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const { data: usersData, isLoading: loadingUsers } = useQuery({
     queryKey: ["users", debouncedSearch],
     queryFn: () => fetchUsers(debouncedSearch),
-    enabled: workspaceType === "admin_mentee",
+    enabled: workspaceType === "admin_student",
   });
 
   const { data: instructorsData, isLoading: loadingInstructors } = useQuery({
@@ -105,8 +105,8 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
     enabled: workspaceType === "admin_instructor",
   });
 
-  const createMenteeMutation = useMutation({
-    mutationFn: createAdminMenteeWorkspace,
+  const createStudentMutation = useMutation({
+    mutationFn: createAdminStudentWorkspace,
     onSuccess: (data) => {
       router.push(`/admin/workspaces/${data.id}`);
     },
@@ -122,17 +122,17 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const handleCreate = () => {
     if (!selectedUserId) return;
     
-    if (workspaceType === "admin_mentee") {
-      createMenteeMutation.mutate(selectedUserId);
+    if (workspaceType === "admin_student") {
+      createStudentMutation.mutate(selectedUserId);
     } else {
       createInstructorMutation.mutate(selectedUserId);
     }
   };
 
-  const isLoading = workspaceType === "admin_mentee" ? loadingUsers : loadingInstructors;
-  const isCreating = createMenteeMutation.isPending || createInstructorMutation.isPending;
+  const isLoading = workspaceType === "admin_student" ? loadingUsers : loadingInstructors;
+  const isCreating = createStudentMutation.isPending || createInstructorMutation.isPending;
   const isSearching = search !== debouncedSearch;
-const items = workspaceType === "admin_mentee" 
+const items = workspaceType === "admin_student" 
     ? usersData?.items || [] 
     : instructorsData?.items || [];
 
@@ -146,7 +146,7 @@ const items = workspaceType === "admin_mentee"
         </Button>
         <div>
           <h1 className="text-2xl font-bold">
-            Create {workspaceType === "admin_mentee" ? "Admin-Mentee" : "Admin-Instructor"} Workspace
+            Create {workspaceType === "admin_student" ? "Admin-Student" : "Admin-Instructor"} Workspace
           </h1>
           <p className="text-muted-foreground">
             Select a user to create a private workspace for admin communication
@@ -158,10 +158,10 @@ const items = workspaceType === "admin_mentee"
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {workspaceType === "admin_mentee" ? (
+              {workspaceType === "admin_student" ? (
                 <>
                   <User className="h-5 w-5" />
-                  Select Mentee
+                  Select Student
                 </>
               ) : (
                 <>
@@ -171,8 +171,8 @@ const items = workspaceType === "admin_mentee"
               )}
             </CardTitle>
             <CardDescription>
-              {workspaceType === "admin_mentee" 
-                ? "Choose a mentee to create a private workspace with" 
+              {workspaceType === "admin_student" 
+                ? "Choose a student to create a private workspace with" 
                 : "Choose an instructor to create a private workspace with"}
             </CardDescription>
           </CardHeader>
@@ -190,8 +190,8 @@ const items = workspaceType === "admin_mentee"
             ) : (
               <div className={`max-h-96 overflow-y-auto space-y-2 ${isSearching ? "opacity-50" : ""}`}>
                 {items.map((item) => {
-                  const itemId = workspaceType === "admin_mentee" ? item.userId : item.id;
-                  const displayName = isMenteeItem(item) 
+                  const itemId = workspaceType === "admin_student" ? item.userId : item.id;
+                  const displayName = isStudentItem(item) 
                     ? (item.firstName || item.email || item.userId)
                     : (item.name || item.email || item.userId.slice(0, 8));
                   
@@ -206,7 +206,7 @@ const items = workspaceType === "admin_mentee"
                       onClick={() => setSelectedUserId(itemId)}
                     >
                       <div className="font-medium">{displayName}</div>
-                      {isMenteeItem(item) && item.email && (
+                      {isStudentItem(item) && item.email && (
                         <div className="text-sm text-muted-foreground">{item.email}</div>
                       )}
                     </div>
@@ -233,7 +233,7 @@ const items = workspaceType === "admin_mentee"
             <div className="p-4 bg-muted rounded-lg">
               <div className="text-sm font-medium text-muted-foreground">Workspace Type</div>
               <div className="text-lg font-semibold">
-                {workspaceType === "admin_mentee" ? "Admin-Mentee" : "Admin-Instructor"}
+                {workspaceType === "admin_student" ? "Admin-Student" : "Admin-Instructor"}
               </div>
             </div>
 
@@ -241,8 +241,8 @@ const items = workspaceType === "admin_mentee"
               <div className="text-sm font-medium text-muted-foreground">Selected User</div>
               <div className="text-lg font-semibold">
                 {selectedUserId ? (
-                  workspaceType === "admin_mentee" 
-                    ? usersData?.items.find((u) => u.userId === selectedUserId)?.email || selectedUserId
+                  workspaceType === "admin_student" 
+                    ? usersData?.items.find((u: StudentItem) => u.userId === selectedUserId)?.email || selectedUserId
                     : instructorsData?.items.find((i) => i.id === selectedUserId)?.name || selectedUserId
                 ) : (
                   <span className="text-muted-foreground">None selected</span>
@@ -272,9 +272,9 @@ const items = workspaceType === "admin_mentee"
               )}
             </Button>
 
-            {createMenteeMutation.error && (
+            {createStudentMutation.error && (
               <p className="text-sm text-red-500">
-                {createMenteeMutation.error.message}
+                {createStudentMutation.error.message}
               </p>
             )}
             {createInstructorMutation.error && (

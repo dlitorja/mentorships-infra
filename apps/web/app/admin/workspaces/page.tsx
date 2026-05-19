@@ -19,7 +19,7 @@ type Workspace = {
   id: string;
   name: string;
   description: string | null;
-  type: "mentorship" | "admin_mentee" | "admin_instructor";
+  type: "mentorship" | "admin_student" | "admin_instructor";
   ownerId: string;
   owner: { id: string; email: string; firstName: string | null } | null;
   instructorId: string | null;
@@ -69,8 +69,8 @@ export default function WorkspacesPage() {
 
   const getTypeBadge = (type: string) => {
     switch (type) {
-      case "admin_mentee":
-        return <Badge variant="default">Admin-Mentee</Badge>;
+      case "admin_student":
+        return <Badge variant="default">Admin-Student</Badge>;
       case "admin_instructor":
         return <Badge variant="secondary">Admin-Instructor</Badge>;
       default:
@@ -89,9 +89,9 @@ export default function WorkspacesPage() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" asChild>
-            <Link href="/admin/workspaces/create?type=admin_mentee">
+            <Link href="/admin/workspaces/create?type=admin_student">
               <Plus className="mr-2 h-4 w-4" />
-              New Admin-Mentee Workspace
+              New Admin-Student Workspace
             </Link>
           </Button>
           <Button variant="outline" asChild>
@@ -120,7 +120,7 @@ export default function WorkspacesPage() {
               >
                 <option value="">All Types</option>
                 <option value="mentorship">Mentorship</option>
-                <option value="admin_mentee">Admin-Mentee</option>
+                <option value="admin_student">Admin-Student</option>
                 <option value="admin_instructor">Admin-Instructor</option>
               </select>
             </div>

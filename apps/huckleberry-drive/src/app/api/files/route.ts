@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireMentor, getAccessibleInstructorIds } from "@/lib/auth";
+import { requireInstructor, getAccessibleInstructorIds } from "@/lib/auth";
 import {
   getInstructorUploads,
   getUploadsForInstructors,
@@ -37,7 +37,7 @@ function formatFileResponse(upload: InstructorUpload): FileResponse {
 
 export async function GET(): Promise<NextResponse> {
   try {
-    const dbUser = await requireMentor();
+    const dbUser = await requireInstructor();
     const accessibleIds = await getAccessibleInstructorIds();
     
     let uploads: InstructorUpload[];

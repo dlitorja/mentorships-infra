@@ -5,24 +5,13 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 
-const createSessionPackSchema = z
-  .object({
-    userId: z.string().min(1),
-    instructorId: z.string().min(1).optional(),
-    mentorId: z.string().min(1).optional(),
-    paymentId: z.string().min(1),
-    expiresAt: z.string().min(1),
-    totalSessions: z.number().int().positive().optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (data.instructorId && data.mentorId && data.instructorId !== data.mentorId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "instructorId and mentorId must match when both are provided",
-        path: ["instructorId"],
-      });
-    }
-  });
+const createSessionPackSchema = z.object({
+  userId: z.string().min(1),
+  instructorId: z.string().min(1),
+  paymentId: z.string().min(1),
+  expiresAt: z.string().min(1),
+  totalSessions: z.number().int().positive().optional(),
+});
 
 type CreateSessionPackInput = z.infer<typeof createSessionPackSchema>;
 
@@ -32,8 +21,7 @@ type CreateSessionPackInput = z.infer<typeof createSessionPackSchema>;
  *
  * Body:
  * - userId: string (Clerk user ID)
- * - instructorId: string (UUID) - preferred
- * - mentorId: string (UUID) - deprecated, use instructorId
+ * - instructorId: string (UUID)
  * - paymentId: string (UUID)
  * - expiresAt: string (ISO date string)
  * - totalSessions?: number (default: 4)
@@ -54,8 +42,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { userId, instructorId, mentorId, paymentId, expiresAt, totalSessions } = parsed.data;
-    const resolvedInstructorId = instructorId ?? mentorId;
+    const { userId, instructorId, paymentId, expiresAt, totalSessions } = parsed.data;
 
     // Validate expiresAt is a valid date
     const expiresDate = new Date(expiresAt);
@@ -70,7 +57,7 @@ export async function POST(request: Request) {
     const convex = getConvexClient();
     const packId = await convex.mutation(api.sessionPacks.createSessionPack, {
       userId,
-      instructorId: resolvedInstructorId as Id<"instructors">,
+      instructorId: instructorId as Id<"instructors">,
       paymentId: paymentId as Id<"payments">,
       totalSessions: totalSessions ?? 4,
       expiresAt: expiresDate.getTime(),

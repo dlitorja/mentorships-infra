@@ -11,8 +11,8 @@ function getConvexClient() {
 }
 
 /**
- * POST /api/admin/workspaces/admin-mentee
- * Create an admin-mentee workspace for communication
+ * POST /api/admin/workspaces/admin-student
+ * Create an admin-student workspace for communication
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -22,17 +22,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const convex = getConvexClient();
 
     const body = await req.json();
-    const { menteeUserId } = body;
+    const { studentUserId } = body;
 
-    if (!menteeUserId) {
+    if (!studentUserId) {
       return NextResponse.json(
-        { error: "menteeUserId is required" },
+        { error: "studentUserId is required" },
         { status: 400 }
       );
     }
 
-    const workspace = await convex.mutation(api.adminWorkspaces.createAdminMenteeWorkspace, {
-      menteeUserId,
+    const workspace = await convex.mutation(api.adminWorkspaces.createAdminStudentWorkspace, {
+      studentUserId,
     });
 
     if (!workspace) {
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create workspace";
-    console.error("Error creating admin-mentee workspace:", error);
+    console.error("Error creating admin-student workspace:", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -378,7 +378,6 @@ export const getProductsForAdmin = query({
         }
         return {
           id: p._id,
-          mentorId: null,
           instructorId: p.instructorId ?? null,
           instructorName,
           title: p.title,

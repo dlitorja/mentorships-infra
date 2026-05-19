@@ -1,7 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
-export const listMenteeInvitations = query({
+export const listStudentInvitations = query({
   args: {
     status: v.optional(v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled"), v.literal("all"))),
     instructorId: v.optional(v.id("instructors")),
@@ -12,7 +12,7 @@ export const listMenteeInvitations = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return { items: [], total: 0 };
 
-    let invitationsQuery = ctx.db.query("menteeInvitations");
+    let invitationsQuery = ctx.db.query("studentInvitations");
 
     let invitations = await invitationsQuery.collect();
 
@@ -53,7 +53,7 @@ export const listMenteeInvitations = query({
   },
 });
 
-export const createMenteeInvitation = mutation({
+export const createStudentInvitation = mutation({
   args: {
     email: v.string(),
     instructorId: v.id("instructors"),
@@ -66,7 +66,7 @@ export const createMenteeInvitation = mutation({
     if (!identity) throw new Error("Unauthorized");
 
     const existingPending = await ctx.db
-      .query("menteeInvitations")
+      .query("studentInvitations")
       .withIndex("by_email_instructorId", (q) => 
         q.eq("email", args.email.toLowerCase()).eq("instructorId", args.instructorId)
       )
@@ -76,7 +76,7 @@ export const createMenteeInvitation = mutation({
       throw new Error("A pending invitation already exists for this email and instructor");
     }
 
-    const invitationId = await ctx.db.insert("menteeInvitations", {
+    const invitationId = await ctx.db.insert("studentInvitations", {
       email: args.email.toLowerCase(),
       instructorId: args.instructorId,
       clerkInvitationId: args.clerkInvitationId ?? undefined,
@@ -88,9 +88,9 @@ export const createMenteeInvitation = mutation({
   },
 });
 
-export const updateMenteeInvitationStatus = mutation({
+export const updateStudentInvitationStatus = mutation({
   args: {
-    id: v.id("menteeInvitations"),
+    id: v.id("studentInvitations"),
     status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled")),
   },
   handler: async (ctx, args) => {
@@ -117,7 +117,7 @@ export const migrateInvitation = mutation({
     const normalizedEmail = args.email.toLowerCase();
 
     const existingByEmailInstructor = await ctx.db
-      .query("menteeInvitations")
+      .query("studentInvitations")
       .withIndex("by_email_instructorId", (q) =>
         q.eq("email", normalizedEmail).eq("instructorId", args.instructorId)
       )
@@ -135,7 +135,7 @@ export const migrateInvitation = mutation({
       return { action: "updated", id: existingByEmailInstructor._id };
     }
 
-    const insertResult = await ctx.db.insert("menteeInvitations", {
+    const insertResult = await ctx.db.insert("studentInvitations", {
       email: normalizedEmail,
       instructorId: args.instructorId,
       clerkInvitationId: args.clerkInvitationId ?? undefined,

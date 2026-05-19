@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireMentor } from "@/lib/auth";
+import { requireInstructor } from "@/lib/auth";
 import { initiateMultipartUpload } from "@mentorships/storage";
 import { createUpload, updateUploadStarted } from "@mentorships/db";
 
@@ -22,7 +22,7 @@ const ALLOWED_CONTENT_TYPES = [
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const dbUser = await requireMentor();
+    const dbUser = await requireInstructor();
     const body = await request.json();
     
     const parsed = initiateSchema.safeParse(body);

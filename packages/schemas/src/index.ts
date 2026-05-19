@@ -68,12 +68,12 @@ export const inventoryResponseSchema = z.object({
 
 export type InventoryResponse = z.infer<typeof inventoryResponseSchema>;
 
-export const menteeOnboardingFormSchema = z.object({
+export const studentOnboardingFormSchema = z.object({
   sessionPackId: z.string().min(1, { message: "Please select a mentorship pack" }),
   goals: z.string().min(10, { message: "Please describe your goals (at least 10 characters)" }),
 });
 
-export type MenteeOnboardingInput = z.infer<typeof menteeOnboardingFormSchema>;
+export type StudentOnboardingInput = z.infer<typeof studentOnboardingFormSchema>;
 
 export const bookSessionFormSchema = z.object({
   scheduledAt: z.string().min(1, { message: "Please select a time slot" }),

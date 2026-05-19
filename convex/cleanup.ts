@@ -7,9 +7,10 @@ import { mutation } from "./_generated/server";
  * Tables cleared: orders, payments, sessionPacks, seatReservations, workspaces,
  *                 workspaceNotes, workspaceLinks, workspaceImages, workspaceMessages,
  *                 workspaceExports, workspaceRetentionNotifications, workspaceAuditLogs,
- *                 discordActionQueue, menteeOnboardingSubmissions, marketingWaitlist
+ *                 discordActionQueue, studentOnboardingSubmissions, marketingWaitlist
  *
  * Tables preserved: users, instructors, mentors, products, sessions (core demo infrastructure)
+ * Tables preserved: users, instructors, products, sessions (core demo infrastructure)
  */
 export const wipePaymentData = mutation({
   args: {},
@@ -107,11 +108,11 @@ export const wipePaymentData = mutation({
     }
     results.discordActionQueue = discordActionQueue.length;
 
-    const menteeOnboardingSubmissions = await ctx.db.query("menteeOnboardingSubmissions").collect();
-    for (const doc of menteeOnboardingSubmissions) {
+    const studentOnboardingSubmissions = await ctx.db.query("studentOnboardingSubmissions").collect();
+    for (const doc of studentOnboardingSubmissions) {
       await ctx.db.delete(doc._id);
     }
-    results.menteeOnboardingSubmissions = menteeOnboardingSubmissions.length;
+    results.studentOnboardingSubmissions = studentOnboardingSubmissions.length;
 
     const marketingWaitlist = await ctx.db.query("marketingWaitlist").collect();
     for (const doc of marketingWaitlist) {

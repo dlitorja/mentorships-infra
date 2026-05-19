@@ -270,7 +270,7 @@ export const syncSeatReservationCreated = inngest.createFunction(
           .update(seatReservations)
           .set({
             userId: seatReservation.userId,
-            mentorId: seatReservation.mentorId,
+            instructorId: seatReservation.instructorId,
             sessionPackId: seatReservation.sessionPackId,
             status: seatReservation.status,
             seatExpiresAt: seatReservation.seatExpiresAt
@@ -286,7 +286,7 @@ export const syncSeatReservationCreated = inngest.createFunction(
         await db.insert(seatReservations).values({
           id: seatReservation.id,
           userId: seatReservation.userId,
-          mentorId: seatReservation.mentorId,
+          instructorId: seatReservation.instructorId,
           sessionPackId: seatReservation.sessionPackId,
           status: seatReservation.status,
           seatExpiresAt: seatReservation.seatExpiresAt

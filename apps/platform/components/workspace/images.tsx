@@ -20,14 +20,14 @@ interface Image {
 }
 
 const IMAGE_CAPS = {
-  mentee: 75,
-  mentor: 150,
+  student: 75,
+  instructor: 150,
 } as const;
 
 interface WorkspaceImagesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
-  role: 'mentee' | 'mentor';
+  role: 'student' | 'instructor';
 }
 
 export default function WorkspaceImages({ workspaceId, currentUserId, role }: WorkspaceImagesProps) {
@@ -42,7 +42,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const createExport = useCreateWorkspaceExport();
 
   const currentCount = images?.filter((img: Image) => !img.deletedAt).length || 0;
-  const maxImages = role === 'mentee' ? IMAGE_CAPS.mentee : IMAGE_CAPS.mentor;
+  const maxImages = role === 'student' ? IMAGE_CAPS.student : IMAGE_CAPS.instructor;
   const remainingImages = maxImages - currentCount;
 
   const latestExport = exports?.[0];

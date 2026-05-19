@@ -14,9 +14,9 @@ export type UserWorkspace = {
   deletedAt?: number;
   seatReservationId?: Id<"seatReservations">;
   endedAt?: number;
-  menteeImageCount: number;
+  studentImageCount: number;
   instructorImageCount: number;
-  type?: "mentorship" | "admin_mentee" | "admin_instructor";
+  type?: "mentorship" | "admin_student" | "admin_instructor";
 };
 
 export function useWorkspace(id: Id<"workspaces">) {

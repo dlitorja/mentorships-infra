@@ -11,8 +11,8 @@ async function isAdminUser(ctx: QueryCtx, userId: string): Promise<boolean> {
   return user?.role === "admin";
 }
 
-type MenteeSessionCountWithDetails = {
-  id: Id<"menteeSessionCounts">;
+type StudentSessionCountWithDetails = {
+  id: Id<"studentSessionCounts">;
   userId: string;
   instructorId: Id<"instructors">;
   sessionCount: number;
@@ -23,7 +23,7 @@ type MenteeSessionCountWithDetails = {
   instructorSlug: string | null;
 };
 
-export const getSessionCountsForMentee = query({
+export const getSessionCountsForStudent = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -32,11 +32,11 @@ export const getSessionCountsForMentee = query({
     if (!isAdmin) return [];
 
     const counts = await ctx.db
-      .query("menteeSessionCounts")
+      .query("studentSessionCounts")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .collect();
 
-    const results: MenteeSessionCountWithDetails[] = await Promise.all(
+    const results: StudentSessionCountWithDetails[] = await Promise.all(
       counts.map(async (count) => {
         const instructor = await ctx.db.get(count.instructorId);
         return {
@@ -71,7 +71,7 @@ export const upsertSessionCount = mutation({
     if (!isAdmin) throw new Error("Forbidden");
 
     const existing = await ctx.db
-      .query("menteeSessionCounts")
+      .query("studentSessionCounts")
       .withIndex("by_userId_instructorId", (q) =>
         q.eq("userId", args.userId).eq("instructorId", args.instructorId)
       )
@@ -89,7 +89,7 @@ export const upsertSessionCount = mutation({
     }
 
     const now = Date.now();
-    const id = await ctx.db.insert("menteeSessionCounts", {
+    const id = await ctx.db.insert("studentSessionCounts", {
       userId: args.userId,
       instructorId: args.instructorId,
       sessionCount: args.sessionCount,
@@ -106,7 +106,7 @@ export const upsertSessionCount = mutation({
 
 export const updateSessionCount = mutation({
   args: {
-    id: v.id("menteeSessionCounts"),
+    id: v.id("studentSessionCounts"),
     sessionCount: v.number(),
     notes: v.optional(v.string()),
   },
@@ -119,7 +119,7 @@ export const updateSessionCount = mutation({
     const existing = await ctx.db.get(args.id);
     if (!existing) return null;
 
-    const updates: Partial<Doc<"menteeSessionCounts">> = {
+    const updates: Partial<Doc<"studentSessionCounts">> = {
       sessionCount: args.sessionCount,
       updatedAt: Date.now(),
     };
@@ -135,7 +135,7 @@ export const updateSessionCount = mutation({
 
 export const adjustSessionCount = mutation({
   args: {
-    id: v.id("menteeSessionCounts"),
+    id: v.id("studentSessionCounts"),
     adjustment: v.number(),
     notes: v.optional(v.string()),
   },
@@ -149,7 +149,7 @@ export const adjustSessionCount = mutation({
     if (!existing) return null;
 
     const newCount = Math.max(existing.sessionCount + args.adjustment, 0);
-    const updates: Partial<Doc<"menteeSessionCounts">> = {
+    const updates: Partial<Doc<"studentSessionCounts">> = {
       sessionCount: newCount,
       updatedAt: Date.now(),
     };
@@ -164,7 +164,7 @@ export const adjustSessionCount = mutation({
 });
 
 export const deleteSessionCount = mutation({
-  args: { id: v.id("menteeSessionCounts") },
+  args: { id: v.id("studentSessionCounts") },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
@@ -191,7 +191,7 @@ export const migrateSessionCount = mutation({
   },
   handler: async (ctx, args) => {
     const existingByUserInstructor = await ctx.db
-      .query("menteeSessionCounts")
+      .query("studentSessionCounts")
       .withIndex("by_userId_instructorId", (q) =>
         q.eq("userId", args.userId).eq("instructorId", args.instructorId)
       )
@@ -209,7 +209,7 @@ export const migrateSessionCount = mutation({
       return { action: "updated", id: existingByUserInstructor._id };
     }
 
-    const insertResult = await ctx.db.insert("menteeSessionCounts", {
+    const insertResult = await ctx.db.insert("studentSessionCounts", {
       userId: args.userId,
       instructorId: args.instructorId,
       sessionCount: args.sessionCount,

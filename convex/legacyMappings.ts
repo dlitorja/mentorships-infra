@@ -20,20 +20,21 @@ export const getUsersByLegacyId = internalQuery({
 export const getInstructorsByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
+    // Legacy shim: instructors no longer have `legacyId`; use `legacyInstructorRef` instead.
     const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
+      .filter((q) => q.eq(q.field("legacyInstructorRef"), args.legacyId))
       .collect();
     return instructors.length > 0 ? instructors[0] : null;
   },
 });
 
-export const getInstructorsByMentorId = internalQuery({
-  args: { mentorId: v.string() },
+export const getInstructorsByLegacyRef = internalQuery({
+  args: { legacyInstructorRef: v.string() },
   handler: async (ctx, args) => {
     const instructors = await ctx.db
       .query("instructors")
-      .filter((q) => q.eq(q.field("legacyMentorId"), args.mentorId))
+      .filter((q) => q.eq(q.field("legacyInstructorRef"), args.legacyInstructorRef))
       .collect();
     return instructors.length > 0 ? instructors[0] : null;
   },
@@ -100,7 +101,7 @@ export const getAllInstructorsMappings = internalQuery({
   handler: async (ctx) => {
     const instructors = await ctx.db.query("instructors").collect();
     return instructors.map((i) => ({
-      legacyId: i.legacyId ?? i.legacyMentorId,
+      legacyId: i.legacyInstructorRef,
       userId: i.userId,
       convexId: i._id,
     }));

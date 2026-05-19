@@ -3,13 +3,13 @@ import { getUserById, UnauthorizedError, ForbiddenError, getAssignedInstructorId
 
 type DbUser = typeof users.$inferSelect;
 
-export async function requireMentor(): Promise<DbUser> {
+export async function requireInstructor(): Promise<DbUser> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
   
   const dbUser = await getUserById(userId);
-  if (!dbUser || (dbUser.role !== "mentor" && dbUser.role !== "admin" && dbUser.role !== "video_editor")) {
-    throw new ForbiddenError("Must be a mentor, admin, or video editor");
+  if (!dbUser || (dbUser.role !== "instructor" && dbUser.role !== "admin" && dbUser.role !== "video_editor")) {
+    throw new ForbiddenError("Must be an instructor, admin, or video editor");
   }
   return dbUser;
 }
@@ -44,7 +44,7 @@ export async function canAccessFile(fileInstructorId: string): Promise<boolean> 
   if (!dbUser) throw new UnauthorizedError("User not found");
   
   if (dbUser.role === "admin") return true;
-  if (dbUser.role === "mentor" && fileInstructorId === userId) return true;
+  if (dbUser.role === "instructor" && fileInstructorId === userId) return true;
   if (dbUser.role === "video_editor") {
     return isVideoEditorAssignedToInstructor(userId, fileInstructorId);
   }
@@ -63,7 +63,7 @@ export async function getAccessibleInstructorIds(): Promise<string[] | null> {
     return null;
   }
   
-  if (dbUser.role === "mentor") {
+  if (dbUser.role === "instructor") {
     return [userId];
   }
   

@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
     console.error("Error getting testimonials:", error);
@@ -112,7 +112,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Mentor role required" }, { status: 403 });
+      return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
     console.error("Error adding testimonial:", error);

@@ -15,7 +15,7 @@ import { Loader2, Check, CreditCard, Wallet } from "lucide-react";
 import Link from "next/link";
 import { createCheckoutSession } from "@/lib/queries/api-client";
 import { usePublicInstructorBySlug } from "@/lib/queries/convex/use-instructors";
-import { useProductsByMentorId } from "@/lib/queries/convex/use-products";
+import { useProductsByInstructorId } from "@/lib/queries/convex/use-products";
 import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
 
@@ -26,11 +26,8 @@ type InstructorData = {
     _id: string;
     name: string;
     slug: string;
-    mentorId?: string;
+    instructorId?: string;
   };
-  mentor: {
-    _id: string;
-  } | null;
 };
 
 type Product = {
@@ -54,20 +51,20 @@ function CheckoutContent(): React.JSX.Element {
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe");
 
-  // Get instructor data to find mentorId
+  // Get instructor data to find instructorId
   const { data: instructorData, isLoading: isLoadingInstructor } = usePublicInstructorBySlug(
     instructorSlug || ""
   );
 
   const data = instructorData as InstructorData | null;
-  const mentorId = data?.instructor?.mentorId as Id<"instructors"> | undefined;
+  const instructorId = data?.instructor?.instructorId as Id<"instructors"> | undefined;
   
-  // Get products for this specific mentor
+  // Get products for this specific instructor
   const {
     data: productsData,
     isLoading: isLoadingProducts,
     error: productsError,
-  } = useProductsByMentorId(mentorId!);
+  } = useProductsByInstructorId(instructorId!);
 
   const allProducts = (productsData as Product[] || []).filter(p => p.active);
   

@@ -22,8 +22,8 @@ const adjustSchema = z.object({
 });
 
 /**
- * GET /api/admin/mentees/[userId]/session-count
- * Get all session counts for a mentee
+ * GET /api/admin/students/[userId]/session-count
+ * Get all session counts for a student
  */
 export async function GET(
   req: NextRequest,
@@ -47,7 +47,7 @@ export async function GET(
       instructorName: string | null;
       instructorSlug: string | null;
     };
-    const counts = await convex.query(api.menteeSessionCounts.getSessionCountsForMentee, { userId }) as SessionCountResult[];
+    const counts = await convex.query(api.studentSessionCounts.getSessionCountsForStudent, { userId }) as SessionCountResult[];
 
     return NextResponse.json({
       items: counts.map((c) => ({
@@ -79,8 +79,8 @@ export async function GET(
 }
 
 /**
- * POST /api/admin/mentees/[userId]/session-count
- * Create a new session count for a mentee-instructor pair
+ * POST /api/admin/students/[userId]/session-count
+ * Create a new session count for a student-instructor pair
  */
 export async function POST(
   req: NextRequest,
@@ -104,7 +104,7 @@ export async function POST(
     const { instructorId, sessionCount, notes } = validation.data;
 
     const convex = getConvexClient();
-    const result = await convex.mutation(api.menteeSessionCounts.upsertSessionCount, {
+    const result = await convex.mutation(api.studentSessionCounts.upsertSessionCount, {
       userId,
       instructorId: instructorId as Id<"instructors">,
       sessionCount,
@@ -137,7 +137,7 @@ export async function POST(
 }
 
 /**
- * PATCH /api/admin/mentees/[userId]/session-count
+ * PATCH /api/admin/students/[userId]/session-count
  * Adjust session count (add/subtract sessions)
  */
 export async function PATCH(
@@ -159,7 +159,7 @@ export async function PATCH(
 
     const convex = getConvexClient();
 
-    const counts = await convex.query(api.menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
+    const counts = await convex.query(api.studentSessionCounts.getSessionCountsForStudent, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
     const record = counts.find((c) => c.id === id);
     if (!record) {
       return NextResponse.json({ error: "Session count not found" }, { status: 404 });
@@ -180,8 +180,8 @@ export async function PATCH(
         );
       }
 
-      const result = await convex.mutation(api.menteeSessionCounts.adjustSessionCount, {
-        id: id as Id<"menteeSessionCounts">,
+      const result = await convex.mutation(api.studentSessionCounts.adjustSessionCount, {
+        id: id as Id<"studentSessionCounts">,
         adjustment,
         notes,
       });
@@ -209,8 +209,8 @@ export async function PATCH(
         );
       }
 
-      const result = await convex.mutation(api.menteeSessionCounts.updateSessionCount, {
-        id: id as Id<"menteeSessionCounts">,
+      const result = await convex.mutation(api.studentSessionCounts.updateSessionCount, {
+        id: id as Id<"studentSessionCounts">,
         sessionCount,
         notes,
       });
@@ -247,7 +247,7 @@ export async function PATCH(
 }
 
 /**
- * DELETE /api/admin/mentees/[userId]/session-count
+ * DELETE /api/admin/students/[userId]/session-count
  * Delete a session count record
  */
 export async function DELETE(
@@ -268,7 +268,7 @@ export async function DELETE(
 
     const convex = getConvexClient();
 
-    const counts = await convex.query(api.menteeSessionCounts.getSessionCountsForMentee, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
+    const counts = await convex.query(api.studentSessionCounts.getSessionCountsForStudent, { userId: pathUserId }) as Array<{ id: string; userId: string }>;
     const record = counts.find((c) => c.id === id);
     if (!record) {
       return NextResponse.json({ error: "Session count not found" }, { status: 404 });
@@ -277,8 +277,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const deleted = await convex.mutation(api.menteeSessionCounts.deleteSessionCount, {
-      id: id as Id<"menteeSessionCounts">,
+    const deleted = await convex.mutation(api.studentSessionCounts.deleteSessionCount, {
+      id: id as Id<"studentSessionCounts">,
     });
     if (!deleted) {
       return NextResponse.json({ error: "Session count not found" }, { status: 404 });

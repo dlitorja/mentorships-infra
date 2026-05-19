@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import {
   db,
   mentorshipProducts,
-  mentors,
+  instructorIntegrations,
   eq,
   isUnauthorizedError,
   isForbiddenError,
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     // Require admin role for product creation (API-safe version)
     await requireRoleForApi("admin");
     
-    const { productId, priceId, mentorId } = await req.json();
+    const { productId, priceId, instructorId: reqInstructorId } = await req.json();
     
     if (!productId && !priceId) {
       return NextResponse.json(
@@ -66,22 +66,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get or use provided mentor ID
-    let finalMentorId = mentorId;
-    if (!finalMentorId) {
-      // Try to find a mentor (for testing, use first available)
-      const [firstMentor] = await db
+    // Get or use provided instructor ID
+    let finalInstructorId = reqInstructorId;
+    if (!finalInstructorId) {
+      // Try to find an integration (for testing, use first available)
+      const [firstIntegration] = await db
         .select()
-        .from(mentors)
+        .from(instructorIntegrations)
         .limit(1);
-      
-      if (!firstMentor) {
+
+      if (!firstIntegration) {
         return NextResponse.json(
-          { error: "No mentors found. Please create a mentor first or provide mentorId" },
+          { error: "No integrations found. Please create an integration first or provide instructorId" },
           { status: 400 }
         );
       }
-      finalMentorId = firstMentor.id;
+      finalInstructorId = firstIntegration.id;
     }
 
     // Check if product already exists with this price ID
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     const [newProduct] = await db
       .insert(mentorshipProducts)
       .values({
-        mentorId: finalMentorId,
+        instructorId: finalInstructorId,
         title: product.name || "Mentorship Session Pack",
         price: (price.unit_amount! / 100).toString(), // Convert cents to dollars
         sessionsPerPack: sessions,

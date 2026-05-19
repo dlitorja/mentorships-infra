@@ -15,13 +15,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 type Stats = {
-  totalActiveMentees: number;
+  totalActiveStudents: number;
   revenueThisMonth: number;
   revenueLastMonth: number;
   revenueChange: number;
   revenueThisYear: number;
   hasRevenueData: boolean;
-  hasMenteeData: boolean;
+  hasStudentData: boolean;
   hasHistoricalRevenue: boolean;
 };
 
@@ -32,11 +32,11 @@ type InstructorWithStats = {
   oneOnOneInventory: number;
   groupInventory: number;
   maxActiveStudents: number;
-  activeMenteeCount: number;
+  activeStudentCount: number;
   createdAt: string;
 };
 
-type MenteeWithSessionInfo = {
+type StudentWithSessionInfo = {
   userId: string;
   email: string;
   sessionPackId: string;
@@ -50,8 +50,8 @@ type MenteeWithSessionInfo = {
   seatExpiresAt: string | null;
 };
 
-type _InstructorWithMentees = InstructorWithStats & {
-  mentees: MenteeWithSessionInfo[];
+type _InstructorWithStudents = InstructorWithStats & {
+  students: StudentWithSessionInfo[];
 };
 
 function formatCurrency(amount: number): string {
@@ -97,11 +97,11 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
-function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
-  if (mentees.length === 0) {
+function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
+  if (students.length === 0) {
     return (
       <div className="text-center py-4">
-        <p className="text-muted-foreground text-sm">No mentees assigned yet</p>
+        <p className="text-muted-foreground text-sm">No students assigned yet</p>
       </div>
     );
   }
@@ -119,22 +119,22 @@ function MenteesTable({ mentees }: { mentees: MenteeWithSessionInfo[] }) {
           </tr>
         </thead>
         <tbody>
-          {mentees.map((mentee) => (
-            <tr key={mentee.sessionPackId} className="border-b">
-              <td className="py-2 px-3">{mentee.email}</td>
+          {students.map((student) => (
+            <tr key={student.sessionPackId} className="border-b">
+              <td className="py-2 px-3">{student.email}</td>
               <td className="py-2 px-3">
-                {mentee.remainingSessions} / {mentee.totalSessions}
+                {student.remainingSessions} / {student.totalSessions}
               </td>
               <td className="py-2 px-3">
-                <Badge variant={getStatusBadgeVariant(mentee.status)}>
-                  {mentee.status}
+                <Badge variant={getStatusBadgeVariant(student.status)}>
+                  {student.status}
                 </Badge>
               </td>
               <td className="py-2 px-3">
-                {formatDateTime(mentee.lastSessionCompletedAt)}
+                {formatDateTime(student.lastSessionCompletedAt)}
               </td>
               <td className="py-2 px-3">
-                {mentee.expiresAt ? formatDate(mentee.expiresAt) : "No expiration"}
+                {student.expiresAt ? formatDate(student.expiresAt) : "No expiration"}
               </td>
             </tr>
           ))}
@@ -148,12 +148,12 @@ function InstructorRow({
   instructor, 
   isExpanded, 
   onToggle,
-  mentees 
+  students 
 }: { 
   instructor: InstructorWithStats;
   isExpanded: boolean;
   onToggle: () => void;
-  mentees: MenteeWithSessionInfo[] | null;
+  students: StudentWithSessionInfo[] | null;
 }) {
   return (
     <>
@@ -171,8 +171,8 @@ function InstructorRow({
         <td className="py-3 px-4">{instructor.oneOnOneInventory}</td>
         <td className="py-3 px-4">{instructor.groupInventory}</td>
         <td className="py-3 px-4">
-          <Badge variant={instructor.activeMenteeCount > 0 ? "default" : "secondary"}>
-            {instructor.activeMenteeCount}
+          <Badge variant={instructor.activeStudentCount > 0 ? "default" : "secondary"}>
+            {instructor.activeStudentCount}
           </Badge>
         </td>
         <td className="py-3 px-4">
@@ -183,9 +183,9 @@ function InstructorRow({
         <tr className="bg-muted/30">
           <td colSpan={5} className="p-0">
             <div className="p-4">
-              <h4 className="font-medium mb-3">Mentees ({mentees?.length || 0})</h4>
-              {mentees ? (
-                <MenteesTable mentees={mentees} />
+              <h4 className="font-medium mb-3">Students ({students?.length || 0})</h4>
+              {students ? (
+                <StudentsTable students={students} />
               ) : (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -205,8 +205,8 @@ export default function AdminDashboard() {
   const [instructors, setInstructors] = useState<InstructorWithStats[]>([]);
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
   const [isAllExpanded, setIsAllExpanded] = useState(false);
-  const [expandedMentees, setExpandedMentees] = useState<{ [key: string]: MenteeWithSessionInfo[] }>({});
-  const [_loadingMentees, setLoadingMentees] = useState<string | null>(null);
+  const [expandedStudents, setExpandedStudents] = useState<{ [key: string]: StudentWithSessionInfo[] }>({});
+  const [_loadingStudents, setLoadingStudents] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -228,7 +228,7 @@ export default function AdminDashboard() {
         const statsData = await statsRes.json();
         const instructorsData = await instructorsRes.json();
 
-        if (statsData.totalActiveMentees !== undefined) {
+        if (statsData.totalActiveStudents !== undefined) {
           setStats(statsData);
         }
 
@@ -260,35 +260,35 @@ export default function AdminDashboard() {
 
     setExpandedInstructorId(instructorId);
 
-    if (!expandedMentees[instructorId]) {
-      setLoadingMentees(instructorId);
+    if (!expandedStudents[instructorId]) {
+      setLoadingStudents(instructorId);
       try {
         const res = await fetch(`/api/admin/instructors/${instructorId}/mentees`);
         const data = await res.json();
         if (data.mentees) {
-          setExpandedMentees((prev) => ({ ...prev, [instructorId]: data.mentees }));
+          setExpandedStudents((prev) => ({ ...prev, [instructorId]: data.mentees }));
         }
       } catch (error) {
-        console.error("Error loading mentees:", error);
+        console.error("Error loading students:", error);
       } finally {
-        setLoadingMentees(null);
+        setLoadingStudents(null);
       }
     }
   };
 
   const expandAll = async () => {
     setIsAllExpanded(true);
-    // Load all mentees for all instructors
+    // Load all students for all instructors
     for (const instructor of instructors) {
-      if (!expandedMentees[instructor.instructorId]) {
+      if (!expandedStudents[instructor.instructorId]) {
         try {
           const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/mentees`);
           const data = await res.json();
           if (data.mentees) {
-            setExpandedMentees((prev) => ({ ...prev, [instructor.instructorId]: data.mentees }));
+            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: data.mentees }));
           }
         } catch (error) {
-          console.error("Error loading mentees:", error);
+          console.error("Error loading students:", error);
         }
       }
     }
@@ -329,21 +329,21 @@ export default function AdminDashboard() {
 
         {/* Stats Overview */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card className={stats && !stats.hasMenteeData ? "opacity-60" : ""}>
+          <Card className={stats && !stats.hasStudentData ? "opacity-60" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
-                Active Mentees
+                Active Students
               </CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {stats?.hasMenteeData ? (
+              {stats?.hasStudentData ? (
                 <div className="text-2xl font-bold">
-                  {stats.totalActiveMentees}
+                  {stats.totalActiveStudents}
                 </div>
               ) : (
                 <div className="text-2xl font-bold text-muted-foreground">
-                  No mentees yet
+                  No students yet
                 </div>
               )}
             </CardContent>
@@ -473,7 +473,7 @@ export default function AdminDashboard() {
                       <th className="text-left py-3 px-4 font-medium">Email</th>
                       <th className="text-left py-3 px-4 font-medium">1:1 Inventory</th>
                       <th className="text-left py-3 px-4 font-medium">Group Inventory</th>
-                      <th className="text-left py-3 px-4 font-medium">Active Mentees</th>
+                      <th className="text-left py-3 px-4 font-medium">Active Students</th>
                       <th className="text-left py-3 px-4 font-medium">Revenue (Month)</th>
                     </tr>
                   </thead>
@@ -484,7 +484,7 @@ export default function AdminDashboard() {
                         instructor={instructor}
                         isExpanded={isAllExpanded || expandedInstructorId === instructor.instructorId}
                         onToggle={() => handleToggleExpand(instructor.instructorId)}
-                        mentees={expandedMentees[instructor.instructorId] || null}
+                        students={expandedStudents[instructor.instructorId] || null}
                       />
                     ))}
                   </tbody>

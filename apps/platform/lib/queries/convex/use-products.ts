@@ -38,7 +38,7 @@ export function useProductsByInstructor(instructorId: string) {
   });
 }
 
-export function useProductsByMentorId(instructorId: string) {
+export function useProductsByInstructorId(instructorId: string) {
   return useQuery({
     ...convexQuery(api.products.getProductsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
     enabled: !!instructorId,

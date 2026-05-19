@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { db, eq, getInstructorByUserId, menteeOnboardingSubmissions } from "@mentorships/db";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import { requireDbUser } from "@/lib/auth";
 import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
 
@@ -22,11 +23,8 @@ export async function GET(
     const user = await requireDbUser();
     const { submissionId } = await context.params;
 
-    const [submission] = await db
-      .select()
-      .from(menteeOnboardingSubmissions)
-      .where(eq(menteeOnboardingSubmissions.id, submissionId))
-      .limit(1);
+    const convex = getConvexClient();
+    const submission = await convex.query(api.studentOnboarding.getByLegacyId, { legacyId: submissionId });
 
     if (!submission) {
       return NextResponse.json({ error: "Submission not found", errorId }, { status: 404 });
@@ -36,8 +34,8 @@ export async function GET(
 
     let isInstructorOwner = false;
     if (user.role === "instructor") {
-      const instructor = await getInstructorByUserId(user.id);
-      isInstructorOwner = Boolean(instructor && instructor.mentorId === submission.mentorId);
+      const instructor = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
+      isInstructorOwner = Boolean(instructor && instructor._id === submission.instructorId);
     }
 
     if (!isStudentOwner && !isInstructorOwner) {
@@ -70,5 +68,3 @@ export async function GET(
     );
   }
 }
-
-

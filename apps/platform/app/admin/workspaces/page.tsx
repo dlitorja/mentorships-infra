@@ -20,16 +20,16 @@ type Workspace = {
   id: string;
   name: string;
   description: string | null;
-  type: "mentorship" | "admin_mentee" | "admin_instructor";
+  type: "mentorship" | "admin_student" | "admin_instructor";
   ownerId: string;
   owner: { id: string; email: string; firstName: string | null } | null;
-  mentorId: string | null;
-  mentor: { id: string; userId: string } | null;
+  instructorId: string | null;
+  instructor: { id: string; userId: string } | null;
   isPublic: boolean;
   endedAt: number | null;
   createdAt: number;
-  menteeImageCount: number;
-  mentorImageCount: number;
+  studentImageCount: number;
+  instructorImageCount: number;
 };
 
 type WorkspacesResponse = {
@@ -70,7 +70,7 @@ export default function WorkspacesPage() {
 
   const getTypeBadge = (type: string) => {
     switch (type) {
-      case "admin_mentee":
+      case "admin_student":
         return <Badge variant="default">Admin-Student</Badge>;
       case "admin_instructor":
         return <Badge variant="secondary">Admin-Instructor</Badge>;
@@ -90,7 +90,7 @@ export default function WorkspacesPage() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" asChild>
-            <Link href="/admin/workspaces/create?type=admin_mentee">
+            <Link href="/admin/workspaces/create?type=admin_student">
               <Plus className="mr-2 h-4 w-4" />
               New Admin-Student Workspace
             </Link>
@@ -121,7 +121,7 @@ export default function WorkspacesPage() {
                 <SelectContent>
                   <SelectItem value="__all__">All Types</SelectItem>
                   <SelectItem value="mentorship">Mentorship</SelectItem>
-                  <SelectItem value="admin_mentee">Admin-Student</SelectItem>
+                  <SelectItem value="admin_student">Admin-Student</SelectItem>
                   <SelectItem value="admin_instructor">Admin-Instructor</SelectItem>
                 </SelectContent>
               </Select>
@@ -174,9 +174,9 @@ export default function WorkspacesPage() {
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        {workspace.mentor ? (
+                        {workspace.instructor ? (
                           <span className="text-sm font-mono">
-                            {workspace.mentor.userId.slice(0, 8)}...
+                            {workspace.instructor.userId.slice(0, 8)}...
                           </span>
                         ) : (
                           <span className="text-muted-foreground">-</span>
@@ -184,8 +184,8 @@ export default function WorkspacesPage() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="text-sm">
-                          <span className="text-muted-foreground">S:</span> {workspace.menteeImageCount}
-                          <span className="text-muted-foreground ml-2">I:</span> {workspace.mentorImageCount}
+                          <span className="text-muted-foreground">S:</span> {workspace.studentImageCount}
+                          <span className="text-muted-foreground ml-2">I:</span> {workspace.instructorImageCount}
                         </div>
                       </td>
                       <td className="py-3 px-4">

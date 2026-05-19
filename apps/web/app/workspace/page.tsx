@@ -137,7 +137,7 @@ function WorkspaceContent({
                     <WorkspaceImages
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
-                      role="mentee"
+                      role="student"
                     />
                   </TabsContent>
                 </Tabs>

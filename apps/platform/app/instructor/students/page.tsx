@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Minus, Plus, Calendar } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 
-type Mentee = {
+type Student = {
   userId: string;
   email: string;
   sessionPackId: string;
@@ -27,8 +27,8 @@ type Mentee = {
   completedSessionCount: number;
 };
 
-async function fetchMentees(): Promise<{ items: Mentee[] }> {
-  return apiFetch<{ items: Mentee[] }>("/api/instructor/mentees");
+async function fetchStudents(): Promise<{ items: Student[] }> {
+  return apiFetch<{ items: Student[] }>("/api/instructor/students");
 }
 
 async function updateSessionCount(
@@ -36,7 +36,7 @@ async function updateSessionCount(
   action: "increment" | "decrement" | "set",
   amount: number = 1
 ) {
-  const response = await fetch(`/api/instructor/mentees/${sessionPackId}`, {
+  const response = await fetch(`/api/instructor/students/${sessionPackId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, amount }),
@@ -50,14 +50,14 @@ async function updateSessionCount(
   return response.json();
 }
 
-export default function InstructorMenteesPage() {
+export default function InstructorStudentsPage() {
   const queryClient = useQueryClient();
   const [editingPackId, setEditingPackId] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState<string>("");
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["instructor-mentees"],
-    queryFn: fetchMentees,
+    queryKey: ["instructor-students"],
+    queryFn: fetchStudents,
   });
 
   const updateMutation = useMutation({
@@ -71,7 +71,7 @@ export default function InstructorMenteesPage() {
       amount?: number;
     }) => updateSessionCount(sessionPackId, action, amount),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructor-mentees"] });
+      queryClient.invalidateQueries({ queryKey: ["instructor-students"] });
       setEditingPackId(null);
       setCustomAmount("");
     },
@@ -130,7 +130,7 @@ export default function InstructorMenteesPage() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-destructive text-center">
-              Failed to load mentees: {error instanceof Error ? error.message : "Unknown error"}
+              Failed to load students: {error instanceof Error ? error.message : "Unknown error"}
             </p>
           </CardContent>
         </Card>
@@ -138,39 +138,39 @@ export default function InstructorMenteesPage() {
     );
   }
 
-  const mentees = data?.items || [];
+  const students = data?.items || [];
 
   return (
     <div className="container mx-auto py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold">My Mentees</h1>
+        <h1 className="text-3xl font-bold">My Students</h1>
         <p className="text-muted-foreground mt-1">
-          Manage your mentees and track session counts
+          Manage your students and track session counts
         </p>
       </div>
 
-      {mentees.length === 0 ? (
+      {students.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">
-              You don&apos;t have any mentees yet. Mentees will appear here after they purchase a session pack.
+              You don&apos;t have any students yet. Students will appear here after they purchase a session pack.
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4">
-          {mentees.map((mentee) => (
-            <Card key={mentee.sessionPackId}>
+          {students.map((student) => (
+            <Card key={student.sessionPackId}>
               <CardContent className="pt-6">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex-1">
-                    <div className="font-medium text-lg">{mentee.email}</div>
+                    <div className="font-medium text-lg">{student.email}</div>
                     <div className="flex items-center gap-3 mt-2">
-                      <Badge variant={getStatusColor(mentee.status, mentee.remainingSessions)}>
-                        {mentee.status}
+                      <Badge variant={getStatusColor(student.status, student.remainingSessions)}>
+                        {student.status}
                       </Badge>
                       <span className="text-sm text-muted-foreground">
-                        {mentee.completedSessionCount} of {mentee.totalSessions} sessions used
+                        {student.completedSessionCount} of {student.totalSessions} sessions used
                       </span>
                     </div>
                   </div>
@@ -180,7 +180,7 @@ export default function InstructorMenteesPage() {
                       <span className="text-sm text-muted-foreground">Last session:</span>
                       <div className="flex items-center gap-1 text-sm">
                         <Calendar className="h-4 w-4 text-muted-foreground" />
-                        {formatDate(mentee.lastSessionCompletedAt)}
+                        {formatDate(student.lastSessionCompletedAt)}
                       </div>
                     </div>
                   </div>
@@ -190,16 +190,16 @@ export default function InstructorMenteesPage() {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => handleDecrement(mentee.sessionPackId)}
+                      onClick={() => handleDecrement(student.sessionPackId)}
                       disabled={
                         updateMutation.isPending ||
-                        mentee.remainingSessions === 0
+                        student.remainingSessions === 0
                       }
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
 
-                    {editingPackId === mentee.sessionPackId ? (
+                    {editingPackId === student.sessionPackId ? (
                       <div className="flex items-center gap-1">
                         <Input
                           type="number"
@@ -208,7 +208,7 @@ export default function InstructorMenteesPage() {
                           onChange={(e) => setCustomAmount(e.target.value)}
                           className="w-20 h-9 text-center"
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") handleCustomSet(mentee.sessionPackId);
+                            if (e.key === "Enter") handleCustomSet(student.sessionPackId);
                             if (e.key === "Escape") {
                               setEditingPackId(null);
                               setCustomAmount("");
@@ -217,7 +217,7 @@ export default function InstructorMenteesPage() {
                         />
                         <Button
                           size="sm"
-                          onClick={() => handleCustomSet(mentee.sessionPackId)}
+                          onClick={() => handleCustomSet(student.sessionPackId)}
                           disabled={updateMutation.isPending}
                         >
                           Set
@@ -228,18 +228,18 @@ export default function InstructorMenteesPage() {
                         variant="ghost"
                         className="min-w-[60px] font-mono"
                         onClick={() => {
-                          setEditingPackId(mentee.sessionPackId);
-                          setCustomAmount(String(mentee.remainingSessions));
+                          setEditingPackId(student.sessionPackId);
+                          setCustomAmount(String(student.remainingSessions));
                         }}
                       >
-                        {mentee.remainingSessions}
+                        {student.remainingSessions}
                       </Button>
                     )}
 
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => handleIncrement(mentee.sessionPackId)}
+                      onClick={() => handleIncrement(student.sessionPackId)}
                       disabled={updateMutation.isPending}
                     >
                       <Plus className="h-4 w-4" />
@@ -247,9 +247,9 @@ export default function InstructorMenteesPage() {
                   </div>
                 </div>
 
-                {mentee.expiresAt && (
+                {student.expiresAt && (
                   <div className="mt-3 text-sm text-muted-foreground">
-                    Expires: {new Date(mentee.expiresAt).toLocaleDateString()}
+                    Expires: {new Date(student.expiresAt).toLocaleDateString()}
                   </div>
                 )}
               </CardContent>
