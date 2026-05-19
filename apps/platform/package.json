@@ -27,7 +27,7 @@
     "@upstash/redis": "^1.35.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "convex": "^1.35.1",
+    "convex": "^1.39.1",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^11.0.0",
     "googleapis": "^144.0.0",
