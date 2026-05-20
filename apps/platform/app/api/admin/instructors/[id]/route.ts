@@ -241,21 +241,36 @@ export async function PUT(
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.slug !== undefined) updateData.slug = data.slug;
-    if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : undefined;
-    if (data.tagline !== undefined) updateData.tagline = data.tagline;
-    if (data.bio !== undefined) updateData.bio = data.bio;
+    // Clear means remove: empty string -> null; non-empty -> lowercase
+    if (data.email !== undefined) {
+      if (data.email === null || data.email === "") updateData.email = null;
+      else updateData.email = data.email.toLowerCase();
+    }
+    if (data.tagline !== undefined) {
+      updateData.tagline = data.tagline === "" ? null : data.tagline;
+    }
+    if (data.bio !== undefined) {
+      updateData.bio = data.bio === "" ? null : data.bio;
+    }
     if (data.specialties !== undefined) updateData.specialties = data.specialties;
     if (data.background !== undefined) updateData.background = data.background;
-    if (data.profileImageUrl !== undefined) updateData.profileImageUrl = data.profileImageUrl || undefined;
-    if (data.profileImageUploadPath !== undefined) updateData.profileImageUploadPath = data.profileImageUploadPath;
+    if (data.profileImageUrl !== undefined) {
+      updateData.profileImageUrl = data.profileImageUrl === "" ? null : data.profileImageUrl;
+    }
+    if (data.profileImageUploadPath !== undefined) {
+      updateData.profileImageUploadPath = data.profileImageUploadPath === "" ? null : data.profileImageUploadPath;
+    }
     if (data.portfolioImages !== undefined) updateData.portfolioImages = data.portfolioImages;
-    if (data.socials !== undefined) updateData.socials = data.socials;
+    if (data.socials !== undefined) {
+      const sanitized = sanitizeSocials(data.socials);
+      updateData.socials = Object.keys(sanitized).length > 0 ? sanitized : null;
+    }
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
-    if (data.userId !== undefined) updateData.userId = data.userId ?? undefined;
+    // Do NOT send userId in update payload; mutation args don't accept it
     if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
-    if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId ?? undefined;
+    if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId;
 
     const updated = await convex.mutation(api.instructors.updateInstructor, {
       id: resolvedId as any,
