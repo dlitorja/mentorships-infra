@@ -41,6 +41,13 @@ const updateInstructorSchema = z.object({
   profileImageUrl: z.string().optional().or(z.literal("")),
   profileImageUploadPath: z.string().optional(),
   portfolioImages: z.array(z.string()).optional(),
+  // Only allow HTTPS Discord links (discord.gg, discord.com, discordapp.com)
+  discordVoiceChannelUrl: z
+    .string()
+    .regex(/^https:\/\/(?:discord\.gg|discord(?:app)?\.com)\/.+$/)
+    .optional()
+    .or(z.literal(""))
+    .nullable(),
   socials: z.object({
     twitter: z.string().optional(),
     instagram: z.string().optional(),
@@ -134,6 +141,7 @@ export async function GET(
       name: instructor.name,
       slug: instructor.slug,
       email: instructor.email,
+      discordVoiceChannelUrl: (instructor as any).discordVoiceChannelUrl ?? null,
       tagline: instructor.tagline,
       bio: instructor.bio,
       specialties: instructor.specialties,
@@ -264,6 +272,13 @@ export async function PUT(
     if (data.socials !== undefined) {
       const sanitized = sanitizeSocials(data.socials);
       updateData.socials = Object.keys(sanitized).length > 0 ? sanitized : null;
+    }
+    if (data.discordVoiceChannelUrl !== undefined) {
+      if (data.discordVoiceChannelUrl === null || data.discordVoiceChannelUrl === "") {
+        updateData.discordVoiceChannelUrl = null;
+      } else {
+        updateData.discordVoiceChannelUrl = data.discordVoiceChannelUrl;
+      }
     }
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
     // Do NOT send userId in update payload; mutation args don't accept it

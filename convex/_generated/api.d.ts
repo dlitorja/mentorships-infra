@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
+import type * as bookings from "../bookings.js";
 import type * as cleanup from "../cleanup.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
@@ -49,6 +50,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminWorkspaces: typeof adminWorkspaces;
+  bookings: typeof bookings;
   cleanup: typeof cleanup;
   contacts: typeof contacts;
   crons: typeof crons;
