@@ -553,6 +553,7 @@ export const updateInstructor = mutation({
     googleCalendarId: v.optional(v.union(v.string(), v.null())),
     googleRefreshToken: v.optional(v.union(v.string(), v.null())),
     googleAvailabilityCalendarIds: v.optional(v.array(v.string())),
+    discordVoiceChannelUrl: v.optional(v.union(v.string(), v.null())),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
     maxActiveStudents: v.optional(v.number()),
@@ -584,6 +585,7 @@ export const updateInstructor = mutation({
       "socials",
       "googleCalendarId",
       "googleRefreshToken",
+      "discordVoiceChannelUrl",
       "legacyInstructorRef",
     ];
     for (const key of nullableKeys) {

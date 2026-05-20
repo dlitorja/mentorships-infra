@@ -23,6 +23,8 @@ export default defineSchema({
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     googleAvailabilityCalendarIds: v.optional(v.array(v.string())),
+    // Voice channel where sessions take place until video calling is implemented
+    discordVoiceChannelUrl: v.optional(v.string()),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
     maxActiveStudents: v.optional(v.number()),
@@ -152,6 +154,27 @@ export default defineSchema({
   }).index("by_instructorId", ["instructorId"])
     .index("by_stripePriceId", ["stripePriceId"])
     .index("by_active", ["active"]),
+
+  // Bookings represent calendar reservations created via the booking API
+  bookings: defineTable({
+    instructorId: v.id("instructors"),
+    // UTC millis for start and end
+    startUtc: v.number(),
+    endUtc: v.number(),
+    timezone: v.string(),
+    studentEmail: v.string(),
+    studentName: v.string(),
+    status: v.union(v.literal("pending"), v.literal("confirmed"), v.literal("canceled")),
+    eventCalendarId: v.optional(v.string()),
+    googleEventId: v.optional(v.string()),
+    idempotencyKey: v.string(),
+    createdByUserId: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_instructorId", ["instructorId"]) 
+    .index("by_idempotencyKey", ["idempotencyKey"]) 
+    .index("by_status", ["status"]) ,
 
   instructorProfiles: defineTable({
     userId: v.optional(v.string()),

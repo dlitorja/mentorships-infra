@@ -41,6 +41,7 @@ const updateInstructorSchema = z.object({
   profileImageUrl: z.string().optional().or(z.literal("")),
   profileImageUploadPath: z.string().optional(),
   portfolioImages: z.array(z.string()).optional(),
+  discordVoiceChannelUrl: z.string().url().optional().or(z.literal("")).nullable(),
   socials: z.object({
     twitter: z.string().optional(),
     instagram: z.string().optional(),
@@ -264,6 +265,13 @@ export async function PUT(
     if (data.socials !== undefined) {
       const sanitized = sanitizeSocials(data.socials);
       updateData.socials = Object.keys(sanitized).length > 0 ? sanitized : null;
+    }
+    if (data.discordVoiceChannelUrl !== undefined) {
+      if (data.discordVoiceChannelUrl === null || data.discordVoiceChannelUrl === "") {
+        updateData.discordVoiceChannelUrl = null;
+      } else {
+        updateData.discordVoiceChannelUrl = data.discordVoiceChannelUrl;
+      }
     }
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
     // Do NOT send userId in update payload; mutation args don't accept it
