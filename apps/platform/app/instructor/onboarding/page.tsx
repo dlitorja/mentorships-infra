@@ -3,6 +3,8 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
+import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
 import {
   db,
   desc,
@@ -21,8 +23,6 @@ type PageProps = {
 
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
-  // Ensure Convex role is synced to "instructor" on the client
-  const { EnsureInstructorRole } = await import("@/components/instructor/ensure-instructor-role");
   const instructorRecord = await getInstructorByUserId(user.id);
 
   if (!instructorRecord) {
@@ -109,15 +109,27 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {(() => {
-                // Render client scheduling form dynamically to avoid server/client boundary issues
-                const Scheduling = require("@/components/instructor/scheduling-settings-form");
-                const SchedulingSettingsForm = Scheduling.SchedulingSettingsForm as any;
-                // initial values are unknown here; form gracefully accepts nulls
-                return (
-                  <SchedulingSettingsForm initialTimeZone={null} initialWorkingHours={null} />
-                );
-              })()}
+              <SchedulingSettingsForm
+                initialTimeZone={(instructorRecord as any).timeZone ?? null}
+                initialWorkingHours={(instructorRecord as any).workingHours ?? null}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Calendar connect placeholder */}
+        <div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Connect Google Calendar</CardTitle>
+              <CardDescription>
+                Coming soon: Connect your calendar to manage availability and avoid conflicts automatically.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button type="button" disabled>
+                Connect Calendar (Coming Soon)
+              </Button>
             </CardContent>
           </Card>
         </div>
