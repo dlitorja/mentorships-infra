@@ -39,8 +39,8 @@ export async function createClerkInvitation(
       emailAddress,
       redirectUrl,
       publicMetadata: instructorId
-        ? { instructorId }
-        : undefined,
+        ? { instructorId, isInstructor: true, role: "instructor" }
+        : { isInstructor: true, role: "instructor" },
     });
 
     return {
