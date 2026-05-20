@@ -37,23 +37,22 @@ type InstructorWithStats = {
   createdAt: string;
 };
 
-type StudentWithSessionInfo = {
+type AdminStudent = {
+  id: string;
   userId: string;
-  email: string;
-  sessionPackId: string;
+  email: string | null;
+  instructorId: string;
+  instructorName: string | null;
+  instructorSlug: string | null;
   totalSessions: number;
   remainingSessions: number;
-  status: string;
-  expiresAt: string | null;
-  lastSessionCompletedAt: string | null;
-  completedSessionCount: number;
-  seatStatus: "active" | "grace" | "released";
-  seatExpiresAt: string | null;
+  purchasedAt: number;
+  expiresAt: number | null;
+  status: "active" | "depleted" | "expired" | "refunded";
+  createdAt: number;
 };
 
-type _InstructorWithStudents = InstructorWithStats & {
-  students: StudentWithSessionInfo[];
-};
+type _InstructorWithStudents = InstructorWithStats & { students: AdminStudent[] };
 
 function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -98,7 +97,7 @@ function getStatusBadgeVariant(status: string): "default" | "secondary" | "destr
   }
 }
 
-function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
+function StudentsTable({ students }: { students: AdminStudent[] }) {
   if (students.length === 0) {
     return (
       <div className="text-center py-4">
@@ -121,8 +120,8 @@ function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
         </thead>
         <tbody>
           {students.map((student) => (
-            <tr key={student.sessionPackId} className="border-b">
-              <td className="py-2 px-3">{student.email}</td>
+            <tr key={student.id} className="border-b">
+              <td className="py-2 px-3">{student.email ?? "(unknown)"}</td>
               <td className="py-2 px-3">
                 {student.remainingSessions} / {student.totalSessions}
               </td>
@@ -132,10 +131,11 @@ function StudentsTable({ students }: { students: StudentWithSessionInfo[] }) {
                 </Badge>
               </td>
               <td className="py-2 px-3">
-                {formatDateTime(student.lastSessionCompletedAt)}
+                {/* No last completed info available in admin query; show purchase date */}
+                {formatDate(new Date(student.purchasedAt).toISOString())}
               </td>
               <td className="py-2 px-3">
-                {student.expiresAt ? formatDate(student.expiresAt) : "No expiration"}
+                {student.expiresAt ? formatDate(new Date(student.expiresAt).toISOString()) : "No expiration"}
               </td>
             </tr>
           ))}
@@ -154,7 +154,7 @@ function InstructorRow({
   instructor: InstructorWithStats;
   isExpanded: boolean;
   onToggle: () => void;
-  students: StudentWithSessionInfo[] | null;
+  students: AdminStudent[] | null;
 }) {
   return (
     <>
@@ -206,7 +206,7 @@ export default function AdminDashboard() {
   const [instructors, setInstructors] = useState<InstructorWithStats[]>([]);
   const [expandedInstructorId, setExpandedInstructorId] = useState<string | null>(null);
   const [isAllExpanded, setIsAllExpanded] = useState(false);
-  const [expandedStudents, setExpandedStudents] = useState<{ [key: string]: StudentWithSessionInfo[] }>({});
+  const [expandedStudents, setExpandedStudents] = useState<{ [key: string]: AdminStudent[] }>({});
   const [_loadingStudents, setLoadingStudents] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
