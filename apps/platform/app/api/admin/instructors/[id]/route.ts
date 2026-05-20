@@ -41,7 +41,13 @@ const updateInstructorSchema = z.object({
   profileImageUrl: z.string().optional().or(z.literal("")),
   profileImageUploadPath: z.string().optional(),
   portfolioImages: z.array(z.string()).optional(),
-  discordVoiceChannelUrl: z.string().url().optional().or(z.literal("")).nullable(),
+  // Only allow HTTPS Discord links (discord.gg, discord.com, discordapp.com)
+  discordVoiceChannelUrl: z
+    .string()
+    .regex(/^https:\/\/(?:discord\.gg|discord(?:app)?\.com)\/.+$/)
+    .optional()
+    .or(z.literal(""))
+    .nullable(),
   socials: z.object({
     twitter: z.string().optional(),
     instagram: z.string().optional(),

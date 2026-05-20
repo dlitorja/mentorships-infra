@@ -6,6 +6,8 @@ import { getConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import { calendar_v3 } from "googleapis";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 
 const createSchema = z.object({
   instructorId: z.string().min(1),
@@ -19,6 +21,21 @@ const createSchema = z.object({
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const userId = await requireAuth();
+    // Resolve authenticated user's email for attendee; do not trust body-provided email
+    const clerk = await clerkClient();
+    const { userId: clerkUserId } = await auth();
+    let sessionEmail: string | null = null;
+    if (clerkUserId) {
+      try {
+        const user = await clerk.users.getUser(clerkUserId);
+        const primary = user.primaryEmailAddressId
+          ? user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId)?.emailAddress
+          : user.emailAddresses[0]?.emailAddress;
+        sessionEmail = primary ?? null;
+      } catch (e) {
+        console.warn("[bookings] Failed to fetch Clerk user email:", e);
+      }
+    }
     const body = await request.json();
     const parsed = createSchema.safeParse(body);
     if (!parsed.success) {
@@ -48,8 +65,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const calendar = await getGoogleCalendarClient(refreshToken);
     const eventCalendarId = instructor.googleCalendarId || "primary";
-    const availabilityCalendars: string[] = Array.isArray((instructor as any).googleAvailabilityCalendarIds) && (instructor as any).googleAvailabilityCalendarIds.length > 0
-      ? (instructor as any).googleAvailabilityCalendarIds
+    const availabilityCalendars: string[] = Array.isArray(
+      (instructor as { googleAvailabilityCalendarIds?: string[] | null })?.googleAvailabilityCalendarIds
+    ) && ((instructor as { googleAvailabilityCalendarIds?: string[] | null }).googleAvailabilityCalendarIds!.length > 0)
+      ? (instructor as { googleAvailabilityCalendarIds?: string[] | null }).googleAvailabilityCalendarIds!
       : [eventCalendarId];
 
     // Freebusy check
@@ -60,11 +79,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         items: availabilityCalendars.map((id) => ({ id })),
       },
     });
-    const calendarsBusy = (fb.data.calendars || {}) as Record<string, any>;
+    const calendarsBusy = (fb.data.calendars || {}) as Record<string, calendar_v3.Schema$FreeBusyCalendar | undefined>;
     const errored: string[] = [];
     for (const id of availabilityCalendars) {
       const entry = calendarsBusy[id];
-      if (!entry || (entry as any).errors || (entry as any).error) {
+      if (!entry || (entry.errors && entry.errors.length > 0) || (entry as any).error) {
         errored.push(id);
       }
     }
@@ -74,9 +93,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 502 }
       );
     }
-    const busy = availabilityCalendars.flatMap((id) => Array.isArray(calendarsBusy[id]?.busy) ? calendarsBusy[id]!.busy : []);
-    const overlaps = busy.some((b: any) => {
-      if (!b.start || !b.end) return false;
+    const busy: calendar_v3.Schema$TimePeriod[] = availabilityCalendars.flatMap((id) =>
+      Array.isArray(calendarsBusy[id]?.busy) ? (calendarsBusy[id]!.busy as calendar_v3.Schema$TimePeriod[]) : []
+    );
+    const overlaps = busy.some((b) => {
+      if (!b || !b.start || !b.end) return false;
       const s = new Date(b.start).getTime();
       const e = new Date(b.end).getTime();
       return startUtc < e && endUtc > s;
@@ -92,7 +113,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       startUtc,
       endUtc,
       timezone,
-      studentEmail,
+      studentEmail: sessionEmail ?? studentEmail,
       studentName,
       idempotencyKey,
       createdByUserId: userId,
@@ -101,7 +122,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Slot already booked" }, { status: 409 });
     }
 
-    // Insert Google Calendar event
+    // Insert Google event with robust rollback
     const descriptionLines: string[] = [];
     if (instructor.discordVoiceChannelUrl) {
       descriptionLines.push(`Join Discord voice: ${instructor.discordVoiceChannelUrl}`);
@@ -109,34 +130,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       descriptionLines.push("Join this voice channel at the session start time.");
     }
 
-    const insert = await calendar.events.insert({
-      calendarId: eventCalendarId,
-      sendUpdates: "all",
-      requestBody: {
-        summary: `Session with ${studentName}`,
-        description: descriptionLines.join("\n"),
-        location: instructor.discordVoiceChannelUrl || undefined,
-        start: { dateTime: new Date(startUtc).toISOString(), timeZone: timezone },
-        end: { dateTime: new Date(endUtc).toISOString(), timeZone: timezone },
-        attendees: [{ email: studentEmail }],
-        extendedProperties: { private: { idempotencyKey } },
-      },
-    });
+    let confirmed = null as any;
+    let didConfirm = false;
+    try {
+      const insert = await calendar.events.insert({
+        calendarId: eventCalendarId,
+        sendUpdates: "all",
+        requestBody: {
+          summary: `Session with ${studentName}`,
+          description: descriptionLines.join("\n"),
+          location: instructor.discordVoiceChannelUrl || undefined,
+          start: { dateTime: new Date(startUtc).toISOString(), timeZone: timezone },
+          end: { dateTime: new Date(endUtc).toISOString(), timeZone: timezone },
+          attendees: [{ email: sessionEmail ?? studentEmail }],
+          extendedProperties: { private: { idempotencyKey } },
+        },
+      });
 
-    const googleEventId = insert.data.id;
-    if (!googleEventId) {
-      // Roll back lock
-      await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
+      const googleEventId = insert.data.id;
+      if (!googleEventId) {
+        return NextResponse.json({ error: "Failed to create calendar event" }, { status: 502 });
+      }
+
+      confirmed = await convex.mutation(api.bookings.confirm, {
+        id: pending.bookingId,
+        eventCalendarId,
+        googleEventId,
+      });
+      didConfirm = true;
+      return NextResponse.json({ success: true, booking: confirmed });
+    } catch (e) {
+      console.error("Google Calendar insert error:", e);
       return NextResponse.json({ error: "Failed to create calendar event" }, { status: 502 });
+    } finally {
+      if (!didConfirm) {
+        try {
+          await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
+        } catch (rollbackErr) {
+          console.error("Failed to rollback pending booking:", rollbackErr, { bookingId: pending.bookingId });
+        }
+      }
     }
-
-    const confirmed = await convex.mutation(api.bookings.confirm, {
-      id: pending.bookingId,
-      eventCalendarId,
-      googleEventId,
-    });
-
-    return NextResponse.json({ success: true, booking: confirmed });
   } catch (error) {
     console.error("Booking create error:", error);
     return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });

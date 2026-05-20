@@ -14,6 +14,11 @@ export async function DELETE(
   try {
     const user = await requireRoleForApi("instructor");
     const { id } = await params;
+    const idSchema = z.string().min(1);
+    const parseId = idSchema.safeParse(id);
+    if (!parseId.success) {
+      return NextResponse.json({ error: "Invalid booking id" }, { status: 400 });
+    }
     const convex = getConvexClient();
 
     const booking = await convex.query(api.bookings.getBookingById, { id: id as Id<"bookings"> });

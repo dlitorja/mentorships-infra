@@ -8,7 +8,13 @@ export const getBookingById = query({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) return null;
-    return await ctx.db.get(args.id);
+    const booking = await ctx.db.get(args.id);
+    if (!booking) return null;
+    // Only creator or owning instructor's user can read
+    if (booking.createdByUserId === identity.subject) return booking;
+    const instructor = await ctx.db.get(booking.instructorId);
+    if (instructor && instructor.userId === identity.subject) return booking;
+    return null;
   },
 });
 
@@ -25,6 +31,8 @@ export const createPending = mutation({
     createdByUserId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
     // Enforce single booking per idempotency key
     const existing = await ctx.db
       .query("bookings")
@@ -43,7 +51,7 @@ export const createPending = mutation({
       studentName: args.studentName,
       status: "pending",
       idempotencyKey: args.idempotencyKey,
-      createdByUserId: args.createdByUserId,
+      createdByUserId: identity.subject,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -59,8 +67,11 @@ export const confirm = mutation({
     googleEventId: v.string(),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
     const booking = await ctx.db.get(args.id);
     if (!booking) throw new Error("Booking not found");
+    if (booking.createdByUserId !== identity.subject) throw new Error("Forbidden");
     if (booking.status !== "pending") return booking;
     await ctx.db.patch(args.id, {
       status: "confirmed",
@@ -79,8 +90,17 @@ export const cancel = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
     const booking = await ctx.db.get(args.id);
     if (!booking) return null;
+    // Allow cancel by creator or instructor owner
+    if (booking.createdByUserId !== identity.subject) {
+      const instructor = await ctx.db.get(booking.instructorId);
+      if (!instructor || instructor.userId !== identity.subject) {
+        throw new Error("Forbidden");
+      }
+    }
     if (booking.status === "canceled") return booking;
     await ctx.db.patch(args.id, { status: "canceled", updatedAt: Date.now() });
     return await ctx.db.get(args.id);
