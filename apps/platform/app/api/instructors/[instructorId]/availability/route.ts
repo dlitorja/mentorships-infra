@@ -180,19 +180,36 @@ export async function GET(
       );
     }
 
-    const calendarId = instructor.googleCalendarId || "primary";
     const calendar = await getGoogleCalendarClient(refreshToken);
+    const calendarIds: string[] = Array.isArray((instructor as any).googleAvailabilityCalendarIds) && (instructor as any).googleAvailabilityCalendarIds.length > 0
+      ? (instructor as any).googleAvailabilityCalendarIds
+      : [instructor.googleCalendarId || "primary"];
 
     const fb = await calendar.freebusy.query({
       requestBody: {
         timeMin: start.toISOString(),
         timeMax: end.toISOString(),
-        items: [{ id: calendarId }],
+        items: calendarIds.map((id) => ({ id })),
       },
     });
 
-    const busy = fb.data.calendars?.[calendarId]?.busy ?? [];
-    const normalizedBusy = normalizeBusyWindows(busy);
+    const calendarsBusy = (fb.data.calendars || {}) as Record<string, any>;
+    const errored: string[] = [];
+    for (const id of calendarIds) {
+      const entry = calendarsBusy[id];
+      if (!entry || (entry as any).errors || (entry as any).error) {
+        errored.push(id);
+      }
+    }
+    if (errored.length > 0) {
+      return NextResponse.json(
+        { error: `Google Calendar freebusy failed for: ${errored.join(", ")}` },
+        { status: 502 }
+      );
+    }
+
+    const busyWindows = calendarIds.flatMap((id) => (Array.isArray(calendarsBusy[id]?.busy) ? calendarsBusy[id]!.busy : []));
+    const normalizedBusy = normalizeBusyWindows(busyWindows);
     const slotMs = slotMinutes * 60 * 1000;
 
     const availableSlots: string[] = [];
@@ -233,14 +250,13 @@ export async function GET(
     return NextResponse.json({
       success: true,
       instructorId: instructorId,
-      calendarId,
+      calendarIds,
       timeMin: start.toISOString(),
       timeMax: end.toISOString(),
       slotMinutes,
-      busy,
+      busy: busyWindows,
       availableSlots,
       truncated: availableSlots.length >= 500,
-      // Naming policy: never use "mentor" in code. Use instructorTimeZone instead.
       instructorTimeZone: instructor.timeZone ?? null,
       workingHoursConfigured: Boolean(instructor.workingHours),
     });

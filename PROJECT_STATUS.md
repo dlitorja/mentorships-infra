@@ -39,6 +39,116 @@
 - ✅ Added `CLERK_JWT_ISSUER_DOMAIN` to `.env.local`
 - ✅ Convex dev server running successfully at `acoustic-kiwi-522` deployment
 
+### NEW: Instructor Onboarding & Google Calendar (Post PR #314)
+
+Decision: Consolidate Google OAuth on Platform (Option A) with a short deprecation window for Web. Keep Web endpoints temporarily but redirect to Platform’s start endpoint. Add a first-class calendar picker and a single management location under Settings > Integrations; onboarding deep-links there.
+
+Why now:
+- Platform has the onboarding surface but the "Connect Google Calendar" button is disabled.
+- Web already has working OAuth and booking, but we want one canonical path and better UX (calendar picker).
+- Token decryption logic differs between apps; Platform cannot reliably read tokens written by Web.
+
+Scope (v1):
+- Platform-only OAuth start/callback + Web redirect.
+- Unified token decryption compatible with legacy and encrypted formats.
+- Settings > Integrations page with "Connect/Disconnect Google Calendar" and connected state.
+- Onboarding page updated to deep-link to Settings and show connection status.
+- Calendar picker: choose single event calendar + multi-select availability calendars.
+- Availability API supports multiple calendars; booking/cancel continue to create/delete events on the selected event calendar.
+
+Out of scope (later):
+- Non-Google providers (iCloud, Outlook).
+- Per-event overrides, conferencing links picker, or reminders configuration.
+
+Architecture Choice Tradeoffs
+- Option A (Platform-only) target with short Web redirect period balances simplicity and low-risk rollout.
+- Avoids long-term duplication of OAuth flows while keeping a safe migration path.
+
+Implementation Plan
+1. Platform OAuth Endpoints
+   - Add `GET /api/auth/google` to start OAuth (uses `getGoogleCalendarAuthUrl`, sets state cookie).
+   - Add `GET /api/auth/google/callback` to exchange `code` for tokens and persist via `api.instructors.updateInstructor` with `{ googleRefreshToken, googleCalendarId: "primary" }` initially.
+   - Web: change existing `GET /api/auth/google` to issue `302` to Platform start endpoint; keep Web callback temporarily if any existing links rely on it.
+
+2. Unified Token Decryption
+   - Replace `apps/platform/lib/crypto.ts` with the same implementation as `apps/web/lib/crypto.ts` (supports plain-text, legacy base64 "__decrypted__" prefix, AES-256-GCM via `@mentorships/db`’s `decrypt`).
+   - Do not change write format yet to minimize blast radius; add encrypt-on-write in a separate PR if desired.
+
+3. Single Management Location
+   - Create Settings > Integrations view in Platform with a "Google Calendar" card:
+     - States: Not connected (CTA to `/api/auth/google`), Connected (shows selected event calendar and count of availability calendars, buttons: Change, Disconnect).
+   - Onboarding page: replace disabled button with copy + link: "Connect your calendar in Settings > Integrations". If connected, show "Connected" indicator.
+
+4. Calendar Picker UX
+   - After OAuth, call `calendar.calendarList.list`:
+     - Radio select for Event calendar (writable only: `accessRole` owner/writer; default to Primary if writable).
+     - Checkbox multi-select for Availability calendars (any readable calendar; default to Primary and any Google-selected calendars if present).
+   - Data model changes (Convex): add `googleAvailabilityCalendarIds: string[]` on instructors.
+     - Widen–migrate–narrow:
+       1) Widen: add optional array field; API continues to read single `googleCalendarId` if array absent.
+       2) Migrate: when user saves picker, write array and keep `googleCalendarId` unchanged for event creation.
+       3) Narrow (later): make availability array the sole source for free/busy; keep `googleCalendarId` for event creation.
+
+5. API Additions (Platform)
+   - `GET /api/google/calendars` → returns calendars: `{ id, summary, accessRole, primary }[]` using decrypted refresh token.
+   - `POST /api/google/calendars/select` → body `{ eventCalendarId: string, availabilityCalendarIds: string[] }` → updates Convex via `api.instructors.updateInstructor`.
+   - `POST /api/auth/google/disconnect` → clears `googleRefreshToken`, `googleCalendarId`, and `googleAvailabilityCalendarIds` in Convex.
+
+6. Availability & Booking Updates
+   - Availability endpoints (`/api/instructors/[instructorId]/availability`) read `googleAvailabilityCalendarIds` when present; fall back to single `googleCalendarId`.
+   - Booking continues to insert events against `googleCalendarId` (or `primary` if missing) and deletes them on cancel as today.
+
+7. Config & Security
+   - Google OAuth client: add Platform callback `https://<platform-domain>/api/auth/google/callback` (keep Web callback during deprecation).
+   - Env vars required on Platform: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_URL` (or `VERCEL_URL`).
+   - Clerk policy: no changes (OAuth is Google-only; we do not touch Clerk config).
+
+8. Testing Checklist
+   - Connect flow on Platform: success redirect, Convex instructor updated.
+   - Availability: returns free/busy when connected; 409 with `GOOGLE_CALENDAR_NOT_CONNECTED` when not.
+   - Picker: lists calendars, enforces writable-only for event calendar, saves selections, persists across reloads.
+   - Booking: creates event on chosen event calendar; cancel deletes event.
+   - Disconnect: clears tokens/ids; availability returns 409.
+   - Web start endpoint redirects to Platform; legacy bookmarks still succeed during window.
+
+9. Rollout & Deprecation
+   - Week 0: ship Platform endpoints and Settings page; Web start redirects to Platform.
+   - Week 2–4: monitor usage; announce and remove Web endpoints, remove Web callback from Google console.
+
+Risks & Mitigations
+- Token format variance → Unify decryption first; add robust logging around decrypt failures.
+- No writable calendars → Show clear error state with Disconnect; do not attempt event creation.
+- Permission changes post-connect → Surface warning in Settings and block event creation until re-selection.
+
+Work Breakdown (PRs)
+1) Platform OAuth + Web redirect
+   - Files: `apps/platform/app/api/auth/google/route.ts`, `.../callback/route.ts`, update Web route to redirect.
+   - Status: NOT_STARTED
+2) Unify token decrypt (Platform)
+   - File: `apps/platform/lib/crypto.ts` → replace with shared-compatible implementation.
+   - Status: NOT_STARTED
+3) Settings > Integrations + Onboarding deep-link
+   - Files: new page/components in Platform; update `apps/platform/app/instructor/onboarding/page.tsx` CTA.
+   - Status: NOT_STARTED
+4) Calendar picker + APIs + Convex field
+   - Files: Platform API routes, UI; add `googleAvailabilityCalendarIds` to `convex/schema.ts` and `convex/instructors.ts`; update availability route to read array.
+   - Status: NOT_STARTED
+5) E2E verification
+   - Manual tests per checklist; add minimal integration tests where feasible.
+   - Status: NOT_STARTED
+
+Env/Config Summary
+- GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET on Platform/Web (during transition).
+- NEXT_PUBLIC_URL (or VERCEL_URL) configured correctly for accurate redirect URI generation.
+- Google Console: both callbacks authorized during transition; remove Web callback after cutover.
+
+Owner
+- Platform app ownership for OAuth, picker UX, and availability logic.
+- Convex ownership for schema field addition and update mutation.
+
+Last Updated: May 20, 2026 (post PR #314 plan)
+
+
 ---
 
 **Earlier Priority (DEPRECATED)**: Fix Payment Flow Reads to Convex

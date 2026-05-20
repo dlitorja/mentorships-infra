@@ -550,8 +550,9 @@ export const updateInstructor = mutation({
     slug: v.optional(v.string()),
     // Allow clearing via null from API layer
     email: v.optional(v.union(v.string(), v.null())),
-    googleCalendarId: v.optional(v.string()),
-    googleRefreshToken: v.optional(v.string()),
+    googleCalendarId: v.optional(v.union(v.string(), v.null())),
+    googleRefreshToken: v.optional(v.union(v.string(), v.null())),
+    googleAvailabilityCalendarIds: v.optional(v.array(v.string())),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
     maxActiveStudents: v.optional(v.number()),
@@ -581,6 +582,8 @@ export const updateInstructor = mutation({
       "profileImageUrl",
       "profileImageUploadPath",
       "socials",
+      "googleCalendarId",
+      "googleRefreshToken",
       "legacyInstructorRef",
     ];
     for (const key of nullableKeys) {

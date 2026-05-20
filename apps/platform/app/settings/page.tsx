@@ -5,6 +5,7 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TimeZoneSelector } from "@/components/settings/timezone-selector";
+import { GoogleCalendarCard } from "@/components/settings/google-calendar-card";
 
 export default async function SettingsPage() {
   const user = await requireDbUser();
@@ -21,6 +22,9 @@ export default async function SettingsPage() {
 
         {/* Timezone Settings */}
         <TimeZoneSelector />
+
+        {/* Integrations */}
+        <GoogleCalendarCard />
 
         {/* Profile Information */}
         <Card>
@@ -75,4 +79,3 @@ export default async function SettingsPage() {
     </ProtectedLayout>
   );
 }
-

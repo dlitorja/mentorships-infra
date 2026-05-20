@@ -22,6 +22,7 @@ export default defineSchema({
     email: v.optional(v.string()),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
+    googleAvailabilityCalendarIds: v.optional(v.array(v.string())),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
     maxActiveStudents: v.optional(v.number()),
