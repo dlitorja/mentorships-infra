@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convex";
 import {
   db,
   desc,
@@ -24,10 +26,12 @@ type PageProps = {
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
   const instructorRecord = await getInstructorByUserId(user.id);
+  const convex = getConvexClient();
+  const convexInstructor = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructorRecord) {
     return (
-    <ProtectedLayout currentPath="/instructor/onboarding">
+      <ProtectedLayout currentPath="/instructor/onboarding">
         {/* Silent role sync for Convex */}
         <EnsureInstructorRole />
         <Card>
@@ -110,8 +114,8 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
             </CardHeader>
             <CardContent>
               <SchedulingSettingsForm
-                initialTimeZone={(instructorRecord as any).timeZone ?? null}
-                initialWorkingHours={(instructorRecord as any).workingHours ?? null}
+                initialTimeZone={(convexInstructor as any)?.timeZone ?? null}
+                initialWorkingHours={(convexInstructor as any)?.workingHours ?? null}
               />
             </CardContent>
           </Card>

@@ -240,7 +240,8 @@ export async function GET(
       busy,
       availableSlots,
       truncated: availableSlots.length >= 500,
-      mentorTimeZone: instructor.timeZone ?? null,
+      // Naming policy: never use "mentor" in code. Use instructorTimeZone instead.
+      instructorTimeZone: instructor.timeZone ?? null,
       workingHoursConfigured: Boolean(instructor.workingHours),
     });
   } catch (error) {

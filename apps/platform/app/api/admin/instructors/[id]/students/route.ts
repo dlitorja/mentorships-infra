@@ -26,6 +26,9 @@ export async function GET(
     await requireRoleForApi("admin");
 
     const { id } = await params;
+    if (!id || typeof id !== "string" || id.trim().length === 0) {
+      return NextResponse.json({ error: "Bad Request" }, { status: 400 });
+    }
 
     const convex = getConvexClient();
     const clerkAuth = await auth();
@@ -43,8 +46,23 @@ export async function GET(
     });
 
     // Validate response shape before returning
+    const StudentSchema = z.object({
+      id: z.string(),
+      userId: z.string(),
+      email: z.string().nullable(),
+      instructorId: z.string(),
+      instructorName: z.string().nullable(),
+      instructorSlug: z.string().nullable(),
+      totalSessions: z.number(),
+      remainingSessions: z.number(),
+      purchasedAt: z.number(),
+      expiresAt: z.number().nullable(),
+      status: z.enum(["active", "depleted", "expired", "refunded"]),
+      createdAt: z.number(),
+    });
+
     const StudentsResponseSchema = z.object({
-      items: z.array(z.any()),
+      items: z.array(StudentSchema),
       total: z.number(),
       page: z.number(),
       pageSize: z.number(),

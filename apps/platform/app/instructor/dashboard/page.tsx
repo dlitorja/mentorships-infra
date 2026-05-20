@@ -59,7 +59,11 @@ export default async function InstructorDashboardPage() {
   const activeSeats: any[] = [];
   const seatAvailability = { activeSeats: 0, maxSeats: 0, remainingSeats: 0 };
 
-  const profileIncomplete = !((instructorRecord as any).timeZone) || !((instructorRecord as any).workingHours) || Object.keys(((instructorRecord as any).workingHours || {})).length === 0;
+  const profileIncomplete =
+    !instructorRecord.timeZone ||
+    !instructorRecord.workingHours ||
+    Object.keys(instructorRecord.workingHours || {}).length === 0;
+ 
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
