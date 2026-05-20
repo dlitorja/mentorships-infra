@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ConvexHttpClient } from "convex/browser";
-import { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,8 +34,6 @@ export default function CreateInstructorPage() {
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
 
-  const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL || "");
-
   const handleNameChange = (name: string) => {
     setFormData((prev) => ({
       ...prev,
@@ -51,41 +47,57 @@ export default function CreateInstructorPage() {
     setIsSubmitting(true);
 
     try {
-      let profileImageUrl: string | undefined;
-      let profileImageStorageId: string | undefined;
+      // 1) Create instructor via platform API (enforces admin & validation)
+      const createRes = await fetch("/api/admin/instructors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.name,
+          slug: formData.slug,
+          email: formData.email || undefined,
+          tagline: formData.tagline || undefined,
+          bio: formData.bio || undefined,
+          oneOnOneInventory: parseInt(formData.oneOnOneInventory) || 3,
+          groupInventory: parseInt(formData.groupInventory) || 2,
+          maxActiveStudents: parseInt(formData.maxActiveStudents) || 10,
+          isActive: true,
+        }),
+      });
 
-      if (profileImage) {
-        const storageId = await convex.mutation("storage:store" as any, {
-          body: await profileImage.arrayBuffer(),
-          contentType: profileImage.type,
-        });
-
-        const url = await convex.mutation("admin:uploadInstructorProfileImage" as any, {
-          instructorId: "temp" as Id<"instructors">, 
-          storageId,
-        });
-
-        profileImageStorageId = storageId;
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => ({}));
+        throw new Error(err?.error || "Failed to create instructor");
       }
 
-      const instructorId = await convex.mutation("admin:createInstructor" as any, {
-        name: formData.name,
-        slug: formData.slug,
-        email: formData.email || undefined,
-        tagline: formData.tagline || undefined,
-        bio: formData.bio || undefined,
-        oneOnOneInventory: parseInt(formData.oneOnOneInventory) || 3,
-        groupInventory: parseInt(formData.groupInventory) || 2,
-        maxActiveStudents: parseInt(formData.maxActiveStudents) || 10,
-        profileImageUrl,
-        profileImageStorageId,
-        isActive: true,
-      });
+      const created = await createRes.json();
+      const instructorId: string | undefined = created?.instructor?.id;
+      if (!instructorId) {
+        throw new Error("Instructor created but no id returned");
+      }
+
+      // 2) If a profile image is provided, upload it via admin upload API
+      if (profileImage) {
+        const form = new FormData();
+        form.append("file", profileImage);
+        form.append("instructorId", instructorId);
+        form.append("type", "profile");
+
+        const uploadRes = await fetch("/api/admin/instructors/upload", {
+          method: "POST",
+          body: form,
+        });
+        if (!uploadRes.ok) {
+          const err = await uploadRes.json().catch(() => ({}));
+          console.error("Profile image upload failed:", err);
+          // Non-fatal: instructor exists; let user proceed and fix image later
+        }
+      }
 
       router.push("/admin/instructors");
     } catch (error) {
       console.error("Error creating instructor:", error);
-      alert("Failed to create instructor");
+      const message = error instanceof Error ? error.message : "Failed to create instructor";
+      alert(message);
     } finally {
       setIsSubmitting(false);
     }
