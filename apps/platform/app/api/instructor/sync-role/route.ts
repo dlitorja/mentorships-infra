@@ -46,6 +46,13 @@ export async function POST() {
     const convex = getConvexClient();
     convex.setAuth(token);
 
+    // Additional guard: ensure an instructor record exists for this user in Convex
+    const existingInstructor = await convex.query(api.instructors.getInstructorByUserId, { userId });
+    if (!existingInstructor) {
+      return NextResponse.json({ error: "Forbidden: No instructor profile found" }, { status: 403 });
+    }
+
+    // Idempotent: syncUser sets role; if already set, no change
     await convex.mutation(api.users.syncUser, { role: "instructor" });
 
     return NextResponse.json({ success: true });
