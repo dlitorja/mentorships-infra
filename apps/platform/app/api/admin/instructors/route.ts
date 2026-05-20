@@ -8,8 +8,10 @@ import { createClerkInvitation } from "@/lib/clerk-invitations";
 import type { Id } from "@/convex/_generated/dataModel";
 
 /**
- * Returns an authenticated Convex HTTP client using NEXT_PUBLIC_CONVEX_URL.
- * Throws if the environment variable is missing.
+ * Returns a ConvexHttpClient using NEXT_PUBLIC_CONVEX_URL.
+ * Note: This does not authenticate requests by itself; routes are expected to
+ * enforce auth (e.g., requireRoleForApi("admin")) and attach a Clerk Convex
+ * token to the client where needed.
  */
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -98,11 +100,6 @@ const createInstructorSchema = z.object({
   maxActiveStudents: z.number().int().min(1).optional().default(10),
 });
 
-/**
- * Create a new instructor via Convex and optionally send a Clerk invitation.
- * - Admin only; validates input with Zod
- * - Does NOT set a placeholder userId when email is provided; linking happens after invite acceptance
- */
 /**
  * POST /api/admin/instructors
  * Creates a new instructor in Convex and (optionally) sends a Clerk invitation.

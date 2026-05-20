@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { auth } from "@clerk/nextjs/server";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -34,19 +36,32 @@ export async function GET(
     convex.setAuth(token);
 
     // Use admin query to fetch students by instructor id
-    const result = await convex.query(api.admin.getStudentsForAdmin as any, {
+    const result = await convex.query(api.admin.getStudentsForAdmin, {
       instructorId: id,
       page: 1,
       pageSize: 100,
     });
 
-    // Normalize to a simple students array for the UI
-    return NextResponse.json({ students: result.items });
+    // Validate response shape before returning
+    const StudentsResponseSchema = z.object({
+      items: z.array(z.any()),
+      total: z.number(),
+      page: z.number(),
+      pageSize: z.number(),
+    });
+    const parsed = StudentsResponseSchema.safeParse(result);
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid students payload" }, { status: 500 });
+    }
+    return NextResponse.json({ students: parsed.data.items });
   } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    }
     console.error("Error fetching instructor students:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to load students" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to load students" }, { status: 500 });
   }
 }

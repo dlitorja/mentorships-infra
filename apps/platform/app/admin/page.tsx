@@ -264,9 +264,13 @@ export default function AdminDashboard() {
       setLoadingStudents(instructorId);
       try {
         const res = await fetch(`/api/admin/instructors/${instructorId}/students`);
-        const data = await res.json();
-        if (data.students) {
-          setExpandedStudents((prev) => ({ ...prev, [instructorId]: data.students }));
+        if (!res.ok) {
+          console.error(`Failed to load students for ${instructorId}: HTTP ${res.status}`);
+        } else {
+          const data = await res.json();
+          if (data.students) {
+            setExpandedStudents((prev) => ({ ...prev, [instructorId]: data.students }));
+          }
         }
       } catch (error) {
         console.error("Error loading students:", error);
@@ -283,9 +287,13 @@ export default function AdminDashboard() {
       if (!expandedStudents[instructor.instructorId]) {
         try {
           const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/students`);
-          const data = await res.json();
-          if (data.students) {
-            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: data.students }));
+          if (!res.ok) {
+            console.error(`Failed to load students for ${instructor.instructorId}: HTTP ${res.status}`);
+          } else {
+            const data = await res.json();
+            if (data.students) {
+              setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: data.students }));
+            }
           }
         } catch (error) {
           console.error("Error loading students:", error);
