@@ -287,11 +287,8 @@ export default function AdminDashboard() {
         } else {
           const json = await res.json();
           const parsed = StudentsPayload.safeParse(json);
-          if (parsed.success && parsed.data.students) {
-            setExpandedStudents((prev) => ({ ...prev, [instructorId]: parsed.data.students }));
-          } else {
-            setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
-          }
+          const students: AdminStudent[] = parsed.success && parsed.data.students ? parsed.data.students : [];
+          setExpandedStudents((prev) => ({ ...prev, [instructorId]: students }));
         }
       } catch (error) {
         console.error("Error loading students:", error);
@@ -331,11 +328,8 @@ export default function AdminDashboard() {
           } else {
             const json = await res.json();
             const parsed = StudentsPayload.safeParse(json);
-            if (parsed.success && parsed.data.students) {
-              setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: parsed.data.students }));
-            } else {
-              setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
-            }
+            const students: AdminStudent[] = parsed.success && parsed.data.students ? parsed.data.students : [];
+            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: students }));
           }
         } catch (error) {
           console.error("Error loading students:", error);
