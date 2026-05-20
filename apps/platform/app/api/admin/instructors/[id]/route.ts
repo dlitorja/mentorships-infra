@@ -141,6 +141,7 @@ export async function GET(
       name: instructor.name,
       slug: instructor.slug,
       email: instructor.email,
+      discordVoiceChannelUrl: (instructor as any).discordVoiceChannelUrl ?? null,
       tagline: instructor.tagline,
       bio: instructor.bio,
       specialties: instructor.specialties,

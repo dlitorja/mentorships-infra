@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { BookSessionForm } from "@/components/calendar/book-session-form";
 import Link from "next/link";
+import { BookWithGoogle } from "@/components/calendar/book-with-google";
 
 export default async function CalendarPage() {
   const user = await requireDbUser();
@@ -130,8 +131,13 @@ export default async function CalendarPage() {
           </Card>
         )}
 
-        {/* Booking */}
+        {/* Booking (Legacy Packs) */}
         {activePacks.length > 0 && <BookSessionForm packs={activePacks} userId={user.id} />}
+
+        {/* Booking (Google Calendar MVP) - uses the first active pack's instructor */}
+        {activePacks.length > 0 && (
+          <BookWithGoogle instructorId={activePacks[0]!.instructorId} />
+        )}
 
         {/* Upcoming Sessions */}
         <Card>
@@ -191,4 +197,3 @@ export default async function CalendarPage() {
     </ProtectedLayout>
   );
 }
-
