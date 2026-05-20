@@ -6,7 +6,6 @@ import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Users, BookOpen, CheckCircle2 } from "lucide-react";
-import Link from "next/link";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
