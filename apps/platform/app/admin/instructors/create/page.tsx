@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,11 @@ export default function CreateInstructorPage() {
     }));
   };
 
+  /**
+   * Submit handler that creates the instructor via the platform API and, if provided,
+   * uploads the profile image using the admin upload endpoint. On success, navigates
+   * back to the instructors list.
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -68,12 +74,17 @@ export default function CreateInstructorPage() {
         const err = await createRes.json().catch(() => ({}));
         throw new Error(err?.error || "Failed to create instructor");
       }
-      const created = await createRes.json();
-      // Validate response shape minimally to avoid undefined access
-      const instructorId: string | undefined =
-        created && created.instructor && typeof created.instructor.id === "string"
-          ? created.instructor.id
-          : undefined;
+      const CreateInstructorResponseSchema = z.object({
+        success: z.boolean(),
+        instructor: z.object({ id: z.string() }).passthrough(),
+      }).passthrough();
+
+      const createdUnknown = await createRes.json();
+      const parsed = CreateInstructorResponseSchema.safeParse(createdUnknown);
+      if (!parsed.success) {
+        throw new Error("Invalid server response when creating instructor");
+      }
+      const instructorId: string = parsed.data.instructor.id;
       if (!instructorId) {
         throw new Error("Instructor created but no id returned");
       }

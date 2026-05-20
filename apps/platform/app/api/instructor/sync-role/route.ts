@@ -20,8 +20,8 @@ export async function POST() {
     const token = await auth().then((a) => a.getToken({ template: "convex" }));
     if (!userId || !token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Guard: only allow role sync for users explicitly invited as instructors
-    // Check fast path via session claims; fallback to Clerk API if missing
+    // Guard: allow role sync only for users explicitly invited as instructors
+    // Fast path via session claims; fallback to Clerk API if missing
     const claimsMeta = (sessionClaims?.publicMetadata || {}) as Record<string, unknown>;
     let isInstructorFlag = Boolean(claimsMeta.isInstructor);
     let roleClaim = typeof claimsMeta.role === "string" ? (claimsMeta.role as string) : undefined;
@@ -33,8 +33,7 @@ export async function POST() {
         const pm = (user.publicMetadata || {}) as Record<string, unknown>;
         isInstructorFlag = Boolean(pm.isInstructor);
         roleClaim = typeof pm.role === "string" ? (pm.role as string) : undefined;
-      } catch (e) {
-        // If Clerk API fails, do not allow escalation
+      } catch {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }

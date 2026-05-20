@@ -63,6 +63,7 @@ export default async function InstructorDashboardPage() {
     !instructorRecord.timeZone ||
     !instructorRecord.workingHours ||
     Object.keys(instructorRecord.workingHours || {}).length === 0;
+ 
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
