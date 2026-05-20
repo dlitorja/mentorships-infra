@@ -14,7 +14,8 @@ const createSchema = z.object({
   start: z.string().datetime(),
   end: z.string().datetime(),
   timezone: z.string().min(1),
-  studentEmail: z.string().email(),
+  // studentEmail is derived from session; accept optional input for legacy callers but ignore
+  studentEmail: z.string().email().optional(),
   studentName: z.string().min(1),
 });
 
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       startUtc,
       endUtc,
       timezone,
-      studentEmail: sessionEmail ?? studentEmail,
+      studentEmail: sessionEmail ?? studentEmail ?? "",
       studentName,
       idempotencyKey,
       createdByUserId: userId,

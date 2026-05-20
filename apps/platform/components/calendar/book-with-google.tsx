@@ -41,11 +41,10 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          instructorId: selectedInstructorId,
+          instructorId: selectedInstructorId!,
           start: slotIso,
           end: addHours(slotIso, 1),
           timezone,
-          studentEmail: "_", // ignored server-side; session email is used
           studentName: studentName || "Student",
         }),
       });
