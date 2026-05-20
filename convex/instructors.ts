@@ -588,7 +588,8 @@ export const updateInstructor = mutation({
         (updates as any)[key] = undefined;
       }
     }
-    await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
+    // Cast to any to satisfy Convex PatchValue typing after runtime null->undefined normalization
+    await ctx.db.patch(id, { ...(updates as any), updatedAt: Date.now() });
     return await ctx.db.get(id);
   },
 });
