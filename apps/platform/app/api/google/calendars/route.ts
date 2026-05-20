@@ -1,0 +1,52 @@
+import { NextRequest, NextResponse } from "next/server";
+import { requireRoleForApi } from "@/lib/auth-helpers";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
+import { decryptInstructorRefreshToken } from "@/lib/crypto";
+import { getGoogleCalendarClient } from "@/lib/google";
+
+export async function GET(_req: NextRequest): Promise<NextResponse> {
+  try {
+    const user = await requireRoleForApi("instructor");
+    const convex = getConvexClient();
+
+    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId: user.id,
+    });
+    if (!instructor) {
+      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
+    }
+
+    const refreshToken = decryptInstructorRefreshToken(instructor);
+    if (!refreshToken) {
+      return NextResponse.json(
+        { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
+        { status: 409 }
+      );
+    }
+
+    const calendar = await getGoogleCalendarClient(refreshToken);
+    const resp = await calendar.calendarList.list({});
+    const items = resp.data.items || [];
+    const calendars = items.map((c) => ({
+      id: c.id!,
+      summary: c.summary || c.id || "(untitled)",
+      accessRole: c.accessRole || "reader",
+      primary: Boolean(c.primary),
+    }));
+
+    return NextResponse.json({
+      connected: true,
+      calendars,
+      selected: {
+        eventCalendarId: instructor.googleCalendarId || "primary",
+        availabilityCalendarIds: Array.isArray((instructor as any).googleAvailabilityCalendarIds)
+          ? (instructor as any).googleAvailabilityCalendarIds
+          : (instructor.googleCalendarId ? [instructor.googleCalendarId] : ["primary"]),
+      },
+    });
+  } catch (error) {
+    console.error("[platform] List calendars error:", error);
+    return NextResponse.json({ error: "Failed to list calendars" }, { status: 500 });
+  }
+}

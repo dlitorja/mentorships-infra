@@ -180,19 +180,22 @@ export async function GET(
       );
     }
 
-    const calendarId = instructor.googleCalendarId || "primary";
     const calendar = await getGoogleCalendarClient(refreshToken);
+    const calendarIds: string[] = Array.isArray((instructor as any).googleAvailabilityCalendarIds) && (instructor as any).googleAvailabilityCalendarIds.length > 0
+      ? (instructor as any).googleAvailabilityCalendarIds
+      : [instructor.googleCalendarId || "primary"];
 
     const fb = await calendar.freebusy.query({
       requestBody: {
         timeMin: start.toISOString(),
         timeMax: end.toISOString(),
-        items: [{ id: calendarId }],
+        items: calendarIds.map((id) => ({ id })),
       },
     });
 
-    const busy = fb.data.calendars?.[calendarId]?.busy ?? [];
-    const normalizedBusy = normalizeBusyWindows(busy);
+    const calendarsBusy = fb.data.calendars || {};
+    const busy = calendarIds.flatMap((id) => (calendarsBusy as any)[id]?.busy || []);
+    const normalizedBusy = normalizeBusyWindows(busy as any);
     const slotMs = slotMinutes * 60 * 1000;
 
     const availableSlots: string[] = [];
@@ -233,7 +236,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       instructorId: instructorId,
-      calendarId,
+      calendarIds,
       timeMin: start.toISOString(),
       timeMax: end.toISOString(),
       slotMinutes,
