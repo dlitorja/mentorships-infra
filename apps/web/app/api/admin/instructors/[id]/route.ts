@@ -238,7 +238,7 @@ export async function PUT(
         background: updated.background,
         profileImageUrl: updated.profileImageUrl,
         portfolioImages: updated.portfolioImages,
-        socials: updated.socials,
+        socials: sanitizeSocials((updated as any).socials),
         isActive: updated.isActive,
         userId: updated.userId,
         instructorId: updated._id,
@@ -308,4 +308,15 @@ export async function DELETE(
       { status: 500 }
     );
   }
+}
+function sanitizeSocials(value: unknown): Record<string, string> {
+  const allowed = ["twitter", "instagram", "youtube", "bluesky", "website", "artstation"];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (allowed.includes(key) && typeof val === "string" && val.length > 0) {
+      result[key] = val;
+    }
+  }
+  return result;
 }

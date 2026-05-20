@@ -270,7 +270,7 @@ export async function PUT(
     if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
-    if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId ?? undefined;
+    if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId;
 
     const updated = await convex.mutation(api.instructors.updateInstructor, {
       id: resolvedId as any,

@@ -569,7 +569,7 @@ export const updateInstructor = mutation({
     profileImageUploadPath: v.optional(v.union(v.string(), v.null())),
     profileImageStorageId: v.optional(v.string()),
     specialties: v.optional(v.array(v.string())),
-    legacyInstructorRef: v.optional(v.string()),
+    legacyInstructorRef: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
@@ -581,6 +581,7 @@ export const updateInstructor = mutation({
       "profileImageUrl",
       "profileImageUploadPath",
       "socials",
+      "legacyInstructorRef",
     ];
     for (const key of nullableKeys) {
       if ((updates as any)[key] === null) {
