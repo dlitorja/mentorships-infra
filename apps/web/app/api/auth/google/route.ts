@@ -6,10 +6,11 @@ import { getPlatformBaseUrl } from "@/lib/platform";
 // state cookie + Google redirect. We preserve query params as-is.
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const base = getPlatformBaseUrl();
+    // Normalize base URL to avoid double slashes when joining path
+    const base = getPlatformBaseUrl().replace(/\/+$/, "");
     const search = request.nextUrl.search || "";
     const target = `${base}/api/auth/google${search}`;
-    return NextResponse.redirect(target);
+    return NextResponse.redirect(target, 302);
   } catch (error) {
     console.error("[web] Google OAuth redirect error:", error);
     return NextResponse.json(
