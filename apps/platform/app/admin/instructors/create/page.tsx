@@ -33,6 +33,8 @@ export default function CreateInstructorPage() {
     maxActiveStudents: "10",
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const handleNameChange = (name: string) => {
     setFormData((prev) => ({
@@ -40,6 +42,32 @@ export default function CreateInstructorPage() {
       name,
       slug: generateSlug(name),
     }));
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    setUploadError(null);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setUploadError("Only image files are supported.");
+      return;
+    }
+    setProfileImage(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -193,11 +221,19 @@ export default function CreateInstructorPage() {
             <CardTitle>Profile Image</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="border-2 border-dashed rounded-lg p-8 text-center">
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragActive ? "border-primary bg-primary/5" : "border-muted-foreground/30"}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
               <input
                 type="file"
                 accept="image/*"
-                onChange={(e) => setProfileImage(e.target.files?.[0] || null)}
+                onChange={(e) => {
+                  setUploadError(null);
+                  setProfileImage(e.target.files?.[0] || null);
+                }}
                 className="hidden"
                 id="profile-image-upload"
               />
@@ -207,9 +243,12 @@ export default function CreateInstructorPage() {
               >
                 <Upload className="h-8 w-8 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">
-                  {profileImage ? profileImage.name : "Click to upload profile image"}
+                  {profileImage ? profileImage.name : "Drag & drop or click to select a profile image"}
                 </span>
               </label>
+              {uploadError && (
+                <p className="mt-2 text-sm text-red-500">{uploadError}</p>
+              )}
               {profileImage && (
                 <p className="mt-2 text-sm text-green-600">
                   Selected: {profileImage.name}

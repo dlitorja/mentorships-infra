@@ -6,6 +6,7 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
 import type { Id } from "@/convex/_generated/dataModel";
+import { auth } from "@clerk/nextjs/server";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -119,6 +120,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const convex = new ConvexHttpClient(convexUrl);
+    // Use Clerk token for Convex auth to match server-side policies
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     // Convex createInstructor requires userId. If not provided, fall back to an admin-scoped placeholder.
     // This follows the existing pattern used in httpAdminSyncInventory (`admin-${slug}`).
