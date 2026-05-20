@@ -110,8 +110,8 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
             </CardHeader>
             <CardContent>
               <SchedulingSettingsForm
-                initialTimeZone={(instructorRecord as any).timeZone ?? null}
-                initialWorkingHours={(instructorRecord as any).workingHours ?? null}
+                initialTimeZone={instructorRecord.timeZone ?? null}
+                initialWorkingHours={instructorRecord.workingHours ?? null}
               />
             </CardContent>
           </Card>

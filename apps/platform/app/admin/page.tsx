@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { z } from "zod";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { 
@@ -264,16 +265,37 @@ export default function AdminDashboard() {
       setLoadingStudents(instructorId);
       try {
         const res = await fetch(`/api/admin/instructors/${instructorId}/students`);
+        const StudentSchema = z.object({
+          id: z.string(),
+          userId: z.string(),
+          email: z.string().nullable(),
+          instructorId: z.string(),
+          instructorName: z.string().nullable(),
+          instructorSlug: z.string().nullable(),
+          totalSessions: z.number(),
+          remainingSessions: z.number(),
+          purchasedAt: z.number(),
+          expiresAt: z.number().nullable(),
+          status: z.enum(["active", "depleted", "expired", "refunded"]),
+          createdAt: z.number(),
+        });
+        const StudentsPayload = z.object({ students: z.array(StudentSchema).optional() });
+
         if (!res.ok) {
           console.error(`Failed to load students for ${instructorId}: HTTP ${res.status}`);
+          setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
         } else {
-          const data = await res.json();
-          if (data.students) {
-            setExpandedStudents((prev) => ({ ...prev, [instructorId]: data.students }));
+          const json = await res.json();
+          const parsed = StudentsPayload.safeParse(json);
+          if (parsed.success && parsed.data.students) {
+            setExpandedStudents((prev) => ({ ...prev, [instructorId]: parsed.data.students }));
+          } else {
+            setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
           }
         }
       } catch (error) {
         console.error("Error loading students:", error);
+        setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
       } finally {
         setLoadingStudents(null);
       }
@@ -287,16 +309,37 @@ export default function AdminDashboard() {
       if (!expandedStudents[instructor.instructorId]) {
         try {
           const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/students`);
+          const StudentSchema = z.object({
+            id: z.string(),
+            userId: z.string(),
+            email: z.string().nullable(),
+            instructorId: z.string(),
+            instructorName: z.string().nullable(),
+            instructorSlug: z.string().nullable(),
+            totalSessions: z.number(),
+            remainingSessions: z.number(),
+            purchasedAt: z.number(),
+            expiresAt: z.number().nullable(),
+            status: z.enum(["active", "depleted", "expired", "refunded"]),
+            createdAt: z.number(),
+          });
+          const StudentsPayload = z.object({ students: z.array(StudentSchema).optional() });
+
           if (!res.ok) {
             console.error(`Failed to load students for ${instructor.instructorId}: HTTP ${res.status}`);
+            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
           } else {
-            const data = await res.json();
-            if (data.students) {
-              setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: data.students }));
+            const json = await res.json();
+            const parsed = StudentsPayload.safeParse(json);
+            if (parsed.success && parsed.data.students) {
+              setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: parsed.data.students }));
+            } else {
+              setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
             }
           }
         } catch (error) {
           console.error("Error loading students:", error);
+          setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
         }
       }
     }
