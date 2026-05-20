@@ -263,10 +263,10 @@ export default function AdminDashboard() {
     if (!expandedStudents[instructorId]) {
       setLoadingStudents(instructorId);
       try {
-        const res = await fetch(`/api/admin/instructors/${instructorId}/mentees`);
+        const res = await fetch(`/api/admin/instructors/${instructorId}/students`);
         const data = await res.json();
-        if (data.mentees) {
-          setExpandedStudents((prev) => ({ ...prev, [instructorId]: data.mentees }));
+        if (data.students) {
+          setExpandedStudents((prev) => ({ ...prev, [instructorId]: data.students }));
         }
       } catch (error) {
         console.error("Error loading students:", error);
@@ -282,10 +282,10 @@ export default function AdminDashboard() {
     for (const instructor of instructors) {
       if (!expandedStudents[instructor.instructorId]) {
         try {
-          const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/mentees`);
+          const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/students`);
           const data = await res.json();
-          if (data.mentees) {
-            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: data.mentees }));
+          if (data.students) {
+            setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: data.students }));
           }
         } catch (error) {
           console.error("Error loading students:", error);
