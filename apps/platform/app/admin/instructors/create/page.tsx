@@ -57,9 +57,9 @@ export default function CreateInstructorPage() {
           email: formData.email || undefined,
           tagline: formData.tagline || undefined,
           bio: formData.bio || undefined,
-          oneOnOneInventory: parseInt(formData.oneOnOneInventory) || 3,
-          groupInventory: parseInt(formData.groupInventory) || 2,
-          maxActiveStudents: parseInt(formData.maxActiveStudents) || 10,
+          oneOnOneInventory: (() => { const v = parseInt(formData.oneOnOneInventory); return Number.isNaN(v) ? 3 : v; })(),
+          groupInventory: (() => { const v = parseInt(formData.groupInventory); return Number.isNaN(v) ? 2 : v; })(),
+          maxActiveStudents: (() => { const v = parseInt(formData.maxActiveStudents); return Number.isNaN(v) ? 10 : v; })(),
           isActive: true,
         }),
       });
@@ -68,9 +68,12 @@ export default function CreateInstructorPage() {
         const err = await createRes.json().catch(() => ({}));
         throw new Error(err?.error || "Failed to create instructor");
       }
-
       const created = await createRes.json();
-      const instructorId: string | undefined = created?.instructor?.id;
+      // Validate response shape minimally to avoid undefined access
+      const instructorId: string | undefined =
+        created && created.instructor && typeof created.instructor.id === "string"
+          ? created.instructor.id
+          : undefined;
       if (!instructorId) {
         throw new Error("Instructor created but no id returned");
       }

@@ -5,6 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
+import type { Id } from "@/convex/_generated/dataModel";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -86,11 +87,24 @@ const createInstructorSchema = z.object({
   maxActiveStudents: z.number().int().min(1).optional().default(10),
 });
 
+/**
+ * Create a new instructor via Convex and optionally send a Clerk invitation.
+ * - Admin only; validates input with Zod
+ * - Does NOT set a placeholder userId when email is provided; linking happens after invite acceptance
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await requireRoleForApi("admin");
 
-    const parsed = createInstructorSchema.safeParse(await req.json());
+    // Parse JSON body safely to avoid unhandled exceptions on malformed JSON
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Malformed JSON" }, { status: 400 });
+    }
+
+    const parsed = createInstructorSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid request", details: parsed.error.issues },
@@ -106,12 +120,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const convex = new ConvexHttpClient(convexUrl);
 
-    const userId = data.userId || crypto.randomUUID();
+    // Only set userId when explicitly provided; otherwise leave undefined to avoid bogus Clerk IDs
+    const userId = data.userId || undefined;
 
-    let instructorId: string;
+    let instructorId: Id<"instructors">;
     try {
       instructorId = await convex.mutation(api.instructors.createInstructor, {
-        userId,
+        userId: userId,
         name: data.name,
         slug: data.slug,
         email: data.email ? data.email.toLowerCase() : undefined,
@@ -128,7 +143,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         maxActiveStudents: data.maxActiveStudents,
         oneOnOneInventory: data.oneOnOneInventory,
         groupInventory: data.groupInventory,
-      } as any);
+      });
     } catch (err: any) {
       if (err?.message === "Slug already exists") {
         return NextResponse.json({ error: "Slug already exists" }, { status: 400 });
@@ -139,22 +154,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let invitationSent = false;
     let invitationError: string | undefined;
     if (data.email) {
-      const result = await createClerkInvitation({
-        emailAddress: data.email.toLowerCase(),
-        instructorId,
-      });
-      invitationSent = result.success;
-      invitationError = result.error;
+      try {
+        const result = await createClerkInvitation({
+          emailAddress: data.email.toLowerCase(),
+          instructorId,
+        });
+        invitationSent = result.success;
+        invitationError = result.error;
+      } catch (e: any) {
+        // Invitation failures shouldn't fail creation; surface error instead
+        console.error("[platform:createInstructor] Clerk invitation error:", e);
+        invitationSent = false;
+        invitationError = e?.message || "Failed to send invitation";
+      }
     }
 
-    const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId as any });
+    const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId });
 
     return NextResponse.json(
       {
         success: true,
         message: "Instructor created successfully",
         instructor: {
-          id: instructor?._id ?? instructorId,
+          id: instructor?._id ?? (instructorId as string),
           name: instructor?.name ?? data.name,
           slug: instructor?.slug ?? data.slug,
           email: instructor?.email ?? data.email ?? null,

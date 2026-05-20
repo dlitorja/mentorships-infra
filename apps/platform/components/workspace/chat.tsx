@@ -223,6 +223,11 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Upload Error when no preview (e.g., invalid selection) */}
+      {uploadError && !previewImage && (
+        <div className="px-3 pt-2 text-sm text-red-500">{uploadError}</div>
+      )}
+
       {/* Image Preview */}
       {previewImage && (
         <div className="p-3 border-t bg-muted/50">
@@ -241,9 +246,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
               <X className="h-3 w-3" />
             </Button>
           </div>
-          {uploadError && (
-            <div className="mt-2 text-sm text-red-500">{uploadError}</div>
-          )}
+          {uploadError && <div className="mt-2 text-sm text-red-500">{uploadError}</div>}
           <div className="mt-2 flex gap-2">
             <Button size="sm" onClick={handleSendImage} disabled={createImage.isPending}>
               <Send className="h-4 w-4 mr-1" />
