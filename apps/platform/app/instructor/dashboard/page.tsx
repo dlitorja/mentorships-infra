@@ -59,6 +59,16 @@ export default async function InstructorDashboardPage() {
   const activeSeats: any[] = [];
   const seatAvailability = { activeSeats: 0, maxSeats: 0, remainingSeats: 0 };
 
+  // Bookings created via Google Calendar integration
+  let bookings: Array<{ id: string; startUtc: number; endUtc: number; studentEmail: string; status: string }> = [];
+  if (instructorRecord?._id) {
+    try {
+      bookings = await convex.query(api.bookings.listInstructorBookings, { instructorId: instructorRecord._id as any, limit: 10 });
+    } catch (e) {
+      // Non-fatal: bookings list unavailable
+    }
+  }
+
   const profileIncomplete =
     !instructorRecord.timeZone ||
     !instructorRecord.workingHours ||
@@ -147,6 +157,34 @@ export default async function InstructorDashboardPage() {
         </div>
 
 <div className="grid gap-6 md:grid-cols-2">
+          {/* Booked Sessions (Google) */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Booked Sessions</CardTitle>
+              <CardDescription>Bookings created via Google Calendar</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {bookings.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>No bookings yet</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {bookings.map((b) => (
+                    <div key={b.id} className="border rounded-lg p-3 flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">{new Date(b.startUtc).toLocaleString()}</div>
+                        <div className="text-xs text-muted-foreground">{b.studentEmail}</div>
+                      </div>
+                      <Badge variant={b.status === "confirmed" ? "secondary" : "outline"}>{b.status}</Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          
           {/* Upcoming Sessions */}
           <Card>
             <CardHeader>

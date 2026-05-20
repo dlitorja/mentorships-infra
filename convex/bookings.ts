@@ -106,3 +106,33 @@ export const cancel = mutation({
     return await ctx.db.get(args.id);
   },
 });
+
+/** List bookings for an instructor, only visible to the owning instructor user */
+export const listInstructorBookings = query({
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== identity.subject) return [];
+    const all = await ctx.db
+      .query("bookings")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+    const upcoming = all
+      .filter((b) => b.status !== "canceled")
+      .sort((a, b) => a.startUtc - b.startUtc);
+    return (args.limit ? upcoming.slice(0, args.limit) : upcoming).map((b) => ({
+      id: b._id,
+      startUtc: b.startUtc,
+      endUtc: b.endUtc,
+      studentEmail: b.studentEmail,
+      status: b.status,
+      googleEventId: b.googleEventId,
+      eventCalendarId: b.eventCalendarId,
+    }));
+  },
+});
