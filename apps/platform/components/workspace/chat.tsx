@@ -10,6 +10,37 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Send, Image as ImageIcon, X, Upload } from 'lucide-react';
 import { clsx } from 'clsx';
 
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+
+function processImageFile(
+  file: File,
+  workspaceId: Id<'workspaces'>,
+  setPreviewImage: (url: string | null) => void,
+  setUploadError: (msg: string | null) => void,
+  setIsUploading: (val: boolean) => void,
+) {
+  if (!file.type.startsWith('image/')) {
+    setPreviewImage(null);
+    setUploadError('Only image files are supported.');
+    return;
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    setPreviewImage(null);
+    setUploadError('Image is too large. Maximum size is 5MB.');
+    return;
+  }
+
+  setIsUploading(true);
+  setUploadError(null);
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target?.result as string;
+    setPreviewImage(dataUrl);
+    setIsUploading(false);
+  };
+  reader.readAsDataURL(file);
+}
+
 interface Message {
   _id: Id<'workspaceMessages'>;
   workspaceId: Id<'workspaces'>;
@@ -66,27 +97,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     const file = acceptedFiles[0];
     if (!file || !workspaceId) return;
 
-    if (!file.type.startsWith('image/')) {
-      setUploadError('Only image files are supported.');
-      return;
-    }
-
-    // 5MB max to avoid very large data URLs
-    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-    if (file.size > MAX_IMAGE_BYTES) {
-      setUploadError('Image is too large. Maximum size is 5MB.');
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadError(null);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      setPreviewImage(dataUrl);
-      setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
+    processImageFile(file, workspaceId, setPreviewImage, setUploadError, setIsUploading);
   }, [workspaceId]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -102,26 +113,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     const file = e.target.files?.[0];
     if (!file || !workspaceId) return;
 
-    if (!file.type.startsWith('image/')) {
-      setUploadError('Only image files are supported.');
-      return;
-    }
-
-    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-    if (file.size > MAX_IMAGE_BYTES) {
-      setUploadError('Image is too large. Maximum size is 5MB.');
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadError(null);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
-      setPreviewImage(dataUrl);
-      setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
+    processImageFile(file, workspaceId, setPreviewImage, setUploadError, setIsUploading);
   };
 
   const handleSendImage = async () => {

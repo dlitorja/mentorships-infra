@@ -120,8 +120,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const convex = new ConvexHttpClient(convexUrl);
 
-    // Only set userId when explicitly provided; otherwise leave undefined to avoid bogus Clerk IDs
-    const userId = data.userId || undefined;
+    // Convex createInstructor requires userId. If not provided, fall back to an admin-scoped placeholder.
+    // This follows the existing pattern used in httpAdminSyncInventory (`admin-${slug}`).
+    const userId: string = data.userId ?? `admin-${data.slug}`;
 
     let instructorId: Id<"instructors">;
     try {
@@ -161,11 +162,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         });
         invitationSent = result.success;
         invitationError = result.error;
-      } catch (e: any) {
+      } catch (e: unknown) {
         // Invitation failures shouldn't fail creation; surface error instead
-        console.error("[platform:createInstructor] Clerk invitation error:", e);
+        let message = "Failed to send invitation";
+        if (typeof e === "object" && e !== null && "message" in e && typeof (e as any).message === "string") {
+          message = (e as any).message as string;
+        }
+        console.error("[platform:createInstructor] Clerk invitation error:", message);
         invitationSent = false;
-        invitationError = e?.message || "Failed to send invitation";
+        invitationError = message;
       }
     }
 
