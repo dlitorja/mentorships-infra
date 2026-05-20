@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,17 +21,29 @@ type StudentItem = {
   [key: string]: unknown;
 };
 
-type StudentsResponse = {
-  items: StudentItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-};
+const StudentItemSchema = z.object({
+  id: z.string().optional(),
+  userId: z.string().optional(),
+  email: z.string().optional(),
+  firstName: z.string().nullable().optional(),
+  lastName: z.string().nullable().optional(),
+}).catchall(z.unknown());
 
+const StudentsResponseSchema = z.object({
+  items: z.array(StudentItemSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+});
+
+type StudentsResponse = z.infer<typeof StudentsResponseSchema>;
+
+/** Fetch students with runtime validation to guard API contract drift. */
 async function fetchStudents(search?: string): Promise<StudentsResponse> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);
-  return apiFetch<StudentsResponse>(`/api/admin/students?${params.toString()}`);
+  const data = await apiFetch<unknown>(`/api/admin/students?${params.toString()}`);
+  return StudentsResponseSchema.parse(data);
 }
 
 export default function StudentsPage(): React.JSX.Element {
@@ -71,7 +84,10 @@ export default function StudentsPage(): React.JSX.Element {
             <CardDescription>Showing {students.length} result{students.length === 1 ? "" : "s"}</CardDescription>
           </div>
           <div className="w-full max-w-sm">
+            <label htmlFor="students-search" className="sr-only">Search students by name or email</label>
             <Input
+              id="students-search"
+              aria-label="Search students by name or email"
               placeholder="Search by name or email"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
