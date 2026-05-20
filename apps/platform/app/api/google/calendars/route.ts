@@ -27,10 +27,10 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
 
     const calendar = await getGoogleCalendarClient(refreshToken);
     const resp = await calendar.calendarList.list({});
-    const items = resp.data.items || [];
+    const items = (resp.data.items || []).filter((c) => Boolean(c.id));
     const calendars = items.map((c) => ({
-      id: c.id!,
-      summary: c.summary || c.id || "(untitled)",
+      id: String(c.id),
+      summary: c.summary || String(c.id) || "(untitled)",
       accessRole: c.accessRole || "reader",
       primary: Boolean(c.primary),
     }));
@@ -41,7 +41,7 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
       selected: {
         eventCalendarId: instructor.googleCalendarId || "primary",
         availabilityCalendarIds: Array.isArray((instructor as any).googleAvailabilityCalendarIds)
-          ? (instructor as any).googleAvailabilityCalendarIds
+          ? ((instructor as any).googleAvailabilityCalendarIds as string[])
           : (instructor.googleCalendarId ? [instructor.googleCalendarId] : ["primary"]),
       },
     });

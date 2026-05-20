@@ -21,7 +21,7 @@ type CalendarsResponse = {
   };
 };
 
-export function GoogleCalendarCard() {
+export function GoogleCalendarCard(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
@@ -125,9 +125,9 @@ export function GoogleCalendarCard() {
               <div className="font-medium">Not connected</div>
               <div className="text-sm text-muted-foreground">Start the OAuth flow to connect your account.</div>
             </div>
-            <a href="/api/auth/google">
-              <Button>Connect Google Calendar</Button>
-            </a>
+            <Button asChild>
+              <a href="/api/auth/google">Connect Google Calendar</a>
+            </Button>
           </div>
         ) : (
           <div className="space-y-4">

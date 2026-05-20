@@ -31,11 +31,8 @@ export function decryptInstructorRefreshToken(instructor: { googleRefreshToken?:
       // Fall through
     }
 
-    // Fallback: treat as plain text if it doesn't look base64-like
-    if (!token.match(/^[A-Za-z0-9+/]+=*$/)) {
-      return token;
-    }
-    return null;
+    // Fallback: treat as plain text token
+    return token;
   } catch {
     return null;
   }

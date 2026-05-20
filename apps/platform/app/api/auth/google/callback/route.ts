@@ -19,27 +19,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const state = searchParams.get("state");
 
     if (!code || !state) {
-      return NextResponse.json(
-        { error: "Missing code/state from Google OAuth callback" },
-        { status: 400 }
-      );
+      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_missing_params"));
+      res.cookies.delete(OAUTH_STATE_COOKIE);
+      return res;
     }
 
     const cookieState = request.cookies.get(OAUTH_STATE_COOKIE)?.value;
     if (!cookieState || cookieState !== state) {
-      return NextResponse.json({ error: "Invalid OAuth state" }, { status: 400 });
+      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_state"));
+      res.cookies.delete(OAUTH_STATE_COOKIE);
+      return res;
     }
 
     const tokens = await exchangeGoogleCodeForTokens(code);
 
     if (!tokens.refresh_token) {
-      return NextResponse.json(
-        {
-          error:
-            "Google did not return a refresh token. Please revoke access for this app in your Google Account and try again.",
-        },
-        { status: 400 }
-      );
+      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_no_refresh_token"));
+      res.cookies.delete(OAUTH_STATE_COOKIE);
+      return res;
     }
 
     const convex = getConvexClient();
@@ -63,6 +60,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return res;
   } catch (error) {
     console.error("[platform] Google OAuth callback error:", error);
-    return NextResponse.json({ error: "Failed to connect Google Calendar" }, { status: 500 });
+    const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error"));
+    res.cookies.delete(OAUTH_STATE_COOKIE);
+    return res;
   }
 }

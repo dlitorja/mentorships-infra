@@ -15,11 +15,27 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
+    // Attempt token revocation with Google; ignore errors
+    try {
+      const tokenToRevoke = instructor.googleRefreshToken;
+      if (tokenToRevoke) {
+        const params = new URLSearchParams();
+        params.set("token", tokenToRevoke);
+        await fetch("https://oauth2.googleapis.com/revoke", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: params.toString(),
+        });
+      }
+    } catch (revErr) {
+      console.warn("[platform] Google token revocation failed (ignored):", revErr);
+    }
+
     await convex.mutation(api.instructors.updateInstructor, {
       id: instructor._id,
-      googleRefreshToken: null as any, // nulls cleared in mutation handler
-      googleCalendarId: null as any,
-      googleAvailabilityCalendarIds: [] as any,
+      googleRefreshToken: null,
+      googleCalendarId: null,
+      googleAvailabilityCalendarIds: [],
     });
 
     return NextResponse.json({ success: true });

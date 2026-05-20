@@ -193,9 +193,23 @@ export async function GET(
       },
     });
 
-    const calendarsBusy = fb.data.calendars || {};
-    const busy = calendarIds.flatMap((id) => (calendarsBusy as any)[id]?.busy || []);
-    const normalizedBusy = normalizeBusyWindows(busy as any);
+    const calendarsBusy = (fb.data.calendars || {}) as Record<string, any>;
+    const errored: string[] = [];
+    for (const id of calendarIds) {
+      const entry = calendarsBusy[id];
+      if (!entry || (entry as any).errors || (entry as any).error) {
+        errored.push(id);
+      }
+    }
+    if (errored.length > 0) {
+      return NextResponse.json(
+        { error: `Google Calendar freebusy failed for: ${errored.join(", ")}` },
+        { status: 502 }
+      );
+    }
+
+    const busyWindows = calendarIds.flatMap((id) => (Array.isArray(calendarsBusy[id]?.busy) ? calendarsBusy[id]!.busy : []));
+    const normalizedBusy = normalizeBusyWindows(busyWindows);
     const slotMs = slotMinutes * 60 * 1000;
 
     const availableSlots: string[] = [];
@@ -240,7 +254,7 @@ export async function GET(
       timeMin: start.toISOString(),
       timeMax: end.toISOString(),
       slotMinutes,
-      busy,
+      busy: busyWindows,
       availableSlots,
       truncated: availableSlots.length >= 500,
       instructorTimeZone: instructor.timeZone ?? null,
