@@ -552,6 +552,7 @@ export const updateInstructor = mutation({
     email: v.optional(v.union(v.string(), v.null())),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
+    googleAvailabilityCalendarIds: v.optional(v.array(v.string())),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
     maxActiveStudents: v.optional(v.number()),
