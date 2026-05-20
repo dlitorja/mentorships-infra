@@ -27,7 +27,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
 
   if (!instructorRecord) {
     return (
-    <ProtectedLayout currentPath="/instructor/onboarding">
+      <ProtectedLayout currentPath="/instructor/onboarding">
         {/* Silent role sync for Convex */}
         <EnsureInstructorRole />
         <Card>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -16,9 +16,32 @@ function getConvexClient() {
  */
 export async function POST() {
   try {
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { userId, sessionClaims } = await auth();
+    const token = await auth().then((a) => a.getToken({ template: "convex" }));
+    if (!userId || !token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    // Guard: only allow role sync for users explicitly invited as instructors
+    // Check fast path via session claims; fallback to Clerk API if missing
+    const claimsMeta = (sessionClaims?.publicMetadata || {}) as Record<string, unknown>;
+    let isInstructorFlag = Boolean(claimsMeta.isInstructor);
+    let roleClaim = typeof claimsMeta.role === "string" ? (claimsMeta.role as string) : undefined;
+
+    if (!isInstructorFlag && !roleClaim) {
+      try {
+        const client = await clerkClient();
+        const user = await client.users.getUser(userId);
+        const pm = (user.publicMetadata || {}) as Record<string, unknown>;
+        isInstructorFlag = Boolean(pm.isInstructor);
+        roleClaim = typeof pm.role === "string" ? (pm.role as string) : undefined;
+      } catch (e) {
+        // If Clerk API fails, do not allow escalation
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+
+    if (!isInstructorFlag && roleClaim !== "instructor") {
+      return NextResponse.json({ error: "Forbidden: Instructor invite required" }, { status: 403 });
+    }
 
     const convex = getConvexClient();
     convex.setAuth(token);

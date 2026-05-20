@@ -13,7 +13,8 @@ export default function SignUpPage() {
         routing="path"
         path="/sign-up"
         signInUrl="/sign-in"
-        fallbackRedirectUrl="/instructor/onboarding"
+        // Redirect generically after sign-up; instructor invite flow will guide to onboarding separately
+        fallbackRedirectUrl="/dashboard"
       />
     </div>
   );
