@@ -265,7 +265,6 @@ export default function AdminDashboard() {
       setLoadingStudents(instructorId);
       try {
         const res = await fetch(`/api/admin/instructors/${instructorId}/students`);
-<<<<<<< HEAD
         const StudentSchema = z.object({
           id: z.string(),
           userId: z.string(),
@@ -292,14 +291,6 @@ export default function AdminDashboard() {
             setExpandedStudents((prev) => ({ ...prev, [instructorId]: parsed.data.students }));
           } else {
             setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
-=======
-        if (!res.ok) {
-          console.error(`Failed to load students for ${instructorId}: HTTP ${res.status}`);
-        } else {
-          const data = await res.json();
-          if (data.students) {
-            setExpandedStudents((prev) => ({ ...prev, [instructorId]: data.students }));
->>>>>>> origin/main
           }
         }
       } catch (error) {
@@ -318,7 +309,6 @@ export default function AdminDashboard() {
       if (!expandedStudents[instructor.instructorId]) {
         try {
           const res = await fetch(`/api/admin/instructors/${instructor.instructorId}/students`);
-<<<<<<< HEAD
           const StudentSchema = z.object({
             id: z.string(),
             userId: z.string(),
@@ -345,14 +335,6 @@ export default function AdminDashboard() {
               setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: parsed.data.students }));
             } else {
               setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
-=======
-          if (!res.ok) {
-            console.error(`Failed to load students for ${instructor.instructorId}: HTTP ${res.status}`);
-          } else {
-            const data = await res.json();
-            if (data.students) {
-              setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: data.students }));
->>>>>>> origin/main
             }
           }
         } catch (error) {
