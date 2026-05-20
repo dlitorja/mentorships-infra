@@ -29,7 +29,8 @@ async function getClerkApi() {
 export async function createClerkInvitation(
   options: CreateClerkInvitationOptions
 ): Promise<ClerkInvitationResult> {
-  const { emailAddress, instructorId, redirectUrl = `${APP_URL}/dashboard` } = options;
+  // Route invites to the in-app SignUp page so Clerk processes the invitation ticket
+  const { emailAddress, instructorId, redirectUrl = `${APP_URL}/sign-up` } = options;
 
   try {
     const client = await getClerkApi();
@@ -38,8 +39,8 @@ export async function createClerkInvitation(
       emailAddress,
       redirectUrl,
       publicMetadata: instructorId
-        ? { instructorId }
-        : undefined,
+        ? { instructorId, isInstructor: true, role: "instructor" }
+        : { isInstructor: true, role: "instructor" },
     });
 
     return {

@@ -6,9 +6,9 @@ import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Users, BookOpen, CheckCircle2 } from "lucide-react";
-import Link from "next/link";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 
 function formatDate(date: Date | string | null): string {
   if (!date) return "N/A";
@@ -59,6 +59,8 @@ export default async function InstructorDashboardPage() {
   const activeSeats: any[] = [];
   const seatAvailability = { activeSeats: 0, maxSeats: 0, remainingSeats: 0 };
 
+  const profileIncomplete = !((instructorRecord as any).timeZone) || !((instructorRecord as any).workingHours) || Object.keys(((instructorRecord as any).workingHours || {})).length === 0;
+
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
       <div className="container mx-auto p-4 md:p-8 space-y-6">
@@ -72,6 +74,20 @@ export default async function InstructorDashboardPage() {
           </div>
           <UserButton />
         </div>
+
+        {profileIncomplete && (
+          <div className="rounded-md border p-4 bg-amber-50 border-amber-200 text-amber-800">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">Finish Setting Up Your Profile</p>
+                <p className="text-sm">Set your time zone and working hours so students can book you.</p>
+              </div>
+              <Button asChild variant="outline">
+                <Link href="/instructor/onboarding">Complete Setup</Link>
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Stats Overview */}
         <div className="grid gap-4 md:grid-cols-3">
@@ -288,4 +304,3 @@ export default async function InstructorDashboardPage() {
     </ProtectedLayout>
   );
 }
-

@@ -3,6 +3,8 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
+import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
 import {
   db,
   desc,
@@ -25,7 +27,9 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
 
   if (!instructorRecord) {
     return (
-      <ProtectedLayout currentPath="/instructor/onboarding">
+    <ProtectedLayout currentPath="/instructor/onboarding">
+        {/* Silent role sync for Convex */}
+        <EnsureInstructorRole />
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">
@@ -85,12 +89,49 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
 
   return (
     <ProtectedLayout currentPath="/instructor/onboarding">
+      {/* Silent role sync for Convex */}
+      <EnsureInstructorRole />
       <div className="container mx-auto p-4 md:p-8 space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Onboarding</h1>
           <p className="text-muted-foreground mt-1">
-            Review student onboarding submissions (goals + work images).
+            Complete your profile and scheduling, then review student onboarding submissions.
           </p>
+        </div>
+
+        {/* Scheduling setup section */}
+        <div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile & Scheduling</CardTitle>
+              <CardDescription>
+                Set your time zone and working hours. You can edit profile details from the admin if needed.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SchedulingSettingsForm
+                initialTimeZone={(instructorRecord as any).timeZone ?? null}
+                initialWorkingHours={(instructorRecord as any).workingHours ?? null}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Calendar connect placeholder */}
+        <div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Connect Google Calendar</CardTitle>
+              <CardDescription>
+                Coming soon: Connect your calendar to manage availability and avoid conflicts automatically.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button type="button" disabled>
+                Connect Calendar (Coming Soon)
+              </Button>
+            </CardContent>
+          </Card>
         </div>
 
         {submissions.length === 0 ? (
@@ -181,4 +222,3 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     </ProtectedLayout>
   );
 }
-
