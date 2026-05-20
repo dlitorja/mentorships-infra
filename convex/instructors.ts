@@ -548,30 +548,45 @@ export const updateInstructor = mutation({
     id: v.id("instructors"),
     name: v.optional(v.string()),
     slug: v.optional(v.string()),
-    email: v.optional(v.string()),
+    // Allow clearing via null from API layer
+    email: v.optional(v.union(v.string(), v.null())),
     googleCalendarId: v.optional(v.string()),
     googleRefreshToken: v.optional(v.string()),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
     maxActiveStudents: v.optional(v.number()),
-    bio: v.optional(v.string()),
+    bio: v.optional(v.union(v.string(), v.null())),
     pricing: v.optional(v.string()),
     oneOnOneInventory: v.optional(v.number()),
     groupInventory: v.optional(v.number()),
-    tagline: v.optional(v.string()),
+    tagline: v.optional(v.union(v.string(), v.null())),
     background: v.optional(v.array(v.string())),
     portfolioImages: v.optional(v.array(v.string())),
-    socials: v.optional(v.any()),
+    socials: v.optional(v.union(v.any(), v.null())),
     isActive: v.optional(v.boolean()),
     isNew: v.optional(v.boolean()),
-    profileImageUrl: v.optional(v.string()),
-    profileImageUploadPath: v.optional(v.string()),
+    profileImageUrl: v.optional(v.union(v.string(), v.null())),
+    profileImageUploadPath: v.optional(v.union(v.string(), v.null())),
     profileImageStorageId: v.optional(v.string()),
     specialties: v.optional(v.array(v.string())),
     legacyInstructorRef: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
+    // Translate nulls from API layer into undefined to clear fields in Convex
+    const nullableKeys: (keyof typeof updates)[] = [
+      "email",
+      "bio",
+      "tagline",
+      "profileImageUrl",
+      "profileImageUploadPath",
+      "socials",
+    ];
+    for (const key of nullableKeys) {
+      if ((updates as any)[key] === null) {
+        (updates as any)[key] = undefined;
+      }
+    }
     await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
     return await ctx.db.get(id);
   },

@@ -172,17 +172,41 @@ export async function PUT(
     const updateData: Record<string, any> = {};
     if (data.name !== undefined) updateData.name = data.name;
     if (data.slug !== undefined) updateData.slug = data.slug;
-    if (data.email !== undefined) updateData.email = data.email ? data.email.toLowerCase() : null;
-    if (data.tagline !== undefined) updateData.tagline = data.tagline;
-    if (data.bio !== undefined) updateData.bio = data.bio;
+    // Clear semantics: empty string -> null; non-empty -> lowercase string
+    if (data.email !== undefined) {
+      if (data.email === null || data.email === "") updateData.email = null;
+      else updateData.email = data.email.toLowerCase();
+    }
+    if (data.tagline !== undefined) {
+      updateData.tagline = data.tagline === "" ? null : data.tagline;
+    }
+    if (data.bio !== undefined) {
+      updateData.bio = data.bio === "" ? null : data.bio;
+    }
     if (data.specialties !== undefined) updateData.specialties = data.specialties;
     if (data.background !== undefined) updateData.background = data.background;
-    if (data.profileImageUrl !== undefined) updateData.profileImageUrl = data.profileImageUrl || undefined;
-    if (data.profileImageUploadPath !== undefined) updateData.profileImageUploadPath = data.profileImageUploadPath;
+    if (data.profileImageUrl !== undefined) {
+      updateData.profileImageUrl = data.profileImageUrl === "" ? null : data.profileImageUrl;
+    }
+    if (data.profileImageUploadPath !== undefined) {
+      updateData.profileImageUploadPath = data.profileImageUploadPath === "" ? null : data.profileImageUploadPath;
+    }
     if (data.portfolioImages !== undefined) updateData.portfolioImages = data.portfolioImages;
-    if (data.socials !== undefined) updateData.socials = data.socials;
+    if (data.socials !== undefined) {
+      // Sanitize: keep only allowed keys with non-empty strings; clear if empty
+      const allowed = ["twitter", "instagram", "youtube", "bluesky", "website", "artstation"];
+      const sanitized: Record<string, string> = {};
+      if (data.socials && typeof data.socials === "object" && !Array.isArray(data.socials)) {
+        for (const [key, val] of Object.entries(data.socials as Record<string, unknown>)) {
+          if (allowed.includes(key) && typeof val === "string" && val.length > 0) {
+            sanitized[key] = val;
+          }
+        }
+      }
+      updateData.socials = Object.keys(sanitized).length > 0 ? sanitized : null;
+    }
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
-    if (data.userId !== undefined) updateData.userId = data.userId;
+    // Do NOT send userId to mutation; it is not supported in args
     if (data.maxActiveStudents !== undefined) updateData.maxActiveStudents = data.maxActiveStudents;
     if (data.oneOnOneInventory !== undefined) updateData.oneOnOneInventory = data.oneOnOneInventory;
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
