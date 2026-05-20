@@ -21,11 +21,15 @@ type PageProps = {
 
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
+  // Ensure Convex role is synced to "instructor" on the client
+  const { EnsureInstructorRole } = await import("@/components/instructor/ensure-instructor-role");
   const instructorRecord = await getInstructorByUserId(user.id);
 
   if (!instructorRecord) {
     return (
-      <ProtectedLayout currentPath="/instructor/onboarding">
+    <ProtectedLayout currentPath="/instructor/onboarding">
+        {/* Silent role sync for Convex */}
+        <EnsureInstructorRole />
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">
@@ -85,12 +89,37 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
 
   return (
     <ProtectedLayout currentPath="/instructor/onboarding">
+      {/* Silent role sync for Convex */}
+      <EnsureInstructorRole />
       <div className="container mx-auto p-4 md:p-8 space-y-6">
         <div>
           <h1 className="text-3xl font-bold">Onboarding</h1>
           <p className="text-muted-foreground mt-1">
-            Review student onboarding submissions (goals + work images).
+            Complete your profile and scheduling, then review student onboarding submissions.
           </p>
+        </div>
+
+        {/* Scheduling setup section */}
+        <div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Profile & Scheduling</CardTitle>
+              <CardDescription>
+                Set your time zone and working hours. You can edit profile details from the admin if needed.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                // Render client scheduling form dynamically to avoid server/client boundary issues
+                const Scheduling = require("@/components/instructor/scheduling-settings-form");
+                const SchedulingSettingsForm = Scheduling.SchedulingSettingsForm as any;
+                // initial values are unknown here; form gracefully accepts nulls
+                return (
+                  <SchedulingSettingsForm initialTimeZone={null} initialWorkingHours={null} />
+                );
+              })()}
+            </CardContent>
+          </Card>
         </div>
 
         {submissions.length === 0 ? (
@@ -181,4 +210,3 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     </ProtectedLayout>
   );
 }
-
