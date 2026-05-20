@@ -7,6 +7,10 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { createClerkInvitation } from "@/lib/clerk-invitations";
 import type { Id } from "@/convex/_generated/dataModel";
 
+/**
+ * Returns an authenticated Convex HTTP client using NEXT_PUBLIC_CONVEX_URL.
+ * Throws if the environment variable is missing.
+ */
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
@@ -15,6 +19,10 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+/**
+ * GET /api/admin/instructors
+ * Lists instructors with lightweight stats for the admin UI. Requires admin role.
+ */
 export async function GET(): Promise<NextResponse> {
   try {
     await requireRoleForApi("admin");
@@ -55,6 +63,9 @@ export async function GET(): Promise<NextResponse> {
   }
 }
 
+/**
+ * Validates the admin create-instructor request body.
+ */
 const createInstructorSchema = z.object({
   name: z.string().min(1, "Name is required").max(200),
   slug: z
@@ -91,6 +102,12 @@ const createInstructorSchema = z.object({
  * Create a new instructor via Convex and optionally send a Clerk invitation.
  * - Admin only; validates input with Zod
  * - Does NOT set a placeholder userId when email is provided; linking happens after invite acceptance
+ */
+/**
+ * POST /api/admin/instructors
+ * Creates a new instructor in Convex and (optionally) sends a Clerk invitation.
+ * - Admin only
+ * - Returns 201 on success with the created instructor id and inventory
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {

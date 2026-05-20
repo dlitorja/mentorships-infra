@@ -12,6 +12,11 @@ import { clsx } from 'clsx';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 
+/**
+ * Validates an image file (type and size), sets an inline preview using FileReader,
+ * and updates uploading/error state accordingly. Clears preview and sets an error
+ * message on invalid selections.
+ */
 function processImageFile(
   file: File,
   workspaceId: Id<'workspaces'>,
