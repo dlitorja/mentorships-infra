@@ -119,7 +119,7 @@ export async function GET(
     const isInstructor = (obj: unknown): obj is InstructorDoc =>
       !!obj && typeof obj === "object" && "_id" in obj;
 
-    const instructor = resolved.instructor;
+    const instructor = resolved.instructor as InstructorDoc & { discordVoiceChannelUrl?: string | null };
     if (!isInstructor(instructor)) {
       return NextResponse.json(
         { error: "Instructor not found" },
@@ -141,7 +141,7 @@ export async function GET(
       name: instructor.name,
       slug: instructor.slug,
       email: instructor.email,
-      discordVoiceChannelUrl: (instructor as any).discordVoiceChannelUrl ?? null,
+      discordVoiceChannelUrl: instructor.discordVoiceChannelUrl ?? null,
       tagline: instructor.tagline,
       bio: instructor.bio,
       specialties: instructor.specialties,

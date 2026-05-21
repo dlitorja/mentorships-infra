@@ -342,7 +342,7 @@ export default function EditInstructorPage() {
         name: data.name || "",
         slug: data.slug || "",
         email: data.email || "",
-        discordVoiceChannelUrl: (data as any).discordVoiceChannelUrl || "",
+        discordVoiceChannelUrl: (data as unknown as { discordVoiceChannelUrl?: string | null }).discordVoiceChannelUrl || "",
         tagline: data.tagline || "",
         bio: data.bio || "",
         specialties: data.specialties || [],

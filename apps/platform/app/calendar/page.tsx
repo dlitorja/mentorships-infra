@@ -136,7 +136,7 @@ export default async function CalendarPage() {
 
         {/* Booking (Google Calendar MVP) - uses the first active pack's instructor */}
         {activePacks.length > 0 && (
-          <BookWithGoogle instructorId={activePacks[0]!.instructorId} />
+          <BookWithGoogle packs={activePacks.map((p) => ({ id: p.id, instructorId: p.instructorId }))} />
         )}
 
         {/* Upcoming Sessions */}

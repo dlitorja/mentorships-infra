@@ -13,7 +13,12 @@ function addHours(dateIso: string, hours: number): string {
   return d.toISOString();
 }
 
-export function BookWithGoogle({ instructorId }: { instructorId: string }) {
+type Pack = { id: string; instructorId: string };
+
+export function BookWithGoogle({ instructorId, packs }: { instructorId?: string; packs?: Pack[] }) {
+  const [selectedInstructorId, setSelectedInstructorId] = React.useState<string | null>(
+    instructorId || packs?.[0]?.instructorId || null
+  );
   const start = React.useMemo(() => new Date().toISOString(), []);
   const end = React.useMemo(() => {
     const d = new Date();
@@ -24,8 +29,9 @@ export function BookWithGoogle({ instructorId }: { instructorId: string }) {
   const [studentName, setStudentName] = React.useState("");
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["availability", instructorId, start, end, 60],
-    queryFn: () => fetchInstructorAvailability(instructorId, start, end, 60),
+    queryKey: ["availability", selectedInstructorId, start, end, 60],
+    queryFn: () => fetchInstructorAvailability(selectedInstructorId!, start, end, 60),
+    enabled: !!selectedInstructorId,
   });
 
   async function book(slotIso: string) {
@@ -35,11 +41,10 @@ export function BookWithGoogle({ instructorId }: { instructorId: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          instructorId,
+          instructorId: selectedInstructorId!,
           start: slotIso,
           end: addHours(slotIso, 1),
           timezone,
-          studentEmail: "_", // ignored server-side; session email is used
           studentName: studentName || "Student",
         }),
       });
@@ -70,6 +75,20 @@ export function BookWithGoogle({ instructorId }: { instructorId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
+        {packs && packs.length > 0 && (
+          <div>
+            <label className="text-sm font-medium">Instructor</label>
+            <select
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+              value={selectedInstructorId || ""}
+              onChange={(e) => setSelectedInstructorId(e.target.value || null)}
+            >
+              {packs.map((p) => (
+                <option key={p.id} value={p.instructorId}>{p.instructorId}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="text-sm font-medium">Your name (shown to instructor)</label>
           <input
@@ -87,7 +106,9 @@ export function BookWithGoogle({ instructorId }: { instructorId: string }) {
         )}
         {info && <p className="text-xs text-muted-foreground">{info}</p>}
 
-        {isLoading ? (
+        {!selectedInstructorId ? (
+          <p className="text-sm text-muted-foreground">Select an instructor to view availability.</p>
+        ) : isLoading ? (
           <p className="text-sm text-muted-foreground">Loading availability…</p>
         ) : slots.length === 0 ? (
           <p className="text-sm text-muted-foreground">No available slots in the next 7 days.</p>

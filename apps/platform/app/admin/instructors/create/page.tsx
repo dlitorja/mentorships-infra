@@ -27,6 +27,7 @@ export default function CreateInstructorPage() {
     name: "",
     slug: "",
     email: "",
+    discordVoiceChannelUrl: "",
     tagline: "",
     bio: "",
     oneOnOneInventory: "3",
@@ -61,6 +62,7 @@ export default function CreateInstructorPage() {
           name: formData.name,
           slug: formData.slug,
           email: formData.email || undefined,
+          discordVoiceChannelUrl: formData.discordVoiceChannelUrl || undefined,
           tagline: formData.tagline || undefined,
           bio: formData.bio || undefined,
           oneOnOneInventory: (() => { const v = parseInt(formData.oneOnOneInventory); return Number.isNaN(v) ? 3 : v; })(),
@@ -170,6 +172,17 @@ export default function CreateInstructorPage() {
                 }
                 placeholder="instructor@example.com"
               />
+            </div>
+
+            <div>
+              <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
+              <Input
+                id="discordVoiceChannelUrl"
+                value={formData.discordVoiceChannelUrl}
+                onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
+                placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
+              />
+              <p className="text-xs text-muted-foreground mt-1">Must be an HTTPS Discord link. Leave blank to skip.</p>
             </div>
 
             <div>

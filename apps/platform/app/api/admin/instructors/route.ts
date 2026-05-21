@@ -76,6 +76,12 @@ const createInstructorSchema = z.object({
     .max(200)
     .regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with dashes"),
   email: z.string().email().optional().or(z.literal("")).default(""),
+  discordVoiceChannelUrl: z
+    .string()
+    .regex(/^https:\/\/(?:discord\.gg|discord(?:app)?\.com)\/.+$/)
+    .optional()
+    .or(z.literal(""))
+    .default(""),
   tagline: z.string().optional().default(""),
   bio: z.string().optional().default(""),
   specialties: z.array(z.string()).optional().default([]),
@@ -145,6 +151,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         name: data.name,
         slug: data.slug,
         email: data.email ? data.email.toLowerCase() : undefined,
+        discordVoiceChannelUrl: data.discordVoiceChannelUrl ? data.discordVoiceChannelUrl : undefined,
         tagline: data.tagline || undefined,
         bio: data.bio || undefined,
         specialties: data.specialties,
@@ -190,18 +197,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId });
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Instructor created successfully",
-        instructor: {
-          id: instructor?._id ?? (instructorId as string),
-          name: instructor?.name ?? data.name,
-          slug: instructor?.slug ?? data.slug,
-          email: instructor?.email ?? data.email ?? null,
-          profileImageUrl: instructor?.profileImageUrl ?? null,
-          createdAt: instructor ? new Date(instructor._creationTime).toISOString() : null,
-        },
+      return NextResponse.json(
+        {
+          success: true,
+          message: "Instructor created successfully",
+          instructor: {
+            id: instructor?._id ?? (instructorId as string),
+            name: instructor?.name ?? data.name,
+            slug: instructor?.slug ?? data.slug,
+            email: instructor?.email ?? data.email ?? null,
+            discordVoiceChannelUrl: (instructor as any)?.discordVoiceChannelUrl ?? (data.discordVoiceChannelUrl || null),
+            profileImageUrl: instructor?.profileImageUrl ?? null,
+            createdAt: instructor ? new Date(instructor._creationTime).toISOString() : null,
+          },
         inventory: {
           oneOnOneInventory: data.oneOnOneInventory,
           groupInventory: data.groupInventory,
