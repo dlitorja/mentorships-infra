@@ -267,57 +267,7 @@ export const syncUser = mutation({
  * - Rejects requests older than 5 minutes to reduce replay risk.
  * - Allows elevating to admin only via valid signature.
  */
-export const serverVerifiedSetUserRole = mutation({
-  args: {
-    userId: v.string(),
-    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
-    ts: v.number(),
-    sig: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const { userId, role, ts, sig } = args;
-    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-    if (!secret) {
-      throw new Error("Server misconfigured: CONVEX_SERVER_SHARED_SECRET not set");
-    }
-
-    // Basic replay protection: 5 minute window
-    const now = Date.now();
-    if (Math.abs(now - ts) > 5 * 60 * 1000) {
-      throw new Error("Signature expired");
-    }
-
-    const msg = `${userId}:${role}:${ts}`;
-    const expected = crypto.createHmac("sha256", secret).update(msg).digest("hex");
-    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) {
-      throw new Error("Invalid signature");
-    }
-
-    // Upsert by userId; prefer updating existing user
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, { role, userId });
-      return await ctx.db.get(existing._id);
-    }
-
-    // If no existing, try to find by email via current identity
-    const identity = await ctx.auth.getUserIdentity();
-    const email = identity?.email;
-    const id = await ctx.db.insert("users", {
-      userId,
-      email: email ?? undefined,
-      clerkId: userId,
-      role,
-    } as Partial<Doc<"users">> as any);
-    const inserted = await ctx.db.get(id);
-    if (!inserted) throw new Error("Failed to set role");
-    return inserted;
-  },
-});
+// serverVerifiedSetUserRole moved to users_actions.ts (Node action)
 
 export const migrateUser = mutation({
   args: {

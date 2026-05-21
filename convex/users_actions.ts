@@ -17,7 +17,7 @@ export const serverVerifiedSetUserRole = action({
     ts: v.number(),
     sig: v.string(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<any> => {
     const { userId, role, ts, sig } = args;
     const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
     if (!secret) throw new Error("Server misconfigured: CONVEX_SERVER_SHARED_SECRET not set");
@@ -34,7 +34,7 @@ export const serverVerifiedSetUserRole = action({
     }
 
     // Delegate to internal trusted mutation
-    const updated = await ctx.runMutation(internal.users.setUserRoleTrusted, {
+    const updated: any = await ctx.runMutation(internal.users.setUserRoleTrusted as any, {
       userId,
       role,
     });
