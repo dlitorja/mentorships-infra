@@ -54,11 +54,10 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
         toast.success("Session marked as completed");
       } else {
         toast.error(json?.error || "Failed to mark completed");
-        throw new Error(json?.error || "Failed to mark completed");
+        return; // avoid duplicate error toast
       }
     } catch (e) {
       toast.error("Unexpected error while marking completed");
-      throw e;
     } finally {
       setInFlightId(null);
     }

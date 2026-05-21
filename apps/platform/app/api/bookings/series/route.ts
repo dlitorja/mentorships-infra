@@ -137,6 +137,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
 
         let didConfirm = false;
+        let insertedGoogleEventId: string | null = null;
         try {
           const insert = await calendar.events.insert({
             calendarId: eventCalendarId,
@@ -153,20 +154,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               extendedProperties: { private: { idempotencyKey } },
             },
           });
-          const googleEventId = insert.data.id;
-          if (!googleEventId) {
+          insertedGoogleEventId = insert.data.id ?? null;
+          if (!insertedGoogleEventId) {
             results.push({ weekOffset: i, status: "skipped", reason: "Failed to create calendar event" });
             // rollback
             try {
               await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
-            } catch {}
+            } catch (rollbackErr) {
+              console.error("Rollback failed for api.bookings.cancel", { bookingId: pending.bookingId, error: rollbackErr });
+            }
             continue;
           }
 
           const confirmed = await convex.mutation(api.bookings.confirm, {
             id: pending.bookingId,
             eventCalendarId,
-            googleEventId,
+            googleEventId: insertedGoogleEventId,
           });
           didConfirm = true;
           createdTimes.push(confirmed.startUtc);
@@ -176,6 +179,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           results.push({ weekOffset: i, status: "skipped", reason: "Calendar provider error" });
         } finally {
           if (!didConfirm) {
+            if (insertedGoogleEventId) {
+              try {
+                await calendar.events.delete({ calendarId: eventCalendarId, eventId: insertedGoogleEventId, sendUpdates: "all" });
+              } catch (deleteErr) {
+                console.error("Rollback failed for calendar.events.delete", { eventId: insertedGoogleEventId, error: deleteErr });
+              }
+            }
             try {
               await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
             } catch (rollbackErr) {

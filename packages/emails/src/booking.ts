@@ -143,8 +143,9 @@ export function buildSeriesSummaryEmails(args: {
   ].join("\n");
 
   const instructorSubject = `New sessions scheduled`;
+  const instructorGreeting = args.instructorName ? `Hi ${args.instructorName},` : "Hi,";
   const instructorText = [
-    args.instructorName ? `Hi ${args.instructorName},` : "Hi,",
+    instructorGreeting,
     "",
     `We scheduled sessions with ${args.studentName} at the same day/time for the next weeks.`,
     "",

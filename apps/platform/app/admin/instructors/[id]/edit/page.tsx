@@ -343,7 +343,7 @@ export default function EditInstructorPage() {
         name: data.name || "",
         slug: data.slug || "",
         email: data.email || "",
-        discordVoiceChannelUrl: (data as InstructorDetail).discordVoiceChannelUrl || "",
+        discordVoiceChannelUrl: data.discordVoiceChannelUrl || "",
         tagline: data.tagline || "",
         bio: data.bio || "",
         specialties: data.specialties || [],

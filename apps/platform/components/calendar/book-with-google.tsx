@@ -40,6 +40,8 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
     try {
       setBookingInFlightIso(slotIso);
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      // Create the initial booking first, but do NOT suppress notifications yet.
+      // We'll suppress only if the series succeeds and send a single summary.
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -49,43 +51,54 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
           end: addHours(slotIso, 1),
           timezone,
           studentName: studentName || "Student",
-          suppressNotifications: true,
         }),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json?.success) {
         toast.success("Booked. Invite sent; Discord link is in the event.");
         // Attempt weekly series for 3 future weeks by default (4-session program)
-        {
-          try {
-            const seriesRes = await fetch("/api/bookings/series", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                instructorId: selectedInstructorId!,
-                start: slotIso,
-                timezone,
-                weeks: 3,
-                studentName: studentName || "Student",
-              }),
-            });
-            const seriesJson = await seriesRes.json().catch(() => ({}));
-            if (seriesRes.ok && seriesJson?.success) {
-              const created = seriesJson.created ?? 0;
-              const skipped = seriesJson.skipped ?? 0;
-              if (created > 0 || skipped > 0) {
-                toast.success(
-                  `We also reserved ${created} future weekly ${created === 1 ? "session" : "sessions"}${
-                    skipped > 0 ? `; ${skipped} week${skipped === 1 ? "" : "s"} skipped due to conflicts` : ""
-                  }.`
-                );
-              }
-            } else if (seriesRes.status !== 404) {
-              // Silently ignore if endpoint missing; else surface error
-              toast.error(seriesJson?.error || "Failed to create weekly reservations");
+        let seriesOk = false;
+        try {
+          const seriesRes = await fetch("/api/bookings/series", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              instructorId: selectedInstructorId!,
+              start: slotIso,
+              timezone,
+              weeks: 3,
+              studentName: studentName || "Student",
+            }),
+          });
+          const seriesJson = await seriesRes.json().catch(() => ({}));
+          if (seriesRes.ok && seriesJson?.success) {
+            seriesOk = true;
+            const created = seriesJson.created ?? 0;
+            const skipped = seriesJson.skipped ?? 0;
+            if (created > 0 || skipped > 0) {
+              toast.success(
+                `We also reserved ${created} future weekly ${created === 1 ? "session" : "sessions"}${
+                  skipped > 0 ? `; ${skipped} week${skipped === 1 ? "" : "s"} skipped due to conflicts` : ""
+                }.`
+              );
             }
-          } catch {
-            // Non-fatal: weekly automation failed
+          } else if (seriesRes.status !== 404) {
+            toast.error(seriesJson?.error || "Failed to create weekly reservations");
+          }
+        } catch {
+          // ignore network errors here; we'll fallback notify below
+        }
+        if (!seriesOk) {
+          // Fallback: ensure at least one confirmation email goes out
+          const bookingId = json?.booking?._id || json?.booking?.id;
+          if (bookingId) {
+            try {
+              await fetch("/api/bookings/notify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ bookingId }),
+              });
+            } catch {}
           }
         }
         // Refetch availability to reflect booking

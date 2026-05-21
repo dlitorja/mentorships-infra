@@ -128,10 +128,16 @@ function DashboardContent() {
       try {
         const res = await fetch("/api/bookings/me");
         const json = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok && json?.success) {
-          setGoogleBookings(json.bookings || []);
+        if (!cancelled) {
+          if (res.ok && json?.success) {
+            setGoogleBookings(json.bookings || []);
+          } else {
+            setGoogleBookings([]);
+          }
         }
-      } catch {}
+      } catch {
+        if (!cancelled) setGoogleBookings([]);
+      }
       if (!cancelled) setLoadingGoogleBookings(false);
     }
     load();
