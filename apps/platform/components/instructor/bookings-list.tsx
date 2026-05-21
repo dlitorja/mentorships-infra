@@ -18,8 +18,13 @@ function formatDateTime(ms: number): string {
   }
 }
 
-export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
-  const [bookings, setBookings] = useState<Booking[]>(initial);
+type InitialBooking = { id: string; startUtc: number; endUtc: number; studentEmail: string; status: string };
+
+export function InstructorBookingsList({ initial }: { initial: InitialBooking[] }) {
+  const coerceStatus = (s: string): BookingStatus => {
+    return s === "pending" || s === "confirmed" || s === "canceled" || s === "completed" ? (s as BookingStatus) : "confirmed";
+  };
+  const [bookings, setBookings] = useState<Booking[]>(() => initial.map(b => ({ ...b, status: coerceStatus(b.status) })));
   const [inFlightId, setInFlightId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [completeOpenId, setCompleteOpenId] = useState<string | null>(null);
