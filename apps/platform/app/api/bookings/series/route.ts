@@ -173,6 +173,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             eventCalendarId,
             googleEventId: insertedGoogleEventId,
           });
+          if (!confirmed) {
+            throw new Error("Confirm returned null");
+          }
           didConfirm = true;
           createdTimes.push(confirmed.startUtc);
           results.push({ weekOffset: i, status: "created", bookingId: String(confirmed._id) });
