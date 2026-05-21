@@ -36,6 +36,11 @@ export default function CreateInstructorPage() {
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
 
+  // Mirror server-side validation for Discord URLs
+  const DISCORD_URL_REGEX = /^https:\/\/(?:discord\.gg|discord(?:app)?\.com)\/.+$/;
+  const discordUrl = formData.discordVoiceChannelUrl?.trim() || "";
+  const isDiscordUrlInvalid = discordUrl.length > 0 && !DISCORD_URL_REGEX.test(discordUrl);
+
   const handleNameChange = (name: string) => {
     setFormData((prev) => ({
       ...prev,
@@ -174,16 +179,20 @@ export default function CreateInstructorPage() {
               />
             </div>
 
-            <div>
-              <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
-              <Input
-                id="discordVoiceChannelUrl"
-                value={formData.discordVoiceChannelUrl}
-                onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
-                placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
-              />
+          <div>
+            <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
+            <Input
+              id="discordVoiceChannelUrl"
+              value={formData.discordVoiceChannelUrl}
+              onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
+              placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
+            />
+            {isDiscordUrlInvalid ? (
+              <p className="text-xs text-red-600 mt-1">Enter a valid HTTPS Discord link (discord.gg or discord.com)</p>
+            ) : (
               <p className="text-xs text-muted-foreground mt-1">Must be an HTTPS Discord link. Leave blank to skip.</p>
-            </div>
+            )}
+          </div>
 
             <div>
               <Label htmlFor="tagline">Tagline</Label>
@@ -306,7 +315,7 @@ export default function CreateInstructorPage() {
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitting || isDiscordUrlInvalid}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Instructor
           </Button>

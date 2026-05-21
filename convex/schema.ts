@@ -164,7 +164,7 @@ export default defineSchema({
     timezone: v.string(),
     studentEmail: v.string(),
     studentName: v.string(),
-    status: v.union(v.literal("pending"), v.literal("confirmed"), v.literal("canceled")),
+    status: v.union(v.literal("pending"), v.literal("confirmed"), v.literal("canceled"), v.literal("completed")),
     eventCalendarId: v.optional(v.string()),
     googleEventId: v.optional(v.string()),
     idempotencyKey: v.string(),

@@ -107,6 +107,29 @@ export const cancel = mutation({
   },
 });
 
+/** Mark a booking as completed */
+export const complete = mutation({
+  args: {
+    id: v.id("bookings"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const booking = await ctx.db.get(args.id);
+    if (!booking) return null;
+    // Allow complete by creator or instructor owner
+    if (booking.createdByUserId !== identity.subject) {
+      const instructor = await ctx.db.get(booking.instructorId);
+      if (!instructor || instructor.userId !== identity.subject) {
+        throw new Error("Forbidden");
+      }
+    }
+    if (booking.status === "completed") return booking;
+    await ctx.db.patch(args.id, { status: "completed", updatedAt: Date.now() });
+    return await ctx.db.get(args.id);
+  },
+});
+
 /** List bookings for an instructor, only visible to the owning instructor user */
 export const listInstructorBookings = query({
   args: {

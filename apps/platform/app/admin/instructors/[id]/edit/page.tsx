@@ -490,6 +490,11 @@ export default function EditInstructorPage() {
     }));
   };
 
+  // Inline Discord URL validation mirrors server regex
+  const DISCORD_URL_REGEX = /^https:\/\/(?:discord\.gg|discord(?:app)?\.com)\/.+$/;
+  const discordUrl = (formData.discordVoiceChannelUrl || "").trim();
+  const isDiscordUrlInvalid = discordUrl.length > 0 && !DISCORD_URL_REGEX.test(discordUrl);
+
   if (isLoading) {
     return (
       <div className="container mx-auto py-8 flex justify-center">
@@ -527,7 +532,7 @@ export default function EditInstructorPage() {
         <div className="flex gap-2">
           <Button
             onClick={handleSave}
-            disabled={updateMutation.isPending}
+            disabled={updateMutation.isPending || isDiscordUrlInvalid}
           >
             {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Changes
@@ -630,9 +635,13 @@ export default function EditInstructorPage() {
                   onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
                   placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Must be an HTTPS Discord link. Leave blank to clear.
-                </p>
+                {isDiscordUrlInvalid ? (
+                  <p className="text-xs text-red-600 mt-1">Enter a valid HTTPS Discord link (discord.gg or discord.com)</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Must be an HTTPS Discord link. Leave blank to clear.
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="instructorId">Instructor ID</Label>
