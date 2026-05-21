@@ -164,17 +164,33 @@ export default defineSchema({
     timezone: v.string(),
     studentEmail: v.string(),
     studentName: v.string(),
-    status: v.union(v.literal("pending"), v.literal("confirmed"), v.literal("canceled")),
+    status: v.union(v.literal("pending"), v.literal("confirmed"), v.literal("canceled"), v.literal("completed")),
     eventCalendarId: v.optional(v.string()),
     googleEventId: v.optional(v.string()),
     idempotencyKey: v.string(),
     createdByUserId: v.optional(v.string()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
+    // Completion metadata
+    completedAt: v.optional(v.number()),
+    completedByUserId: v.optional(v.string()),
+    completionNotes: v.optional(v.string()),
+    // Lightweight history log
+    history: v.optional(
+      v.array(
+        v.object({
+          action: v.union(v.literal("created"), v.literal("confirmed"), v.literal("canceled"), v.literal("completed")),
+          at: v.number(),
+          byUserId: v.optional(v.string()),
+          info: v.optional(v.string()),
+        })
+      )
+    ),
   })
     .index("by_instructorId", ["instructorId"]) 
     .index("by_idempotencyKey", ["idempotencyKey"]) 
-    .index("by_status", ["status"]) ,
+    .index("by_status", ["status"]) 
+    .index("by_studentEmail", ["studentEmail"]) ,
 
   instructorProfiles: defineTable({
     userId: v.optional(v.string()),

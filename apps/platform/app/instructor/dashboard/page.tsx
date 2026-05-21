@@ -9,6 +9,7 @@ import { Calendar, Clock, Users, BookOpen, CheckCircle2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { InstructorBookingsList } from "@/components/instructor/bookings-list";
 
 function formatDate(date: Date | string | null): string {
   if (!date) return "N/A";
@@ -164,24 +165,7 @@ export default async function InstructorDashboardPage() {
               <CardDescription>Bookings created via Google Calendar</CardDescription>
             </CardHeader>
             <CardContent>
-              {bookings.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No bookings yet</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {bookings.map((b) => (
-                    <div key={b.id} className="border rounded-lg p-3 flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">{new Date(b.startUtc).toLocaleString()}</div>
-                        <div className="text-xs text-muted-foreground">{b.studentEmail}</div>
-                      </div>
-                      <Badge variant={b.status === "confirmed" ? "secondary" : "outline"}>{b.status}</Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <InstructorBookingsList initial={bookings} />
             </CardContent>
           </Card>
           

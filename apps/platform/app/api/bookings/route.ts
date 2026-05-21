@@ -8,6 +8,7 @@ import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { tasks } from "@trigger.dev/sdk";
 
 const createSchema = z.object({
   instructorId: z.string().min(1),
@@ -17,6 +18,7 @@ const createSchema = z.object({
   // studentEmail is derived from session; accept optional input for legacy callers but ignore
   studentEmail: z.string().email().optional(),
   studentName: z.string().min(1),
+  suppressNotifications: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid request", details: parsed.error.issues }, { status: 400 });
     }
 
-    const { instructorId, start, end, timezone, studentEmail, studentName } = parsed.data;
+    const { instructorId, start, end, timezone, studentEmail, studentName, suppressNotifications } = parsed.data;
     const startUtc = new Date(start).getTime();
     const endUtc = new Date(end).getTime();
     if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc) || endUtc <= startUtc) {
@@ -159,6 +161,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         googleEventId,
       });
       didConfirm = true;
+      if (!suppressNotifications) {
+        // Trigger notifications task (student + instructor) when not suppressed
+        try {
+          await tasks.trigger("booking-notifications", {
+            studentEmail: confirmed.studentEmail,
+            studentName: confirmed.studentName,
+            instructorEmail: instructor.email || null,
+            instructorName: instructor.name || null,
+            scheduledAtUtc: confirmed.startUtc,
+            studentTimeZone: timezone,
+            instructorTimeZone: instructor.timeZone || null,
+          });
+        } catch (e) {
+          console.error("Failed to trigger booking-notifications task:", e);
+        }
+      }
       return NextResponse.json({ success: true, booking: confirmed });
     } catch (e) {
       console.error("Google Calendar insert error:", e);

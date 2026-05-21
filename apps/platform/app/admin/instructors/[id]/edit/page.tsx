@@ -17,6 +17,7 @@ import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
 import { z } from "zod";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
+import { isValidDiscordUrl } from "@/lib/validation/discord";
 
 const NONE_SENTINEL = "__none__";
 
@@ -342,7 +343,7 @@ export default function EditInstructorPage() {
         name: data.name || "",
         slug: data.slug || "",
         email: data.email || "",
-        discordVoiceChannelUrl: (data as unknown as { discordVoiceChannelUrl?: string | null }).discordVoiceChannelUrl || "",
+        discordVoiceChannelUrl: data.discordVoiceChannelUrl || "",
         tagline: data.tagline || "",
         bio: data.bio || "",
         specialties: data.specialties || [],
@@ -490,6 +491,10 @@ export default function EditInstructorPage() {
     }));
   };
 
+  // Inline Discord URL validation using shared helper
+  const discordUrl = (formData.discordVoiceChannelUrl || "").trim();
+  const isDiscordUrlInvalid = !isValidDiscordUrl(discordUrl);
+
   if (isLoading) {
     return (
       <div className="container mx-auto py-8 flex justify-center">
@@ -526,8 +531,11 @@ export default function EditInstructorPage() {
         </div>
         <div className="flex gap-2">
           <Button
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
+            onClick={() => {
+              if (isDiscordUrlInvalid) return;
+              handleSave();
+            }}
+            disabled={updateMutation.isPending || isDiscordUrlInvalid}
           >
             {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Changes
@@ -630,9 +638,13 @@ export default function EditInstructorPage() {
                   onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
                   placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
                 />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Must be an HTTPS Discord link. Leave blank to clear.
-                </p>
+                {isDiscordUrlInvalid ? (
+                  <p className="text-xs text-red-600 mt-1">Enter a valid HTTPS Discord link (discord.gg or discord.com)</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Must be an HTTPS Discord link. Leave blank to clear.
+                  </p>
+                )}
               </div>
               <div>
                 <Label htmlFor="instructorId">Instructor ID</Label>

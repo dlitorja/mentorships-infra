@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Upload } from "lucide-react";
+import { isValidDiscordUrl } from "@/lib/validation/discord";
 
 function generateSlug(name: string): string {
   return name
@@ -36,6 +37,9 @@ export default function CreateInstructorPage() {
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
 
+  const discordUrl = formData.discordVoiceChannelUrl?.trim() || "";
+  const isDiscordUrlInvalid = !isValidDiscordUrl(discordUrl);
+
   const handleNameChange = (name: string) => {
     setFormData((prev) => ({
       ...prev,
@@ -54,6 +58,10 @@ export default function CreateInstructorPage() {
     setIsSubmitting(true);
 
     try {
+      // Defensive guard to prevent programmatic bypass
+      if (isDiscordUrlInvalid) {
+        return;
+      }
       // 1) Create instructor via platform API (enforces admin & validation)
       const createRes = await fetch("/api/admin/instructors", {
         method: "POST",
@@ -174,16 +182,20 @@ export default function CreateInstructorPage() {
               />
             </div>
 
-            <div>
-              <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
-              <Input
-                id="discordVoiceChannelUrl"
-                value={formData.discordVoiceChannelUrl}
-                onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
-                placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
-              />
+          <div>
+            <Label htmlFor="discordVoiceChannelUrl">Discord Voice Channel URL</Label>
+            <Input
+              id="discordVoiceChannelUrl"
+              value={formData.discordVoiceChannelUrl}
+              onChange={(e) => setFormData((prev) => ({ ...prev, discordVoiceChannelUrl: e.target.value }))}
+              placeholder="https://discord.gg/your-channel or https://discord.com/channels/..."
+            />
+            {isDiscordUrlInvalid ? (
+              <p className="text-xs text-red-600 mt-1">Enter a valid HTTPS Discord link (discord.gg or discord.com)</p>
+            ) : (
               <p className="text-xs text-muted-foreground mt-1">Must be an HTTPS Discord link. Leave blank to skip.</p>
-            </div>
+            )}
+          </div>
 
             <div>
               <Label htmlFor="tagline">Tagline</Label>
@@ -306,7 +318,7 @@ export default function CreateInstructorPage() {
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
+          <Button type="submit" disabled={isSubmitting || isDiscordUrlInvalid}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Create Instructor
           </Button>
