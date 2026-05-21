@@ -211,3 +211,45 @@ export const listInstructorBookings = query({
     }));
   },
 });
+
+/** List bookings for the current student (by email or createdByUserId) */
+export const listStudentBookings = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+    // Resolve email from users table by identity
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    const email = user?.email;
+    if (!email) return [];
+
+    const byEmail = await ctx.db
+      .query("bookings")
+      .withIndex("by_studentEmail", (q) => q.eq("studentEmail", email))
+      .collect();
+    const byCreator = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "confirmed"))
+      .collect();
+    const mineAlso = byCreator.filter((b) => b.createdByUserId === identity.subject);
+
+    const combined = [...byEmail, ...mineAlso];
+    const dedup = new Map<string, Doc<"bookings">>();
+    for (const b of combined) dedup.set((b._id as string), b);
+
+    const all = Array.from(dedup.values()).sort((a, b) => a.startUtc - b.startUtc);
+    const out = (args.limit ? all.slice(0, args.limit) : all).map((b) => ({
+      id: b._id,
+      startUtc: b.startUtc,
+      endUtc: b.endUtc,
+      status: b.status,
+      instructorId: b.instructorId,
+    }));
+    return out;
+  },
+});

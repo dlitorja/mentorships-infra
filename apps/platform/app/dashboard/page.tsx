@@ -9,7 +9,7 @@ import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/li
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
-import { useMemo, Suspense } from "react";
+import { useMemo, Suspense, useEffect, useState } from "react";
 
 function formatDate(date: number): string {
   return new Date(date).toLocaleDateString("en-US", {
@@ -145,6 +145,28 @@ function DashboardContent() {
     );
   }
 
+  const [googleBookings, setGoogleBookings] = useState<Array<{ id: string; startUtc: number; endUtc: number; status: string; instructorId: string }>>([]);
+  const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoadingGoogleBookings(true);
+      try {
+        const res = await fetch("/api/bookings/me");
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && json?.success) {
+          setGoogleBookings(json.bookings || []);
+        }
+      } catch {}
+      if (!cancelled) setLoadingGoogleBookings(false);
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6">
       <div className="flex items-center justify-between mb-8">
@@ -251,9 +273,7 @@ function DashboardContent() {
         <Card>
           <CardHeader>
             <CardTitle>Upcoming Sessions</CardTitle>
-            <CardDescription>
-              Your scheduled mentorship sessions
-            </CardDescription>
+            <CardDescription>Your scheduled mentorship sessions</CardDescription>
           </CardHeader>
           <CardContent>
             {sessionsLoading ? (
@@ -276,6 +296,44 @@ function DashboardContent() {
                 {(upcomingSessions as any[]).map((session: any) => (
                   <UpcomingSessionCard key={session._id} session={session} />
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Google Booked Sessions</CardTitle>
+            <CardDescription>Bookings created via Google Calendar</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingGoogleBookings ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+            ) : googleBookings.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No bookings yet</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {googleBookings.map((b) => {
+                  const awaiting = b.status === "confirmed" && b.startUtc < Date.now();
+                  return (
+                    <div key={b.id} className="border rounded-lg p-4 flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">{new Date(b.startUtc).toLocaleString()}</p>
+                        {awaiting ? (
+                          <p className="text-xs text-muted-foreground mt-1">Awaiting instructor confirmation</p>
+                        ) : null}
+                      </div>
+                      <Badge variant={b.status === "completed" ? "default" : b.status === "canceled" ? "destructive" : "outline"}>
+                        {b.status}
+                      </Badge>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>

@@ -189,7 +189,8 @@ export default defineSchema({
   })
     .index("by_instructorId", ["instructorId"]) 
     .index("by_idempotencyKey", ["idempotencyKey"]) 
-    .index("by_status", ["status"]) ,
+    .index("by_status", ["status"]) 
+    .index("by_studentEmail", ["studentEmail"]) ,
 
   instructorProfiles: defineTable({
     userId: v.optional(v.string()),

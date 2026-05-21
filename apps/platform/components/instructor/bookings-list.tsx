@@ -4,6 +4,8 @@ import { useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 type Booking = { id: string; startUtc: number; endUtc: number; studentEmail: string; status: string };
 
@@ -19,6 +21,8 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
   const [bookings, setBookings] = useState<Booking[]>(initial);
   const [inFlightId, setInFlightId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const [completeOpenId, setCompleteOpenId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<string>("");
 
   async function cancel(id: string) {
     if (!confirm("Cancel this booking?")) return;
@@ -39,11 +43,10 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
     }
   }
 
-  async function complete(id: string) {
-    if (!confirm("Mark this session as completed?")) return;
+  async function submitComplete(id: string, optNotes?: string) {
     setInFlightId(id);
     try {
-      const res = await fetch(`/api/bookings/${id}/complete`, { method: "POST" });
+      const res = await fetch(`/api/bookings/${id}/complete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes: optNotes || undefined }) });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json?.success) {
         setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status: "completed" } : b)));
@@ -73,8 +76,8 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
           <div className="flex items-center gap-2">
             <Badge variant={b.status === "confirmed" ? "secondary" : "outline"}>{b.status}</Badge>
             {b.status === "confirmed" && b.startUtc < Date.now() && (
-              <Button variant="ghost" size="sm" onClick={() => complete(b.id)} disabled={inFlightId === b.id}>
-                {inFlightId === b.id ? "Updating…" : "Mark completed"}
+              <Button variant="ghost" size="sm" onClick={() => { setCompleteOpenId(b.id); setNotes(""); }} disabled={inFlightId === b.id}>
+                Mark completed
               </Button>
             )}
             <Button variant="ghost" size="sm" onClick={() => cancel(b.id)} disabled={inFlightId === b.id}>
@@ -83,6 +86,21 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
           </div>
         </div>
       ))}
+      <Dialog open={!!completeOpenId} onOpenChange={(open) => { if (!open) setCompleteOpenId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mark session as completed</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">Optional: add a short note to help track progress. This is only visible to you for now.</p>
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes (max 500 chars)" rows={4} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCompleteOpenId(null)}>Cancel</Button>
+            <Button onClick={() => { if (completeOpenId) { void submitComplete(completeOpenId, notes?.trim() || undefined); } setCompleteOpenId(null); }}>Mark completed</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
