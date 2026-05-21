@@ -308,22 +308,49 @@ export async function PUT(
       });
     } catch (err: any) {
       const msg: string = err?.message || String(err);
-      // Common Convex client message: "[Request ID: <id>] Server Error ..."
-      const match = msg.match(/\[Request ID: ([^\]]+)\]/);
-      const requestId = match?.[1];
+      // Extract Convex request id when available, keep null when not matched
+      const requestId = (() => {
+        const m = msg.match(/\[Request ID: ([^\]]+)\]/);
+        return m ? m[1] : null;
+      })();
+
       console.error("Convex updateInstructor failed", {
         requestId,
         message: msg,
         resolvedId,
         updateDataKeys: Object.keys(updateData),
       });
-      // Classify Convex server errors as 400 to avoid generic 500 with no context
-      if (/Server Error/i.test(msg)) {
+
+      // Error classification:
+      // - Likely invalid arguments/schema mismatch: return 400
+      // - Otherwise preserve 5xx to avoid masking outages
+      const looksLikeArgValidation = /ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(
+        msg
+      );
+      if (looksLikeArgValidation) {
         return NextResponse.json(
-          { error: "Convex server error", requestId, details: "Invalid update payload or schema mismatch" },
+          {
+            error: "Invalid Convex mutation arguments",
+            requestId,
+            details: "Update payload failed Convex validator",
+          },
           { status: 400 }
         );
       }
+
+      // If Convex reports a generic "Server Error" but we can't confirm it's validation-related, keep 502
+      if (/Server Error/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error: "Upstream Convex server error",
+            requestId,
+            details: "Convex returned a server error while updating instructor",
+          },
+          { status: 502 }
+        );
+      }
+
+      // Unknown error shape – rethrow to outer handler
       throw err;
     }
 
