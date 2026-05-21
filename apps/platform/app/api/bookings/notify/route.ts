@@ -13,7 +13,7 @@ const schema = z.object({
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    await requireAuth();
+    const userId = await requireAuth();
     const body = await request.json().catch(() => ({}));
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
@@ -26,6 +26,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const instructor = await convex.query(api.instructors.getInstructorById, { id: booking.instructorId });
     if (!instructor) return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
 
+    // AuthZ: only the creating student, owning instructor, or admin may send notifications
+    let isAdmin = false;
+    try {
+      const user = await convex.query(api.users.getUserByUserId as any, { userId });
+      isAdmin = (user as any)?.role === "admin";
+    } catch {}
+    if (!isAdmin && !(booking.createdByUserId === userId || instructor.userId === userId)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     // Student email
     if (booking.studentEmail) {
       const built = buildBookingConfirmationEmail(new Date(booking.startUtc), booking.studentName, instructor.name || "Instructor", booking.timezone);
@@ -33,7 +43,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // Instructor email
-    if (instructor.email) {
+    if (instructor.email && booking.studentEmail) {
       const built = buildInstructorNotificationEmail(new Date(booking.startUtc), instructor.name || "Instructor", booking.studentName, booking.studentEmail, instructor.timeZone || null);
       await sendEmail({ to: instructor.email, subject: built.subject, text: built.text, html: built.html, headers: built.headers });
     }

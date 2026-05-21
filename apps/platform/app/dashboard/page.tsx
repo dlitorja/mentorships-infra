@@ -113,7 +113,9 @@ function UpcomingSessionCard({ session }: { session: any }) {
 function DashboardContent() {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
-  const [googleBookings, setGoogleBookings] = useState<Array<{ id: string; startUtc: number; endUtc: number; status: string; instructorId: string }>>([]);
+  type GoogleBookingStatus = "pending" | "confirmed" | "canceled" | "completed";
+  type GoogleBooking = { id: string; startUtc: number; endUtc: number; status: GoogleBookingStatus };
+  const [googleBookings, setGoogleBookings] = useState<GoogleBooking[]>([]);
   const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
 
   const { data: sessionPacks, isLoading: packsLoading } = useActiveSessionPacksByUser(userId || "");
@@ -121,7 +123,11 @@ function DashboardContent() {
   const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingStudentSessions(userId || "");
 
   useEffect(() => {
-    if (!isLoaded || !user) return;
+    if (!isLoaded || !userId) {
+      setGoogleBookings([]);
+      setLoadingGoogleBookings(false);
+      return;
+    }
     let cancelled = false;
     async function load() {
       setLoadingGoogleBookings(true);
@@ -144,7 +150,7 @@ function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, user]);
+  }, [isLoaded, userId]);
 
   const sortedPacks = useMemo(() => {
     if (!sessionPacks) return [];

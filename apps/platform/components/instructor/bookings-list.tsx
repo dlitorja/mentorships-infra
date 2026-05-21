@@ -44,7 +44,7 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
     }
   }
 
-  async function submitComplete(id: string, optNotes?: string) {
+  async function submitComplete(id: string, optNotes?: string): Promise<boolean> {
     setInFlightId(id);
     try {
       const res = await fetch(`/api/bookings/${id}/complete`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes: optNotes || undefined }) });
@@ -52,12 +52,14 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
       if (res.ok && json?.success) {
         setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status: "completed" } : b)));
         toast.success("Session marked as completed");
+        return true;
       } else {
         toast.error(json?.error || "Failed to mark completed");
-        return; // avoid duplicate error toast
+        return false; // avoid duplicate error toast
       }
     } catch (e) {
       toast.error("Unexpected error while marking completed");
+      return false;
     } finally {
       setInFlightId(null);
     }
@@ -101,7 +103,16 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCompleteOpenId(null)}>Cancel</Button>
-            <Button onClick={async () => { if (completeOpenId) { try { await submitComplete(completeOpenId, notes?.trim() || undefined); setCompleteOpenId(null); } catch {} } }}>Mark completed</Button>
+            <Button
+              disabled={!!inFlightId && inFlightId === completeOpenId}
+              onClick={async () => {
+                if (!completeOpenId) return;
+                const ok = await submitComplete(completeOpenId, notes?.trim() || undefined);
+                if (ok) setCompleteOpenId(null);
+              }}
+            >
+              Mark completed
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

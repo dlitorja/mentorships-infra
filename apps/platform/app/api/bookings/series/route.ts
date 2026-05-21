@@ -138,6 +138,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         let didConfirm = false;
         let insertedGoogleEventId: string | null = null;
+        let cancelAlready = false;
         try {
           const insert = await calendar.events.insert({
             calendarId: eventCalendarId,
@@ -163,6 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             } catch (rollbackErr) {
               console.error("Rollback failed for api.bookings.cancel", { bookingId: pending.bookingId, error: rollbackErr });
             }
+            cancelAlready = true;
             continue;
           }
 
@@ -186,10 +188,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 console.error("Rollback failed for calendar.events.delete", { eventId: insertedGoogleEventId, error: deleteErr });
               }
             }
-            try {
-              await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
-            } catch (rollbackErr) {
-              console.error("Rollback failed for api.bookings.cancel", { bookingId: pending.bookingId, error: rollbackErr });
+            if (!cancelAlready) {
+              try {
+                await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
+              } catch (rollbackErr) {
+                console.error("Rollback failed for api.bookings.cancel", { bookingId: pending.bookingId, error: rollbackErr });
+              }
             }
           }
         }
