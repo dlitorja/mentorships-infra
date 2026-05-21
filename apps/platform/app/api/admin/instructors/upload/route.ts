@@ -83,10 +83,36 @@ export async function POST(req: NextRequest) {
     }
     convex.setAuth(token);
 
-    // Ensure the current user exists in Convex with the admin role so
-    // downstream admin-protected mutations succeed. This reconciles Clerk
-    // role checks with Convex-side role enforcement.
-    await convex.mutation(api.users.syncUser, { role: "admin" });
+    // Ensure the current user exists in Convex, then perform a server-verified
+    // admin role seed using an HMAC signature so Convex recognizes admin callers.
+    // 1) Sync basic user record (idempotent, no elevation)
+    await convex.mutation(api.users.syncUser, {} as any);
+
+    // 2) Compute server-side HMAC and request admin role in Convex
+    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+    if (secret) {
+      const ts = Date.now();
+      const { userId } = await auth();
+      if (userId) {
+        const msg = `${userId}:admin:${ts}`;
+        // Use Node crypto at the route level
+        const { createHmac } = await import("node:crypto");
+        const sig = createHmac("sha256", secret).update(msg).digest("hex");
+        try {
+          await convex.mutation(api.users.serverVerifiedSetUserRole, {
+            userId,
+            role: "admin",
+            ts,
+            sig,
+          });
+        } catch (e) {
+          // Do not block the upload on elevation failures; admin operations may already work
+          console.warn("serverVerifiedSetUserRole failed:", e);
+        }
+      }
+    } else {
+      console.warn("CONVEX_SERVER_SHARED_SECRET not set; skipping server-verified role seed");
+    }
 
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
