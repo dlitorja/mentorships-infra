@@ -262,14 +262,11 @@ export async function PUT(
     }
     // Normalize list fields to arrays of non-empty strings only to avoid Convex arg type errors
     if (data.specialties !== undefined) {
-      updateData.specialties = Array.isArray(data.specialties)
-        ? data.specialties.filter((v): v is string => typeof v === "string").map((s) => s.trim()).filter((s) => s.length > 0)
-        : [];
+      // Zod already enforces string[]; just trim and drop empties
+      updateData.specialties = data.specialties.map((s) => s.trim()).filter((s) => s.length > 0);
     }
     if (data.background !== undefined) {
-      updateData.background = Array.isArray(data.background)
-        ? data.background.filter((v): v is string => typeof v === "string").map((s) => s.trim()).filter((s) => s.length > 0)
-        : [];
+      updateData.background = data.background.map((s) => s.trim()).filter((s) => s.length > 0);
     }
     if (data.profileImageUrl !== undefined) {
       updateData.profileImageUrl = data.profileImageUrl === "" ? null : data.profileImageUrl;
@@ -278,9 +275,7 @@ export async function PUT(
       updateData.profileImageUploadPath = data.profileImageUploadPath === "" ? null : data.profileImageUploadPath;
     }
     if (data.portfolioImages !== undefined) {
-      updateData.portfolioImages = Array.isArray(data.portfolioImages)
-        ? data.portfolioImages.filter((v): v is string => typeof v === "string").map((s) => s.trim()).filter((s) => s.length > 0)
-        : [];
+      updateData.portfolioImages = data.portfolioImages.map((s) => s.trim()).filter((s) => s.length > 0);
     }
     if (data.socials !== undefined) {
       const sanitized = sanitizeSocials(data.socials);
