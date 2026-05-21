@@ -51,6 +51,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
           end: addHours(slotIso, 1),
           timezone,
           studentName: studentName || "Student",
+          suppressNotifications: true,
         }),
       });
       const json = await res.json().catch(() => ({}));
