@@ -111,21 +111,73 @@ export const cancel = mutation({
 export const complete = mutation({
   args: {
     id: v.id("bookings"),
+    notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
     const booking = await ctx.db.get(args.id);
     if (!booking) return null;
-    // Allow complete by creator or instructor owner
-    if (booking.createdByUserId !== identity.subject) {
-      const instructor = await ctx.db.get(booking.instructorId);
-      if (!instructor || instructor.userId !== identity.subject) {
-        throw new Error("Forbidden");
-      }
+    // Only allow instructor owner or admin
+    const instructor = await ctx.db.get(booking.instructorId);
+    let isAdmin = false;
+    if (identity?.subject) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      isAdmin = (user as any)?.role === "admin";
+    }
+    if (!instructor || (instructor.userId !== identity.subject && !isAdmin)) {
+      throw new Error("Forbidden");
     }
     if (booking.status === "completed") return booking;
-    await ctx.db.patch(args.id, { status: "completed", updatedAt: Date.now() });
+    const now = Date.now();
+
+    // Patch booking with completion metadata and history
+    const newHistory = Array.isArray((booking as any).history)
+      ? ([...(booking as any).history, { action: "completed", at: now, byUserId: identity.subject, info: args.notes || undefined }])
+      : ([{ action: "completed", at: now, byUserId: identity.subject, info: args.notes || undefined }]);
+
+    await ctx.db.patch(args.id, {
+      status: "completed",
+      completedAt: now,
+      completedByUserId: identity.subject,
+      completionNotes: args.notes || undefined,
+      history: newHistory,
+      updatedAt: now,
+    });
+
+    // Decrement remaining sessions for an active session pack, if possible
+    try {
+      // Map studentEmail -> users.userId
+      const studentUser = await ctx.db
+        .query("users")
+        .withIndex("by_email", (q) => q.eq("email", booking.studentEmail))
+        .first();
+      if (studentUser) {
+        // Find an active session pack for this student + instructor with remainingSessions > 0
+        const packs = await ctx.db
+          .query("sessionPacks")
+          .withIndex("by_userId", (q) => q.eq("userId", (studentUser as any).userId))
+          .collect();
+        const candidates = packs
+          .filter((p) => p.instructorId === booking.instructorId && p.status === "active" && p.remainingSessions > 0);
+        if (candidates.length > 0) {
+          // Pick the oldest purchased first to consume in order
+          const target = candidates.sort((a, b) => a.purchasedAt - b.purchasedAt)[0]!;
+          const newRemaining = target.remainingSessions - 1;
+          await ctx.db.patch(target._id as Id<"sessionPacks">, {
+            remainingSessions: newRemaining,
+            status: newRemaining <= 0 ? "depleted" : target.status,
+          } as any);
+        }
+      }
+    } catch (e) {
+      // Non-fatal; loggable in a future task
+      console.error("Failed to decrement session pack on completion", e);
+    }
+
     return await ctx.db.get(args.id);
   },
 });
