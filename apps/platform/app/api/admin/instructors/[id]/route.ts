@@ -287,10 +287,32 @@ export async function PUT(
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
     if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId;
 
-    const updated = await convex.mutation(api.instructors.updateInstructor, {
-      id: resolvedId as any,
-      ...updateData,
-    });
+    let updated: any;
+    try {
+      updated = await convex.mutation(api.instructors.updateInstructor, {
+        id: resolvedId as any,
+        ...updateData,
+      });
+    } catch (err: any) {
+      const msg: string = err?.message || String(err);
+      // Common Convex client message: "[Request ID: <id>] Server Error ..."
+      const match = msg.match(/\[Request ID: ([^\]]+)\]/);
+      const requestId = match?.[1];
+      console.error("Convex updateInstructor failed", {
+        requestId,
+        message: msg,
+        resolvedId,
+        updateDataKeys: Object.keys(updateData),
+      });
+      // Classify Convex server errors as 400 to avoid generic 500 with no context
+      if (/Server Error/i.test(msg)) {
+        return NextResponse.json(
+          { error: "Convex server error", requestId, details: "Invalid update payload or schema mismatch" },
+          { status: 400 }
+        );
+      }
+      throw err;
+    }
 
     if (!updated) {
       return NextResponse.json(
