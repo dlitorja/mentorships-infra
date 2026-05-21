@@ -308,14 +308,12 @@ export async function PUT(
         const m = msg.match(/\[Request ID: ([^\]]+)\]/);
         return m ? m[1] : null;
       })();
-
       console.error("Convex updateInstructor failed", {
         requestId,
         message: msg,
         resolvedId,
         updateDataKeys: Object.keys(updateData),
       });
-
       // Error classification:
       // - Likely invalid arguments/schema mismatch: return 400
       // - Otherwise preserve 5xx to avoid masking outages
