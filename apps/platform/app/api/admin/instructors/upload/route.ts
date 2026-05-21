@@ -5,6 +5,8 @@ import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
 
+export const runtime = "nodejs";
+
 const ALLOWED_TYPES = [
   "image/jpeg",
   "image/png",

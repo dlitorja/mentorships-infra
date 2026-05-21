@@ -3,6 +3,8 @@ import { auth } from "@clerk/nextjs/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 
+export const runtime = "nodejs";
+
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
