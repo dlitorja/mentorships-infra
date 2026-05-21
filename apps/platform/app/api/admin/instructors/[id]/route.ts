@@ -260,15 +260,28 @@ export async function PUT(
     if (data.bio !== undefined) {
       updateData.bio = data.bio === "" ? null : data.bio;
     }
-    if (data.specialties !== undefined) updateData.specialties = data.specialties;
-    if (data.background !== undefined) updateData.background = data.background;
+    // Normalize list fields to arrays of non-empty strings only to avoid Convex arg type errors
+    if (data.specialties !== undefined) {
+      updateData.specialties = Array.isArray(data.specialties)
+        ? data.specialties.filter((v): v is string => typeof v === "string").map((s) => s.trim()).filter((s) => s.length > 0)
+        : [];
+    }
+    if (data.background !== undefined) {
+      updateData.background = Array.isArray(data.background)
+        ? data.background.filter((v): v is string => typeof v === "string").map((s) => s.trim()).filter((s) => s.length > 0)
+        : [];
+    }
     if (data.profileImageUrl !== undefined) {
       updateData.profileImageUrl = data.profileImageUrl === "" ? null : data.profileImageUrl;
     }
     if (data.profileImageUploadPath !== undefined) {
       updateData.profileImageUploadPath = data.profileImageUploadPath === "" ? null : data.profileImageUploadPath;
     }
-    if (data.portfolioImages !== undefined) updateData.portfolioImages = data.portfolioImages;
+    if (data.portfolioImages !== undefined) {
+      updateData.portfolioImages = Array.isArray(data.portfolioImages)
+        ? data.portfolioImages.filter((v): v is string => typeof v === "string").map((s) => s.trim()).filter((s) => s.length > 0)
+        : [];
+    }
     if (data.socials !== undefined) {
       const sanitized = sanitizeSocials(data.socials);
       updateData.socials = Object.keys(sanitized).length > 0 ? sanitized : null;
