@@ -4,6 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
+import { fetchAction } from "convex/nextjs";
 
 export const runtime = "nodejs";
 
@@ -101,12 +102,11 @@ export async function POST(req: NextRequest) {
         const { createHmac } = await import("node:crypto");
         const sig = createHmac("sha256", secret).update(msg).digest("hex");
         try {
-          await convex.mutation(api.users_actions.serverVerifiedSetUserRole, {
-            userId,
-            role: "admin",
-            ts,
-            sig,
-          });
+          await fetchAction(
+            api.users_actions.serverVerifiedSetUserRole,
+            { userId, role: "admin", ts, sig },
+            { token, url: process.env.NEXT_PUBLIC_CONVEX_URL }
+          );
         } catch (e) {
           // Do not block the upload on elevation failures; admin operations may already work
           console.warn("serverVerifiedSetUserRole failed:", e);

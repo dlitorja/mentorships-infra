@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
+import { fetchAction } from "convex/nextjs";
 
 export const runtime = "nodejs";
 
@@ -43,12 +44,11 @@ export async function POST() {
     // Ensure a user record exists first
     await convex.mutation(api.users.syncUser, {} as any);
 
-    const updated = await convex.mutation(api.users_actions.serverVerifiedSetUserRole, {
-      userId,
-      role: "admin",
-      ts,
-      sig,
-    });
+    const updated = await fetchAction(
+      api.users_actions.serverVerifiedSetUserRole,
+      { userId, role: "admin", ts, sig },
+      { token, url: process.env.NEXT_PUBLIC_CONVEX_URL }
+    );
 
     return NextResponse.json({ success: true, user: { id: updated._id, role: updated.role } });
   } catch (error) {
