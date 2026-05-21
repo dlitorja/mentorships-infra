@@ -3,6 +3,7 @@ import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
 
 const listStudentsQuerySchema = z.object({
@@ -92,10 +93,10 @@ export async function GET(req: NextRequest) {
       pageSize: result.pageSize,
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "Unauthorized") {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error instanceof Error && error.message.includes("Forbidden")) {
+    if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
     console.error("Error listing students:", error);

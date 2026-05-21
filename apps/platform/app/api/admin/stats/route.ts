@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
 export async function GET(): Promise<NextResponse> {
   try {
@@ -17,10 +18,10 @@ export async function GET(): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("Error fetching admin stats:", error);
-    if (error instanceof Error && error.message === "Unauthorized") {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error instanceof Error && error.message.includes("Forbidden")) {
+    if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
     return NextResponse.json(
