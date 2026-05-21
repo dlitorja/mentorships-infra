@@ -83,6 +83,11 @@ export async function POST(req: NextRequest) {
     }
     convex.setAuth(token);
 
+    // Ensure the current user exists in Convex with the admin role so
+    // downstream admin-protected mutations succeed. This reconciles Clerk
+    // role checks with Convex-side role enforcement.
+    await convex.mutation(api.users.syncUser, { role: "admin" });
+
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
     });
