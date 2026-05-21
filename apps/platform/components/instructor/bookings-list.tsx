@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
-type Booking = { id: string; startUtc: number; endUtc: number; studentEmail: string; status: string };
+type BookingStatus = "pending" | "confirmed" | "canceled" | "completed";
+type Booking = { id: string; startUtc: number; endUtc: number; studentEmail: string; status: BookingStatus };
 
 function formatDateTime(ms: number): string {
   try {
@@ -53,9 +54,11 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
         toast.success("Session marked as completed");
       } else {
         toast.error(json?.error || "Failed to mark completed");
+        throw new Error(json?.error || "Failed to mark completed");
       }
     } catch (e) {
       toast.error("Unexpected error while marking completed");
+      throw e;
     } finally {
       setInFlightId(null);
     }
@@ -74,15 +77,17 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
             <div className="text-xs text-muted-foreground">{b.studentEmail}</div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={b.status === "confirmed" ? "secondary" : "outline"}>{b.status}</Badge>
+            <Badge variant={b.status === "confirmed" ? "secondary" : b.status === "completed" ? "default" : b.status === "canceled" ? "destructive" : "outline"}>{b.status}</Badge>
             {b.status === "confirmed" && b.startUtc < Date.now() && (
               <Button variant="ghost" size="sm" onClick={() => { setCompleteOpenId(b.id); setNotes(""); }} disabled={inFlightId === b.id}>
                 Mark completed
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => cancel(b.id)} disabled={inFlightId === b.id}>
-              {inFlightId === b.id ? "Cancelling…" : "Cancel"}
-            </Button>
+            {b.status === "confirmed" && b.startUtc > Date.now() && (
+              <Button variant="ghost" size="sm" onClick={() => cancel(b.id)} disabled={inFlightId === b.id}>
+                {inFlightId === b.id ? "Cancelling…" : "Cancel"}
+              </Button>
+            )}
           </div>
         </div>
       ))}
@@ -93,11 +98,11 @@ export function InstructorBookingsList({ initial }: { initial: Booking[] }) {
           </DialogHeader>
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Optional: add a short note to help track progress. This is only visible to you for now.</p>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes (max 500 chars)" rows={4} />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value.slice(0, 500))} placeholder="Optional notes (max 500 chars)" rows={4} maxLength={500} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCompleteOpenId(null)}>Cancel</Button>
-            <Button onClick={() => { if (completeOpenId) { void submitComplete(completeOpenId, notes?.trim() || undefined); } setCompleteOpenId(null); }}>Mark completed</Button>
+            <Button onClick={async () => { if (completeOpenId) { try { await submitComplete(completeOpenId, notes?.trim() || undefined); setCompleteOpenId(null); } catch {} } }}>Mark completed</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

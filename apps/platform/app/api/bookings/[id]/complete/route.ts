@@ -21,7 +21,10 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     const schema = z.object({ notes: z.string().max(500).optional() });
     const parsedBody = schema.safeParse(body);
-    const notes = parsedBody.success ? parsedBody.data.notes : undefined;
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "Invalid request body", details: parsedBody.error.issues }, { status: 400 });
+    }
+    const notes = parsedBody.data.notes;
     const convex = getConvexClient();
     await convex.mutation(api.bookings.complete, { id: id as Id<"bookings">, notes });
     return NextResponse.json({ success: true });

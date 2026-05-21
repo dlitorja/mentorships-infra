@@ -14,10 +14,13 @@ export type SendEmailResult =
   | { ok: false; skipped: true; reason: string }
   | { ok: false; error: string };
 
-function getBaseUrl(): string {
+export function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_URL) return process.env.NEXT_PUBLIC_URL;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return process.env.NODE_ENV === "production" ? "" : "http://localhost:3000";
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Base URL not configured. Set NEXT_PUBLIC_URL (or VERCEL_URL) for emails.");
+  }
+  return "http://localhost:3000";
 }
 
 function getResendClient(): Resend | null {

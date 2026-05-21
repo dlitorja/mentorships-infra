@@ -17,6 +17,7 @@ import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
 import { z } from "zod";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
+import { isValidDiscordUrl } from "@/lib/validation/discord";
 
 const NONE_SENTINEL = "__none__";
 
@@ -342,7 +343,7 @@ export default function EditInstructorPage() {
         name: data.name || "",
         slug: data.slug || "",
         email: data.email || "",
-        discordVoiceChannelUrl: (data as unknown as { discordVoiceChannelUrl?: string | null }).discordVoiceChannelUrl || "",
+        discordVoiceChannelUrl: (data as InstructorDetail).discordVoiceChannelUrl || "",
         tagline: data.tagline || "",
         bio: data.bio || "",
         specialties: data.specialties || [],
@@ -490,10 +491,9 @@ export default function EditInstructorPage() {
     }));
   };
 
-  // Inline Discord URL validation mirrors server regex
-  const DISCORD_URL_REGEX = /^https:\/\/(?:discord\.gg|discord(?:app)?\.com)\/.+$/;
+  // Inline Discord URL validation using shared helper
   const discordUrl = (formData.discordVoiceChannelUrl || "").trim();
-  const isDiscordUrlInvalid = discordUrl.length > 0 && !DISCORD_URL_REGEX.test(discordUrl);
+  const isDiscordUrlInvalid = !isValidDiscordUrl(discordUrl);
 
   if (isLoading) {
     return (
@@ -531,7 +531,10 @@ export default function EditInstructorPage() {
         </div>
         <div className="flex gap-2">
           <Button
-            onClick={handleSave}
+            onClick={() => {
+              if (isDiscordUrlInvalid) return;
+              handleSave();
+            }}
             disabled={updateMutation.isPending || isDiscordUrlInvalid}
           >
             {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

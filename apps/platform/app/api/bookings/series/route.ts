@@ -178,7 +178,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           if (!didConfirm) {
             try {
               await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
-            } catch {}
+            } catch (rollbackErr) {
+              console.error("Rollback failed for api.bookings.cancel", { bookingId: pending.bookingId, error: rollbackErr });
+            }
           }
         }
       } catch (err) {
@@ -204,10 +206,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         skippedCount: skipped,
       });
       if (sessionEmail) {
-        await sendEmail({ to: sessionEmail, subject: summary.student.subject, text: summary.student.text, headers: summary.student.headers as any });
+        await sendEmail({ to: sessionEmail, subject: summary.student.subject, text: summary.student.text, headers: summary.student.headers });
       }
       if (instructor.email) {
-        await sendEmail({ to: instructor.email, subject: summary.instructor.subject, text: summary.instructor.text, headers: summary.instructor.headers as any });
+        await sendEmail({ to: instructor.email, subject: summary.instructor.subject, text: summary.instructor.text, headers: summary.instructor.headers });
       }
     } catch (e) {
       console.error("Failed to send series summary emails:", e);

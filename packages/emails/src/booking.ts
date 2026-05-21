@@ -1,4 +1,4 @@
-import { formatSessionDateTime } from "./send";
+import { formatSessionDateTime, getBaseUrl } from "./send";
 
 function escapeHtml(value: string): string {
   return value
@@ -9,15 +9,7 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
-function getBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_URL) {
-    return process.env.NEXT_PUBLIC_URL;
-  }
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return "http://localhost:3000";
-}
+// Base URL is provided by send.ts
 
 export function buildBookingConfirmationEmail(
   scheduledAt: Date,
@@ -154,7 +146,7 @@ export function buildSeriesSummaryEmails(args: {
   const instructorText = [
     args.instructorName ? `Hi ${args.instructorName},` : "Hi,",
     "",
-    `We scheduled sessions with ${args.studentName} at the same day/time for the next weeks.",
+    `We scheduled sessions with ${args.studentName} at the same day/time for the next weeks.`,
     "",
     "Scheduled times:",
     instructorTimes,

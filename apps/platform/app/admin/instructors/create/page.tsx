@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Upload } from "lucide-react";
+import { isValidDiscordUrl } from "@/lib/validation/discord";
 
 function generateSlug(name: string): string {
   return name
@@ -36,10 +37,8 @@ export default function CreateInstructorPage() {
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
 
-  // Mirror server-side validation for Discord URLs
-  const DISCORD_URL_REGEX = /^https:\/\/(?:discord\.gg|discord(?:app)?\.com)\/.+$/;
   const discordUrl = formData.discordVoiceChannelUrl?.trim() || "";
-  const isDiscordUrlInvalid = discordUrl.length > 0 && !DISCORD_URL_REGEX.test(discordUrl);
+  const isDiscordUrlInvalid = !isValidDiscordUrl(discordUrl);
 
   const handleNameChange = (name: string) => {
     setFormData((prev) => ({
@@ -59,6 +58,10 @@ export default function CreateInstructorPage() {
     setIsSubmitting(true);
 
     try {
+      // Defensive guard to prevent programmatic bypass
+      if (isDiscordUrlInvalid) {
+        return;
+      }
       // 1) Create instructor via platform API (enforces admin & validation)
       const createRes = await fetch("/api/admin/instructors", {
         method: "POST",

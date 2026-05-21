@@ -113,10 +113,32 @@ function UpcomingSessionCard({ session }: { session: any }) {
 function DashboardContent() {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
+  const [googleBookings, setGoogleBookings] = useState<Array<{ id: string; startUtc: number; endUtc: number; status: string; instructorId: string }>>([]);
+  const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
 
   const { data: sessionPacks, isLoading: packsLoading } = useActiveSessionPacksByUser(userId || "");
   const { data: totalSessions } = useUserTotalRemainingSessions(userId || "");
   const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingStudentSessions(userId || "");
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    let cancelled = false;
+    async function load() {
+      setLoadingGoogleBookings(true);
+      try {
+        const res = await fetch("/api/bookings/me");
+        const json = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok && json?.success) {
+          setGoogleBookings(json.bookings || []);
+        }
+      } catch {}
+      if (!cancelled) setLoadingGoogleBookings(false);
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, user]);
 
   const sortedPacks = useMemo(() => {
     if (!sessionPacks) return [];
@@ -145,27 +167,7 @@ function DashboardContent() {
     );
   }
 
-  const [googleBookings, setGoogleBookings] = useState<Array<{ id: string; startUtc: number; endUtc: number; status: string; instructorId: string }>>([]);
-  const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoadingGoogleBookings(true);
-      try {
-        const res = await fetch("/api/bookings/me");
-        const json = await res.json().catch(() => ({}));
-        if (!cancelled && res.ok && json?.success) {
-          setGoogleBookings(json.bookings || []);
-        }
-      } catch {}
-      if (!cancelled) setLoadingGoogleBookings(false);
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6">
