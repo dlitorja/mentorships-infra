@@ -1,5 +1,6 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { reportError } from "@/lib/observability";
+import { UnauthorizedError, ForbiddenError } from "@/lib/errors";
 import "server-only";
 
 export type UserRole = "admin" | "instructor" | "student";
@@ -28,7 +29,8 @@ export async function getServerUserRole(userId: string): Promise<UserRole> {
 export async function requireAuth() {
   const { userId } = await auth();
   if (!userId) {
-    throw new Error("Unauthorized");
+    // Throw typed error so API routes can classify to 401
+    throw new UnauthorizedError("Unauthorized");
   }
   return userId;
 }
@@ -36,7 +38,8 @@ export async function requireAuth() {
 export async function requireRole(requiredRole: "admin" | "instructor" | "student") {
   const { userId, sessionClaims } = await auth();
   if (!userId) {
-    throw new Error("Unauthorized");
+    // Throw typed error for consistent handling
+    throw new UnauthorizedError("Unauthorized");
   }
 
   // Fast path: use claims role when present; fallback to server API
@@ -47,11 +50,11 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
       : await getServerUserRole(userId);
 
   if (requiredRole === "admin" && role !== "admin") {
-    throw new Error("Forbidden - Admin required");
+    throw new ForbiddenError("Admin role required");
   }
 
   if (requiredRole === "instructor" && role !== "instructor" && role !== "admin") {
-    throw new Error("Forbidden - Instructor required");
+    throw new ForbiddenError("Instructor role required");
   }
 
   return { id: userId, role };
@@ -60,7 +63,8 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
 export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
   const { userId, sessionClaims } = await auth();
   if (!userId) {
-    throw new Error("Unauthorized");
+    // Typed error so API handlers return 401
+    throw new UnauthorizedError("Unauthorized");
   }
 
   // Fast path: use claims role when present; fallback to server API
@@ -71,11 +75,12 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
       : await getServerUserRole(userId);
 
   if (requiredRole === "admin" && role !== "admin") {
-    throw new Error("Forbidden - Admin required");
+    // Typed error so API handlers return 403
+    throw new ForbiddenError("Admin role required");
   }
 
   if (requiredRole === "instructor" && role !== "instructor" && role !== "admin") {
-    throw new Error("Forbidden - Instructor required");
+    throw new ForbiddenError("Instructor role required");
   }
 
   return { id: userId, role };
