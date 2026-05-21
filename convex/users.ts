@@ -181,11 +181,49 @@ export const syncUser = mutation({
         lastName: args.lastName ?? existingByEmail.lastName,
         timeZone: args.timeZone ?? existingByEmail.timeZone,
       };
+
+      // Harden role updates: prevent privilege escalation from clients
       if (args.role) {
-        updates.role = args.role;
+        const requested = args.role;
+
+        // Fetch current role (may be undefined on legacy docs)
+        const currentRole = existingByEmail.role as Doc<"users">["role"] | undefined;
+
+        if (requested === "admin") {
+          // Only allow setting to admin if already admin (idempotent) — no elevation here
+          if (currentRole === "admin") {
+            updates.role = currentRole;
+          }
+        } else if (requested === "instructor") {
+          // Allow instructor role if an instructor record exists for this user
+          const hasInstructor = await ctx.db
+            .query("instructors")
+            .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+            .first();
+          if (hasInstructor) {
+            updates.role = "instructor";
+          }
+        } else if (requested === "student" || requested === "video_editor") {
+          // Downgrades or non-admin roles are allowed
+          updates.role = requested;
+        }
       }
+
       await ctx.db.patch(existingByEmail._id, updates);
       return await ctx.db.get(existingByEmail._id);
+    }
+
+    // New insert: never allow creating with admin directly to avoid elevation vectors.
+    // Default to student; allow instructor if they already have an instructor record.
+    let insertRole: Doc<"users">["role"] = "student";
+    if (args.role === "instructor") {
+      const hasInstructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      if (hasInstructor) insertRole = "instructor" as const;
+    } else if (args.role === "video_editor") {
+      insertRole = "video_editor" as const;
     }
 
     const id = await ctx.db.insert("users", {
@@ -194,7 +232,7 @@ export const syncUser = mutation({
       clerkId: identity.subject,
       firstName: args.firstName,
       lastName: args.lastName,
-      role: args.role ?? "student",
+      role: insertRole,
       timeZone: args.timeZone,
     });
 
