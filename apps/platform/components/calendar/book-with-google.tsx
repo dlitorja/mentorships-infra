@@ -196,7 +196,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
         ) : isLoading ? (
           <p className="text-sm text-muted-foreground">Loading availability…</p>
         ) : slots.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No available slots in the next {windowDays} {windowDays === 1 ? "day" : "days"}.</p>
+          <p className="text-sm text-muted-foreground">No available slots in the next {windowDays} days.</p>
         ) : (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {slots.slice(0, 60).map((iso) => {
