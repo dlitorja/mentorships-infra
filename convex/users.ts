@@ -102,7 +102,10 @@ export const getCurrentUser = query({
   },
 });
 
-/** Creates a new user if one doesn't already exist with the given email. */
+/**
+ * Creates a new user if one doesn't already exist with the given email.
+ * Used for backfills and admin tooling; does not enforce role semantics beyond insertion.
+ */
 export const createUser = mutation({
   args: {
     userId: v.string(),
@@ -155,6 +158,16 @@ export const deleteUser = mutation({
   },
 });
 
+/**
+ * Syncs the current authenticated user's profile into Convex.
+ * - If a record exists, updates basic fields (name/timezone) and may adjust role subject to guards.
+ * - If no record exists, inserts a new user with a safe default role.
+ *
+ * Role handling hardening:
+ * - Never elevates to admin here; only preserves admin if already set on the existing record.
+ * - Allows role "instructor" only when an instructor document exists for this user.
+ * - Allows non-privileged roles (student, video_editor) changes.
+ */
 export const syncUser = mutation({
   args: {
     firstName: v.optional(v.string()),
