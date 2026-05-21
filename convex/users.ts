@@ -1,7 +1,6 @@
-import { query, mutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import crypto from "node:crypto";
 
 /** Returns a user matching the given email address. */
 export const getUserByEmail = query({
@@ -356,6 +355,39 @@ export const migrateUser = mutation({
     });
 
     return { action: "inserted", id };
+  },
+});
+
+// Internal-only mutation to set a user's role. Intended to be called from
+// server-verified actions that have already authenticated the request.
+export const setUserRoleTrusted = internalMutation({
+  args: {
+    userId: v.string(),
+    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { role: args.role, userId: args.userId });
+      return await ctx.db.get(existing._id);
+    }
+
+    // Best-effort email association if identity present; optional
+    const identity = await ctx.auth.getUserIdentity();
+    const email = identity?.email;
+    const id = await ctx.db.insert("users", {
+      userId: args.userId,
+      email: email ?? undefined,
+      clerkId: args.userId,
+      role: args.role,
+    } as Partial<Doc<"users">> as any);
+    const inserted = await ctx.db.get(id);
+    if (!inserted) throw new Error("Failed to set role");
+    return inserted;
   },
 });
 

@@ -43,7 +43,7 @@ export async function POST() {
     // Ensure a user record exists first
     await convex.mutation(api.users.syncUser, {} as any);
 
-    const updated = await convex.mutation(api.users.serverVerifiedSetUserRole, {
+    const updated = await convex.mutation(api.users_actions.serverVerifiedSetUserRole, {
       userId,
       role: "admin",
       ts,

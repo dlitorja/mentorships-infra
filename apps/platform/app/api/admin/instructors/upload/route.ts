@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
         const { createHmac } = await import("node:crypto");
         const sig = createHmac("sha256", secret).update(msg).digest("hex");
         try {
-          await convex.mutation(api.users.serverVerifiedSetUserRole, {
+          await convex.mutation(api.users_actions.serverVerifiedSetUserRole, {
             userId,
             role: "admin",
             ts,
