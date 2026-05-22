@@ -1,4 +1,10 @@
 {
   // Skip preview builds for legacy web app; keep production builds
-  "ignoreCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then echo 'Skipping preview build for apps/web'; exit 0; else exit 1; fi"
+  "ignoreCommand": "if [ \"$VERCEL_ENV\" = \"preview\" ]; then echo 'Skipping preview build for apps/web'; exit 0; else exit 1; fi",
+  "git": {
+    // Avoid duplicate main deployments; we trigger via GitHub Action hooks
+    "deploymentEnabled": {
+      "main": false
+    }
+  }
 }

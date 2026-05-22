@@ -1,0 +1,101 @@
+name: Deploy on Main (Hooks)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: ["completed"]
+
+jobs:
+  trigger-deploys:
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'main')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-on-main
+      cancel-in-progress: false
+    steps:
+      - name: Compute context
+        id: ctx
+        run: |
+          echo "sha=${{ github.event.workflow_run.head_sha }}" >> $GITHUB_OUTPUT
+          echo "platformProject=mentorships-infra-platform" >> $GITHUB_OUTPUT
+          echo "webProject=mentorships-infra-web" >> $GITHUB_OUTPUT
+
+      - name: Check existing Platform deployment for commit
+        id: check_platform
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          SHA: ${{ steps.ctx.outputs.sha }}
+          PROJECT_NAME: ${{ steps.ctx.outputs.platformProject }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "vercel_token_present=false" >> $GITHUB_OUTPUT
+            echo "No VERCEL_TOKEN; skipping pre-check for platform"; exit 0;
+          fi
+          resp=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v6/deployments?app=${PROJECT_NAME}&target=production&sha=${SHA}&limit=1") || resp='{"deployments":[]}'
+          echo "API response (truncated): $(echo "$resp" | head -c 200)"
+          count=$(node -e "const j=JSON.parse(process.argv[1]);console.log(Array.isArray(j.deployments)?j.deployments.length:0)" "$resp")
+          if [ "$count" -gt 0 ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Found existing Platform deployment for $SHA; will skip hook"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No Platform deployment found for $SHA; will trigger hook"
+          fi
+
+      - name: Trigger Platform Deploy Hook
+        env:
+          VERCEL_PLATFORM_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_PLATFORM_DEPLOY_HOOK_URL }}
+        if: steps.check_platform.outputs.exists != 'true'
+        run: |
+          if [ -z "$VERCEL_PLATFORM_DEPLOY_HOOK_URL" ]; then
+            echo "Missing secret: VERCEL_PLATFORM_DEPLOY_HOOK_URL" >&2
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_PLATFORM_DEPLOY_HOOK_URL")
+          echo "Platform HTTP Status: $code"
+          if [ "$code" != "200" ] && [ "$code" != "202" ]; then
+            echo "Platform deploy hook call failed" >&2
+            exit 1
+          fi
+
+      - name: Check existing Web deployment for commit
+        id: check_web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          SHA: ${{ steps.ctx.outputs.sha }}
+          PROJECT_NAME: ${{ steps.ctx.outputs.webProject }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "vercel_token_present=false" >> $GITHUB_OUTPUT
+            echo "No VERCEL_TOKEN; skipping pre-check for web"; exit 0;
+          fi
+          resp=$(curl -sf -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v6/deployments?app=${PROJECT_NAME}&target=production&sha=${SHA}&limit=1") || resp='{"deployments":[]}'
+          echo "API response (truncated): $(echo "$resp" | head -c 200)"
+          count=$(node -e "const j=JSON.parse(process.argv[1]);console.log(Array.isArray(j.deployments)?j.deployments.length:0)" "$resp")
+          if [ "$count" -gt 0 ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Found existing Web deployment for $SHA; will skip hook"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No Web deployment found for $SHA; will trigger hook"
+          fi
+      - name: Trigger Web Deploy Hook
+        env:
+          VERCEL_WEB_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_WEB_DEPLOY_HOOK_URL }}
+        if: steps.check_web.outputs.exists != 'true'
+        run: |
+          if [ -z "$VERCEL_WEB_DEPLOY_HOOK_URL" ]; then
+            echo "Missing secret: VERCEL_WEB_DEPLOY_HOOK_URL" >&2
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_WEB_DEPLOY_HOOK_URL")
+          echo "Web HTTP Status: $code"
+          if [ "$code" != "200" ] && [ "$code" != "202" ]; then
+            echo "Web deploy hook call failed" >&2
+            exit 1
+          fi

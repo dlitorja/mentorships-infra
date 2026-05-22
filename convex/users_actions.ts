@@ -28,8 +28,14 @@ export const serverVerifiedSetUserRole = action({
     }
 
     const msg = `${userId}:${role}:${ts}`;
-    const expected = crypto.createHmac("sha256", secret).update(msg).digest("hex");
-    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) {
+    const expectedHex = crypto.createHmac("sha256", secret).update(msg).digest("hex");
+    const expectedBuf = Buffer.from(expectedHex, "hex");
+    const sigBuf = Buffer.from(sig, "hex");
+    // Avoid RangeError from mismatched lengths
+    if (expectedBuf.length !== sigBuf.length) {
+      throw new Error("Invalid signature");
+    }
+    if (!crypto.timingSafeEqual(expectedBuf, sigBuf)) {
       throw new Error("Invalid signature");
     }
 
