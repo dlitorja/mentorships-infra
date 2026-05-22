@@ -1,0 +1,57 @@
+name: Set Platform Convex Env
+
+on:
+  workflow_dispatch:
+    inputs:
+      convex_url:
+        description: "Convex deployment URL (e.g., https://xxxx.convex.cloud)"
+        required: true
+
+jobs:
+  set-env:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+      - run: npm install -g vercel@latest
+
+      - name: Remove existing NEXT_PUBLIC_CONVEX_URL (production)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+        run: |
+          vercel env rm NEXT_PUBLIC_CONVEX_URL production -y || true
+
+      - name: Remove existing NEXT_PUBLIC_CONVEX_URL (preview)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+        run: |
+          vercel env rm NEXT_PUBLIC_CONVEX_URL preview -y || true
+
+      - name: Add NEXT_PUBLIC_CONVEX_URL (production)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+        run: |
+          echo "${{ inputs.convex_url }}" | vercel env add NEXT_PUBLIC_CONVEX_URL production
+
+      - name: Add NEXT_PUBLIC_CONVEX_URL (preview)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+        run: |
+          echo "${{ inputs.convex_url }}" | vercel env add NEXT_PUBLIC_CONVEX_URL preview
+
+      - name: Confirm value set
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+        run: |
+          vercel env ls | sed -n '1,120p'
