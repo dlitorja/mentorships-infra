@@ -141,8 +141,9 @@ export default function InstructorsPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <Badge variant={instructor.isActive ? "default" : "destructive"}>
-                          {instructor.isActive ? "Active" : "Inactive"}
+                        {/* Treat undefined isActive as active for consistency with filter semantics */}
+                        <Badge variant={(instructor.isActive !== false) ? "default" : "destructive"}>
+                          {(instructor.isActive !== false) ? "Active" : "Inactive"}
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
