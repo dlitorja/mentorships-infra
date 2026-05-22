@@ -178,11 +178,22 @@ export async function POST(req: NextRequest) {
       path: `instructors/${instructor.slug}/${type}/${storageId}`,
     });
   } catch (error) {
+    // Map known authorization errors to proper status codes. Convex may throw
+    // plain Error("Forbidden"/"Unauthorized") strings; include message checks.
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    }
+    if (error instanceof Error) {
+      const msg = (error.message || "").toLowerCase();
+      if (msg.includes("unauthorized")) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      if (msg.includes("forbidden")) {
+        return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+      }
     }
 
     console.error("Upload error:", error);
