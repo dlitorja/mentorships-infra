@@ -26,10 +26,11 @@ export function usePublicInstructors() {
     ...convexQuery(api.instructors.getPublicInstructors, {}),
   });
 
-  const filteredData = useMemo(() => {
+  const filteredData = useMemo<PublicInstructor[]>(() => {
     if (!data) return [];
+    const list = (data as unknown as PublicInstructor[]) ?? [];
     // Treat undefined isActive as active for backward compatibility
-    return data.filter((i: any) => (i.isActive !== false) && !i.deletedAt && !i.isHidden);
+    return list.filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt && !(i as any).isHidden);
   }, [data]);
 
   return {
