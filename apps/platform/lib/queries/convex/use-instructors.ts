@@ -28,7 +28,8 @@ export function usePublicInstructors() {
 
   const filteredData = useMemo(() => {
     if (!data) return [];
-    return data.filter((i: any) => i.isActive && !i.deletedAt && !i.isHidden);
+    // Treat undefined isActive as active for backward compatibility
+    return data.filter((i: any) => (i.isActive !== false) && !i.deletedAt && !i.isHidden);
   }, [data]);
 
   return {
@@ -58,7 +59,8 @@ export function useInstructors(): {
   const data = useMemo<PublicInstructor[]>(() => {
     if (!query.data) return [];
     return query.data
-      .filter((i: PublicInstructor) => i.isActive && !i.deletedAt)
+      // Treat undefined isActive as active for backward compatibility
+      .filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
   }, [query.data]);
 

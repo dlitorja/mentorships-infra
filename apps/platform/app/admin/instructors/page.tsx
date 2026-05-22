@@ -41,7 +41,8 @@ export default function InstructorsPage() {
 
     let filtered = showInactive
       ? allInstructors
-      : allInstructors.filter((i: Instructor) => i.isActive && !i.deletedAt);
+      // Treat undefined isActive as active for backward compatibility
+      : allInstructors.filter((i: Instructor) => (i.isActive !== false) && !i.deletedAt);
 
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
