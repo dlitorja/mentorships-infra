@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     // Ensure the current user exists in Convex, then perform a server-verified
     // admin role seed using an HMAC signature so Convex recognizes admin callers.
     // 1) Sync basic user record (idempotent, no elevation)
-    await convex.mutation(api.users.syncUser, {} as any);
+    await convex.mutation(api.users.syncUser, {});
 
     // 2) Compute server-side HMAC and request admin role in Convex
     const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
@@ -238,7 +238,7 @@ export async function POST(req: NextRequest) {
 
     console.error("Upload error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Upload failed" },
+      { error: "Upload failed" },
       { status: 500 }
     );
   }

@@ -367,6 +367,7 @@ export async function PUT(
         specialties: updated.specialties ?? [],
         background: updated.background ?? [],
         profileImageUrl: updated.profileImageUrl ?? null,
+        profileImageUploadPath: updated.profileImageUploadPath ?? null,
         portfolioImages: updated.portfolioImages ?? [],
         socials: sanitizeSocials(updated.socials),
         isActive: updated.isActive,

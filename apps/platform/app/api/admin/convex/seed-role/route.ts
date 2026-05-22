@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { fetchAction } from "convex/nextjs";
+import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 
 export const runtime = "nodejs";
 
@@ -33,7 +34,7 @@ export async function POST() {
       return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
     }
 
-    const { userId } = await auth();
+    const userId = clerkAuth.userId;
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const ts = Date.now();
@@ -42,7 +43,7 @@ export async function POST() {
     const sig = createHmac("sha256", secret).update(msg).digest("hex");
 
     // Ensure a user record exists first
-    await convex.mutation(api.users.syncUser, {} as any);
+    await convex.mutation(api.users.syncUser, {});
 
     const updated = await fetchAction(
       api.users_actions.serverVerifiedSetUserRole,
@@ -52,6 +53,22 @@ export async function POST() {
 
     return NextResponse.json({ success: true, user: { id: updated._id, role: updated.role } });
   } catch (error) {
+    // Preserve auth semantics for better UX
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    }
+    if (error instanceof Error) {
+      const msg = (error.message || "").toLowerCase();
+      if (msg.includes("unauthorized")) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      if (msg.includes("forbidden")) {
+        return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+      }
+    }
     console.error("seed-role error:", error);
     return NextResponse.json({ error: "Failed to seed role" }, { status: 500 });
   }
