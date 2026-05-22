@@ -19,7 +19,7 @@ fi
 echo "Triggering Web deploy via Vercel Deploy Hook..."
 http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${HOOK_URL}")
 
-if [[ "${http_code}" != "200" && "${http_code}" != "202" ]]; then
+if [[ "${http_code}" != "200" && "${http_code}" != "201" && "${http_code}" != "202" ]]; then
   echo "Deploy hook call failed with HTTP ${http_code}."
   exit 1
 fi
