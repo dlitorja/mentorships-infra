@@ -6,7 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { useEffect, useRef, useState } from "react";
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+// Normalize Convex URL by trimming trailing slashes to avoid double "//api" paths
+const convexUrl = (process.env.NEXT_PUBLIC_CONVEX_URL || "").replace(/\/+$/, "");
 
 let convexQueryClient: ConvexQueryClient | null = null;
 let convexClient: ConvexReactClient | null = null;
