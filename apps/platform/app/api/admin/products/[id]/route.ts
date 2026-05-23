@@ -42,9 +42,19 @@ export async function GET(
     const { id } = await params;
 
     const convex = getConvexClient();
-    const product = await convex.query(api.products.getProductForAdmin, {
-      id: id as Id<"products">,
-    });
+    let product = null;
+    try {
+      product = await convex.query(api.products.getProductForAdmin, {
+        id: id as Id<"products">,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Classify Convex argument/validator failures as 400 (bad request)
+      if (/ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(msg)) {
+        return NextResponse.json({ error: "Invalid product id" }, { status: 400 });
+      }
+      throw e;
+    }
 
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
@@ -126,9 +136,18 @@ export async function PUT(
 
     const convex = getConvexClient();
 
-    const existingProduct = await convex.query(api.products.getProductById, {
-      id: id as Id<"products">,
-    });
+    let existingProduct = null;
+    try {
+      existingProduct = await convex.query(api.products.getProductById, {
+        id: id as Id<"products">,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(msg)) {
+        return NextResponse.json({ error: "Invalid product id" }, { status: 400 });
+      }
+      throw e;
+    }
 
     if (!existingProduct) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
@@ -267,9 +286,18 @@ export async function DELETE(
 
     const convex = getConvexClient();
 
-    const existingProduct = await convex.query(api.products.getProductById, {
-      id: id as Id<"products">,
-    });
+    let existingProduct = null;
+    try {
+      existingProduct = await convex.query(api.products.getProductById, {
+        id: id as Id<"products">,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(msg)) {
+        return NextResponse.json({ error: "Invalid product id" }, { status: 400 });
+      }
+      throw e;
+    }
 
     if (!existingProduct) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });

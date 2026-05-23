@@ -9,7 +9,7 @@ import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmail } from "@/lib/email";
-import { buildSeriesSummaryEmails } from "../../../../../../packages/emails/src/booking";
+import { buildSeriesSummaryEmails } from "@mentorships/emails/booking";
 
 const createSeriesSchema = z.object({
   instructorId: z.string().min(1),

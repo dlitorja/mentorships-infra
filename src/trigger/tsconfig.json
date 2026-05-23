@@ -16,7 +16,8 @@
     "paths": {
       "@/*": ["./*"],
       "@mentorships/db": ["../packages/db/src"],
-      "@mentorships/storage": ["../packages/storage/src"]
+      "@mentorships/storage": ["../packages/storage/src"],
+      "@mentorships/emails": ["../packages/emails/src"]
     }
   },
   "include": ["./**/*", "../packages/db/src/**/*", "../packages/storage/src/**/*"],

@@ -61,7 +61,7 @@ export function InstructorShowcase() {
                 <div className="w-full md:w-1/2 flex-shrink-0">
                   <div className="relative aspect-[3/4] w-full overflow-hidden bg-muted">
                     <Image
-                      src={instructor.profileImageUrl || "/placeholder.jpg"}
+                      src={instructor.profileImageUrl || "/placeholder-instructor.svg"}
                       alt={instructor.name ?? "Instructor"}
                       fill
                       className="object-cover"

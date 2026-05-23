@@ -19,10 +19,14 @@ function GalleryImage({ src, alt, onError }: { src: string; alt: string; onError
   };
 
   if (error) {
+    // Show a visual placeholder instead of text when the image fails to load
     return (
-      <div className="flex items-center justify-center w-full h-full bg-muted">
-        <span className="text-xs text-muted-foreground">Failed to load</span>
-      </div>
+      <Image
+        src="/placeholder-instructor.svg"
+        alt="Placeholder image"
+        fill
+        className="object-cover"
+      />
     );
   }
 
@@ -88,4 +92,3 @@ export function PortfolioGallery({
     </>
   );
 }
-

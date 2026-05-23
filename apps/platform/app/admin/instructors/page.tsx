@@ -73,6 +73,19 @@ export default function InstructorsPage() {
         </Link>
       </div>
 
+      {/* Storage Image Backfill */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Backfill Storage Images</CardTitle>
+          <CardDescription>
+            Upload existing profile, portfolio, and student result images to Convex Storage and update records.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BackfillImagesPanel />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row gap-4 justify-between">
@@ -171,6 +184,128 @@ export default function InstructorsPage() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function BackfillImagesPanel() {
+  type BackfillSummary = {
+    processedProfiles: number;
+    processedInstructors: number;
+    processedPortfolioImages: number;
+    processedStudentResults: number;
+    skipped: number;
+    errors: Array<{ kind: string; id: string; message: string }>;
+  };
+
+  type BackfillRequest = {
+    baseUrl: string;
+    includeStudentResults: boolean;
+    dryRun: boolean;
+    limit?: number;
+  };
+  const [baseUrl, setBaseUrl] = useState<string>("");
+  const [includeStudentResults, setIncludeStudentResults] = useState<boolean>(true);
+  const [dryRun, setDryRun] = useState<boolean>(true);
+  const [limit, setLimit] = useState<string>("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [result, setResult] = useState<BackfillSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const ensureBaseUrl = () => baseUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
+
+  async function runBackfill(runDry: boolean) {
+    try {
+      setIsRunning(true);
+      setError(null);
+      setResult(null);
+      const body: BackfillRequest = {
+        baseUrl: ensureBaseUrl(),
+        includeStudentResults,
+        dryRun: runDry,
+      };
+      const n = parseInt(limit, 10);
+      if (!Number.isNaN(n) && n > 0) body.limit = n;
+      const res = await fetch("/api/admin/instructors/backfill-images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json()) as { success?: boolean; summary?: BackfillSummary; error?: string };
+      if (!res.ok) {
+        setError(json?.error || `HTTP ${res.status}`);
+      } else {
+        setResult(json.summary ?? (null as any));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-4">
+        <div className="md:col-span-2">
+          <label className="block text-sm font-medium mb-1">Base URL</label>
+          <Input
+            placeholder="https://your-domain.example"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground mt-1">Defaults to current site origin if left blank.</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Limit (optional)</label>
+          <Input
+            placeholder="e.g. 200"
+            value={limit}
+            onChange={(e) => setLimit(e.target.value)}
+          />
+        </div>
+        <div className="flex items-end gap-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={includeStudentResults}
+              onChange={(e) => setIncludeStudentResults(e.target.checked)}
+            />
+            <span className="text-sm">Include student results</span>
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={dryRun}
+              onChange={(e) => setDryRun(e.target.checked)}
+            />
+            <span className="text-sm">Dry run</span>
+          </label>
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <Button disabled={isRunning} onClick={() => runBackfill(dryRun)} variant="outline">
+          {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Preview
+        </Button>
+        <Button disabled={isRunning} onClick={() => runBackfill(dryRun)}>
+          {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Run Backfill
+        </Button>
+      </div>
+
+      {error && (
+        <div className="text-sm text-red-600">{error}</div>
+      )}
+
+      {result && (
+        <div className="text-sm">
+          <pre className="whitespace-pre-wrap break-words bg-muted/50 p-3 rounded-md">
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

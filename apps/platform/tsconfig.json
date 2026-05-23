@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
     "target": "ES2017",
     "lib": [
       "dom",
@@ -40,6 +41,12 @@
       ],
       "@mentorships/ui": [
         "../../packages/ui/src"
+      ],
+      "@mentorships/emails": [
+        "../../packages/emails/src"
+      ],
+      "@mentorships/emails/*": [
+        "../../packages/emails/src/*"
       ]
     }
   },

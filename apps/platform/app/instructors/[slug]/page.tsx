@@ -148,7 +148,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
             <div className="grid gap-8 md:grid-cols-2 lg:gap-12">
               <div className="relative aspect-square w-full overflow-hidden rounded-lg">
                 <Image
-                  src={profileImageError ? "/placeholder.jpg" : (instructor.profileImageUrl || "/placeholder.jpg")}
+                  src={profileImageError ? "/placeholder-instructor.svg" : (instructor.profileImageUrl || "/placeholder-instructor.svg")}
                   alt={instructor.name}
                   fill
                   className="object-cover"
