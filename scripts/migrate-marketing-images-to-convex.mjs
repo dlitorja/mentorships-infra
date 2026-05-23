@@ -127,11 +127,11 @@ async function main() {
       }
 
       // Portfolio images
+      // Only treat Convex storage IDs as existing. Legacy URLs in portfolioImages
+      // should not prevent migration to Storage.
       const existingIds = Array.isArray(found.portfolioImageStorageIds)
         ? found.portfolioImageStorageIds
-        : Array.isArray(found.portfolioImages)
-          ? found.portfolioImages.map((u) => (u ? "legacy" : ""))
-          : [];
+        : [];
 
       for (let i = 0; i < mapping.works.length; i++) {
         const already = existingIds[i];
@@ -150,7 +150,8 @@ async function main() {
         updated = true;
       }
 
-      results.push({ slug, status: updated ? "updated" : skipped ? "skipped" : "noop" });
+      const status = updated && skipped ? "partial" : updated ? "updated" : skipped ? "skipped" : "noop";
+      results.push({ slug, status });
     } catch (e) {
       results.push({ slug, status: "error", error: e?.message || String(e) });
     }
