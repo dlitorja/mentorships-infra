@@ -213,15 +213,18 @@ function BackfillImagesPanel() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [confirmRun, setConfirmRun] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [currentRunIsDry, setCurrentRunIsDry] = useState<boolean | null>(null);
   const [summary, setSummary] = useState<BackfillSummary | null>(null);
-  const [rawResponse, setRawResponse] = useState<any>(null);
+  type BackfillResponse = { success?: boolean; summary?: BackfillSummary; error?: string };
+  const [rawResponse, setRawResponse] = useState<BackfillResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const ensureBaseUrl = () => baseUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
 
-  async function runBackfill(runDry: boolean) {
+  async function runBackfill(runDry: boolean): Promise<void> {
     try {
       setIsRunning(true);
+      setCurrentRunIsDry(runDry);
       setError(null);
       setSummary(null);
       setRawResponse(null);
@@ -237,7 +240,7 @@ function BackfillImagesPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = await res.json();
+      const json: BackfillResponse = await res.json();
       if (!res.ok) {
         setError(json?.error || `HTTP ${res.status}`);
       } else {
@@ -248,6 +251,7 @@ function BackfillImagesPanel() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setIsRunning(false);
+      setCurrentRunIsDry(null);
     }
   }
 
@@ -307,7 +311,7 @@ function BackfillImagesPanel() {
 
         <div className="flex flex-wrap gap-3 items-center">
           <Button disabled={isRunning} onClick={() => runBackfill(true)} variant="outline">
-            {isRunning && dryRun ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {isRunning && currentRunIsDry === true ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Preview
           </Button>
           <div className="flex items-center gap-2">
@@ -315,7 +319,7 @@ function BackfillImagesPanel() {
             <span className="text-sm">I understand this writes storage IDs to production data</span>
           </div>
           <Button disabled={isRunning || !confirmRun} onClick={() => runBackfill(false)}>
-            {isRunning && !dryRun ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {isRunning && currentRunIsDry === false ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             Run Backfill
           </Button>
         </div>
@@ -373,7 +377,7 @@ function BackfillImagesPanel() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number }): JSX.Element {
   return (
     <div className="rounded-md border p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
@@ -382,7 +386,7 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function downloadReport(obj: any) {
+function downloadReport(obj: { success?: boolean; summary?: BackfillSummary; error?: string } | null): void {
   if (!obj) return;
   const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
