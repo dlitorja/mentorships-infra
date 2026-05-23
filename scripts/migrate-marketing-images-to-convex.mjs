@@ -3,15 +3,17 @@
 // and update instructor documents to point at Convex URLs.
 
 import { readdirSync, statSync, readFileSync } from "node:fs";
-import { join, extname } from "node:path";
+import { join, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api.js";
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = join(__filename, "..", "..");
+const __dirname = dirname(__filename);
+// repo root = one directory up from /scripts
+const REPO_ROOT = join(__dirname, "..");
 
-const MARKETING_INSTRUCTORS_DIR = join(__dirname, "apps", "marketing", "public", "instructors");
+const MARKETING_INSTRUCTORS_DIR = join(REPO_ROOT, "apps", "marketing", "public", "instructors");
 
 const CONVEX_URL = (process.env.NEXT_PUBLIC_CONVEX_URL || "").replace(/\/+$/g, "");
 if (!CONVEX_URL) {
@@ -70,10 +72,13 @@ async function uploadFileToConvex(convex, filePath) {
 
   const data = readFileSync(filePath);
   const blob = new Blob([data], { type: ctype });
-  const form = new FormData();
-  form.append("file", blob, filePath.split("/").pop());
 
-  const res = await fetch(uploadUrl, { method: "POST", body: form });
+  // Convex Storage expects a raw POST body with Content-Type matching the file
+  const res = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { "Content-Type": ctype },
+    body: blob,
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Upload failed (${res.status}): ${text}`);
@@ -144,8 +149,12 @@ async function main() {
   );
 
   console.log("Migration summary:", summary);
-  for (const r of results.filter((x) => x.status === "error")) {
+  const errors = results.filter((x) => x.status === "error");
+  for (const r of errors) {
     console.log(` - ${r.slug}: ${r.error}`);
+  }
+  if (errors.length > 0) {
+    process.exit(1);
   }
 }
 
