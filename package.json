@@ -21,7 +21,8 @@
     "test:unit:ui": "vitest --ui --config vitest.config.mjs",
     "db:generate": "cd packages/db && drizzle-kit generate",
     "db:migrate": "cd packages/db && drizzle-kit migrate",
-    "db:studio": "cd packages/db && drizzle-kit studio"
+    "db:studio": "cd packages/db && drizzle-kit studio",
+    "images:migrate:platform-from-marketing": "node ./scripts/migrate-marketing-images-to-convex.mjs"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.40",

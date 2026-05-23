@@ -24,7 +24,9 @@ interface InstructorGridProps {
 
 function InstructorCardImage({ instructor, priority, soldOut }: { instructor: Instructor; priority: boolean; soldOut: boolean }) {
   const [hasError, setHasError] = useState(false);
-  const src = hasError ? "/placeholder-instructor.jpg" : (instructor.profileImageUrl || "/placeholder-instructor.jpg");
+  // Use an in-repo SVG placeholder that always exists
+  const placeholder = "/placeholder-instructor.svg";
+  const src = hasError ? placeholder : (instructor.profileImageUrl || placeholder);
 
   useEffect(() => {
     setHasError(false);
