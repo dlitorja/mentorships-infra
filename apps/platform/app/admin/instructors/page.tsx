@@ -29,6 +29,15 @@ type Instructor = {
   _creationTime?: number;
 };
 
+type BackfillSummary = {
+  processedProfiles: number;
+  processedInstructors: number;
+  processedPortfolioImages: number;
+  processedStudentResults: number;
+  skipped: number;
+  errors: Array<{ kind: string; id: string; message: string }>;
+};
+
 export default function InstructorsPage() {
   const [search, setSearch] = useState("");
   const [showInactive, setShowInactive] = useState(false);
@@ -190,14 +199,6 @@ export default function InstructorsPage() {
 }
 
 function BackfillImagesPanel() {
-  type BackfillSummary = {
-    processedProfiles: number;
-    processedInstructors: number;
-    processedPortfolioImages: number;
-    processedStudentResults: number;
-    skipped: number;
-    errors: Array<{ kind: string; id: string; message: string }>;
-  };
 
   type BackfillRequest = {
     baseUrl: string;
