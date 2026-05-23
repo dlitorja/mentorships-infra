@@ -377,7 +377,7 @@ function BackfillImagesPanel() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }): JSX.Element {
+function Stat({ label, value }: { label: string; value: number }): React.ReactElement {
   return (
     <div className="rounded-md border p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
