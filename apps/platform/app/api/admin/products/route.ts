@@ -94,6 +94,12 @@ export async function POST(req: NextRequest) {
     } = validationResult.data as CreateProductInput;
 
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const instructor = await convex.query(api.instructors.getInstructorById, { id: instructorId as any });
     if (!instructor) {
