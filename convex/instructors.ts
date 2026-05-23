@@ -140,7 +140,13 @@ export const backfillImages = action({
       throw new Error("Forbidden");
     }
 
-    const baseUrl = args.baseUrl;
+    // Normalize to origin (accepts full URLs or paths; route also normalizes)
+    let baseUrl = args.baseUrl;
+    try {
+      baseUrl = new URL(baseUrl).origin;
+    } catch {
+      baseUrl = baseUrl;
+    }
     const includeStudentResults = args.includeStudentResults !== false;
 
     // Load profiles and instructors
@@ -159,20 +165,20 @@ export const backfillImages = action({
     let processedCount = 0;
 
     // Helper to upload one URL and return {storageId, url}
-    const uploadFromUrl = async (srcUrl: string): Promise<{ storageId: string; url: string } | null> => {
+    const uploadFromUrl = async (srcUrl: string): Promise<{ storageId: string; url: string } | { error: string }> => {
       try {
         const res = await fetch(srcUrl);
-        if (!res.ok) return null;
+        if (!res.ok) return { error: `GET ${res.status}` };
         const buf = await res.arrayBuffer();
         const postUrl = await ctx.runMutation(api.instructors.generateInstructorUploadUrl, {} as any);
         const ct = contentTypeForPath(srcUrl);
         const up = await fetch(postUrl, { method: "POST", headers: { "Content-Type": ct }, body: buf });
-        if (!up.ok) return null;
+        if (!up.ok) return { error: `POST ${up.status}` };
         const { storageId } = await up.json() as { storageId: string };
         const url = (await ctx.runQuery(api.instructors.getStorageUrl, { storageId } as any)) ?? `convex://storage/${storageId}`;
         return { storageId, url };
       } catch (e) {
-        return null;
+        return { error: e instanceof Error ? e.message : String(e) };
       }
     };
 
@@ -188,7 +194,7 @@ export const backfillImages = action({
           const src = absoluteUrl(baseUrl, profile.profileImageUrl);
           if (src && !args.dryRun) {
             const uploaded = await uploadFromUrl(src);
-            if (uploaded) {
+            if (!('error' in uploaded)) {
               await ctx.runMutation(api.instructors.updateInstructorProfileStorageIdForProfile, {
                 slug,
                 storageId: uploaded.storageId,
@@ -204,7 +210,7 @@ export const backfillImages = action({
               }
               summary.processedProfiles += 1;
             } else {
-              summary.errors.push({ kind: "profile", id: slug || "unknown", message: "upload failed" });
+              summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
             }
           }
           processedCount++;
@@ -222,12 +228,12 @@ export const backfillImages = action({
             const src = absoluteUrl(baseUrl, urls[i]);
             if (src && !args.dryRun) {
               const uploaded = await uploadFromUrl(src);
-              if (uploaded) {
+              if (!('error' in uploaded)) {
                 newUrls[i] = uploaded.url;
                 newSids[i] = uploaded.storageId;
                 summary.processedPortfolioImages += 1;
               } else {
-                summary.errors.push({ kind: "portfolio", id: `${slug || "unknown"}[${i}]`, message: "upload failed" });
+                summary.errors.push({ kind: "portfolio", id: `${slug || "unknown"}[${i}]`, message: `upload failed for ${src}: ${uploaded.error}` });
               }
             }
             processedCount++;
@@ -262,7 +268,7 @@ export const backfillImages = action({
             const src = absoluteUrl(baseUrl, r.imageUrl);
             if (src && !args.dryRun) {
               const uploaded = await uploadFromUrl(src);
-              if (uploaded) {
+              if (!('error' in uploaded)) {
                 await ctx.runMutation(api.instructors.updateStudentResultStorageId, {
                   studentResultId: r._id,
                   storageId: uploaded.storageId,
@@ -270,7 +276,7 @@ export const backfillImages = action({
                 } as any);
                 summary.processedStudentResults += 1;
               } else {
-                summary.errors.push({ kind: "studentResult", id: r._id, message: "upload failed" });
+                summary.errors.push({ kind: "studentResult", id: r._id, message: `upload failed for ${src}: ${uploaded.error}` });
               }
             }
             processedCount++;

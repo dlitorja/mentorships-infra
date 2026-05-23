@@ -28,7 +28,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid request", details: parsed.error.issues }, { status: 400 });
     }
 
-    const baseUrl = parsed.data.baseUrl ?? process.env.NEXT_PUBLIC_URL ?? req.headers.get("origin") ?? "";
+    const rawBase = parsed.data.baseUrl ?? process.env.NEXT_PUBLIC_URL ?? req.headers.get("origin") ?? "";
+    let baseUrl: string;
+    try {
+      baseUrl = new URL(rawBase, req.nextUrl.origin).origin;
+    } catch {
+      baseUrl = req.nextUrl.origin;
+    }
     if (!baseUrl) {
       return NextResponse.json({ error: "baseUrl is required (set NEXT_PUBLIC_URL or pass in body)" }, { status: 400 });
     }

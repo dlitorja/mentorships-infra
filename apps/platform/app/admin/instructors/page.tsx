@@ -76,9 +76,10 @@ export default function InstructorsPage() {
       {/* Storage Image Backfill */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Backfill Storage Images</CardTitle>
+          <CardTitle>Backfill Images to Convex Storage</CardTitle>
           <CardDescription>
-            Upload existing profile, portfolio, and student result images to Convex Storage and update records.
+            Migrate profile, portfolio, and student result images into Convex Storage so they always serve signed URLs.
+            Safe to run multiple times; already-migrated images are skipped.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -205,11 +206,15 @@ function BackfillImagesPanel() {
     limit?: number;
   };
   const [baseUrl, setBaseUrl] = useState<string>("");
+  const [isEditingOrigin, setIsEditingOrigin] = useState(false);
   const [includeStudentResults, setIncludeStudentResults] = useState<boolean>(true);
   const [dryRun, setDryRun] = useState<boolean>(true);
   const [limit, setLimit] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [confirmRun, setConfirmRun] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<BackfillSummary | null>(null);
+  const [summary, setSummary] = useState<BackfillSummary | null>(null);
+  const [rawResponse, setRawResponse] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   const ensureBaseUrl = () => baseUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
@@ -218,7 +223,8 @@ function BackfillImagesPanel() {
     try {
       setIsRunning(true);
       setError(null);
-      setResult(null);
+      setSummary(null);
+      setRawResponse(null);
       const body: BackfillRequest = {
         baseUrl: ensureBaseUrl(),
         includeStudentResults,
@@ -231,11 +237,12 @@ function BackfillImagesPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = (await res.json()) as { success?: boolean; summary?: BackfillSummary; error?: string };
+      const json = await res.json();
       if (!res.ok) {
         setError(json?.error || `HTTP ${res.status}`);
       } else {
-        setResult(json.summary ?? (null as any));
+        setSummary(json.summary ?? null);
+        setRawResponse(json);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -246,66 +253,144 @@ function BackfillImagesPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-4">
-        <div className="md:col-span-2">
-          <label className="block text-sm font-medium mb-1">Base URL</label>
-          <Input
-            placeholder="https://your-domain.example"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-          />
-          <p className="text-xs text-muted-foreground mt-1">Defaults to current site origin if left blank.</p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Limit (optional)</label>
-          <Input
-            placeholder="e.g. 200"
-            value={limit}
-            onChange={(e) => setLimit(e.target.value)}
-          />
-        </div>
-        <div className="flex items-end gap-3">
-          <label className="flex items-center gap-2">
+      <div className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-3 items-end">
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium mb-1">Site Origin</label>
+            <div className="flex gap-2 items-center">
+              <Input
+                value={baseUrl || (typeof window !== "undefined" ? window.location.origin : "")}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                readOnly={!isEditingOrigin}
+              />
+              <Button variant="outline" size="sm" onClick={() => setIsEditingOrigin((v) => !v)}>
+                {isEditingOrigin ? "Lock" : "Edit"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Used to turn relative paths into absolute URLs. Defaults to current site.</p>
+          </div>
+          <div className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={includeStudentResults}
               onChange={(e) => setIncludeStudentResults(e.target.checked)}
             />
             <span className="text-sm">Include student results</span>
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={dryRun}
-              onChange={(e) => setDryRun(e.target.checked)}
-            />
-            <span className="text-sm">Dry run</span>
-          </label>
+          </div>
         </div>
-      </div>
 
-      <div className="flex gap-3">
-        <Button disabled={isRunning} onClick={() => runBackfill(dryRun)} variant="outline">
-          {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Preview
-        </Button>
-        <Button disabled={isRunning} onClick={() => runBackfill(dryRun)}>
-          {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Run Backfill
-        </Button>
+        <div>
+          <button className="text-sm text-primary hover:underline" type="button" onClick={() => setShowAdvanced((v) => !v)}>
+            {showAdvanced ? "Hide advanced" : "Show advanced"}
+          </button>
+          {showAdvanced && (
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Batch limit</label>
+                <Input
+                  placeholder="e.g. 200"
+                  value={limit}
+                  onChange={(e) => setLimit(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={dryRun}
+                  onChange={(e) => setDryRun(e.target.checked)}
+                />
+                <span className="text-sm">Dry run (preview only)</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-3 items-center">
+          <Button disabled={isRunning} onClick={() => runBackfill(true)} variant="outline">
+            {isRunning && dryRun ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Preview
+          </Button>
+          <div className="flex items-center gap-2">
+            <input type="checkbox" checked={confirmRun} onChange={(e) => setConfirmRun(e.target.checked)} />
+            <span className="text-sm">I understand this writes storage IDs to production data</span>
+          </div>
+          <Button disabled={isRunning || !confirmRun} onClick={() => runBackfill(false)}>
+            {isRunning && !dryRun ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Run Backfill
+          </Button>
+        </div>
       </div>
 
       {error && (
         <div className="text-sm text-red-600">{error}</div>
       )}
 
-      {result && (
-        <div className="text-sm">
-          <pre className="whitespace-pre-wrap break-words bg-muted/50 p-3 rounded-md">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+      {summary && (
+        <div className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
+            <Stat label="Profiles" value={summary.processedProfiles} />
+            <Stat label="Instructors" value={summary.processedInstructors} />
+            <Stat label="Portfolio Images" value={summary.processedPortfolioImages} />
+            <Stat label="Student Results" value={summary.processedStudentResults} />
+            <Stat label="Skipped" value={summary.skipped} />
+          </div>
+
+          {summary.errors?.length ? (
+            <div>
+              <h4 className="font-medium mb-2">Errors ({summary.errors.length})</h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2 px-2">Type</th>
+                      <th className="text-left py-2 px-2">Record</th>
+                      <th className="text-left py-2 px-2">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summary.errors.map((e, i) => (
+                      <tr key={i} className="border-b align-top">
+                        <td className="py-2 px-2 font-mono text-xs">{e.kind}</td>
+                        <td className="py-2 px-2 font-mono text-xs">{e.id}</td>
+                        <td className="py-2 px-2 break-all">{e.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={() => downloadReport(rawResponse)}>
+              Download report
+            </Button>
+            <Button variant="outline" onClick={() => { setSummary(null); setRawResponse(null); }}>Clear</Button>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function downloadReport(obj: any) {
+  if (!obj) return;
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `backfill-summary-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
