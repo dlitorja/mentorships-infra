@@ -189,12 +189,27 @@ export default function InstructorsPage() {
 }
 
 function BackfillImagesPanel() {
+  type BackfillSummary = {
+    processedProfiles: number;
+    processedInstructors: number;
+    processedPortfolioImages: number;
+    processedStudentResults: number;
+    skipped: number;
+    errors: Array<{ kind: string; id: string; message: string }>;
+  };
+
+  type BackfillRequest = {
+    baseUrl: string;
+    includeStudentResults: boolean;
+    dryRun: boolean;
+    limit?: number;
+  };
   const [baseUrl, setBaseUrl] = useState<string>("");
   const [includeStudentResults, setIncludeStudentResults] = useState<boolean>(true);
   const [dryRun, setDryRun] = useState<boolean>(true);
   const [limit, setLimit] = useState<string>("");
   const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<BackfillSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const ensureBaseUrl = () => baseUrl.trim() || (typeof window !== "undefined" ? window.location.origin : "");
@@ -204,7 +219,7 @@ function BackfillImagesPanel() {
       setIsRunning(true);
       setError(null);
       setResult(null);
-      const body: any = {
+      const body: BackfillRequest = {
         baseUrl: ensureBaseUrl(),
         includeStudentResults,
         dryRun: runDry,
@@ -216,11 +231,11 @@ function BackfillImagesPanel() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = await res.json();
+      const json = (await res.json()) as { success?: boolean; summary?: BackfillSummary; error?: string };
       if (!res.ok) {
         setError(json?.error || `HTTP ${res.status}`);
       } else {
-        setResult(json);
+        setResult(json.summary ?? (null as any));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

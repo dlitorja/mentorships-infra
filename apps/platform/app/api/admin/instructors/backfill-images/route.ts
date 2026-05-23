@@ -11,7 +11,7 @@ export const runtime = "nodejs";
  * Body: { baseUrl?: string; includeStudentResults?: boolean; dryRun?: boolean; limit?: number }
  * Requires admin. Triggers Convex action to backfill storage-backed images for instructors, profiles, and student results.
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
