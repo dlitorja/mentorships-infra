@@ -1,5 +1,5 @@
 import { query, mutation, internalMutation, internalAction, internalQuery, action } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -109,6 +109,7 @@ function contentTypeForPath(path: string): string {
   if (p.endsWith(".png")) return "image/png";
   if (p.endsWith(".webp")) return "image/webp";
   if (p.endsWith(".gif")) return "image/gif";
+  if (p.endsWith(".svg") || p.endsWith(".svgz")) return "image/svg+xml";
   return "image/jpeg"; // default
 }
 
@@ -129,21 +130,19 @@ export const backfillImages = action({
       errors: [],
     };
 
-    // Ensure caller is admin
+    // Ensure caller is admin (direct check, no side-effects)
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    const isAdmin = await ctx.runQuery(internal.instructors.listInstructorsInternal).then(() => true).catch(() => false);
-    if (!isAdmin) {
-      throw new Error("Forbidden");
-    }
+    const isAdmin = await isAdminUser(ctx, identity.subject);
+    if (!isAdmin) throw new Error("Forbidden");
 
     const baseUrl = args.baseUrl;
     const includeStudentResults = args.includeStudentResults !== false;
 
     // Load profiles and instructors
     const [profiles, instructors] = await Promise.all([
-      ctx.runQuery(internal.instructors.listInstructorProfilesInternal),
-      ctx.runQuery(internal.instructors.listInstructorsInternal),
+      ctx.runQuery(api.instructors.listInstructorProfilesInternal, {} as any),
+      ctx.runQuery(api.instructors.listInstructorsInternal, {} as any),
     ]);
 
     // Index instructors by slug for convenience
@@ -161,12 +160,12 @@ export const backfillImages = action({
         const res = await fetch(srcUrl);
         if (!res.ok) return null;
         const buf = await res.arrayBuffer();
-        const postUrl = await ctx.runMutation(api.instructors.generateInstructorUploadUrl, {});
+        const postUrl = await ctx.runMutation(api.instructors.generateInstructorUploadUrl, {} as any);
         const ct = contentTypeForPath(srcUrl);
         const up = await fetch(postUrl, { method: "POST", headers: { "Content-Type": ct }, body: buf });
         if (!up.ok) return null;
         const { storageId } = await up.json() as { storageId: string };
-        const url = (await ctx.runQuery(api.instructors.getStorageUrl, { storageId })) ?? `convex://storage/${storageId}`;
+        const url = (await ctx.runQuery(api.instructors.getStorageUrl, { storageId } as any)) ?? `convex://storage/${storageId}`;
         return { storageId, url };
       } catch (e) {
         return null;
@@ -190,13 +189,13 @@ export const backfillImages = action({
                 slug,
                 storageId: uploaded.storageId,
                 url: uploaded.url,
-              });
+              } as any);
               if (inst?._id) {
                 await ctx.runMutation(api.instructors.updateInstructorProfileStorageId, {
                   instructorId: inst._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
-                });
+                } as any);
                 summary.processedInstructors += 1;
               }
               summary.processedProfiles += 1;
@@ -234,13 +233,13 @@ export const backfillImages = action({
               slug,
               storageIds: newSids,
               urls: newUrls,
-            });
+            } as any);
             if (inst?._id) {
               await ctx.runMutation(api.instructors.updateInstructorPortfolioStorageIds, {
                 instructorId: inst._id,
                 storageIds: newSids,
                 urls: newUrls,
-              });
+              } as any);
             }
           }
         }
@@ -251,7 +250,7 @@ export const backfillImages = action({
     }
 
     if (includeStudentResults) {
-      const studentResults = await ctx.runQuery(internal.instructors.listStudentResultsInternal);
+      const studentResults = await ctx.runQuery(api.instructors.listStudentResultsInternal, {} as any);
       for (const r of studentResults as any[]) {
         if (processedCount >= maxItems) break;
         try {
@@ -264,7 +263,7 @@ export const backfillImages = action({
                   studentResultId: r._id,
                   storageId: uploaded.storageId,
                   url: uploaded.url,
-                });
+                } as any);
                 summary.processedStudentResults += 1;
               } else {
                 summary.errors.push({ kind: "studentResult", id: r._id, message: "upload failed" });
