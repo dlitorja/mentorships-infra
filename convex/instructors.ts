@@ -133,8 +133,12 @@ export const backfillImages = action({
     // Ensure caller is admin (direct check, no side-effects)
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
-    const isAdmin = await isAdminUser(ctx, identity.subject);
-    if (!isAdmin) throw new Error("Forbidden");
+    // We can't use QueryCtx helpers directly in actions; verify admin by calling a query that enforces admin.
+    try {
+      await ctx.runQuery(api.instructors.getMigrationStatus, {} as any);
+    } catch {
+      throw new Error("Forbidden");
+    }
 
     const baseUrl = args.baseUrl;
     const includeStudentResults = args.includeStudentResults !== false;
