@@ -143,7 +143,7 @@ export function InstructorCarousel(): React.JSX.Element | null {
                       className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer block flex-shrink-0"
                     >
                       <Image
-                        src={instructor.profileImageUrl || "/placeholder.jpg"}
+                        src={instructor.profileImageUrl || "/placeholder-instructor.svg"}
                         alt={instructor.name || "Instructor"}
                         fill
                         className="object-cover transition-transform hover:scale-105"
@@ -188,4 +188,3 @@ export function InstructorCarousel(): React.JSX.Element | null {
     </section>
   );
 }
-

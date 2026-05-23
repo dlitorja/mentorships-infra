@@ -42,9 +42,19 @@ export async function GET(
     const { id } = await params;
 
     const convex = getConvexClient();
-    const product = await convex.query(api.products.getProductForAdmin, {
-      id: id as Id<"products">,
-    });
+    let product = null;
+    try {
+      product = await convex.query(api.products.getProductForAdmin, {
+        id: id as Id<"products">,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Convex will throw on invalid id shape; classify as bad request instead of 500
+      if (/id|argument|validation|invalid/i.test(msg)) {
+        return NextResponse.json({ error: "Invalid product id" }, { status: 400 });
+      }
+      throw e;
+    }
 
     if (!product) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
