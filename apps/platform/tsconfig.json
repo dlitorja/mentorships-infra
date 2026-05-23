@@ -40,6 +40,9 @@
       ],
       "@mentorships/ui": [
         "../../packages/ui/src"
+      ],
+      "@mentorships/emails": [
+        "../../packages/emails/src"
       ]
     }
   },
