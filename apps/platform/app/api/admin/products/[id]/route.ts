@@ -6,6 +6,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { stripe } from "@/lib/stripe";
+import { auth } from "@clerk/nextjs/server";
 
 const updateProductSchema = z.object({
   title: z.string().min(1, "Title is required").max(200),
@@ -42,6 +43,12 @@ export async function GET(
     const { id } = await params;
 
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
     let product = null;
     try {
       product = await convex.query(api.products.getProductForAdmin, {
@@ -135,6 +142,12 @@ export async function PUT(
     } = validationResult.data as UpdateProductInput;
 
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     let existingProduct = null;
     try {
@@ -285,6 +298,12 @@ export async function DELETE(
     const { id } = await params;
 
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     let existingProduct = null;
     try {
