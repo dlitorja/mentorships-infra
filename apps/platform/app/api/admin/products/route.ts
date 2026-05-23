@@ -320,6 +320,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       items: result.items.map((item: any) => ({
         ...item,
+        // Ensure nulls (not undefined) for nullable fields expected by client schema
+        instructorId: item.instructorId ?? null,
+        instructorName: item.instructorName ?? null,
         // Normalize createdAt to ISO string for client schema
         createdAt: new Date(item.createdAt).toISOString(),
         // Provide PayPal dashboard link if productId exists; avoids undefined on client
