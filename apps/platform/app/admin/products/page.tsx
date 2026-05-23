@@ -37,8 +37,8 @@ const instructorOptionSchema = z.object({
 
 type ProductInfo = {
   id: string;
-  instructorId: string;
-  mentorName: string;
+  instructorId: string | null;
+  instructorName: string | null;
   title: string;
   description: string | null;
   imageUrl: string | null;
@@ -57,8 +57,8 @@ type ProductInfo = {
 
 const productSchema = z.object({
   id: z.string(),
-  instructorId: z.string(),
-  mentorName: z.string(),
+  instructorId: z.string().nullable(),
+  instructorName: z.string().nullable(),
   title: z.string(),
   description: z.string().nullable(),
   imageUrl: z.string().nullable(),
@@ -423,7 +423,7 @@ export default function ProductsPage() {
                   <td className="py-3 px-4">
                     {getMentorshipTypeBadge(product.mentorshipType)}
                   </td>
-                  <td className="py-3 px-4">{product.mentorName}</td>
+                  <td className="py-3 px-4">{product.instructorName}</td>
                   <td className="py-3 px-4">
                     {new Intl.NumberFormat("en-US", {
                       style: "currency",
