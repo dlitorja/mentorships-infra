@@ -108,21 +108,37 @@ async function main() {
 
     const instructorId = found._id;
     let updated = false;
+    let skipped = false;
     try {
       // Profile image
       if (mapping.profile) {
-        const pf = join(mapping.dir, mapping.profile);
-        const { storageId, contentType } = await uploadFileToConvex(convex, pf);
-        await convex.mutation(api.instructors.uploadInstructorProfileImage, {
-          instructorId,
-          storageId,
-          contentType,
-        });
-        updated = true;
+        if (found.profileImageStorageId) {
+          skipped = true;
+        } else {
+          const pf = join(mapping.dir, mapping.profile);
+          const { storageId, contentType } = await uploadFileToConvex(convex, pf);
+          await convex.mutation(api.instructors.uploadInstructorProfileImage, {
+            instructorId,
+            storageId,
+            contentType,
+          });
+          updated = true;
+        }
       }
 
       // Portfolio images
+      const existingIds = Array.isArray(found.portfolioImageStorageIds)
+        ? found.portfolioImageStorageIds
+        : Array.isArray(found.portfolioImages)
+          ? found.portfolioImages.map((u) => (u ? "legacy" : ""))
+          : [];
+
       for (let i = 0; i < mapping.works.length; i++) {
+        const already = existingIds[i];
+        if (already) {
+          skipped = true;
+          continue;
+        }
         const wf = join(mapping.dir, mapping.works[i]);
         const { storageId, contentType } = await uploadFileToConvex(convex, wf);
         await convex.mutation(api.instructors.uploadInstructorPortfolioImage, {
@@ -134,7 +150,7 @@ async function main() {
         updated = true;
       }
 
-      results.push({ slug, status: updated ? "updated" : "noop" });
+      results.push({ slug, status: updated ? "updated" : skipped ? "skipped" : "noop" });
     } catch (e) {
       results.push({ slug, status: "error", error: e?.message || String(e) });
     }
