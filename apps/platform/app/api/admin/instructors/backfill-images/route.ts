@@ -56,7 +56,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // Ensure Convex recognizes this user as admin (idempotent)
     try {
-      await convexAction(api.users.syncUser, {}, { token, url: convexUrl });
+      const seedClient = new ConvexHttpClient(convexUrl);
+      seedClient.setAuth(token);
+      await seedClient.mutation(api.users.syncUser, {} as any);
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
       if (secret && clerkAuth.userId) {
         const ts = Date.now();
