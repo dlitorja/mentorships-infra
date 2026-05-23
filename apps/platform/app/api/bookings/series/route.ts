@@ -9,6 +9,7 @@ import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk";
+import type { bookingSeriesNotifications } from "../../../../../../src/trigger/booking-series-notifications";
 
 const createSeriesSchema = z.object({
   instructorId: z.string().min(1),
@@ -221,9 +222,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Trigger consolidated summary emails (student + instructor) via Trigger.dev task
     try {
       const timesUtc = [baseStartMs, ...createdTimes].sort((a, b) => a - b);
-      await tasks.trigger("booking-series-notifications", {
+      await tasks.trigger<typeof bookingSeriesNotifications>("booking-series-notifications", {
         studentEmail: sessionEmail || null,
-        instructorEmail: (instructor as any).email || null,
+        instructorEmail: instructor.email || null,
         studentName,
         instructorName: instructor.name || null,
         timesUtc,
