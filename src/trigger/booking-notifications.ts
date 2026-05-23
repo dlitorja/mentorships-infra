@@ -1,11 +1,6 @@
 import { task } from "@trigger.dev/sdk";
-<<<<<<< HEAD
 import { sendEmail } from "@mentorships/emails/send";
 import { buildBookingConfirmationEmail, buildInstructorNotificationEmail } from "@mentorships/emails/booking";
-=======
-import { sendEmail } from "../../packages/emails/src/send";
-import { buildBookingConfirmationEmail, buildInstructorNotificationEmail } from "../../packages/emails/src/booking";
->>>>>>> origin/main
 
 type Payload = {
   studentEmail: string;

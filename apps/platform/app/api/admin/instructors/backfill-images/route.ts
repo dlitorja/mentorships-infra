@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
@@ -15,14 +16,25 @@ export async function POST(req: NextRequest) {
     const { requireRoleForApi } = await import("@/lib/auth-helpers");
     await requireRoleForApi("admin");
 
-    const body = await req.json().catch(() => ({}));
-    const baseUrl: string = body.baseUrl || process.env.NEXT_PUBLIC_URL || req.headers.get("origin") || "";
+    const schema = z.object({
+      baseUrl: z.string().trim().min(1).optional(),
+      includeStudentResults: z.coerce.boolean().optional(),
+      dryRun: z.coerce.boolean().optional(),
+      limit: z.coerce.number().int().positive().optional(),
+    });
+
+    const parsed = schema.safeParse(await req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid request", details: parsed.error.issues }, { status: 400 });
+    }
+
+    const baseUrl = parsed.data.baseUrl ?? process.env.NEXT_PUBLIC_URL ?? req.headers.get("origin") ?? "";
     if (!baseUrl) {
       return NextResponse.json({ error: "baseUrl is required (set NEXT_PUBLIC_URL or pass in body)" }, { status: 400 });
     }
-    const includeStudentResults: boolean = body.includeStudentResults !== false;
-    const dryRun: boolean = !!body.dryRun;
-    const limit: number | undefined = typeof body.limit === "number" ? body.limit : undefined;
+    const includeStudentResults = parsed.data.includeStudentResults ?? true;
+    const dryRun = parsed.data.dryRun ?? false;
+    const limit = parsed.data.limit;
 
     const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
     if (!convexUrl) {
@@ -42,8 +54,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, summary: result });
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("Unauthorized") || error.message.includes("Forbidden"))) {
-      return NextResponse.json({ error: error.message }, { status: error.message.includes("Unauthorized") ? 401 : 403 });
+    if (
+      error instanceof Error &&
+      (error.message.includes("Unauthorized") || error.message.includes("Forbidden") || error.message.includes("Admin role required"))
+    ) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.message.includes("Unauthorized") ? 401 : 403 }
+      );
     }
     console.error("Backfill images error:", error);
     return NextResponse.json({ error: "Backfill failed" }, { status: 500 });

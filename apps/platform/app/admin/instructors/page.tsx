@@ -270,12 +270,12 @@ function BackfillImagesPanel() {
       </div>
 
       <div className="flex gap-3">
-        <Button disabled={isRunning} onClick={() => runBackfill(true)} variant="outline">
-          {isRunning && dryRun ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        <Button disabled={isRunning} onClick={() => runBackfill(dryRun)} variant="outline">
+          {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Preview
         </Button>
-        <Button disabled={isRunning} onClick={() => runBackfill(false)}>
-          {isRunning && !dryRun ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+        <Button disabled={isRunning} onClick={() => runBackfill(dryRun)}>
+          {isRunning ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Run Backfill
         </Button>
       </div>

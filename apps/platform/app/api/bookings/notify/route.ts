@@ -5,11 +5,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
 import { sendEmail } from "@/lib/email";
-<<<<<<< HEAD
 import { buildBookingConfirmationEmail, buildInstructorNotificationEmail } from "@mentorships/emails/booking";
-=======
-import { buildBookingConfirmationEmail, buildInstructorNotificationEmail } from "../../../../../../packages/emails/src/booking";
->>>>>>> origin/main
 
 const schema = z.object({
   bookingId: z.string().min(1),
