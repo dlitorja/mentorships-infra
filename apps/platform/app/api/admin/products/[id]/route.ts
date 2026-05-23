@@ -56,13 +56,8 @@ export async function GET(
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-<<<<<<< HEAD
       // Classify Convex argument/validator failures as 400 (bad request)
       if (/ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(msg)) {
-=======
-      // Convex will throw on invalid id shape; classify as bad request instead of 500
-      if (/id|argument|validation|invalid/i.test(msg)) {
->>>>>>> 2964ce4 (admin: add storage image backfill UI and Convex action; harden product GET for invalid ids; standardize image placeholders)
         return NextResponse.json({ error: "Invalid product id" }, { status: 400 });
       }
       throw e;
