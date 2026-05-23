@@ -8,8 +8,7 @@ import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import { sendEmail } from "@/lib/email";
-import { buildSeriesSummaryEmails } from "@mentorships/emails/booking";
+import { tasks } from "@trigger.dev/sdk";
 
 const createSeriesSchema = z.object({
   instructorId: z.string().min(1),
@@ -145,9 +144,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             sendUpdates: "all",
             requestBody: {
               summary: `Session with ${studentName}`,
-              description: instructor.discordVoiceChannelUrl
-                ? [`Join Discord voice: ${instructor.discordVoiceChannelUrl}`, "", "Join this voice channel at the session start time."].join("\n")
-                : undefined,
+              description: (() => {
+                const lines: string[] = [];
+                if (instructor.discordVoiceChannelUrl) {
+                  lines.push(`Join Discord voice: ${instructor.discordVoiceChannelUrl}`);
+                  lines.push("");
+                  lines.push("Join this voice channel at the session start time.");
+                  lines.push("");
+                }
+                lines.push(
+                  "Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion."
+                );
+                return lines.join("\n");
+              })(),
               location: instructor.discordVoiceChannelUrl || undefined,
               start: { dateTime: new Date(slotStartUtc).toISOString(), timeZone: timezone },
               end: { dateTime: new Date(slotEndUtc).toISOString(), timeZone: timezone },
@@ -209,27 +218,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const created = results.filter((r) => r.status === "created").length;
     const skipped = results.length - created;
 
-    // Send single summary emails (student + instructor)
+    // Trigger consolidated summary emails (student + instructor) via Trigger.dev task
     try {
       const timesUtc = [baseStartMs, ...createdTimes].sort((a, b) => a - b);
-      const summary = buildSeriesSummaryEmails({
-        studentName,
-        studentEmail: sessionEmail || "",
-        instructorName: instructor.name || null,
+      await tasks.trigger("booking-series-notifications", {
+        studentEmail: sessionEmail || null,
         instructorEmail: (instructor as any).email || null,
+        studentName,
+        instructorName: instructor.name || null,
         timesUtc,
         studentTimeZone: timezone,
         instructorTimeZone: instructor.timeZone || null,
         skippedCount: skipped,
       });
-      if (sessionEmail) {
-        await sendEmail({ to: sessionEmail, subject: summary.student.subject, text: summary.student.text, headers: summary.student.headers });
-      }
-      if (instructor.email) {
-        await sendEmail({ to: instructor.email, subject: summary.instructor.subject, text: summary.instructor.text, headers: summary.instructor.headers });
-      }
     } catch (e) {
-      console.error("Failed to send series summary emails:", e);
+      console.error("Failed to trigger booking-series-notifications task:", e);
     }
 
     return NextResponse.json({ success: true, created, skipped, results });

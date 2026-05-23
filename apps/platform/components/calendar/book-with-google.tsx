@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchInstructorAvailability } from "@/lib/queries/api-client";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 
 function addHours(dateIso: string, hours: number): string {
   const d = new Date(dateIso);
@@ -40,8 +41,8 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
     try {
       setBookingInFlightIso(slotIso);
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      // Create the initial booking first, but do NOT suppress notifications yet.
-      // We'll suppress only if the series succeeds and send a single summary.
+      // Create the initial booking with notifications suppressed to avoid duplicates.
+      // If the weekly series creation succeeds, a single consolidated summary will be sent.
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,7 +57,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json?.success) {
-        toast.success("Booked. Invite sent; Discord link is in the event.");
+        toast.success("Booked. Invite sent; Discord link is in the event. For changes, contact your instructor in your workspace (24-hour notice encouraged).");
         // Attempt weekly series for 3 future weeks by default (4-session program)
         let seriesOk = false;
         try {
@@ -157,6 +158,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
             <p className="text-xs text-muted-foreground mt-1">
               The system will try to reserve this same day and time to keep consistency and momentum. If a specific week isn’t available, we’ll skip it and you can pick another time later. We suggest contacting your instructor in your workspace to reschedule individual sessions.
             </p>
+            <p className="text-xs text-muted-foreground mt-1">All sessions are 60 minutes.</p>
           </div>
         </div>
 
@@ -201,15 +203,24 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {slots.slice(0, 60).map((iso) => {
               const d = new Date(iso);
+              const inFlight = bookingInFlightIso === iso;
               return (
-                <Button key={iso} variant="outline" onClick={() => book(iso)} disabled={Boolean(bookingInFlightIso)}>
-                  {d.toLocaleString("en-US", {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
+                <Button key={iso} variant="outline" onClick={() => book(iso)} disabled={Boolean(bookingInFlightIso)} aria-busy={inFlight}
+                >
+                  {inFlight ? (
+                    <span className="inline-flex items-center">
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Booking…
+                    </span>
+                  ) : (
+                    d.toLocaleString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })
+                  )}
                 </Button>
               );
             })}

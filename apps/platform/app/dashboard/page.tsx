@@ -287,7 +287,17 @@ function DashboardContent() {
         <Card>
           <CardHeader>
             <CardTitle>Upcoming Sessions</CardTitle>
-            <CardDescription>Your scheduled mentorship sessions</CardDescription>
+            <CardDescription>
+              <div className="space-y-2">
+                <p>Your scheduled mentorship sessions</p>
+                <div className="text-xs flex items-start gap-2 rounded-md border p-2 bg-muted/50">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+                  <p>
+                    To cancel or reschedule, contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion.
+                  </p>
+                </div>
+              </div>
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {sessionsLoading ? (
@@ -318,7 +328,17 @@ function DashboardContent() {
         <Card>
           <CardHeader>
             <CardTitle>Google Booked Sessions</CardTitle>
-            <CardDescription>Bookings created via Google Calendar</CardDescription>
+            <CardDescription>
+              <div className="space-y-2">
+                <p>Bookings created via Google Calendar</p>
+                <div className="text-xs flex items-start gap-2 rounded-md border p-2 bg-muted/50">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mt-0.5 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+                  <p>
+                    Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion.
+                  </p>
+                </div>
+              </div>
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {loadingGoogleBookings ? (
