@@ -44,6 +44,9 @@
       ],
       "@mentorships/emails": [
         "../../packages/emails/src"
+      ],
+      "@mentorships/emails/*": [
+        "../../packages/emails/src/*"
       ]
     }
   },
