@@ -52,10 +52,10 @@ export async function GET(): Promise<NextResponse> {
     return NextResponse.json({ instructors: instructorsWithStats });
   } catch (error) {
     console.error("Error fetching instructors:", error);
-    if (error instanceof Error && error.message === "Unauthorized") {
+    if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (error instanceof Error && error.message.includes("Forbidden")) {
+    if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
     return NextResponse.json(

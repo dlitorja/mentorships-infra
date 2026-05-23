@@ -1,0 +1,24 @@
+name: Deploy Platform (Hook)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel Deploy Hook
+        env:
+          VERCEL_PLATFORM_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_PLATFORM_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$VERCEL_PLATFORM_DEPLOY_HOOK_URL" ]; then
+            echo "Missing secret: VERCEL_PLATFORM_DEPLOY_HOOK_URL" >&2
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_PLATFORM_DEPLOY_HOOK_URL")
+          echo "HTTP Status: $code"
+          if [ "$code" != "200" ] && [ "$code" != "202" ]; then
+            echo "Deploy hook call failed" >&2
+            exit 1
+          fi
+          echo "Deploy hook triggered successfully"

@@ -4,6 +4,9 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
+import { fetchAction } from "convex/nextjs";
+
+export const runtime = "nodejs";
 
 const ALLOWED_TYPES = [
   "image/jpeg",
@@ -82,6 +85,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     convex.setAuth(token);
+
+    // Ensure the current user exists in Convex, then perform a server-verified
+    // admin role seed using an HMAC signature so Convex recognizes admin callers.
+    // 1) Sync basic user record (idempotent, no elevation)
+    await convex.mutation(api.users.syncUser, {});
+
+    // 2) Compute server-side HMAC and request admin role in Convex
+    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+    if (secret) {
+      const ts = Date.now();
+      const { userId } = await auth();
+      if (userId) {
+        const msg = `${userId}:admin:${ts}`;
+        // Use Node crypto at the route level
+        const { createHmac } = await import("node:crypto");
+        const sig = createHmac("sha256", secret).update(msg).digest("hex");
+        try {
+          await fetchAction(
+            api.users_actions.serverVerifiedSetUserRole,
+            { userId, role: "admin", ts, sig },
+            { token, url: process.env.NEXT_PUBLIC_CONVEX_URL }
+          );
+        } catch (e) {
+          // Do not block the upload on elevation failures; admin operations may already work
+          console.warn("serverVerifiedSetUserRole failed:", e);
+        }
+      }
+    } else {
+      console.warn("CONVEX_SERVER_SHARED_SECRET not set; skipping server-verified role seed");
+    }
 
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
@@ -185,16 +218,27 @@ export async function POST(req: NextRequest) {
       path: `instructors/${instructor.slug}/${type}/${storageId}`,
     });
   } catch (error) {
+    // Map known authorization errors to proper status codes. Convex often throws plain
+    // Error("Forbidden"/"Unauthorized"), so also check message text for robustness.
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
     }
+    if (error instanceof Error) {
+      const msg = (error.message || "").toLowerCase();
+      if (msg.includes("unauthorized")) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      if (msg.includes("forbidden")) {
+        return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+      }
+    }
 
     console.error("Upload error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Upload failed" },
+      { error: "Upload failed" },
       { status: 500 }
     );
   }

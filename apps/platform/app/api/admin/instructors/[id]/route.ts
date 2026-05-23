@@ -140,15 +140,15 @@ export async function GET(
       id: instructor._id,
       name: instructor.name,
       slug: instructor.slug,
-      email: instructor.email,
+      email: instructor.email ?? null,
       discordVoiceChannelUrl: instructor.discordVoiceChannelUrl ?? null,
-      tagline: instructor.tagline,
-      bio: instructor.bio,
-      specialties: instructor.specialties,
-      background: instructor.background,
-      profileImageUrl: instructor.profileImageUrl,
-      profileImageUploadPath: instructor.profileImageUploadPath,
-      portfolioImages: instructor.portfolioImages,
+      tagline: instructor.tagline ?? null,
+      bio: instructor.bio ?? null,
+      specialties: instructor.specialties ?? [],
+      background: instructor.background ?? [],
+      profileImageUrl: instructor.profileImageUrl ?? null,
+      profileImageUploadPath: instructor.profileImageUploadPath ?? null,
+      portfolioImages: instructor.portfolioImages ?? [],
       socials: sanitizeSocials(instructor.socials),
       isActive: instructor.isActive,
       userId: instructor.userId ?? null,
@@ -260,15 +260,23 @@ export async function PUT(
     if (data.bio !== undefined) {
       updateData.bio = data.bio === "" ? null : data.bio;
     }
-    if (data.specialties !== undefined) updateData.specialties = data.specialties;
-    if (data.background !== undefined) updateData.background = data.background;
+    // Normalize list fields to arrays of non-empty strings only to avoid Convex arg type errors
+    if (data.specialties !== undefined) {
+      // Zod already enforces string[]; just trim and drop empties
+      updateData.specialties = data.specialties.map((s) => s.trim()).filter((s) => s.length > 0);
+    }
+    if (data.background !== undefined) {
+      updateData.background = data.background.map((s) => s.trim()).filter((s) => s.length > 0);
+    }
     if (data.profileImageUrl !== undefined) {
       updateData.profileImageUrl = data.profileImageUrl === "" ? null : data.profileImageUrl;
     }
     if (data.profileImageUploadPath !== undefined) {
       updateData.profileImageUploadPath = data.profileImageUploadPath === "" ? null : data.profileImageUploadPath;
     }
-    if (data.portfolioImages !== undefined) updateData.portfolioImages = data.portfolioImages;
+    if (data.portfolioImages !== undefined) {
+      updateData.portfolioImages = data.portfolioImages.map((s) => s.trim()).filter((s) => s.length > 0);
+    }
     if (data.socials !== undefined) {
       const sanitized = sanitizeSocials(data.socials);
       updateData.socials = Object.keys(sanitized).length > 0 ? sanitized : null;
@@ -287,10 +295,57 @@ export async function PUT(
     if (data.groupInventory !== undefined) updateData.groupInventory = data.groupInventory;
     if (data.instructorId !== undefined) updateData.legacyInstructorRef = data.instructorId;
 
-    const updated = await convex.mutation(api.instructors.updateInstructor, {
-      id: resolvedId as any,
-      ...updateData,
-    });
+    let updated: any;
+    try {
+      updated = await convex.mutation(api.instructors.updateInstructor, {
+        id: resolvedId as any,
+        ...updateData,
+      });
+    } catch (err: any) {
+      const msg: string = err?.message || String(err);
+      // Extract Convex request id when available, keep null when not matched
+      const requestId = (() => {
+        const m = msg.match(/\[Request ID: ([^\]]+)\]/);
+        return m ? m[1] : null;
+      })();
+      console.error("Convex updateInstructor failed", {
+        requestId,
+        message: msg,
+        resolvedId,
+        updateDataKeys: Object.keys(updateData),
+      });
+      // Error classification:
+      // - Likely invalid arguments/schema mismatch: return 400
+      // - Otherwise preserve 5xx to avoid masking outages
+      const looksLikeArgValidation = /ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(
+        msg
+      );
+      if (looksLikeArgValidation) {
+        return NextResponse.json(
+          {
+            error: "Invalid Convex mutation arguments",
+            requestId,
+            details: "Update payload failed Convex validator",
+          },
+          { status: 400 }
+        );
+      }
+
+      // If Convex reports a generic "Server Error" but we can't confirm it's validation-related, keep 502
+      if (/Server Error/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error: "Upstream Convex server error",
+            requestId,
+            details: "Convex returned a server error while updating instructor",
+          },
+          { status: 502 }
+        );
+      }
+
+      // Unknown error shape – rethrow to outer handler
+      throw err;
+    }
 
     if (!updated) {
       return NextResponse.json(
@@ -306,13 +361,14 @@ export async function PUT(
         id: updated._id,
         name: updated.name,
         slug: updated.slug,
-        email: updated.email,
-        tagline: updated.tagline,
-        bio: updated.bio,
-        specialties: updated.specialties,
-        background: updated.background,
-        profileImageUrl: updated.profileImageUrl,
-        portfolioImages: updated.portfolioImages,
+        email: updated.email ?? null,
+        tagline: updated.tagline ?? null,
+        bio: updated.bio ?? null,
+        specialties: updated.specialties ?? [],
+        background: updated.background ?? [],
+        profileImageUrl: updated.profileImageUrl ?? null,
+        profileImageUploadPath: updated.profileImageUploadPath ?? null,
+        portfolioImages: updated.portfolioImages ?? [],
         socials: sanitizeSocials(updated.socials),
         isActive: updated.isActive,
         userId: updated.userId ?? null,

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1f2937"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#bg)"/>
+
+  <!-- Subtle placeholder avatar shape -->
+  <g opacity="0.25" transform="translate(400,300)">
+    <circle cx="0" cy="-80" r="90" fill="#e5e7eb"/>
+    <path d="M -170 140 C -150 60, 150 60, 170 140 L 170 200 L -170 200 Z" fill="#e5e7eb"/>
+  </g>
+
+  <!-- Caption -->
+  <text x="50%" y="85%" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif" font-size="28" fill="#9ca3af" opacity="0.9">
+    Image Unavailable
+  </text>
+</svg>

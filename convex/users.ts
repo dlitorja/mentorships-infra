@@ -1,4 +1,4 @@
-import { query, mutation, internalQuery } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
@@ -102,7 +102,10 @@ export const getCurrentUser = query({
   },
 });
 
-/** Creates a new user if one doesn't already exist with the given email. */
+/**
+ * Creates a new user if one doesn't already exist with the given email.
+ * Used for backfills and admin tooling; does not enforce role semantics beyond insertion.
+ */
 export const createUser = mutation({
   args: {
     userId: v.string(),
@@ -155,6 +158,16 @@ export const deleteUser = mutation({
   },
 });
 
+/**
+ * Syncs the current authenticated user's profile into Convex.
+ * - If a record exists, updates basic fields (name/timezone) and may adjust role subject to guards.
+ * - If no record exists, inserts a new user with a safe default role.
+ *
+ * Role handling hardening:
+ * - Never elevates to admin here; only preserves admin if already set on the existing record.
+ * - Allows role "instructor" only when an instructor document exists for this user.
+ * - Allows non-privileged roles (student, video_editor) changes.
+ */
 export const syncUser = mutation({
   args: {
     firstName: v.optional(v.string()),
@@ -181,11 +194,49 @@ export const syncUser = mutation({
         lastName: args.lastName ?? existingByEmail.lastName,
         timeZone: args.timeZone ?? existingByEmail.timeZone,
       };
+
+      // Harden role updates: prevent privilege escalation from clients
       if (args.role) {
-        updates.role = args.role;
+        const requested = args.role;
+
+        // Fetch current role (may be undefined on legacy docs)
+        const currentRole = existingByEmail.role as Doc<"users">["role"] | undefined;
+
+        if (requested === "admin") {
+          // Only allow setting to admin if already admin (idempotent) — no elevation here
+          if (currentRole === "admin") {
+            updates.role = currentRole;
+          }
+        } else if (requested === "instructor") {
+          // Allow instructor role if an instructor record exists for this user
+          const hasInstructor = await ctx.db
+            .query("instructors")
+            .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+            .first();
+          if (hasInstructor) {
+            updates.role = "instructor";
+          }
+        } else if (requested === "student" || requested === "video_editor") {
+          // Downgrades or non-admin roles are allowed
+          updates.role = requested;
+        }
       }
+
       await ctx.db.patch(existingByEmail._id, updates);
       return await ctx.db.get(existingByEmail._id);
+    }
+
+    // New insert: never allow creating with admin directly to avoid elevation vectors.
+    // Default to student; allow instructor if they already have an instructor record.
+    let insertRole: Doc<"users">["role"] = "student";
+    if (args.role === "instructor") {
+      const hasInstructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      if (hasInstructor) insertRole = "instructor" as const;
+    } else if (args.role === "video_editor") {
+      insertRole = "video_editor" as const;
     }
 
     const id = await ctx.db.insert("users", {
@@ -194,7 +245,7 @@ export const syncUser = mutation({
       clerkId: identity.subject,
       firstName: args.firstName,
       lastName: args.lastName,
-      role: args.role ?? "student",
+      role: insertRole,
       timeZone: args.timeZone,
     });
 
@@ -203,6 +254,20 @@ export const syncUser = mutation({
     return inserted;
   },
 });
+
+/**
+ * Sets a user's role, verified by a server-provided HMAC signature.
+ *
+ * Usage: Intended to be called only from trusted server code (e.g., Next.js API routes)
+ * after performing external authorization (Clerk, etc.). The server generates an HMAC
+ * over `${userId}:${role}:${ts}` using the shared secret in both environments.
+ *
+ * Security:
+ * - Requires a valid HMAC signature derived from `process.env.CONVEX_SERVER_SHARED_SECRET`.
+ * - Rejects requests older than 5 minutes to reduce replay risk.
+ * - Allows elevating to admin only via valid signature.
+ */
+// serverVerifiedSetUserRole moved to users_actions.ts (Node action)
 
 export const migrateUser = mutation({
   args: {
@@ -240,6 +305,39 @@ export const migrateUser = mutation({
     });
 
     return { action: "inserted", id };
+  },
+});
+
+// Internal-only mutation to set a user's role. Intended to be called from
+// server-verified actions that have already authenticated the request.
+export const setUserRoleTrusted = internalMutation({
+  args: {
+    userId: v.string(),
+    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { role: args.role, userId: args.userId });
+      return await ctx.db.get(existing._id);
+    }
+
+    // Best-effort email association if identity present; optional
+    const identity = await ctx.auth.getUserIdentity();
+    const email = identity?.email;
+    const id = await ctx.db.insert("users", {
+      userId: args.userId,
+      email: email ?? undefined,
+      clerkId: args.userId,
+      role: args.role,
+    } as Partial<Doc<"users">> as any);
+    const inserted = await ctx.db.get(id);
+    if (!inserted) throw new Error("Failed to set role");
+    return inserted;
   },
 });
 

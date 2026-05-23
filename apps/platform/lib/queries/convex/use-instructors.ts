@@ -26,9 +26,11 @@ export function usePublicInstructors() {
     ...convexQuery(api.instructors.getPublicInstructors, {}),
   });
 
-  const filteredData = useMemo(() => {
+  const filteredData = useMemo<PublicInstructor[]>(() => {
     if (!data) return [];
-    return data.filter((i: any) => i.isActive && !i.deletedAt && !i.isHidden);
+    const list = (data as unknown as PublicInstructor[]) ?? [];
+    // Treat undefined isActive as active for backward compatibility
+    return list.filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt && !(i as any).isHidden);
   }, [data]);
 
   return {
@@ -58,7 +60,8 @@ export function useInstructors(): {
   const data = useMemo<PublicInstructor[]>(() => {
     if (!query.data) return [];
     return query.data
-      .filter((i: PublicInstructor) => i.isActive && !i.deletedAt)
+      // Treat undefined isActive as active for backward compatibility
+      .filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
   }, [query.data]);
 
