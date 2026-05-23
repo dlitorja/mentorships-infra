@@ -34,6 +34,9 @@ export function buildBookingConfirmationEmail(
     "",
     "If a week isn’t available, we’ll skip it and you can coordinate with your instructor in your workspace.",
     "",
+    "To cancel or reschedule, contact your instructor in your workspace.",
+    "We encourage informing your instructor at least 24 hours beforehand; instructors will handle changes requested with less than 24 hours' notice at their discretion.",
+    "",
     "Best,",
     "Huckleberry Mentorships",
   ].join("\n");
@@ -54,6 +57,9 @@ export function buildBookingConfirmationEmail(
         <a href="${calendarUrl}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">View Calendar</a>
         <p style="margin:16px 0 0 0;color:#6B7280;font-size:12px">
           We’ll try to reserve this same day and time weekly to keep momentum. If a week isn’t available, we’ll skip it and you can coordinate with your instructor in your workspace to reschedule.
+        </p>
+        <p style="margin:8px 0 0 0;color:#6B7280;font-size:12px">
+          To cancel or reschedule, contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion.
         </p>
       </div>
     </div>
@@ -140,6 +146,7 @@ export function buildSeriesSummaryEmails(args: {
     `View your sessions: ${calendarUrl}`,
     "",
     "If you need to reschedule individual sessions, please contact your instructor in your workspace.",
+    "We encourage informing your instructor at least 24 hours beforehand; instructors will handle changes requested with less than 24 hours' notice at their discretion.",
   ].join("\n");
 
   const instructorSubject = `New sessions scheduled`;

@@ -131,7 +131,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       descriptionLines.push(`Join Discord voice: ${instructor.discordVoiceChannelUrl}`);
       descriptionLines.push("");
       descriptionLines.push("Join this voice channel at the session start time.");
+      descriptionLines.push("");
     }
+    descriptionLines.push(
+      "Need to cancel or reschedule? Contact your instructor in your workspace. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion."
+    );
 
     let confirmed = null as any;
     let didConfirm = false;

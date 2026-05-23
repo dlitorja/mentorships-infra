@@ -7,7 +7,7 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import { useWorkspacesByOwner } from "@/lib/queries/convex/use-workspaces";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
+import { MessageSquare, FileText, Image as ImageIcon, Loader2, Info, X } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
@@ -100,6 +100,8 @@ function WorkspaceContent({
                 )}
               </CardHeader>
               <CardContent className="flex-1 min-h-0 pt-0">
+                {/* Info banner: cancellation & rescheduling policy */}
+                <WorkspacePolicyBanner />
                 <Tabs
                   value={activeTab}
                   onValueChange={setActiveTab}
@@ -175,6 +177,27 @@ function AuthenticatedWorkspace() {
   }
 
   return <WorkspaceContent clerkUserId={clerkUser.id} />;
+}
+
+function WorkspacePolicyBanner() {
+  const [visible, setVisible] = useState(true);
+  if (!visible) return null;
+  return (
+    <div className="mb-3 rounded-md border bg-muted/50 p-2 text-xs flex items-start gap-2">
+      <Info className="h-4 w-4 mt-0.5 text-muted-foreground" />
+      <div className="flex-1">
+        Need to cancel or reschedule? Message your instructor here. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion.
+      </div>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        className="opacity-70 hover:opacity-100"
+        onClick={() => setVisible(false)}
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
 }
 
 export default function WorkspacePage() {
