@@ -320,7 +320,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       items: result.items.map((item: any) => ({
         ...item,
+        // Normalize createdAt to ISO string for client schema
         createdAt: new Date(item.createdAt).toISOString(),
+        // Provide PayPal dashboard link if productId exists; avoids undefined on client
+        paypalProductLink: item.paypalProductId
+          ? getPayPalProductDashboardLink(item.paypalProductId)
+          : null,
       })),
       total: result.total,
       page,
