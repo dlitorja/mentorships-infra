@@ -72,27 +72,29 @@ function SocialLink({ url, platform }: { url: string; platform: string }) {
   );
 }
 
-function InstructorProfileContent({ slug }: { slug: string }) {
-  const { data: instructor } = useInstructorBySlug(slug);
-  // Use the instructors table id returned as instructorId from getInstructorBySlug
-  const instructorIdForQueries: string = instructor && typeof (instructor as any)?.instructorId === "string"
-    ? (instructor as any).instructorId
-    : "";
-  const { data: testimonialsData } = useInstructorTestimonials(instructorIdForQueries);
-  const { data: studentResultsData } = useInstructorStudentResults(instructorIdForQueries);
-  const { data: productsData } = useProductsByInstructor(instructorIdForQueries);
-  const [profileImageError, setProfileImageError] = useState(false);
+function InstructorExtras({
+  instructorId,
+  instructorSlug,
+  instructorName,
+  oneOnOneInventory,
+  groupInventory,
+}: {
+  instructorId: string;
+  instructorSlug: string;
+  instructorName: string;
+  oneOnOneInventory: number;
+  groupInventory: number;
+}) {
+  // These hooks require a valid instructors table id; they will only mount when we have one
+  const {
+    data: productsData,
+    isLoading: isLoadingProducts,
+    isFetched: isFetchedProducts,
+  } = useProductsByInstructor(instructorId);
 
-  useEffect(() => {
-    setProfileImageError(false);
-  }, [instructor?.profileImageUrl]);
-
-  const activeProducts = productsData?.filter((p: any) => p.active) || [];
+  const activeProducts = (productsData as any[] | undefined)?.filter((p) => p.active) ?? [];
   const oneOnOneProduct = activeProducts.find((p: any) => p.mentorshipType === "one-on-one");
   const groupProduct = activeProducts.find((p: any) => p.mentorshipType === "group");
-
-  const oneOnOneInventory = (instructor as any)?.oneOnOneInventory ?? 0;
-  const groupInventory = (instructor as any)?.groupInventory ?? 0;
 
   const renderSpotsAvailable = (spots: number) => {
     if (spots === 0) {
@@ -122,9 +124,78 @@ function InstructorProfileContent({ slug }: { slug: string }) {
     }
   };
 
+  return (
+    <div>
+      <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
+      <div className="space-y-4">
+        {oneOnOneProduct ? (
+          <div>
+            <p className="text-lg">
+              <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
+              ${oneOnOneProduct.price} for {oneOnOneProduct.sessionsPerPack} sessions
+            </p>
+            {renderSpotsAvailable(oneOnOneInventory)}
+            <div className="mt-4">
+              {oneOnOneInventory === 0 ? (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/waitlist?instructor=${instructorSlug}&type=one-on-one`}>Sign up for waitlist</Link>
+                </Button>
+              ) : (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/checkout?instructor=${instructorSlug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {groupProduct ? (
+          <div className="mt-4 pt-4 border-t">
+            <p className="text-lg">
+              <span className="font-semibold">Group Mentorships:</span>{" "}
+              ${groupProduct.price} for {groupProduct.sessionsPerPack} sessions
+            </p>
+            {renderSpotsAvailable(groupInventory)}
+            <div className="mt-4">
+              {groupInventory === 0 ? (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/waitlist?instructor=${instructorSlug}&type=group`}>Sign up for waitlist</Link>
+                </Button>
+              ) : (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/checkout?instructor=${instructorSlug}&type=group`}>Buy my group mentorship</Link>
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {isFetchedProducts && !isLoadingProducts && !oneOnOneProduct && !groupProduct ? (
+          <p className="text-muted-foreground">No mentorship packages available at this time.</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function InstructorProfileContent({ slug }: { slug: string }) {
+  const { data: instructor, isLoading } = useInstructorBySlug(slug);
+  // Use the instructors table id returned as instructorId from getInstructorBySlug
+  const instructorIdForQueries: string | undefined = instructor && typeof (instructor as any)?.instructorId === "string"
+    ? (instructor as any).instructorId
+    : undefined;
+  const [profileImageError, setProfileImageError] = useState(false);
+
+  useEffect(() => {
+    setProfileImageError(false);
+  }, [instructor?.profileImageUrl]);
+
+  const oneOnOneInventory = (instructor as any)?.oneOnOneInventory ?? 0;
+  const groupInventory = (instructor as any)?.groupInventory ?? 0;
+
   const socialLinks = (instructor?.socials as SocialPlatform[] | undefined) || [];
 
-  if (!instructor) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8 md:py-12">
@@ -137,8 +208,13 @@ function InstructorProfileContent({ slug }: { slug: string }) {
       </div>
     );
   }
+  if (!instructor) {
+    // Not found (Convex returned null after loading)
+    notFound();
+  }
 
-  if (!instructor.isActive || (instructor as any).deletedAt) {
+  // Treat undefined isActive as active for backward compatibility
+  if (instructor.isActive === false || (instructor as any).deletedAt) {
     notFound();
   }
 
@@ -201,54 +277,17 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                   </div>
                 )}
 
-                <div>
-                  <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-                  <div className="space-y-4">
-                    {oneOnOneProduct ? (
-                      <div>
-                        <p className="text-lg">
-                          <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
-                          ${oneOnOneProduct.price} for {oneOnOneProduct.sessionsPerPack} sessions
-                        </p>
-                        {renderSpotsAvailable(oneOnOneInventory)}
-                        <div className="mt-4">
-                          {oneOnOneInventory === 0 ? (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/waitlist?instructor=${instructor.slug}&type=one-on-one`}>Sign up for waitlist</Link>
-                            </Button>
-                          ) : (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/checkout?instructor=${instructor.slug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {groupProduct ? (
-                      <div className="mt-4 pt-4 border-t">
-                        <p className="text-lg">
-                          <span className="font-semibold">Group Mentorships:</span>{" "}
-                          ${groupProduct.price} for {groupProduct.sessionsPerPack} sessions
-                        </p>
-                        {renderSpotsAvailable(groupInventory)}
-                        <div className="mt-4">
-                          {groupInventory === 0 ? (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/waitlist?instructor=${instructor.slug}&type=group`}>Sign up for waitlist</Link>
-                            </Button>
-                          ) : (
-                            <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                              <Link href={`/checkout?instructor=${instructor.slug}&type=group`}>Buy my group mentorship</Link>
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ) : !oneOnOneProduct ? (
-                      <p className="text-muted-foreground">No mentorship packages available at this time.</p>
-                    ) : null}
-                  </div>
-                </div>
+                {instructorIdForQueries ? (
+                  <InstructorExtras
+                    instructorId={instructorIdForQueries}
+                    instructorSlug={instructor.slug}
+                    instructorName={instructor.name}
+                    oneOnOneInventory={oneOnOneInventory}
+                    groupInventory={groupInventory}
+                  />
+                ) : (
+                  <p className="text-muted-foreground">Purchasing will be available soon.</p>
+                )}
 
                 {socialLinks.length > 0 && (
                   <div>
@@ -273,33 +312,61 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             )}
 
-            {testimonialsData && testimonialsData.length > 0 && (
-              <div className="mt-12">
-                <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                  {(testimonialsData as Array<{_id: string; name: string; text: string}>).map((testimonial) => (
-                    <div key={testimonial._id} className="rounded-lg border bg-card p-6 shadow-sm">
-                      <Quote className="h-6 w-6 text-muted-foreground mb-4" />
-                      <div className="text-base leading-relaxed mb-4 italic">{testimonial.text}</div>
-                      <div>
-                        <p className="font-semibold">{testimonial.name}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {studentResultsData && studentResultsData.length > 0 && (
-              <div className="mt-12">
-                <h2 className="text-3xl font-bold mb-6">Student Success Stories</h2>
-                <PortfolioGallery images={(studentResultsData as Array<{imageUrl?: string}>).map((r) => r.imageUrl).filter((url): url is string => Boolean(url))} instructorName={instructor.name} />
-              </div>
-            )}
+            {/* Full-width sections below keep desktop layout intact */}
+            {instructorIdForQueries ? (
+              <InstructorFullWidthSections
+                instructorId={instructorIdForQueries}
+                instructorName={instructor.name}
+              />
+            ) : null}
           </div>
         </div>
       </div>
     </InstructorNavigation>
+  );
+}
+
+function InstructorFullWidthSections({
+  instructorId,
+  instructorName,
+}: {
+  instructorId: string;
+  instructorName: string;
+}) {
+  const { data: testimonialsData } = useInstructorTestimonials(instructorId);
+  const { data: studentResultsData } = useInstructorStudentResults(instructorId);
+
+  return (
+    <>
+      {testimonialsData && (testimonialsData as any[]).length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {(testimonialsData as Array<{ _id: string; name: string; text: string }>).map((testimonial) => (
+              <div key={testimonial._id} className="rounded-lg border bg-card p-6 shadow-sm">
+                <Quote className="h-6 w-6 text-muted-foreground mb-4" />
+                <div className="text-base leading-relaxed mb-4 italic">{testimonial.text}</div>
+                <div>
+                  <p className="font-semibold">{testimonial.name}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {studentResultsData && (studentResultsData as any[]).length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-3xl font-bold mb-6">Student Success Stories</h2>
+          <PortfolioGallery
+            images={(studentResultsData as Array<{ imageUrl?: string }>)
+              .map((r) => r.imageUrl)
+              .filter((url): url is string => Boolean(url))}
+            instructorName={instructorName}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
