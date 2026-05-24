@@ -724,17 +724,18 @@ function ProductFieldsForm({
             {(() => {
               const missing: string[] = [];
               const priceNum = Number(form.state.values.price);
+              const trimmedTitle = (form.state.values.title || "").trim();
               const isDisabled =
                 isSubmitting ||
                 isLoadingInstructors ||
                 !form.state.values.instructorId ||
-                !form.state.values.title ||
+                !trimmedTitle ||
                 !form.state.values.price ||
                 Number.isNaN(priceNum) || priceNum <= 0 ||
                 !(form.state.values.enableStripe || form.state.values.enablePayPal);
 
               if (!form.state.values.instructorId) missing.push("Instructor");
-              if (!form.state.values.title) missing.push("Title");
+              if (!trimmedTitle) missing.push("Title");
               if (!form.state.values.price || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
               if (!(form.state.values.enableStripe || form.state.values.enablePayPal)) missing.push("At least one provider");
 

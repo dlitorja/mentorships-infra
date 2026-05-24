@@ -197,9 +197,6 @@ export const hasPriorPackWithInstructor = query({
     excludeSessionPackId: v.optional(v.id("sessionPacks")),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
     const packs = await ctx.db
       .query("sessionPacks")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
