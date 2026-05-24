@@ -161,6 +161,22 @@ export const onboardingFlow = inngest.createFunction(
     const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
     const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
 
+    // Determine if this is a returning student for the same instructor
+    const isReturning = await step.run("check-returning-student", async () => {
+      try {
+        const prior = await convex.query(api.sessionPacks.hasPriorPackWithInstructor, {
+          userId: pack.userId,
+          instructorId: instructor._id as Id<"instructors">,
+          excludeSessionPackId: pack._id as Id<"sessionPacks">,
+        });
+        return Boolean(prior);
+      } catch (e) {
+        // Be forgiving; treat as not returning if query fails
+        console.warn("[onboarding] hasPriorPackWithInstructor failed:", e);
+        return false;
+      }
+    });
+
     const sendResult = await step.run("send-onboarding-email", async () => {
       if (useTemplates && templateId) {
         const templateData = {
@@ -175,6 +191,9 @@ export const onboardingFlow = inngest.createFunction(
         return await sendTemplateEmail({
           to: studentEmail,
           templateId,
+          subject: isReturning
+            ? `Welcome back — your mentorship with ${instructorName} is ready`
+            : undefined,
           templateData,
           headers: {
             "X-Email-Type": "purchase_onboarding",
@@ -196,7 +215,9 @@ export const onboardingFlow = inngest.createFunction(
 
       return await sendEmail({
         to: studentEmail,
-        subject: emailContent.subject,
+        subject: isReturning
+          ? `Welcome back — your mentorship with ${instructorName} is ready`
+          : emailContent.subject,
         html: emailContent.html,
         text: emailContent.text,
         headers: {
@@ -267,6 +288,9 @@ export const onboardingFlow = inngest.createFunction(
         const res = await sendTemplateEmail({
           to: instructorEmail,
           templateId: tmplId,
+          subject: isReturning
+            ? `Returning student — ${studentName || studentEmail || "A student"} has renewed`
+            : undefined,
           templateData,
           headers: {
             "X-Email-Type": "instructor_purchase_notification",
@@ -288,7 +312,9 @@ export const onboardingFlow = inngest.createFunction(
 
       const sendResult = await sendEmail({
         to: instructorEmail,
-        subject: instructorEmailContent.subject,
+        subject: isReturning
+          ? `Returning student — ${studentName || studentEmail || "A student"} has renewed`
+          : instructorEmailContent.subject,
         html: instructorEmailContent.html,
         text: instructorEmailContent.text,
         headers: {
@@ -334,6 +360,9 @@ export const onboardingFlow = inngest.createFunction(
             const res = await sendTemplateEmail({
               to: adminEmail,
               templateId: adminTmplId,
+              subject: isReturning
+                ? `[Returning] New mentorship purchase - ${studentName || studentEmail} with ${instructorName}`
+                : undefined,
               templateData,
               headers: {
                 "X-Email-Type": "admin_purchase_notification",
@@ -369,7 +398,9 @@ export const onboardingFlow = inngest.createFunction(
         adminEmails.map((adminEmail) =>
           sendEmail({
             to: adminEmail,
-            subject: adminEmailContent.subject,
+            subject: isReturning
+              ? `[Returning] ${adminEmailContent.subject}`
+              : adminEmailContent.subject,
             html: adminEmailContent.html,
             text: adminEmailContent.text,
             headers: {

@@ -189,6 +189,31 @@ export const getSessionPackByPaymentId = query({
   },
 });
 
+/** Returns true if the user has any other session pack with the same instructor (optionally excluding a given pack). */
+export const hasPriorPackWithInstructor = query({
+  args: {
+    userId: v.string(),
+    instructorId: v.id("instructors"),
+    excludeSessionPackId: v.optional(v.id("sessionPacks")),
+  },
+  handler: async (ctx, args) => {
+    const packs = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("instructorId"), args.instructorId),
+          args.excludeSessionPackId
+            ? q.neq(q.field("_id" as any), args.excludeSessionPackId)
+            : q.eq(q.field("instructorId"), args.instructorId)
+        )
+      )
+      .collect();
+
+    return packs.length > 0;
+  },
+});
+
 /** Creates a new session pack for a user and instructor. */
 export const createSessionPack = mutation({
   args: {
