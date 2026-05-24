@@ -237,7 +237,8 @@ function InstructorProfileContent({ slug }: { slug: string }) {
     notFound();
   }
 
-  if (!instructor.isActive || (instructor as any).deletedAt) {
+  // Treat undefined isActive as active for backward compatibility
+  if (instructor.isActive === false || (instructor as any).deletedAt) {
     notFound();
   }
 
