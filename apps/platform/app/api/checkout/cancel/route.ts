@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { requireAuth } from "@/lib/auth";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 
@@ -26,8 +25,7 @@ export async function GET(request: NextRequest) {
   const baseUrl = getBaseUrl(request);
 
   try {
-    // Require authentication to prevent unauthorized order cancellation
-    await requireAuth();
+    // Public cancel: proceed without authentication
 
     if (orderId) {
       // Update order status to canceled via Convex
@@ -55,4 +53,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/checkout/cancel", baseUrl));
   }
 }
-

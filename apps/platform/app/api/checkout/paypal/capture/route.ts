@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/auth";
 import { capturePayPalOrder, getPayPalOrder } from "@mentorships/payments";
 import { inngest } from "@/inngest/client";
 
@@ -14,7 +13,7 @@ const captureSchema = z.object({
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    await requireAuth(); // User must be authenticated
+    // Public capture: proceed without authentication
     const body = await req.json();
     
     // Validate request body
@@ -86,4 +85,3 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
-

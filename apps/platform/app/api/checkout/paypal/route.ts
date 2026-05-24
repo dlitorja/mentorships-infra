@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
@@ -22,7 +21,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 
   try {
-    const userId = await requireAuth();
+    // Public checkout: proceed without authentication
     const rawBody = await req.json();
     // Minimal compatibility: accept either `packId` or `productId`
     const body =
@@ -50,7 +49,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const order = await convex.mutation(api.orders.createOrder, {
-      userId,
+      userId: "guest",
       status: "pending",
       provider: "paypal",
       totalAmount: pack.price,
@@ -81,7 +80,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         pack.price,
         "usd",
         {
-          userId,
+          userId: "guest",
           instructorId: pack.instructorId || "",
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import type Stripe from "stripe";
-import { requireAuth } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
@@ -24,7 +23,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 
   try {
-    const userId = await requireAuth();
     const body = await req.json();
 
     const validationResult = checkoutSchema.safeParse(body);
@@ -56,7 +54,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let finalPrice = pack.price;
 
     const order = await convex.mutation(api.orders.createOrder, {
-      userId,
+      userId: "guest",
       status: "pending",
       provider: "stripe",
       totalAmount: finalPrice,
@@ -100,8 +98,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${baseUrl}/checkout/cancel`,
         metadata: {
-          order_id: orderId,
-          user_id: userId,
+          order_id: orderId!,
+          user_id: "guest",
           pack_id: packId,
         },
         allow_promotion_codes: discounts.length === 0,

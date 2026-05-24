@@ -15,7 +15,7 @@ import { Loader2, Check, CreditCard, Wallet } from "lucide-react";
 import Link from "next/link";
 import { createCheckoutSession } from "@/lib/queries/api-client";
 import { usePublicInstructorBySlug } from "@/lib/queries/convex/use-instructors";
-import { useProductsByInstructorId } from "@/lib/queries/convex/use-products";
+import { useProductsByInstructorId, usePublicActiveProducts } from "@/lib/queries/convex/use-products";
 import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
 
@@ -51,22 +51,28 @@ function CheckoutContent(): React.JSX.Element {
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe");
 
-  // Get instructor data to find instructorId
+  // Get instructor data and derive instructors table id injected by Convex
   const { data: instructorData, isLoading: isLoadingInstructor } = usePublicInstructorBySlug(
     instructorSlug || ""
   );
 
-  const data = instructorData as InstructorData | null;
-  const instructorId = data?.instructor?.instructorId as Id<"instructors"> | undefined;
+  const instructor = instructorData as any;
+  const instructorId = instructor && typeof instructor?.instructorId === "string"
+    ? (instructor.instructorId as Id<"instructors">)
+    : undefined;
   
-  // Get products for this specific instructor
+  // Get products for this specific instructor (public query)
   const {
     data: productsData,
     isLoading: isLoadingProducts,
     error: productsError,
-  } = useProductsByInstructorId(instructorId!);
+  } = useProductsByInstructorId(instructorId || ("" as unknown as Id<"instructors">));
 
-  const allProducts = (productsData as Product[] || []).filter(p => p.active);
+  // Fallback to public active products when no instructor id is available
+  // This allows new visitors to view purchasable packs even without selecting an instructor
+  const { data: publicProductsData } = usePublicActiveProducts();
+  const sourceProducts = instructorId ? (productsData as Product[] || []) : (publicProductsData as Product[] || []);
+  const allProducts = sourceProducts.filter(p => p.active);
   
   // Filter by mentorship type if provided
   const productList = mentorshipType 
@@ -132,7 +138,7 @@ function CheckoutContent(): React.JSX.Element {
   const loading = checkoutMutation.isPending;
 
   const isLoading = instructorSlug ? (isLoadingInstructor || isLoadingProducts) : isLoadingProducts;
-  const instructorName = data?.instructor?.name;
+  const instructorName = (instructor as any)?.name;
 
   if (isLoading) {
     return (

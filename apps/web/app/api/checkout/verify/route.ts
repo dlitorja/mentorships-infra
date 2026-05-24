@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
 import { stripe } from "@/lib/stripe";
 
 /** Verify a Stripe Checkout session's payment status */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    // Require authentication
-    const userId = await requireAuth();
+    // Public verification
 
     const sessionId = req.nextUrl.searchParams.get("session_id");
 
@@ -27,14 +25,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Authorize: verify user owns this session
-    const sessionUserId = session.metadata?.user_id;
-    if (sessionUserId && sessionUserId !== userId) {
-      return NextResponse.json(
-        { error: "Unauthorized access to this session" },
-        { status: 403 }
-      );
-    }
+    // Public flow: do not enforce ownership here
 
     // Note: Idempotency checks should be implemented downstream
     // when processing payments to prevent duplicate operations
@@ -56,4 +47,3 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
-

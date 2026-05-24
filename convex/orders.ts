@@ -17,8 +17,7 @@ export const getOrderById = query({
 export const getOrderByIdPublic = query({
   args: { id: v.id("orders") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
+    // Public access: allow reading order by ID for success redirects
     return await ctx.db.get(args.id);
   },
 });

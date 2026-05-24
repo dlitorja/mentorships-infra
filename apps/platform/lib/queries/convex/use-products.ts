@@ -45,6 +45,27 @@ export function useProductsByInstructorId(instructorId: string) {
   });
 }
 
+// Public queries - no auth required
+
+export function usePublicActiveProducts() {
+  return useQuery({
+    ...convexQuery(api.products.getPublicActiveProducts, {}),
+  });
+}
+
+export function useProductsByInstructorAndType(
+  instructorId: string,
+  mentorshipType?: string
+) {
+  return useQuery({
+    ...convexQuery(api.products.getProductsByInstructorAndType, {
+      instructorId: instructorId as Id<"instructors">,
+      mentorshipType,
+    }),
+    enabled: !!instructorId,
+  });
+}
+
 export function useCreateProduct() {
   const queryClient = useQueryClient();
 

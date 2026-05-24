@@ -16,7 +16,13 @@ export const processStripeCheckout = inngest.createFunction(
   { id: "process-stripe-checkout", name: "Process Stripe Checkout", retries: 3 },
   { event: "stripe/checkout.session.completed" },
   async ({ event, step }) => {
-    const { sessionId, orderId, userId, packId } = event.data;
+    const { sessionId, orderId, userId, packId, studentEmail } = event.data as {
+      sessionId: string;
+      orderId: string;
+      userId: string;
+      packId: string;
+      studentEmail?: string;
+    };
   const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
@@ -137,6 +143,23 @@ const completedOrder = await step.run("update-order", async () => {
     });
 
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
+
+    const resolvedUserId = await step.run("resolve-user-id", async () => {
+      if (userId && userId !== "guest") return userId;
+      const email = studentEmail;
+      if (!email) return "guest";
+      const placeholderUserId = `email:${email}`;
+      try {
+        await convex.mutation(api.users.createUser, {
+          userId: placeholderUserId,
+          email,
+          role: "student",
+        });
+      } catch {
+        // ignore
+      }
+      return placeholderUserId;
+    });
 
     const sessionPack = await step.run("create-session-pack", async () => {
       if (!product.instructorId) {
@@ -461,7 +484,7 @@ export const processPayPalCheckout = inngest.createFunction(
         throw new Error(`Product has no instructorId: ${packId}`);
       }
       return await convex.mutation(api.sessionPacks.createSessionPack, {
-        userId: order.userId,
+        userId: resolvedUserId,
         instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
         remainingSessions: product.sessionsPerPack,
@@ -493,14 +516,14 @@ export const processPayPalCheckout = inngest.createFunction(
       });
     });
 
-  const seatReservation = await step.run("create-seat-and-workspace", async () => {
+    const seatReservation = await step.run("create-seat-and-workspace", async () => {
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
       try {
         return await convex.mutation(api.seatReservations.createSeatReservation, {
           instructorId: product.instructorId as Id<"instructors">,
-          userId: order.userId,
+          userId: resolvedUserId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
           seatExpiresAt: expiresAt,
           gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),

@@ -18,6 +18,7 @@ export const stripeCheckoutCompletedEventSchema = z.object({
     orderId: z.string().uuid(),
     userId: z.string(), // Clerk user ID from metadata
     packId: z.string().uuid(),
+    studentEmail: z.string().email().optional(),
   }),
 });
 
@@ -326,4 +327,3 @@ export type SyncEvent =
   | SessionPackUpdatedEvent
   | SeatReservationCreatedEvent
   | SeatReservationUpdatedEvent;
-
