@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
@@ -94,15 +95,13 @@ export function ProductForm({
 }: ProductFormProps) {
   const [activeTab, setActiveTab] = useState(mode === "create" ? "create-new" : "edit");
   const [result, setResult] = useState<ProductUpdateResult | null>(null);
+  const router = useRouter();
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductData) => createProduct(data),
     onSuccess: (data) => {
-      setResult({
-        success: true,
-        message: data.message || "Product created successfully",
-        product: data.product,
-      });
+      // After successful creation, return to products list
+      router.push("/admin/products");
     },
     onError: (error) => {
       setResult({
@@ -435,12 +434,17 @@ function ProductFieldsForm({
       enablePayPal: initialData?.enablePayPal ?? true,
     },
     onSubmit: async ({ value }) => {
+      // Normalize price to a canonical decimal string (supports comma input)
+      const priceStr = String(value.price ?? "").trim().replace(",", ".");
+      const priceNum = Number(priceStr);
+      const normalizedPrice = Number.isFinite(priceNum) && priceNum > 0 ? priceNum.toFixed(2) : priceStr;
+
       onSubmit({
         instructorId: value.instructorId,
-        title: value.title,
+        title: (value.title || "").trim(),
         description: value.description || undefined,
         imageUrl: value.imageUrl || undefined,
-        price: value.price,
+        price: normalizedPrice,
         currency: value.currency,
         sessionsPerPack: value.sessionsPerPack,
         validityDays: value.validityDays,
@@ -721,49 +725,58 @@ function ProductFieldsForm({
           </div>
 
           <div className="flex gap-3 pt-4">
-            {(() => {
-              const missing: string[] = [];
-              const priceNum = Number(form.state.values.price);
-              const trimmedTitle = (form.state.values.title || "").trim();
-              const isDisabled =
-                isSubmitting ||
-                isLoadingInstructors ||
-                !form.state.values.instructorId ||
-                !trimmedTitle ||
-                !form.state.values.price ||
-                Number.isNaN(priceNum) || priceNum <= 0 ||
-                !(form.state.values.enableStripe || form.state.values.enablePayPal);
+            <form.Subscribe
+              selector={(state) => ({
+                instructorId: state.values.instructorId,
+                title: state.values.title,
+                price: state.values.price,
+                enableStripe: state.values.enableStripe,
+                enablePayPal: state.values.enablePayPal,
+              })}
+            >
+              {(s) => {
+                const missing: string[] = [];
+                const priceStr = String(s.price ?? "").trim().replace(",", ".");
+                const priceNum = Number(priceStr);
+                const trimmedTitle = (s.title || "").trim();
 
-              if (!form.state.values.instructorId) missing.push("Instructor");
-              if (!trimmedTitle) missing.push("Title");
-              if (!form.state.values.price || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
-              if (!(form.state.values.enableStripe || form.state.values.enablePayPal)) missing.push("At least one provider");
+                const isDisabled =
+                  isSubmitting ||
+                  isLoadingInstructors ||
+                  !s.instructorId ||
+                  !trimmedTitle ||
+                  !priceStr ||
+                  Number.isNaN(priceNum) || priceNum <= 0 ||
+                  !(s.enableStripe || s.enablePayPal);
 
-              return (
-                <div className="flex flex-col gap-2">
-                  <Button
-                    type="submit"
-                    disabled={isDisabled}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {mode === "create" ? "Creating..." : "Saving..."}
-                      </>
-                    ) : mode === "create" ? (
-                      "Create Product"
-                    ) : (
-                      "Save Changes"
+                if (!s.instructorId) missing.push("Instructor");
+                if (!trimmedTitle) missing.push("Title");
+                if (!priceStr || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
+                if (!(s.enableStripe || s.enablePayPal)) missing.push("At least one provider");
+
+                return (
+                  <div className="flex flex-col gap-2">
+                    <Button type="submit" disabled={isDisabled}>
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          {mode === "create" ? "Creating..." : "Saving..."}
+                        </>
+                      ) : mode === "create" ? (
+                        "Create Product"
+                      ) : (
+                        "Save Changes"
+                      )}
+                    </Button>
+                    {isDisabled && !isSubmitting && (
+                      <p className="text-xs text-muted-foreground">
+                        To enable: {missing.length > 0 ? missing.join(", ") : "check required fields"}.
+                      </p>
                     )}
-                  </Button>
-                  {isDisabled && !isSubmitting && (
-                    <p className="text-xs text-muted-foreground">
-                      To enable: {missing.length > 0 ? missing.join(", ") : "check required fields"}.
-                    </p>
-                  )}
-                </div>
-              );
-            })()}
+                  </div>
+                );
+              }}
+            </form.Subscribe>
           </div>
         </form>
       </CardContent>
