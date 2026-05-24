@@ -74,7 +74,8 @@ function SocialLink({ url, platform }: { url: string; platform: string }) {
 
 function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructor } = useInstructorBySlug(slug);
-  const instructorIdForQueries = (instructor as any)?.instructorId || (instructor?._id as string);
+  // Use the actual instructor document ID for follow-on queries
+  const instructorIdForQueries = instructor?._id as string;
   const { data: testimonialsData } = useInstructorTestimonials(instructorIdForQueries as string);
   const { data: studentResultsData } = useInstructorStudentResults(instructorIdForQueries as string);
   const { data: productsData } = useProductsByInstructor(instructorIdForQueries as string);
