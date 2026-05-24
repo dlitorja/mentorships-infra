@@ -171,8 +171,20 @@ export const onboardingFlow = inngest.createFunction(
         });
         return Boolean(prior);
       } catch (e) {
-        // Be forgiving; treat as not returning if query fails
-        console.warn("[onboarding] hasPriorPackWithInstructor failed:", e);
+        // Be forgiving; treat as not returning if query fails, but report for observability
+        await reportError({
+          source: "inngest:onboarding",
+          error: e instanceof Error ? e : new Error(String(e)),
+          level: "warn",
+          message: "hasPriorPackWithInstructor failed",
+          context: {
+            phase: "check-returning-student",
+            orderId,
+            clerkId,
+            sessionPackId: pack._id,
+            instructorId: instructor._id,
+          },
+        });
         return false;
       }
     });

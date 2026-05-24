@@ -434,12 +434,17 @@ function ProductFieldsForm({
       enablePayPal: initialData?.enablePayPal ?? true,
     },
     onSubmit: async ({ value }) => {
+      // Normalize price to a canonical decimal string (supports comma input)
+      const priceStr = String(value.price ?? "").trim().replace(",", ".");
+      const priceNum = Number(priceStr);
+      const normalizedPrice = Number.isFinite(priceNum) && priceNum > 0 ? priceNum.toFixed(2) : priceStr;
+
       onSubmit({
         instructorId: value.instructorId,
-        title: value.title,
+        title: (value.title || "").trim(),
         description: value.description || undefined,
         imageUrl: value.imageUrl || undefined,
-        price: value.price,
+        price: normalizedPrice,
         currency: value.currency,
         sessionsPerPack: value.sessionsPerPack,
         validityDays: value.validityDays,

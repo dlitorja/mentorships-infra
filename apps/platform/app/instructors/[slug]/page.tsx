@@ -74,11 +74,13 @@ function SocialLink({ url, platform }: { url: string; platform: string }) {
 
 function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructor } = useInstructorBySlug(slug);
-  // Use the actual instructor document ID for follow-on queries
-  const instructorIdForQueries = instructor?._id as string;
-  const { data: testimonialsData } = useInstructorTestimonials(instructorIdForQueries as string);
-  const { data: studentResultsData } = useInstructorStudentResults(instructorIdForQueries as string);
-  const { data: productsData } = useProductsByInstructor(instructorIdForQueries as string);
+  // Derive a safe string id for downstream queries
+  const instructorIdForQueries: string = instructor && typeof (instructor as any)?._id === "string"
+    ? (instructor as any)._id
+    : "";
+  const { data: testimonialsData } = useInstructorTestimonials(instructorIdForQueries);
+  const { data: studentResultsData } = useInstructorStudentResults(instructorIdForQueries);
+  const { data: productsData } = useProductsByInstructor(instructorIdForQueries);
   const [profileImageError, setProfileImageError] = useState(false);
 
   useEffect(() => {
