@@ -718,7 +718,31 @@ export const getInstructorBySlug = query({
       .withIndex("by_slug", (q) => q.eq("slug", args.slug))
       .first();
     if (!profile) {
-      return null;
+      // Fallback: some environments may have only an instructors row without a separate profile
+      const instructorOnly = await ctx.db
+        .query("instructors")
+        .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+        .first();
+      if (!instructorOnly) return null;
+
+      const fallbackProfileImageUrl = await getFreshProfileUrl(
+        ctx,
+        instructorOnly.profileImageStorageId,
+        instructorOnly.profileImageUrl
+      );
+      const fallbackPortfolioImages = await getFreshPortfolioUrls(
+        ctx,
+        instructorOnly.portfolioImageStorageIds,
+        instructorOnly.portfolioImages
+      );
+      // Strip sensitive fields and return a profile-like object with injected instructorId
+      const { googleRefreshToken, ...safe } = instructorOnly as any;
+      return {
+        ...safe,
+        profileImageUrl: fallbackProfileImageUrl,
+        portfolioImages: fallbackPortfolioImages,
+        instructorId: instructorOnly._id,
+      } as any;
     }
     // Also fetch the instructor by slug to expose its _id for downstream queries
     const instructor = await ctx.db
