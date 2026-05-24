@@ -131,7 +131,8 @@ export async function POST(req: NextRequest) {
     if (payment.provider === "stripe") {
       try {
         // Use idempotency key per Stripe Node docs to avoid duplicate refunds on retries
-        const idemKey = `refund:${payment.id}:${refundType}:${refundAmountStr}`;
+        // Use the provided paymentId for idempotency key to avoid relying on document internals
+        const idemKey = `refund:${paymentId}:${refundType}:${refundAmountStr}`;
         const refund = await stripe.refunds.create(
           {
             payment_intent: payment.providerPaymentId,
