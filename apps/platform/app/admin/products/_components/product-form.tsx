@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
@@ -454,6 +454,15 @@ function ProductFieldsForm({
     },
   });
 
+  // UX: If instructors have loaded and none selected yet, auto-select the first one.
+  useEffect(() => {
+    if (!isLoadingInstructors && instructors.length > 0) {
+      if (!form.state.values.instructorId) {
+        form.setFieldValue("instructorId", instructors[0].id);
+      }
+    }
+  }, [isLoadingInstructors, instructors, form]);
+
   return (
     <Card>
       <CardHeader>
@@ -712,29 +721,48 @@ function ProductFieldsForm({
           </div>
 
           <div className="flex gap-3 pt-4">
-            <Button
-              type="submit"
-              disabled={
+            {(() => {
+              const missing: string[] = [];
+              const priceNum = Number(form.state.values.price);
+              const isDisabled =
                 isSubmitting ||
                 isLoadingInstructors ||
                 !form.state.values.instructorId ||
                 !form.state.values.title ||
                 !form.state.values.price ||
-                Number(form.state.values.price) <= 0 ||
-                !(form.state.values.enableStripe || form.state.values.enablePayPal)
-              }
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {mode === "create" ? "Creating..." : "Saving..."}
-                </>
-              ) : mode === "create" ? (
-                "Create Product"
-              ) : (
-                "Save Changes"
-              )}
-            </Button>
+                Number.isNaN(priceNum) || priceNum <= 0 ||
+                !(form.state.values.enableStripe || form.state.values.enablePayPal);
+
+              if (!form.state.values.instructorId) missing.push("Instructor");
+              if (!form.state.values.title) missing.push("Title");
+              if (!form.state.values.price || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
+              if (!(form.state.values.enableStripe || form.state.values.enablePayPal)) missing.push("At least one provider");
+
+              return (
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="submit"
+                    disabled={isDisabled}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {mode === "create" ? "Creating..." : "Saving..."}
+                      </>
+                    ) : mode === "create" ? (
+                      "Create Product"
+                    ) : (
+                      "Save Changes"
+                    )}
+                  </Button>
+                  {isDisabled && !isSubmitting && (
+                    <p className="text-xs text-muted-foreground">
+                      To enable: {missing.length > 0 ? missing.join(", ") : "check required fields"}.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </form>
       </CardContent>
