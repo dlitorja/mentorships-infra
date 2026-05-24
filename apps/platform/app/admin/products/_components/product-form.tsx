@@ -723,20 +723,21 @@ function ProductFieldsForm({
           <div className="flex gap-3 pt-4">
             {(() => {
               const missing: string[] = [];
-              const priceNum = Number(form.state.values.price);
+              const priceStr = String(form.state.values.price ?? "").trim().replace(",", ".");
+              const priceNum = Number(priceStr);
               const trimmedTitle = (form.state.values.title || "").trim();
               const isDisabled =
                 isSubmitting ||
                 isLoadingInstructors ||
                 !form.state.values.instructorId ||
                 !trimmedTitle ||
-                !form.state.values.price ||
+                !priceStr ||
                 Number.isNaN(priceNum) || priceNum <= 0 ||
                 !(form.state.values.enableStripe || form.state.values.enablePayPal);
 
               if (!form.state.values.instructorId) missing.push("Instructor");
               if (!trimmedTitle) missing.push("Title");
-              if (!form.state.values.price || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
+              if (!priceStr || Number.isNaN(priceNum) || priceNum <= 0) missing.push("Valid price");
               if (!(form.state.values.enableStripe || form.state.values.enablePayPal)) missing.push("At least one provider");
 
               return (
