@@ -77,7 +77,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   const instructorIdForQueries = (instructor as any)?.instructorId || (instructor?._id as string);
   const { data: testimonialsData } = useInstructorTestimonials(instructorIdForQueries as string);
   const { data: studentResultsData } = useInstructorStudentResults(instructorIdForQueries as string);
-  const { data: productsData } = useProductsByInstructor(instructor?._id as string);
+  const { data: productsData } = useProductsByInstructor(instructorIdForQueries as string);
   const [profileImageError, setProfileImageError] = useState(false);
 
   useEffect(() => {
