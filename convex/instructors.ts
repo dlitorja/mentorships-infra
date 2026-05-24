@@ -292,6 +292,293 @@ export const backfillImages = action({
   },
 });
 
+/**
+ * Internal-only helpers to read and write without auth for maintenance/backfills.
+ * Keep scope tight and reuse existing logic. These are intentionally not exported via api.*
+ */
+
+export const listInstructorProfilesAll = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("instructorProfiles").collect();
+  },
+});
+
+export const listInstructorsAll = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_deletedAt", (q) => q.eq("deletedAt", undefined))
+      .collect();
+  },
+});
+
+export const listStudentResultsAll = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("studentResults").collect();
+  },
+});
+
+export const internalPatchInstructorProfileImageBySlug = internalMutation({
+  args: { slug: v.string(), storageId: v.string(), url: v.string() },
+  handler: async (ctx, args) => {
+    const profile = await ctx.db
+      .query("instructorProfiles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    if (!profile) throw new Error("Instructor profile not found");
+    await ctx.db.patch(profile._id, {
+      profileImageStorageId: args.storageId,
+      profileImageUrl: args.url,
+    });
+    return { storageId: args.storageId, url: args.url };
+  },
+});
+
+export const internalPatchInstructorPortfolioBySlug = internalMutation({
+  args: { slug: v.string(), storageIds: v.array(v.string()), urls: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const profile = await ctx.db
+      .query("instructorProfiles")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
+    if (!profile) throw new Error("Instructor profile not found");
+    await ctx.db.patch(profile._id, {
+      portfolioImageStorageIds: args.storageIds,
+      portfolioImages: args.urls,
+    });
+    return { storageIds: args.storageIds, urls: args.urls };
+  },
+});
+
+export const internalPatchInstructorProfileImageById = internalMutation({
+  args: { instructorId: v.id("instructors"), storageId: v.string(), url: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.instructorId, {
+      profileImageStorageId: args.storageId,
+      profileImageUrl: args.url,
+    });
+    return { storageId: args.storageId, url: args.url };
+  },
+});
+
+export const internalPatchInstructorPortfolioById = internalMutation({
+  args: { instructorId: v.id("instructors"), storageIds: v.array(v.string()), urls: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.instructorId, {
+      portfolioImageStorageIds: args.storageIds,
+      portfolioImages: args.urls,
+    });
+    return { storageIds: args.storageIds, urls: args.urls };
+  },
+});
+
+export const internalPatchStudentResultImage = internalMutation({
+  args: { studentResultId: v.id("studentResults"), storageId: v.string(), url: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.studentResultId, {
+      imageStorageId: args.storageId,
+      imageUrl: args.url,
+    });
+    return { storageId: args.storageId, url: args.url };
+  },
+});
+
+/**
+ * Internal backfill scoped to specific slugs.
+ * Fetches images from a source site, uploads to Convex Storage, and updates both instructorProfiles and instructors.
+ */
+export const backfillImagesForSlugs = internalAction({
+  args: {
+    baseUrl: v.string(),
+    slugs: v.array(v.string()),
+    includeStudentResults: v.optional(v.boolean()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<BackfillSummary> => {
+    const summary: BackfillSummary = {
+      processedProfiles: 0,
+      processedInstructors: 0,
+      processedPortfolioImages: 0,
+      processedStudentResults: 0,
+      skipped: 0,
+      errors: [],
+    };
+
+    // Normalize origin
+    let sourceOrigin = args.baseUrl;
+    try {
+      sourceOrigin = new URL(sourceOrigin).origin;
+    } catch {
+      sourceOrigin = sourceOrigin;
+    }
+
+    const maxItems = args.limit ?? Number.POSITIVE_INFINITY;
+    let processedCount = 0;
+
+    const abs = (url?: string): string | undefined => {
+      if (!url) return undefined;
+      if (/^https?:\/\//i.test(url)) return url;
+      const base = sourceOrigin.replace(/\/$/, "");
+      const path = url.startsWith("/") ? url : `/${url}`;
+      return `${base}${path}`;
+    };
+
+    const contentTypeForPath = (p: string): string => {
+      const s = p.toLowerCase();
+      if (s.endsWith(".png")) return "image/png";
+      if (s.endsWith(".webp")) return "image/webp";
+      if (s.endsWith(".gif")) return "image/gif";
+      if (s.endsWith(".svg") || s.endsWith(".svgz")) return "image/svg+xml";
+      return "image/jpeg";
+    };
+
+    const uploadFromUrl = async (src: string): Promise<{ storageId: string; url: string } | { error: string }> => {
+      try {
+        const r = await fetch(src);
+        if (!r.ok) return { error: `GET ${r.status}` };
+        const buf = await r.arrayBuffer();
+        const postUrl = await ctx.runMutation(api.instructors.generateInstructorUploadUrl, {} as any);
+        const ct = contentTypeForPath(src);
+        const up = await fetch(postUrl, { method: "POST", headers: { "Content-Type": ct }, body: buf });
+        if (!up.ok) return { error: `POST ${up.status}` };
+        const { storageId } = (await up.json()) as { storageId: string };
+        const url = (await ctx.runQuery(api.instructors.getStorageUrl, { storageId } as any)) ?? `convex://storage/${storageId}`;
+        return { storageId, url };
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    };
+
+    const [profiles, instructors] = await Promise.all([
+      ctx.runQuery(internal.instructors.listInstructorProfilesAll, {}),
+      ctx.runQuery(internal.instructors.listInstructorsAll, {}),
+    ]);
+
+    const allowed = new Set(args.slugs.map((s) => s.trim()).filter(Boolean));
+    const bySlug = new Map<string, any>();
+    for (const inst of instructors as any[]) {
+      if (inst.slug && allowed.has(inst.slug)) bySlug.set(inst.slug, inst);
+    }
+
+    // Process profiles for selected slugs
+    for (const profile of (profiles as any[])) {
+      if (processedCount >= maxItems) break;
+      const slug: string | undefined = profile.slug;
+      if (!slug || !allowed.has(slug)) continue;
+      try {
+        const inst = bySlug.get(slug);
+
+        // Profile image
+        if (!profile.profileImageStorageId && profile.profileImageUrl) {
+          const src = abs(profile.profileImageUrl);
+          if (src) {
+            const uploaded = await uploadFromUrl(src);
+            if (!("error" in uploaded)) {
+              await ctx.runMutation(internal.instructors.internalPatchInstructorProfileImageBySlug, {
+                slug,
+                storageId: uploaded.storageId,
+                url: uploaded.url,
+              } as any);
+              if (inst?._id) {
+                await ctx.runMutation(internal.instructors.internalPatchInstructorProfileImageById, {
+                  instructorId: inst._id,
+                  storageId: uploaded.storageId,
+                  url: uploaded.url,
+                } as any);
+                summary.processedInstructors += 1;
+              }
+              summary.processedProfiles += 1;
+            } else {
+              summary.errors.push({ kind: "profile", id: slug || "unknown", message: `upload failed for ${src}: ${uploaded.error}` });
+            }
+          }
+          processedCount++;
+        }
+
+        // Portfolio images
+        const urls: string[] = (profile.portfolioImages ?? []) as string[];
+        const sids: string[] = (profile.portfolioImageStorageIds ?? []) as string[];
+        const toProcess: number[] = urls.map((_, i) => i).filter((i) => !sids[i] && urls[i]);
+        if (toProcess.length > 0) {
+          const newUrls = [...urls];
+          const newSids = [...sids];
+          for (const i of toProcess) {
+            if (processedCount >= maxItems) break;
+            const src = abs(urls[i]);
+            if (src) {
+              const uploaded = await uploadFromUrl(src);
+              if (!("error" in uploaded)) {
+                newUrls[i] = uploaded.url;
+                newSids[i] = uploaded.storageId;
+                summary.processedPortfolioImages += 1;
+              } else {
+                summary.errors.push({ kind: "portfolio", id: `${slug || "unknown"}[${i}]`, message: `upload failed for ${src}: ${uploaded.error}` });
+              }
+            }
+            processedCount++;
+          }
+          if (toProcess.length > 0) {
+            await ctx.runMutation(internal.instructors.internalPatchInstructorPortfolioBySlug, {
+              slug,
+              storageIds: newSids,
+              urls: newUrls,
+            } as any);
+            if (inst?._id) {
+              await ctx.runMutation(internal.instructors.internalPatchInstructorPortfolioById, {
+                instructorId: inst._id,
+                storageIds: newSids,
+                urls: newUrls,
+              } as any);
+            }
+          }
+        }
+      } catch (e) {
+        summary.errors.push({ kind: "profile", id: slug || "unknown", message: e instanceof Error ? e.message : String(e) });
+        summary.skipped += 1;
+      }
+    }
+
+    if (args.includeStudentResults !== false) {
+      const studentResults = await ctx.runQuery(internal.instructors.listStudentResultsAll, {});
+      // Map instructorId to slug for filtering
+      const allowedInstructorIds = new Set(
+        Array.from(bySlug.values()).map((i: any) => i?._id).filter(Boolean)
+      );
+      for (const r of studentResults as any[]) {
+        if (processedCount >= maxItems) break;
+        try {
+          if (!allowedInstructorIds.has(r.instructorId)) continue;
+          if (!r.imageStorageId && r.imageUrl) {
+            const src = abs(r.imageUrl);
+            if (src) {
+              const uploaded = await uploadFromUrl(src);
+              if (!("error" in uploaded)) {
+                await ctx.runMutation(internal.instructors.internalPatchStudentResultImage, {
+                  studentResultId: r._id,
+                  storageId: uploaded.storageId,
+                  url: uploaded.url,
+                } as any);
+                summary.processedStudentResults += 1;
+              } else {
+                summary.errors.push({ kind: "studentResult", id: r._id, message: `upload failed for ${src}: ${uploaded.error}` });
+              }
+            }
+            processedCount++;
+          }
+        } catch (e) {
+          summary.errors.push({ kind: "studentResult", id: r._id, message: e instanceof Error ? e.message : String(e) });
+          summary.skipped += 1;
+        }
+      }
+    }
+
+    return summary;
+  },
+});
+
 export const getInstructorByUserIdExternal = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -433,9 +720,14 @@ export const getInstructorBySlug = query({
     if (!profile) {
       return null;
     }
+    // Also fetch the instructor by slug to expose its _id for downstream queries
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_slug", (q) => q.eq("slug", args.slug))
+      .first();
     const profileImageUrl = await getFreshProfileUrl(ctx, profile.profileImageStorageId, profile.profileImageUrl);
     const portfolioImages = await getFreshPortfolioUrls(ctx, profile.portfolioImageStorageIds, profile.portfolioImages);
-    return { ...profile, profileImageUrl, portfolioImages };
+    return { ...profile, profileImageUrl, portfolioImages, instructorId: instructor?._id } as any;
   },
 });
 
