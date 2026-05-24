@@ -86,9 +86,11 @@ function InstructorExtras({
   groupInventory: number;
 }) {
   // These hooks require a valid instructors table id; they will only mount when we have one
-  const { data: productsData } = useProductsByInstructor(instructorId);
-  const { data: testimonialsData } = useInstructorTestimonials(instructorId);
-  const { data: studentResultsData } = useInstructorStudentResults(instructorId);
+  const {
+    data: productsData,
+    isLoading: isLoadingProducts,
+    isFetched: isFetchedProducts,
+  } = useProductsByInstructor(instructorId);
 
   const activeProducts = (productsData as any[] | undefined)?.filter((p) => p.active) ?? [];
   const oneOnOneProduct = activeProducts.find((p: any) => p.mentorshipType === "one-on-one");
@@ -123,82 +125,56 @@ function InstructorExtras({
   };
 
   return (
-    <>
-      <div>
-        <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
-        <div className="space-y-4">
-          {oneOnOneProduct ? (
-            <div>
-              <p className="text-lg">
-                <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
-                ${oneOnOneProduct.price} for {oneOnOneProduct.sessionsPerPack} sessions
-              </p>
-              {renderSpotsAvailable(oneOnOneInventory)}
-              <div className="mt-4">
-                {oneOnOneInventory === 0 ? (
-                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                    <Link href={`/waitlist?instructor=${instructorSlug}&type=one-on-one`}>Sign up for waitlist</Link>
-                  </Button>
-                ) : (
-                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                    <Link href={`/checkout?instructor=${instructorSlug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
-                  </Button>
-                )}
-              </div>
+    <div>
+      <h2 className="text-2xl font-semibold mb-3">Purchase</h2>
+      <div className="space-y-4">
+        {oneOnOneProduct ? (
+          <div>
+            <p className="text-lg">
+              <span className="font-semibold">1-on-1 Mentorship:</span>{" "}
+              ${oneOnOneProduct.price} for {oneOnOneProduct.sessionsPerPack} sessions
+            </p>
+            {renderSpotsAvailable(oneOnOneInventory)}
+            <div className="mt-4">
+              {oneOnOneInventory === 0 ? (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/waitlist?instructor=${instructorSlug}&type=one-on-one`}>Sign up for waitlist</Link>
+                </Button>
+              ) : (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/checkout?instructor=${instructorSlug}&type=one-on-one`}>Buy my 1-on-1 mentorship</Link>
+                </Button>
+              )}
             </div>
-          ) : null}
-
-          {groupProduct ? (
-            <div className="mt-4 pt-4 border-t">
-              <p className="text-lg">
-                <span className="font-semibold">Group Mentorships:</span>{" "}
-                ${groupProduct.price} for {groupProduct.sessionsPerPack} sessions
-              </p>
-              {renderSpotsAvailable(groupInventory)}
-              <div className="mt-4">
-                {groupInventory === 0 ? (
-                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                    <Link href={`/waitlist?instructor=${instructorSlug}&type=group`}>Sign up for waitlist</Link>
-                  </Button>
-                ) : (
-                  <Button asChild size="lg" className="vibrant-gradient-button transition-all">
-                    <Link href={`/checkout?instructor=${instructorSlug}&type=group`}>Buy my group mentorship</Link>
-                  </Button>
-                )}
-              </div>
-            </div>
-          ) : null}
-
-          {!oneOnOneProduct && !groupProduct ? (
-            <p className="text-muted-foreground">No mentorship packages available at this time.</p>
-          ) : null}
-        </div>
-      </div>
-
-      {testimonialsData && (testimonialsData as any[]).length > 0 && (
-        <div className="mt-12">
-          <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {(testimonialsData as Array<{_id: string; name: string; text: string}>).map((testimonial) => (
-              <div key={testimonial._id} className="rounded-lg border bg-card p-6 shadow-sm">
-                <Quote className="h-6 w-6 text-muted-foreground mb-4" />
-                <div className="text-base leading-relaxed mb-4 italic">{testimonial.text}</div>
-                <div>
-                  <p className="font-semibold">{testimonial.name}</p>
-                </div>
-              </div>
-            ))}
           </div>
-        </div>
-      )}
+        ) : null}
 
-      {studentResultsData && (studentResultsData as any[]).length > 0 && (
-        <div className="mt-12">
-          <h2 className="text-3xl font-bold mb-6">Student Success Stories</h2>
-          <PortfolioGallery images={(studentResultsData as Array<{imageUrl?: string}>).map((r) => r.imageUrl).filter((url): url is string => Boolean(url))} instructorName={instructorName} />
-        </div>
-      )}
-    </>
+        {groupProduct ? (
+          <div className="mt-4 pt-4 border-t">
+            <p className="text-lg">
+              <span className="font-semibold">Group Mentorships:</span>{" "}
+              ${groupProduct.price} for {groupProduct.sessionsPerPack} sessions
+            </p>
+            {renderSpotsAvailable(groupInventory)}
+            <div className="mt-4">
+              {groupInventory === 0 ? (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/waitlist?instructor=${instructorSlug}&type=group`}>Sign up for waitlist</Link>
+                </Button>
+              ) : (
+                <Button asChild size="lg" className="vibrant-gradient-button transition-all">
+                  <Link href={`/checkout?instructor=${instructorSlug}&type=group`}>Buy my group mentorship</Link>
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {isFetchedProducts && !isLoadingProducts && !oneOnOneProduct && !groupProduct ? (
+          <p className="text-muted-foreground">No mentorship packages available at this time.</p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -309,7 +285,9 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                     oneOnOneInventory={oneOnOneInventory}
                     groupInventory={groupInventory}
                   />
-                ) : null}
+                ) : (
+                  <p className="text-muted-foreground">Purchasing will be available soon.</p>
+                )}
 
                 {socialLinks.length > 0 && (
                   <div>
@@ -334,11 +312,61 @@ function InstructorProfileContent({ slug }: { slug: string }) {
               </div>
             )}
 
-            {/* Testimonials and Student Results are rendered inside InstructorExtras when instructorId is available */}
+            {/* Full-width sections below keep desktop layout intact */}
+            {instructorIdForQueries ? (
+              <InstructorFullWidthSections
+                instructorId={instructorIdForQueries}
+                instructorName={instructor.name}
+              />
+            ) : null}
           </div>
         </div>
       </div>
     </InstructorNavigation>
+  );
+}
+
+function InstructorFullWidthSections({
+  instructorId,
+  instructorName,
+}: {
+  instructorId: string;
+  instructorName: string;
+}) {
+  const { data: testimonialsData } = useInstructorTestimonials(instructorId);
+  const { data: studentResultsData } = useInstructorStudentResults(instructorId);
+
+  return (
+    <>
+      {testimonialsData && (testimonialsData as any[]).length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-3xl font-bold mb-6">Testimonials</h2>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {(testimonialsData as Array<{ _id: string; name: string; text: string }>).map((testimonial) => (
+              <div key={testimonial._id} className="rounded-lg border bg-card p-6 shadow-sm">
+                <Quote className="h-6 w-6 text-muted-foreground mb-4" />
+                <div className="text-base leading-relaxed mb-4 italic">{testimonial.text}</div>
+                <div>
+                  <p className="font-semibold">{testimonial.name}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {studentResultsData && (studentResultsData as any[]).length > 0 && (
+        <div className="mt-12">
+          <h2 className="text-3xl font-bold mb-6">Student Success Stories</h2>
+          <PortfolioGallery
+            images={(studentResultsData as Array<{ imageUrl?: string }>)
+              .map((r) => r.imageUrl)
+              .filter((url): url is string => Boolean(url))}
+            instructorName={instructorName}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
