@@ -74,8 +74,7 @@ function SocialLink({ url, platform }: { url: string; platform: string }) {
 
 function InstructorProfileContent({ slug }: { slug: string }) {
   const { data: instructor } = useInstructorBySlug(slug);
-  // Derive the actual instructors table id that backend queries expect.
-  // getInstructorBySlug returns an instructor profile with an injected instructorId field.
+  // Use the instructors table id returned as instructorId from getInstructorBySlug
   const instructorIdForQueries: string = instructor && typeof (instructor as any)?.instructorId === "string"
     ? (instructor as any).instructorId
     : "";
