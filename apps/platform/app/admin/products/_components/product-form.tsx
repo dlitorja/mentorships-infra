@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
@@ -94,15 +95,13 @@ export function ProductForm({
 }: ProductFormProps) {
   const [activeTab, setActiveTab] = useState(mode === "create" ? "create-new" : "edit");
   const [result, setResult] = useState<ProductUpdateResult | null>(null);
+  const router = useRouter();
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductData) => createProduct(data),
     onSuccess: (data) => {
-      setResult({
-        success: true,
-        message: data.message || "Product created successfully",
-        product: data.product,
-      });
+      // After successful creation, return to products list
+      router.push("/admin/products");
     },
     onError: (error) => {
       setResult({
