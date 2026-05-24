@@ -203,7 +203,7 @@ function InstructorExtras({
 }
 
 function InstructorProfileContent({ slug }: { slug: string }) {
-  const { data: instructor } = useInstructorBySlug(slug);
+  const { data: instructor, isLoading } = useInstructorBySlug(slug);
   // Use the instructors table id returned as instructorId from getInstructorBySlug
   const instructorIdForQueries: string | undefined = instructor && typeof (instructor as any)?.instructorId === "string"
     ? (instructor as any).instructorId
@@ -219,7 +219,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
 
   const socialLinks = (instructor?.socials as SocialPlatform[] | undefined) || [];
 
-  if (!instructor) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8 md:py-12">
@@ -231,6 +231,10 @@ function InstructorProfileContent({ slug }: { slug: string }) {
         </div>
       </div>
     );
+  }
+  if (!instructor) {
+    // Not found (Convex returned null after loading)
+    notFound();
   }
 
   if (!instructor.isActive || (instructor as any).deletedAt) {
