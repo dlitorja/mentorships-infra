@@ -120,8 +120,12 @@ export async function joinWaitlist(data: {
 /**
  * Create Stripe checkout session
  */
-export async function createCheckoutSession(data: { packId: string } | { productId: string }) {
-  return apiFetch<{ url: string; orderId: string; checkoutUrl?: string }>("/api/checkout/stripe", {
+export async function createCheckoutSession(
+  data:
+    | { packId: string; email?: string; fullName?: string; promotionCode?: string }
+    | { productId: string; email?: string; fullName?: string; promotionCode?: string }
+) {
+  return apiFetch<{ url: string; orderId?: string; checkoutUrl?: string }>("/api/checkout/stripe", {
     method: "POST",
     body: JSON.stringify(data),
   });

@@ -5,9 +5,10 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { createPayPalOrder } from "@mentorships/payments";
 import crypto from "node:crypto";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 
 function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_URL;
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
     throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
   }
@@ -16,6 +17,8 @@ function getConvexClient() {
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
+  email: z.string().email().optional(),
+  fullName: z.string().optional(),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -27,7 +30,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Minimal compatibility: accept either `packId` or `productId`
     const body =
       typeof rawBody === "object" && rawBody !== null
-        ? { packId: rawBody.packId ?? rawBody.productId }
+        ? { packId: rawBody.packId ?? rawBody.productId, email: rawBody.email, fullName: rawBody.fullName }
         : rawBody;
 
     const validationResult = checkoutSchema.safeParse(body as unknown);
@@ -38,10 +41,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { packId } = validationResult.data;
+    const { packId, email, fullName } = validationResult.data;
     const convex = getConvexClient();
 
-    const pack = await convex.query(api.products.getProductById, {
+    // Use public lookup to support guest checkout
+    const pack = await convex.query(api.products.getPublicProductById, {
       id: packId as Id<"products">,
     });
 
@@ -49,8 +53,38 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Pack not found" }, { status: 404 });
     }
 
+    // Resolve user: if authenticated, use that userId; otherwise upsert by email
+    const { userId: authedUserId } = await auth();
+    let userIdForOrder: string | null = authedUserId ?? null;
+
+    let createdNewUser = false;
+    if (!userIdForOrder) {
+      if (!email || !fullName) {
+        return NextResponse.json(
+          { error: "Email and full name are required" },
+          { status: 400 }
+        );
+      }
+      const client = await clerkClient();
+      const { data } = await client.users.getUserList({ emailAddress: [email] } as any);
+      if (data.length > 0) {
+        userIdForOrder = data[0].id;
+      } else {
+        const [firstName, ...rest] = fullName.trim().split(" ");
+        const lastName = rest.join(" ");
+        const created = await client.users.createUser({
+          emailAddress: [email],
+          firstName: firstName || undefined,
+          lastName: lastName || undefined,
+          publicMetadata: { role: "student" },
+        } as any);
+        userIdForOrder = created.id;
+        createdNewUser = true;
+      }
+    }
+
     const order = await convex.mutation(api.orders.createOrder, {
-      userId: "guest",
+      userId: userIdForOrder!,
       status: "pending",
       provider: "paypal",
       totalAmount: pack.price,
@@ -90,12 +124,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         pack.price,
         "usd",
         {
-          userId: "guest",
+          userId: userIdForOrder!,
           instructorId: pack.instructorId || "",
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
-        `${baseUrl}/checkout/success?order_id={ORDER_ID}`,
+        `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}`,
         cancelUrl
       );
     } catch (paypalError) {

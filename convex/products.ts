@@ -68,6 +68,14 @@ export const getPublicActiveProducts = query({
   },
 });
 
+/** Returns a single product by ID without requiring authentication. */
+export const getPublicProductById = query({
+  args: { id: v.id("products") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
 /** Returns products for a given instructor without requiring authentication.
  * Accepts an optional instructorId and returns [] when missing to avoid client arg errors.
  */

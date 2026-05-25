@@ -16,6 +16,7 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { queryKeys } from "@/lib/queries/query-keys";
 import { verifyCheckoutSession } from "@/lib/queries/api-client";
+import { useUser } from "@clerk/nextjs";
 
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
@@ -23,6 +24,8 @@ export const dynamic = "force-dynamic";
 function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
+  const isNew = searchParams.get("new") === "1";
+  const { isSignedIn } = useUser();
 
   // Verify the session if session_id is provided
   const { isLoading: loading } = useQuery({
@@ -73,12 +76,22 @@ function CheckoutSuccessContent(): React.JSX.Element {
             )}
 
             <div className="flex flex-col gap-2">
-              <Button asChild variant="outline" className="w-full">
-                <Link href="/sign-up">Create your account</Link>
-              </Button>
-              <Button asChild className="w-full">
-                <Link href="/dashboard">Go to Dashboard</Link>
-              </Button>
+              {(!isSignedIn && isNew) ? (
+                <>
+                  <Button asChild className="w-full">
+                    <Link href="/sign-up">Create Your Account</Link>
+                  </Button>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link href="/sign-in">Already have an account? Sign in</Link>
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button asChild className="w-full">
+                    <Link href="/dashboard">Go to Dashboard</Link>
+                  </Button>
+                </>
+              )}
               <Button asChild variant="outline" className="w-full">
                 <Link href="/instructors">Browse Instructors</Link>
               </Button>
