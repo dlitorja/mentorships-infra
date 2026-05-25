@@ -34,6 +34,8 @@ type InstructorWithStats = {
   groupInventory: number;
   maxActiveStudents: number;
   activeStudentCount: number;
+  productActiveOneOnOne?: boolean;
+  productActiveGroup?: boolean;
   createdAt: string;
 };
 
@@ -149,13 +151,53 @@ function InstructorRow({
   instructor, 
   isExpanded, 
   onToggle,
-  students 
+  students,
+  onInventoryUpdated,
 }: { 
   instructor: InstructorWithStats;
   isExpanded: boolean;
   onToggle: () => void;
   students: AdminStudent[] | null;
+  onInventoryUpdated: (id: string, updates: Partial<Pick<InstructorWithStats, "oneOnOneInventory" | "groupInventory" | "maxActiveStudents">>) => void;
 }) {
+  const [oneOnOne, setOneOnOne] = useState<number>(instructor.oneOnOneInventory);
+  const [group, setGroup] = useState<number>(instructor.groupInventory);
+  const [maxStudents, setMaxStudents] = useState<number>(instructor.maxActiveStudents);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty = oneOnOne !== instructor.oneOnOneInventory || group !== instructor.groupInventory || maxStudents !== instructor.maxActiveStudents;
+
+  async function saveInventory() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/instructors/${instructor.instructorId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          oneOnOneInventory: oneOnOne,
+          groupInventory: group,
+          maxActiveStudents: maxStudents,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(typeof json?.error === "string" ? json.error : "Failed to save");
+      } else {
+        onInventoryUpdated(instructor.instructorId, {
+          oneOnOneInventory: oneOnOne,
+          groupInventory: group,
+          maxActiveStudents: maxStudents,
+        });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <tr className="border-b hover:bg-muted/30 cursor-pointer" onClick={onToggle}>
@@ -169,15 +211,73 @@ function InstructorRow({
             <span className="font-medium">{instructor.email}</span>
           </div>
         </td>
-        <td className="py-3 px-4">{instructor.oneOnOneInventory}</td>
-        <td className="py-3 px-4">{instructor.groupInventory}</td>
+        <td className="py-3 px-4">
+          <div className="flex items-center gap-2">
+            <input
+              className="w-16 border rounded px-2 py-1 text-sm"
+              type="number"
+              min={0}
+              max={999}
+              value={oneOnOne}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                const clamped = Number.isNaN(n) ? 0 : Math.max(0, Math.min(999, n));
+                setOneOnOne(clamped);
+              }}
+            />
+            <Badge variant={instructor.productActiveOneOnOne ? "default" : "secondary"}>
+              {instructor.productActiveOneOnOne ? "Active" : "Inactive"}
+            </Badge>
+          </div>
+        </td>
+        <td className="py-3 px-4">
+          <div className="flex items-center gap-2">
+            <input
+              className="w-16 border rounded px-2 py-1 text-sm"
+              type="number"
+              min={0}
+              max={999}
+              value={group}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                const clamped = Number.isNaN(n) ? 0 : Math.max(0, Math.min(999, n));
+                setGroup(clamped);
+              }}
+            />
+            <Badge variant={instructor.productActiveGroup ? "default" : "secondary"}>
+              {instructor.productActiveGroup ? "Active" : "Inactive"}
+            </Badge>
+          </div>
+        </td>
         <td className="py-3 px-4">
           <Badge variant={instructor.activeStudentCount > 0 ? "default" : "secondary"}>
             {instructor.activeStudentCount}
           </Badge>
         </td>
-        <td className="py-3 px-4">
-          <span className="text-muted-foreground">-</span>
+        <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center gap-2">
+            <input
+              className="w-16 border rounded px-2 py-1 text-sm"
+              type="number"
+              min={1}
+              max={100}
+              value={maxStudents}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                const clamped = Number.isNaN(n) ? 1 : Math.max(1, Math.min(100, n));
+                setMaxStudents(clamped);
+              }}
+            />
+            <Button size="sm" variant="outline" disabled={!dirty || saving} onClick={saveInventory}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+          {error && <div className="text-xs text-red-600 mt-1">{error}</div>}
         </td>
       </tr>
       {isExpanded && (
@@ -516,10 +616,10 @@ export default function AdminDashboard() {
                   <thead>
                     <tr className="border-b">
                       <th className="text-left py-3 px-4 font-medium">Email</th>
-                      <th className="text-left py-3 px-4 font-medium">1:1 Inventory</th>
-                      <th className="text-left py-3 px-4 font-medium">Group Inventory</th>
+                      <th className="text-left py-3 px-4 font-medium">1:1 Inventory / Product</th>
+                      <th className="text-left py-3 px-4 font-medium">Group Inventory / Product</th>
                       <th className="text-left py-3 px-4 font-medium">Active Students</th>
-                      <th className="text-left py-3 px-4 font-medium">Revenue (Month)</th>
+                      <th className="text-left py-3 px-4 font-medium">Max Students / Save</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -530,6 +630,9 @@ export default function AdminDashboard() {
                         isExpanded={isAllExpanded || expandedInstructorId === instructor.instructorId}
                         onToggle={() => handleToggleExpand(instructor.instructorId)}
                         students={expandedStudents[instructor.instructorId] || null}
+                        onInventoryUpdated={(id, updates) => {
+                          setInstructors((prev) => prev.map((i) => i.instructorId === id ? { ...i, ...updates } : i));
+                        }}
                       />
                     ))}
                   </tbody>

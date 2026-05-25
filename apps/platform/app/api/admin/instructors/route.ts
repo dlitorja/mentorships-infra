@@ -33,7 +33,31 @@ export async function GET(): Promise<NextResponse> {
 
     const instructors = await convex.query(api.instructors.getInstructorsForAdmin, {});
 
-    const instructorsWithStats = (instructors as any[]).map((instructor) => {
+    // Compute product-active flags with bounded concurrency to avoid N+1 spikes
+    const productFlags = new Map<string, { oneOnOne: boolean; group: boolean }>();
+    const list = instructors as any[];
+    const chunkSize = 8;
+    for (let i = 0; i < list.length; i += chunkSize) {
+      const chunk = list.slice(i, i + chunkSize);
+      const results = await Promise.all(
+        chunk.map(async (inst) => {
+          try {
+            const products = (await convex.query(api.products.getProductsByInstructorId, { instructorId: inst._id })) as any[] | null;
+            const activeProducts = (products ?? []).filter((p) => p.active && !p.deletedAt);
+            const hasOneOnOne = activeProducts.some((p) => p.mentorshipType === "one-on-one");
+            const hasGroup = activeProducts.some((p) => p.mentorshipType === "group");
+            return { id: inst._id as string, oneOnOne: hasOneOnOne, group: hasGroup };
+          } catch (e) {
+            console.error("Failed to load products for instructor", inst._id, e);
+            return { id: inst._id as string, oneOnOne: false, group: false };
+          }
+        })
+      );
+      results.forEach((r) => productFlags.set(r.id, { oneOnOne: r.oneOnOne, group: r.group }));
+    }
+
+    const instructorsWithStats = list.map((instructor) => {
+      const flags = productFlags.get(instructor._id) || { oneOnOne: false, group: false };
       return {
         instructorId: instructor._id,
         userId: instructor.userId || "",
@@ -42,7 +66,10 @@ export async function GET(): Promise<NextResponse> {
         oneOnOneInventory: instructor.oneOnOneInventory || 0,
         groupInventory: instructor.groupInventory || 0,
         maxActiveStudents: instructor.maxActiveStudents || 0,
-        activeMenteeCount: instructor.activeMenteeCount || 0,
+        // Align naming with admin UI expectations
+        activeStudentCount: instructor.activeStudentCount || 0,
+        productActiveOneOnOne: flags.oneOnOne,
+        productActiveGroup: flags.group,
         createdAt: instructor.createdAt
           ? new Date(instructor.createdAt).toISOString()
           : new Date(instructor._creationTime).toISOString(),
