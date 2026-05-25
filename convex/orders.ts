@@ -22,6 +22,19 @@ export const getOrderByIdPublic = query({
   },
 });
 
+/** Minimal public order status for client-facing success/cancel flows. */
+export const getOrderPublicStatus = query({
+  args: { id: v.id("orders") },
+  handler: async (ctx, args) => {
+    const order = await ctx.db.get(args.id);
+    if (!order) return null;
+    return {
+      status: order.status,
+      provider: order.provider,
+    } as const;
+  },
+});
+
 /** Fetches all orders for a given user ID. */
 export const getUserOrders = query({
   args: { userId: v.string() },

@@ -3,34 +3,61 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Set up environment variables before imports
 process.env.NEXT_PUBLIC_CONVEX_URL = "https://test-convex-url.convex.cloud";
 
-// Mock the ConvexHttpClient with dynamic response based on API called
+// Mock the ConvexHttpClient with dynamic response and record mutation calls
 vi.mock("convex/browser", () => {
   const mockOrders = new Map();
   const mockPayments = new Map();
+  const mutationCalls: Array<{ name: string; args: any }> = [];
+
+  function record(name: string, args: any) {
+    mutationCalls.push({ name, args });
+    return "test-mutation-id";
+  }
 
   return {
     ConvexHttpClient: vi.fn().mockImplementation(() => ({
       query: vi.fn((api: any, args: any) => {
-        // If args has provider and providerPaymentId, it's a payments query
         if (args?.provider && args?.providerPaymentId) {
           const key = `${args.provider}:${args.providerPaymentId}`;
           return Promise.resolve(mockPayments.get(key) || null);
         }
-        // If args has id, it might be an orders query
         if (args?.id) {
           return Promise.resolve(mockOrders.get(args.id) || null);
         }
+        if (args?.sessionPackId) {
+          // seatReservations.getSeatReservationBySessionPack
+          return Promise.resolve(null);
+        }
         return Promise.resolve(null);
       }),
-      mutation: vi.fn().mockResolvedValue("test-mutation-id"),
+      mutation: vi.fn((api: any, args: any) => {
+        // Infer operation name based on known arg shapes
+        if (args?.id && !args?.status && !args?.refundedAmount && !args?.orderId) {
+          return Promise.resolve(record("orders.completeOrder", args));
+        }
+        if (args?.orderId && args?.provider && args?.amount) {
+          return Promise.resolve(record("payments.createPayment", args));
+        }
+        if (args?.userId && args?.instructorId && args?.totalSessions) {
+          return Promise.resolve(record("sessionPacks.createSessionPack", args));
+        }
+        if (args?.instructorId && args?.userId && args?.sessionPackId) {
+          return Promise.resolve(record("seatReservations.createSeatReservation", args));
+        }
+        if (args?.id && args?.refundedAmount) {
+          return Promise.resolve(record("payments.refundPayment", args));
+        }
+        return Promise.resolve("test-mutation-id");
+      }),
     })),
-    // Expose helpers to set mock data from tests
     __setMockOrder: (id: string, data: any) => mockOrders.set(id, data),
     __setMockPayment: (provider: string, providerPaymentId: string, data: any) =>
       mockPayments.set(`${provider}:${providerPaymentId}`, data),
+    __getMutationCalls: () => mutationCalls,
     __clearMocks: () => {
       mockOrders.clear();
       mockPayments.clear();
+      mutationCalls.splice(0, mutationCalls.length);
     },
   };
 });
@@ -258,6 +285,56 @@ describe("Inngest Payment Functions", () => {
       expect(result.message).toBe("Payment already refunded");
 
       // Clean up
+      convexMock.__clearMocks!();
+    });
+
+    it("uses resolvedUserId for session pack and seat reservation (Stripe)", async () => {
+      const convexMock = await import("convex/browser");
+      const paymentModule = await import("../../../apps/web/inngest/functions/payments");
+
+      const mockOrder = {
+        _id: "order_abc",
+        status: "pending",
+        userId: "guest",
+        totalAmount: "200.00",
+        provider: "stripe" as const,
+        currency: "usd",
+      };
+      convexMock.__setMockOrder!("order_abc", mockOrder);
+
+      // Mock stripe session retrieve
+      const stripeLib = await import("../../../apps/web/lib/stripe");
+      (stripeLib as any).stripe.checkout.sessions.retrieve.mockResolvedValue({
+        id: "cs_test",
+        amount_total: 20000,
+        currency: "usd",
+        total_details: {},
+        payment_intent: "pi_123",
+      });
+
+      const mockEvent = {
+        data: {
+          sessionId: "cs_test",
+          orderId: "order_abc",
+          userId: "guest",
+          packId: "pack_123",
+          studentEmail: "Guest@Example.com",
+        },
+      };
+
+      const mockStep = {
+        run: vi.fn(async (_name: string, fn: () => Promise<any>) => fn()),
+      };
+
+      const handler = paymentModule.processStripeCheckout.handler;
+      await handler({ event: mockEvent, step: mockStep as any } as any);
+
+      const calls = convexMock.__getMutationCalls!();
+      const sp = calls.find((c: any) => c.name === "sessionPacks.createSessionPack");
+      const sr = calls.find((c: any) => c.name === "seatReservations.createSeatReservation");
+      expect(sp?.args.userId).toBe("email:guest@example.com");
+      expect(sr?.args.userId).toBe("email:guest@example.com");
+
       convexMock.__clearMocks!();
     });
   });

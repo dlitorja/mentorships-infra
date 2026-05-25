@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import crypto from "node:crypto";
+import { reportInfo } from "@/lib/observability";
 
 function getBaseUrl(request: NextRequest) {
   return (
@@ -42,6 +43,22 @@ export async function GET(request: NextRequest) {
 
         if (order && order.status === "pending" && tokenValid && withinWindow) {
           await convex.mutation(api.orders.cancelOrder, { id: orderId as Id<"orders"> });
+        } else if (order && order.status === "pending") {
+          const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || undefined;
+          const ua = request.headers.get("user-agent") || undefined;
+          await reportInfo({
+            source: "api/checkout/cancel",
+            message: "Invalid cancel token attempt",
+            level: "warn",
+            context: {
+              orderId,
+              ts: ts || null,
+              withinWindow,
+              tokenPrefix: token ? token.slice(0, 8) : null,
+              ip: ip || null,
+              userAgent: ua || null,
+            },
+          });
         }
       } catch (error) {
         // Log error but don't fail - order might already be processed
