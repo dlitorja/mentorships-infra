@@ -66,20 +66,30 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
       const client = await clerkClient();
-      const { data } = await client.users.getUserList({ emailAddress: [email] } as any);
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
       if (data.length > 0) {
         userIdForOrder = data[0].id;
       } else {
         const [firstName, ...rest] = fullName.trim().split(" ");
         const lastName = rest.join(" ");
-        const created = await client.users.createUser({
-          emailAddress: [email],
-          firstName: firstName || undefined,
-          lastName: lastName || undefined,
-          publicMetadata: { role: "student" },
-        } as any);
-        userIdForOrder = created.id;
-        createdNewUser = true;
+        try {
+          const created = await client.users.createUser({
+            emailAddress: [normalizedEmail],
+            firstName: firstName || undefined,
+            lastName: lastName || undefined,
+            publicMetadata: { role: "student" },
+          } as any);
+          userIdForOrder = created.id;
+          createdNewUser = true;
+        } catch (e: any) {
+          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+          if (again.data.length > 0) {
+            userIdForOrder = again.data[0].id;
+          } else {
+            throw e;
+          }
+        }
       }
     }
 

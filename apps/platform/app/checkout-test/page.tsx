@@ -27,7 +27,7 @@ export default function CheckoutTestPage() {
     mutationFn: () => createCheckoutSession({ productId }),
     onSuccess: (data) => {
       if (data.checkoutUrl || data.url) {
-        setOrderId(data.orderId);
+        setOrderId(data.orderId ?? null);
         // Redirect to Stripe Checkout
         window.location.href = data.checkoutUrl || data.url;
       } else {
@@ -169,4 +169,3 @@ export default function CheckoutTestPage() {
     </div>
   );
 }
-

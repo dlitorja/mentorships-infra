@@ -68,11 +68,18 @@ export const getPublicActiveProducts = query({
   },
 });
 
-/** Returns a single product by ID without requiring authentication. */
+/** Returns a single product by ID without requiring authentication.
+ * Ensures product is active and not soft-deleted.
+ */
 export const getPublicProductById = query({
   args: { id: v.id("products") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    const product = await ctx.db.get(args.id);
+    if (!product) return null;
+    // Only allow purchasing active, non-deleted products
+    if ((product as any).active === false) return null;
+    if ((product as any).deletedAt) return null;
+    return product;
   },
 });
 

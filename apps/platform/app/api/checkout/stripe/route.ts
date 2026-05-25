@@ -82,24 +82,36 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         );
       }
       const client = await clerkClient();
+      // Normalize email to avoid duplicate accounts for the same mailbox
+      const normalizedEmail = email.trim().toLowerCase();
       // Try to find existing user by email
-      const { data } = await client.users.getUserList({ emailAddress: [email] } as any);
+      const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
       if (data.length > 0) {
         userIdForOrder = data[0].id;
       } else {
         const [firstName, ...rest] = fullName.trim().split(" ");
         const lastName = rest.join(" ");
-        const created = await client.users.createUser({
-          emailAddress: [email],
-          firstName: firstName || undefined,
-          lastName: lastName || undefined,
-          // Mark as a student in public metadata if used by the app
-          publicMetadata: { role: "student" },
-        } as any);
-        userIdForOrder = created.id;
-        createdNewUser = true;
+        try {
+          const created = await client.users.createUser({
+            emailAddress: [normalizedEmail],
+            firstName: firstName || undefined,
+            lastName: lastName || undefined,
+            // Mark as a student in public metadata if used by the app
+            publicMetadata: { role: "student" },
+          } as any);
+          userIdForOrder = created.id;
+          createdNewUser = true;
+        } catch (e: any) {
+          // If user already exists due to a race, fetch again and proceed
+          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+          if (again.data.length > 0) {
+            userIdForOrder = again.data[0].id;
+          } else {
+            throw e;
+          }
+        }
       }
-      customerEmail = email;
+      customerEmail = normalizedEmail;
     }
 
     const order = await convex.mutation(api.orders.createOrder, {
