@@ -751,7 +751,15 @@ export const getInstructorBySlug = query({
       .first();
     const profileImageUrl = await getFreshProfileUrl(ctx, profile.profileImageStorageId, profile.profileImageUrl);
     const portfolioImages = await getFreshPortfolioUrls(ctx, profile.portfolioImageStorageIds, profile.portfolioImages);
-    return { ...profile, profileImageUrl, portfolioImages, instructorId: instructor?._id } as any;
+    return {
+      ...profile,
+      profileImageUrl,
+      portfolioImages,
+      instructorId: instructor?._id,
+      // Surface inventory for purchase/waitlist logic; default to 0 when missing
+      oneOnOneInventory: (instructor as any)?.oneOnOneInventory ?? 0,
+      groupInventory: (instructor as any)?.groupInventory ?? 0,
+    } as any;
   },
 });
 

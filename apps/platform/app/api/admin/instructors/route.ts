@@ -33,21 +33,39 @@ export async function GET(): Promise<NextResponse> {
 
     const instructors = await convex.query(api.instructors.getInstructorsForAdmin, {});
 
-    const instructorsWithStats = (instructors as any[]).map((instructor) => {
-      return {
-        instructorId: instructor._id,
-        userId: instructor.userId || "",
-        email: instructor.email || "",
-        displayName: instructor.name || instructor.email || "",
-        oneOnOneInventory: instructor.oneOnOneInventory || 0,
-        groupInventory: instructor.groupInventory || 0,
-        maxActiveStudents: instructor.maxActiveStudents || 0,
-        activeMenteeCount: instructor.activeMenteeCount || 0,
-        createdAt: instructor.createdAt
-          ? new Date(instructor.createdAt).toISOString()
-          : new Date(instructor._creationTime).toISOString(),
-      };
-    });
+    const instructorsWithStats = await Promise.all(
+      (instructors as any[]).map(async (instructor) => {
+        // Fetch products (public query) and compute active flags by mentorship type
+        let hasOneOnOne = false;
+        let hasGroup = false;
+        try {
+          const products = (await convex.query(api.products.getProductsByInstructorId, { instructorId: instructor._id })) as any[] | null;
+          const activeProducts = (products ?? []).filter((p) => p.active && !p.deletedAt);
+          hasOneOnOne = activeProducts.some((p) => p.mentorshipType === "one-on-one");
+          hasGroup = activeProducts.some((p) => p.mentorshipType === "group");
+        } catch (e) {
+          // Gracefully degrade; flags remain false
+          console.error("Failed to load products for instructor", instructor._id, e);
+        }
+
+        return {
+          instructorId: instructor._id,
+          userId: instructor.userId || "",
+          email: instructor.email || "",
+          displayName: instructor.name || instructor.email || "",
+          oneOnOneInventory: instructor.oneOnOneInventory || 0,
+          groupInventory: instructor.groupInventory || 0,
+          maxActiveStudents: instructor.maxActiveStudents || 0,
+          // Align naming with admin UI expectations
+          activeStudentCount: instructor.activeStudentCount || 0,
+          productActiveOneOnOne: hasOneOnOne,
+          productActiveGroup: hasGroup,
+          createdAt: instructor.createdAt
+            ? new Date(instructor.createdAt).toISOString()
+            : new Date(instructor._creationTime).toISOString(),
+        };
+      })
+    );
 
     return NextResponse.json({ instructors: instructorsWithStats });
   } catch (error) {
