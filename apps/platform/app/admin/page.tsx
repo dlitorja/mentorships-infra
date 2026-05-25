@@ -220,7 +220,12 @@ function InstructorRow({
               max={999}
               value={oneOnOne}
               onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setOneOnOne(Math.max(0, Math.min(999, parseInt(e.target.value || "0", 10))))}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                const clamped = Number.isNaN(n) ? 0 : Math.max(0, Math.min(999, n));
+                setOneOnOne(clamped);
+              }}
             />
             <Badge variant={instructor.productActiveOneOnOne ? "default" : "secondary"}>
               {instructor.productActiveOneOnOne ? "Active" : "Inactive"}
@@ -236,7 +241,12 @@ function InstructorRow({
               max={999}
               value={group}
               onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setGroup(Math.max(0, Math.min(999, parseInt(e.target.value || "0", 10))))}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                const clamped = Number.isNaN(n) ? 0 : Math.max(0, Math.min(999, n));
+                setGroup(clamped);
+              }}
             />
             <Badge variant={instructor.productActiveGroup ? "default" : "secondary"}>
               {instructor.productActiveGroup ? "Active" : "Inactive"}
@@ -256,7 +266,12 @@ function InstructorRow({
               min={1}
               max={100}
               value={maxStudents}
-              onChange={(e) => setMaxStudents(Math.max(1, Math.min(100, parseInt(e.target.value || "1", 10))))}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n = parseInt(raw, 10);
+                const clamped = Number.isNaN(n) ? 1 : Math.max(1, Math.min(100, n));
+                setMaxStudents(clamped);
+              }}
             />
             <Button size="sm" variant="outline" disabled={!dirty || saving} onClick={saveInventory}>
               {saving ? "Saving…" : "Save"}
