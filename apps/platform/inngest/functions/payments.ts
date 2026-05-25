@@ -147,7 +147,7 @@ const completedOrder = await step.run("update-order", async () => {
     // Resolve userId for guest checkout using Stripe-collected email
     const resolvedUserId = await step.run("resolve-user-id", async () => {
       if (userId && userId !== "guest") return userId;
-      const email = studentEmail;
+      const email = studentEmail?.toLowerCase().trim();
       if (!email) return "guest";
       // Ensure a Convex user exists for this email; use a placeholder userId that will be
       // replaced later by syncUser when the visitor signs up with Clerk.

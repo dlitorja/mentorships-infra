@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
+import crypto from "node:crypto";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -95,6 +96,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     let session: Stripe.Checkout.Session;
     try {
+      const ts = Date.now().toString();
+      const secret = process.env.CANCEL_TOKEN_SECRET;
+      const base = `${orderId}:${ts}`;
+      const token = secret ? crypto.createHmac("sha256", secret).update(base).digest("hex") : undefined;
+      const cancelUrl = token
+        ? `${baseUrl}/api/checkout/cancel?order_id=${encodeURIComponent(orderId!)}&ts=${encodeURIComponent(ts)}&token=${encodeURIComponent(token)}`
+        : `${baseUrl}/checkout/cancel`;
+
       const sessionParams: Stripe.Checkout.SessionCreateParams = {
         mode: "payment",
         line_items: [
@@ -104,7 +113,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           },
         ],
         success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${baseUrl}/checkout/cancel`,
+        cancel_url: cancelUrl,
         metadata: {
           order_id: orderId!,
           user_id: "guest",

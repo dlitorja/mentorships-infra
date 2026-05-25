@@ -4,6 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { createPayPalOrder } from "@mentorships/payments";
+import crypto from "node:crypto";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_URL;
@@ -71,6 +72,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     let paypalOrder;
     try {
+      const ts = Date.now().toString();
+      const secret = process.env.CANCEL_TOKEN_SECRET;
+      const base = `${orderId}:${ts}`;
+      const token = secret ? crypto.createHmac("sha256", secret).update(base).digest("hex") : undefined;
+      const cancelUrl = token
+        ? `${baseUrl}/api/checkout/cancel?order_id=${encodeURIComponent(orderId!)}&ts=${encodeURIComponent(ts)}&token=${encodeURIComponent(token)}`
+        : `${baseUrl}/checkout/cancel`;
+
       paypalOrder = await createPayPalOrder(
         pack.price,
         "usd",
@@ -81,7 +90,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
         `${baseUrl}/checkout/success?order_id={ORDER_ID}`,
-        `${baseUrl}/checkout/cancel`
+        cancelUrl
       );
     } catch (paypalError) {
       if (orderId) {

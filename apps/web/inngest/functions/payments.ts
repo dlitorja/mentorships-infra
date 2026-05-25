@@ -146,7 +146,7 @@ const completedOrder = await step.run("update-order", async () => {
 
     const resolvedUserId = await step.run("resolve-user-id", async () => {
       if (userId && userId !== "guest") return userId;
-      const email = studentEmail;
+      const email = studentEmail?.toLowerCase().trim();
       if (!email) return "guest";
       const placeholderUserId = `email:${email}`;
       try {
@@ -485,7 +485,7 @@ export const processPayPalCheckout = inngest.createFunction(
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
 
     const resolvedUserId = await step.run("resolve-user-id", async () => {
-      const email = studentEmail;
+      const email = studentEmail?.toLowerCase().trim();
       if (!email) return order.userId ?? "guest";
       const placeholderUserId = `email:${email}`;
       try {
