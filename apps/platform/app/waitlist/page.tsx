@@ -130,7 +130,21 @@ function WaitlistContent() {
 
 export default function WaitlistPage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
+          <Card className="max-w-lg w-full">
+            <CardHeader>
+              <CardTitle>Loading...</CardTitle>
+              <CardDescription>Preparing waitlist form</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-sm text-muted-foreground">Please wait…</div>
+            </CardContent>
+          </Card>
+        </div>
+      }
+    >
       <WaitlistContent />
     </Suspense>
   );
