@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
     // Verify order exists in Convex before redirecting
     const convex = getConvexClient();
-    const order = await convex.query(api.orders.getOrderByIdPublic, {
+    const order = await convex.query(api.orders.getOrderPublicStatus, {
       id: orderId as Id<"orders">,
     });
 

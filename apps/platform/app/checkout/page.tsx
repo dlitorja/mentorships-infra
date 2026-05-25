@@ -211,13 +211,13 @@ function CheckoutContent(): React.JSX.Element {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
       <Card className="max-w-2xl w-full">
-        <CardHeader>
-          <CardTitle>Checkout</CardTitle>
-          <CardDescription>
-            {instructorName
-              ? `Complete your purchase with ${instructorName}`
-              : "Select a session pack to proceed with checkout"}
-          </CardDescription>
+          <CardHeader>
+            <CardTitle>{instructorName ? "Checkout" : "Select a session pack"}</CardTitle>
+            <CardDescription>
+              {instructorName
+                ? `Complete your purchase with ${instructorName}`
+                : "Select a session pack to proceed with checkout"}
+            </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-3">

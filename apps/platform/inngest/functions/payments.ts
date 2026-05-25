@@ -3,6 +3,8 @@ import { api } from "../../../../convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
+import { sendEmail } from "@/lib/email";
+import { reportInfo } from "@/lib/observability";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -23,7 +25,7 @@ export const processStripeCheckout = inngest.createFunction(
       packId: string;
       studentEmail?: string;
     };
-    const convex = getConvexClient();
+  const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
       let attempts = 0;
@@ -277,6 +279,43 @@ const completedOrder = await step.run("update-order", async () => {
       await convex.mutation(api.instructors.decrementInventory, {
         id: product.instructorId as Id<"instructors">,
         type: inventoryType,
+      });
+    });
+
+    // Immediate guest onboarding email (low-risk conversion boost)
+    await step.run("send-guest-onboarding-email", async () => {
+      const email = (studentEmail || "").trim().toLowerCase();
+      const isGuest = !userId || userId === "guest";
+      if (!email || (!isGuest && !String(resolvedUserId).startsWith("email:"))) return { skipped: true };
+
+      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      const claimUrl = `${baseUrl}/sign-up`;
+      const dashboardUrl = `${baseUrl}/dashboard`;
+
+      const html = `
+        <div style="font-family:Arial,sans-serif;color:#111">
+          <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
+          <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
+          <p style="margin:0 0 16px"><a href="${claimUrl}" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
+          <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
+          <p style="margin:0 0 8px">Once signed in, head to your dashboard:</p>
+          <p style="margin:0"><a href="${dashboardUrl}">${dashboardUrl}</a></p>
+          <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
+        </div>`;
+
+      const res = await sendEmail({
+        to: email,
+        subject: "Claim your account to access your session pack",
+        html,
+        headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
+      });
+
+      await reportInfo({
+        source: "inngest:process-stripe-checkout",
+        message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
+        level: res.ok ? "info" : "warn",
+        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false },
       });
     });
 
@@ -594,6 +633,42 @@ export const processPayPalCheckout = inngest.createFunction(
       await convex.mutation(api.instructors.decrementInventory, {
         id: product.instructorId as Id<"instructors">,
         type: paypalInventoryType,
+      });
+    });
+
+    // Immediate guest onboarding email (PayPal)
+    await step.run("send-guest-onboarding-email", async () => {
+      const email = (event.data as any)?.studentEmail?.toString().trim().toLowerCase() || "";
+      if (!email) return { skipped: true };
+
+      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      const claimUrl = `${baseUrl}/sign-up`;
+      const dashboardUrl = `${baseUrl}/dashboard`;
+
+      const html = `
+        <div style="font-family:Arial,sans-serif;color:#111">
+          <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
+          <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
+          <p style="margin:0 0 16px"><a href="${claimUrl}" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
+          <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
+          <p style="margin:0 0 8px">Once signed in, head to your dashboard:</p>
+          <p style="margin:0"><a href="${dashboardUrl}">${dashboardUrl}</a></p>
+          <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
+        </div>`;
+
+      const res = await sendEmail({
+        to: email,
+        subject: "Claim your account to access your session pack",
+        html,
+        headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
+      });
+
+      await reportInfo({
+        source: "inngest:process-paypal-checkout",
+        message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
+        level: res.ok ? "info" : "warn",
+        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false },
       });
     });
 
