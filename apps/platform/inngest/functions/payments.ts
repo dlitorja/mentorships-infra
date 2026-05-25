@@ -25,7 +25,7 @@ export const processStripeCheckout = inngest.createFunction(
       packId: string;
       studentEmail?: string;
     };
-  const convex = getConvexClient();
+    const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
       let attempts = 0;

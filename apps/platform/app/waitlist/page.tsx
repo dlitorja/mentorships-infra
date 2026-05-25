@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { z } from "zod";
 import { waitlistFormSchema } from "@/lib/validation-schemas";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ const formSchema = waitlistFormSchema.extend({
   type: z.enum(["one-on-one", "group"]).optional(),
 });
 
-export default function WaitlistPage() {
+function WaitlistContent() {
   const search = useSearchParams();
   const router = useRouter();
 
@@ -125,5 +125,13 @@ export default function WaitlistPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function WaitlistPage() {
+  return (
+    <Suspense>
+      <WaitlistContent />
+    </Suspense>
   );
 }
