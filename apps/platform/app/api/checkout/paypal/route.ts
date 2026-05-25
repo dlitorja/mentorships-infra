@@ -6,6 +6,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { createPayPalOrder } from "@mentorships/payments";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -142,6 +143,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}`,
         cancelUrl
       );
+
+      // Fire-and-forget: send email-link sign-in for newly created users
+      if (createdNewUser && userIdForOrder) {
+        void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {
+          console.error("[paypal] Failed to send magic link:", e);
+        });
+      }
     } catch (paypalError) {
       if (orderId) {
         try {

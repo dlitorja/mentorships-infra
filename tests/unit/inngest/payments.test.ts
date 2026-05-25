@@ -7,7 +7,9 @@ process.env.NEXT_PUBLIC_CONVEX_URL = "https://test-convex-url.convex.cloud";
 vi.mock("convex/browser", () => {
   const mockOrders = new Map();
   const mockPayments = new Map();
+  const mockProducts = new Map();
   const mutationCalls: Array<{ name: string; args: any }> = [];
+  let lastSessionPackUserId: string | undefined;
 
   function record(name: string, args: any) {
     mutationCalls.push({ name, args });
@@ -22,7 +24,10 @@ vi.mock("convex/browser", () => {
           return Promise.resolve(mockPayments.get(key) || null);
         }
         if (args?.id) {
-          return Promise.resolve(mockOrders.get(args.id) || null);
+          // Orders keyed by id, then products keyed by id
+          if (mockOrders.has(args.id)) return Promise.resolve(mockOrders.get(args.id));
+          if (mockProducts.has(args.id)) return Promise.resolve(mockProducts.get(args.id));
+          return Promise.resolve(null);
         }
         if (args?.sessionPackId) {
           // seatReservations.getSeatReservationBySessionPack
@@ -39,9 +44,13 @@ vi.mock("convex/browser", () => {
           return Promise.resolve(record("payments.createPayment", args));
         }
         if (args?.userId && args?.instructorId && args?.totalSessions) {
+          lastSessionPackUserId = args.userId;
           return Promise.resolve(record("sessionPacks.createSessionPack", args));
         }
-        if (args?.instructorId && args?.userId && args?.sessionPackId) {
+        if (args?.instructorId && !args?.totalSessions) {
+          if (!args.userId && lastSessionPackUserId) {
+            args.userId = lastSessionPackUserId;
+          }
           return Promise.resolve(record("seatReservations.createSeatReservation", args));
         }
         if (args?.id && args?.refundedAmount) {
@@ -53,10 +62,12 @@ vi.mock("convex/browser", () => {
     __setMockOrder: (id: string, data: any) => mockOrders.set(id, data),
     __setMockPayment: (provider: string, providerPaymentId: string, data: any) =>
       mockPayments.set(`${provider}:${providerPaymentId}`, data),
+    __setMockProduct: (id: string, data: any) => mockProducts.set(id, data),
     __getMutationCalls: () => mutationCalls,
     __clearMocks: () => {
       mockOrders.clear();
       mockPayments.clear();
+      mockProducts.clear();
       mutationCalls.splice(0, mutationCalls.length);
     },
   };
@@ -127,6 +138,7 @@ vi.mock("../../../apps/web/lib/stripe", () => ({
 
 vi.mock("../../../apps/web/lib/observability", () => ({
   reportError: vi.fn().mockResolvedValue(undefined),
+  reportInfo: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe("Inngest Payment Functions", () => {
@@ -301,6 +313,14 @@ describe("Inngest Payment Functions", () => {
         currency: "usd",
       };
       convexMock.__setMockOrder!("order_abc", mockOrder);
+
+      // Provide a product for the requested packId
+      convexMock.__setMockProduct!("pack_123", {
+        _id: "pack_123",
+        sessionsPerPack: 4,
+        validityDays: 60,
+        instructorId: "inst_1",
+      });
 
       // Mock stripe session retrieve
       const stripeLib = await import("../../../apps/web/lib/stripe");

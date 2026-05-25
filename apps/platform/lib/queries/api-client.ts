@@ -133,8 +133,15 @@ export async function createCheckoutSession(
 
 /**
  * Create PayPal checkout session
+ *
+ * Supports both { packId } and { productId } shapes for compatibility with the route.
+ * Optionally includes guest fields (email, fullName) when the viewer is not signed in.
  */
-export async function createPayPalCheckoutSession(data: { packId: string }) {
+export async function createPayPalCheckoutSession(
+  data:
+    | { packId: string; email?: string; fullName?: string }
+    | { productId: string; email?: string; fullName?: string }
+) {
   return apiFetch<{ orderId: string; url: string }>("/api/checkout/paypal", {
     method: "POST",
     body: JSON.stringify(data),
