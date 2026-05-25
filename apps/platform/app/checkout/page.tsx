@@ -298,7 +298,9 @@ function CheckoutContent(): React.JSX.Element {
                     )}
                   >
                     <Wallet className="h-5 w-5" />
-                    <span className="font-medium">PayPal</span>
+                    <span className="font-medium">
+                      {selectedProduct.paypalProductId ? "PayPal" : "PayPal (Coming Soon)"}
+                    </span>
                   </button>
                 </div>
               </div>
