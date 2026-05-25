@@ -28,12 +28,13 @@ export async function GET(request: NextRequest) {
     // Public cancel: proceed without authentication
 
     if (orderId) {
-      // Update order status to canceled via Convex
+      // Update order status to canceled only if it's still pending
       try {
         const convex = getConvexClient();
-        await convex.mutation(api.orders.cancelOrder, {
-          id: orderId as Id<"orders">,
-        });
+        const order = await convex.query(api.orders.getOrderByIdPublic, { id: orderId as Id<"orders"> });
+        if (order && order.status === "pending") {
+          await convex.mutation(api.orders.cancelOrder, { id: orderId as Id<"orders"> });
+        }
       } catch (error) {
         // Log error but don't fail - order might already be processed
         console.error("Error canceling order:", error);
