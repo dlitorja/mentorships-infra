@@ -191,6 +191,10 @@ const isPublicApiRoute = createRouteMatcher([
   "/api/seats/availability(.*)", // Public seat availability endpoint
   "/api/contacts", // Public contact form endpoint
   "/api/waitlist", // Allows unauth POST (GET route enforces auth itself)
+  
+  // Public checkout endpoints: we collect email/name and upsert user on server
+  // CSRF and rate limits still apply before route execution
+  "/api/checkout(.*)",
 ]);
 
 /**
@@ -451,4 +455,3 @@ export const config = {
     "/(api|trpc)(.*)",
   ],
 };
-

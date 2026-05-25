@@ -18,6 +18,7 @@ import { usePublicInstructorBySlug } from "@/lib/queries/convex/use-instructors"
 import { useProductsByInstructorId, usePublicActiveProducts } from "@/lib/queries/convex/use-products";
 import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
+import { useUser } from "@clerk/nextjs";
 
 type PaymentMethod = "stripe" | "paypal";
 
@@ -50,6 +51,10 @@ function CheckoutContent(): React.JSX.Element {
   
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("stripe");
+  const { isSignedIn, user } = useUser();
+  const [email, setEmail] = useState<string>("");
+  const [fullName, setFullName] = useState<string>("");
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Get instructor data and derive instructors table id injected by Convex
   const { data: instructorData, isLoading: isLoadingInstructor } = usePublicInstructorBySlug(
@@ -81,6 +86,15 @@ function CheckoutContent(): React.JSX.Element {
     
   const selectedProduct = productList.find((p) => p._id === selectedProductId);
 
+  useEffect(() => {
+    if (user) {
+      const mail = user.primaryEmailAddress?.emailAddress || "";
+      const name = user.fullName || [user.firstName, user.lastName].filter(Boolean).join(" ");
+      setEmail(mail);
+      setFullName(name);
+    }
+  }, [user]);
+
   // Reset payment method to a supported option when product changes
   useEffect(() => {
     if (!selectedProduct) return;
@@ -97,11 +111,17 @@ function CheckoutContent(): React.JSX.Element {
 
   const checkoutMutation = useMutation({
     mutationFn: async (data: { productId: string; paymentMethod: PaymentMethod }) => {
+      if (!isSignedIn) {
+        if (!email || !fullName) {
+          setFormError("Email and full name are required");
+          throw new Error("Email and full name are required");
+        }
+      }
       if (data.paymentMethod === "paypal") {
         const response = await fetch("/api/checkout/paypal", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: data.productId }),
+          body: JSON.stringify({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName }),
         });
         if (!response.ok) {
           const error = await response.json().catch(() => ({ error: "PayPal checkout failed" }));
@@ -109,7 +129,7 @@ function CheckoutContent(): React.JSX.Element {
         }
         return response.json();
       }
-      return createCheckoutSession({ productId: data.productId });
+      return createCheckoutSession({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName });
     },
     onSuccess: (data) => {
       const url = data.url || data.approvalUrl;
@@ -123,6 +143,7 @@ function CheckoutContent(): React.JSX.Element {
 
   const handleCheckout = () => {
     if (!selectedProduct) return;
+    setFormError(null);
     checkoutMutation.mutate({ productId: selectedProduct._id, paymentMethod });
   };
 
@@ -265,6 +286,39 @@ function CheckoutContent(): React.JSX.Element {
             </div>
           </div>
 
+          {/* Your Details */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Your Details</label>
+            {!isSignedIn ? (
+              <div className="grid gap-3">
+                <div>
+                  <label className="block text-sm mb-1">Email</label>
+                  <input
+                    type="email"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Your full name"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                Purchasing as {fullName || "signed-in user"} ({email})
+              </div>
+            )}
+          </div>
+
           {selectedProduct && (
             <>
               <div className="space-y-3">
@@ -321,7 +375,7 @@ function CheckoutContent(): React.JSX.Element {
                     <span className="font-medium">{selectedProduct.validityDays} days</span>
                   </div>
                   <div className="border-t pt-2 flex justify-between">
-                    <span className="font-medium">Total</span>
+                    <span className="font-medium">Due Now</span>
                     <span className="font-bold text-lg">${selectedProduct.price}</span>
                   </div>
                   <div className="text-xs text-muted-foreground">
@@ -330,6 +384,12 @@ function CheckoutContent(): React.JSX.Element {
                 </div>
               </div>
             </>
+          )}
+
+          {formError && (
+            <div className="bg-destructive/10 text-destructive p-3 rounded-md text-sm">
+              {formError}
+            </div>
           )}
 
           {error && (
@@ -352,7 +412,7 @@ function CheckoutContent(): React.JSX.Element {
                 </>
               ) : (
                 <>
-                  {paymentMethod === "stripe" ? "Pay with Stripe" : "Pay with PayPal"}
+                  {selectedProduct ? `Pay $${selectedProduct.price}` : "Pay"}
                 </>
               )}
             </Button>

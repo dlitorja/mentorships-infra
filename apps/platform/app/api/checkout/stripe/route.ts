@@ -6,6 +6,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { stripe } from "@/lib/stripe";
 import crypto from "node:crypto";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -17,6 +18,8 @@ function getConvexClient() {
 
 const checkoutSchema = z.object({
   packId: z.string().min(1, "packId is required"),
+  email: z.string().email().optional(),
+  fullName: z.string().optional(),
   promotionCode: z.string().optional(),
 });
 
@@ -30,6 +33,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       typeof rawBody === "object" && rawBody !== null
         ? {
             packId: rawBody.packId ?? rawBody.productId,
+            email: rawBody.email,
+            fullName: rawBody.fullName,
             promotionCode: rawBody.promotionCode,
           }
         : rawBody;
@@ -42,10 +47,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { packId, promotionCode } = validationResult.data;
+    const { packId, promotionCode, email, fullName } = validationResult.data;
     const convex = getConvexClient();
 
-    const pack = await convex.query(api.products.getProductById, {
+    // Use public product lookup to support guest checkout
+    const pack = await convex.query(api.products.getPublicProductById, {
       id: packId as Id<"products">,
     });
 
@@ -62,8 +68,54 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     let finalPrice = pack.price;
 
+    // Resolve user: if authenticated, use that userId; otherwise upsert by email
+    const { userId: authedUserId } = await auth();
+    let userIdForOrder: string | null = authedUserId ?? null;
+    let customerEmail: string | undefined = undefined;
+
+    let createdNewUser = false;
+    if (!userIdForOrder) {
+      if (!email || !fullName) {
+        return NextResponse.json(
+          { error: "Email and full name are required" },
+          { status: 400 }
+        );
+      }
+      const client = await clerkClient();
+      // Normalize email to avoid duplicate accounts for the same mailbox
+      const normalizedEmail = email.trim().toLowerCase();
+      // Try to find existing user by email
+      const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+      if (data.length > 0) {
+        userIdForOrder = data[0].id;
+      } else {
+        const [firstName, ...rest] = fullName.trim().split(" ");
+        const lastName = rest.join(" ");
+        try {
+          const created = await client.users.createUser({
+            emailAddress: [normalizedEmail],
+            firstName: firstName || undefined,
+            lastName: lastName || undefined,
+            // Mark as a student in public metadata if used by the app
+            publicMetadata: { role: "student" },
+          } as any);
+          userIdForOrder = created.id;
+          createdNewUser = true;
+        } catch (e: any) {
+          // If user already exists due to a race, fetch again and proceed
+          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+          if (again.data.length > 0) {
+            userIdForOrder = again.data[0].id;
+          } else {
+            throw e;
+          }
+        }
+      }
+      customerEmail = normalizedEmail;
+    }
+
     const order = await convex.mutation(api.orders.createOrder, {
-      userId: "guest",
+      userId: userIdForOrder!,
       status: "pending",
       provider: "stripe",
       totalAmount: finalPrice,
@@ -112,11 +164,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             quantity: 1,
           },
         ],
-        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}${createdNewUser ? "&new=1" : ""}`,
         cancel_url: cancelUrl,
         metadata: {
           order_id: orderId!,
-          user_id: "guest",
+          user_id: userIdForOrder!,
           pack_id: packId,
         },
         allow_promotion_codes: discounts.length === 0,
@@ -124,6 +176,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       if (discounts.length > 0) {
         sessionParams.discounts = discounts;
+      }
+
+      if (customerEmail) {
+        sessionParams.customer_email = customerEmail;
       }
 
       session = await stripe.checkout.sessions.create(sessionParams);
