@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
         const orderId = session.metadata?.order_id;
         const userId = session.metadata?.user_id;
         const packId = session.metadata?.pack_id;
+        const studentEmail = session.customer_details?.email || undefined;
 
         if (!orderId || !userId || !packId) {
           await reportError({
@@ -70,13 +71,14 @@ export async function POST(req: NextRequest) {
             orderId,
             userId,
             packId,
+            studentEmail,
           },
         });
 
         await reportInfo({
           source: "webhooks/stripe",
           message: `Sent checkout.session.completed event to Inngest for order ${orderId}`,
-          context: { orderId, sessionId: session.id },
+          context: { orderId, sessionId: session.id, studentEmail },
         });
         return NextResponse.json({ received: true, eventId: event.id });
       }

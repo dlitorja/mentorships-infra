@@ -214,7 +214,8 @@ function InstructorProfileContent({ slug }: { slug: string }) {
   }
 
   // Treat undefined isActive as active for backward compatibility
-  if (instructor.isActive === false || (instructor as any).deletedAt) {
+  // Only 404 if soft-deleted; allow viewing inactive profiles (no purchasing)
+  if ((instructor as any).deletedAt) {
     notFound();
   }
 
@@ -277,7 +278,7 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                   </div>
                 )}
 
-                {instructorIdForQueries ? (
+                {instructorIdForQueries && instructor.isActive !== false ? (
                   <InstructorExtras
                     instructorId={instructorIdForQueries}
                     instructorSlug={instructor.slug}
@@ -285,9 +286,9 @@ function InstructorProfileContent({ slug }: { slug: string }) {
                     oneOnOneInventory={oneOnOneInventory}
                     groupInventory={groupInventory}
                   />
-                ) : (
+                ) : instructorIdForQueries ? (
                   <p className="text-muted-foreground">Purchasing will be available soon.</p>
-                )}
+                ) : null}
 
                 {socialLinks.length > 0 && (
                   <div>

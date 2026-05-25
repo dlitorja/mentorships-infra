@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/auth";
 import { capturePayPalOrder, getPayPalOrder } from "@mentorships/payments";
 import { inngest } from "@/inngest/client";
 
@@ -14,7 +13,7 @@ const captureSchema = z.object({
  */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    await requireAuth(); // User must be authenticated
+    // Public capture: proceed without authentication
     const body = await req.json();
     
     // Validate request body
@@ -37,9 +36,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // This ensures fulfillment even if webhook delivery is delayed
     // The webhook also sends this event, but both paths are idempotent
     try {
-      // Fetch order details to get custom_id (contains orderId and packId)
+      // Fetch order details to get custom_id (contains orderId and packId) and payer email
       const paypalOrderDetails = await getPayPalOrder(orderId);
       const purchaseUnits = paypalOrderDetails.purchaseUnits;
+      const payerEmail: string | undefined = (paypalOrderDetails as any)?.payer?.emailAddress || (paypalOrderDetails as any)?.payer?.email_address || undefined;
       
       if (purchaseUnits && purchaseUnits.length > 0) {
         const customId = purchaseUnits[0].customId;
@@ -50,13 +50,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             const packId = decoded.packId;
             
             if (dbOrderId && packId) {
-              // Send Inngest event for fulfillment
+              // Send Inngest event for fulfillment (include payer email when available)
               await inngest.send({
                 name: "paypal/payment.capture.completed",
                 data: {
                   captureId: capturedOrder.id,
                   orderId: dbOrderId,
                   packId: packId,
+                  studentEmail: payerEmail,
                 },
               });
               console.log(`Inngest event sent for order ${dbOrderId}, pack ${packId}`);
@@ -86,4 +87,3 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
-

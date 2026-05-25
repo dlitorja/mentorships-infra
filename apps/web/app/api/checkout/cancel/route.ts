@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { requireAuth } from "@/lib/auth";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
+import crypto from "node:crypto";
 
 function getBaseUrl(request: NextRequest) {
   return (
@@ -23,19 +23,26 @@ function getBaseUrl(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const orderId = searchParams.get("order_id");
+  const ts = searchParams.get("ts");
+  const token = searchParams.get("token");
   const baseUrl = getBaseUrl(request);
 
   try {
-    // Require authentication to prevent unauthorized order cancellation
-    await requireAuth();
+    // Public cancel: proceed without authentication
 
     if (orderId) {
-      // Update order status to canceled via Convex
+      // Update order status to canceled only if it's still pending
       try {
         const convex = getConvexClient();
-        await convex.mutation(api.orders.cancelOrder, {
-          id: orderId as Id<"orders">,
-        });
+        const order = await convex.query(api.orders.getOrderByIdPublic, { id: orderId as Id<"orders"> });
+        const secret = process.env.CANCEL_TOKEN_SECRET;
+        const withinWindow = ts ? Date.now() - Number(ts) < 48 * 3600 * 1000 : false;
+        const expected = secret && ts ? crypto.createHmac("sha256", secret).update(`${orderId}:${ts}`).digest("hex") : null;
+        const tokenValid = Boolean(expected && token && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(token)));
+
+        if (order && order.status === "pending" && tokenValid && withinWindow) {
+          await convex.mutation(api.orders.cancelOrder, { id: orderId as Id<"orders"> });
+        }
       } catch (error) {
         // Log error but don't fail - order might already be processed
         console.error("Error canceling order:", error);
@@ -55,4 +62,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/checkout/cancel", baseUrl));
   }
 }
-

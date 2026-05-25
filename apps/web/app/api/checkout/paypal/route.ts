@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { requireAuth } from "@/lib/auth";
 import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { createPayPalOrder } from "@mentorships/payments";
+import crypto from "node:crypto";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_URL;
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 
   try {
-    const userId = await requireAuth();
+    // Public checkout: proceed without authentication
     const body = await req.json();
 
     const validationResult = checkoutSchema.safeParse(body);
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     const order = await convex.mutation(api.orders.createOrder, {
-      userId,
+      userId: "guest",
       status: "pending",
       provider: "paypal",
       totalAmount: pack.price,
@@ -72,17 +72,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     let paypalOrder;
     try {
+      const ts = Date.now().toString();
+      const secret = process.env.CANCEL_TOKEN_SECRET;
+      const base = `${orderId}:${ts}`;
+      const token = secret ? crypto.createHmac("sha256", secret).update(base).digest("hex") : undefined;
+      const cancelUrl = token
+        ? `${baseUrl}/api/checkout/cancel?order_id=${encodeURIComponent(orderId!)}&ts=${encodeURIComponent(ts)}&token=${encodeURIComponent(token)}`
+        : `${baseUrl}/checkout/cancel`;
+
       paypalOrder = await createPayPalOrder(
         pack.price,
         "usd",
         {
-          userId,
+          userId: "guest",
           instructorId: pack.instructorId || "",
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
         `${baseUrl}/checkout/success?order_id={ORDER_ID}`,
-        `${baseUrl}/checkout/cancel`
+        cancelUrl
       );
     } catch (paypalError) {
       if (orderId) {
@@ -121,4 +129,3 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
-

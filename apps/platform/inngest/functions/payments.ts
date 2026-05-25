@@ -16,7 +16,13 @@ export const processStripeCheckout = inngest.createFunction(
   { id: "process-stripe-checkout", name: "Process Stripe Checkout", retries: 3 },
   { event: "stripe/checkout.session.completed" },
   async ({ event, step }) => {
-    const { sessionId, orderId, userId, packId } = event.data;
+    const { sessionId, orderId, userId, packId, studentEmail } = event.data as {
+      sessionId: string;
+      orderId: string;
+      userId: string;
+      packId: string;
+      studentEmail?: string;
+    };
     const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
@@ -138,12 +144,32 @@ const completedOrder = await step.run("update-order", async () => {
 
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
 
+    // Resolve userId for guest checkout using Stripe-collected email
+    const resolvedUserId = await step.run("resolve-user-id", async () => {
+      if (userId && userId !== "guest") return userId;
+      const email = studentEmail?.toLowerCase().trim();
+      if (!email) return "guest";
+      // Ensure a Convex user exists for this email; use a placeholder userId that will be
+      // replaced later by syncUser when the visitor signs up with Clerk.
+      const placeholderUserId = `email:${email}`;
+      try {
+        await convex.mutation(api.users.createUser, {
+          userId: placeholderUserId,
+          email,
+          role: "student",
+        });
+      } catch {
+        // Ignore if already exists
+      }
+      return placeholderUserId;
+    });
+
     const sessionPack = await step.run("create-session-pack", async () => {
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
       return await convex.mutation(api.sessionPacks.createSessionPack, {
-        userId,
+        userId: resolvedUserId,
         instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
         remainingSessions: product.sessionsPerPack,
@@ -182,7 +208,7 @@ const completedOrder = await step.run("update-order", async () => {
       try {
         return await convex.mutation(api.seatReservations.createSeatReservation, {
           instructorId: product.instructorId as Id<"instructors">,
-          userId,
+          userId: resolvedUserId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
           seatExpiresAt: expiresAt,
           gracePeriodEndsAt: expiresAt + (7 * 24 * 60 * 60 * 1000),

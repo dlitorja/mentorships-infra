@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCheckoutSession, parseCheckoutSessionMetadata } from "@mentorships/payments";
+import { getCheckoutSession } from "@mentorships/payments";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
@@ -28,9 +28,10 @@ export async function GET(request: NextRequest) {
     // Retrieve checkout session from Stripe
     const session = await getCheckoutSession(sessionId);
 
-    // Parse metadata to get order ID
-    const metadata = parseCheckoutSessionMetadata(session);
-    if (!metadata || !metadata.orderId) {
+    // Parse metadata directly (snake_case used in our session metadata)
+    const meta = session.metadata || {};
+    const orderId = (meta as any).order_id as string | undefined;
+    if (!orderId) {
       return NextResponse.json(
         { error: "Invalid checkout session metadata" },
         { status: 400 }
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     // Verify order exists in Convex before redirecting
     const convex = getConvexClient();
     const order = await convex.query(api.orders.getOrderByIdPublic, {
-      id: metadata.orderId as Id<"orders">,
+      id: orderId as Id<"orders">,
     });
 
     if (!order) {
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
 
     // Use NextResponse.redirect to avoid redirect being caught by try/catch
     return NextResponse.redirect(
-      new URL(`/checkout/success?order_id=${encodeURIComponent(metadata.orderId)}`, baseUrl)
+      new URL(`/checkout/success?order_id=${encodeURIComponent(orderId)}`, baseUrl)
     );
   } catch (error) {
     console.error("Checkout success handler error:", error);
@@ -68,4 +69,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

@@ -68,10 +68,13 @@ export const getPublicActiveProducts = query({
   },
 });
 
-/** Returns products for a given instructor without requiring authentication. */
+/** Returns products for a given instructor without requiring authentication.
+ * Accepts an optional instructorId and returns [] when missing to avoid client arg errors.
+ */
 export const getProductsByInstructorId = query({
-  args: { instructorId: v.id("instructors") },
+  args: { instructorId: v.optional(v.id("instructors")) },
   handler: async (ctx, args) => {
+    if (!args.instructorId) return [];
     return await ctx.db
       .query("products")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
@@ -82,10 +85,11 @@ export const getProductsByInstructorId = query({
 /** Returns products for an instructor, optionally filtered by mentorship type (no auth). */
 export const getProductsByInstructorAndType = query({
   args: {
-    instructorId: v.id("instructors"),
+    instructorId: v.optional(v.id("instructors")),
     mentorshipType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (!args.instructorId) return [];
     const products = await ctx.db
       .query("products")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
