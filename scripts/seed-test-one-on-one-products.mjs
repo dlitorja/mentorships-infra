@@ -50,7 +50,6 @@ async function main() {
   } else {
     console.log(`[${ts()}] No STRIPE_SECRET_KEY set; will reuse template stripePriceId for all seeded products`);
   }
-
   const instructors = (await convex.query(api.instructors.getPublicInstructors, {})) || [];
   const active = instructors.filter((i) => i && i.isActive !== false);
   let created = 0;
@@ -81,7 +80,6 @@ async function main() {
         stripeProductId = typeof price.product === 'string' ? price.product : undefined;
         console.log(`[${ts()}] Created Stripe price ${stripePriceId} for ${inst.slug || inst._id}`);
       }
-
       await convex.mutation(api.products.createProduct, {
         instructorId: inst._id,
         title: `Test 1-on-1 Pack (${inst.slug || inst.name || inst._id})`,

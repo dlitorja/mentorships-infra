@@ -38,7 +38,6 @@ async function main() {
 
   const activeInstructors = instructors.filter((i) => i && i.isActive !== false);
   console.log(`[${ts()}] Active instructors: ${activeInstructors.length}; Active products: ${products.length}`);
-
   const DRY_RUN = process.env.DRY_RUN !== '0' && process.env.CONFIRM !== '1';
   const ALLOW_REASSIGN = process.env.ALLOW_REASSIGN === '1';
   let assigned = 0;
