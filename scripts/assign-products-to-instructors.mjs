@@ -38,7 +38,8 @@ async function main() {
 
   const activeInstructors = instructors.filter((i) => i && i.isActive !== false);
   console.log(`[${ts()}] Active instructors: ${activeInstructors.length}; Active products: ${products.length}`);
-
+  const DRY_RUN = process.env.DRY_RUN !== '0' && process.env.CONFIRM !== '1';
+  const ALLOW_REASSIGN = process.env.ALLOW_REASSIGN === '1';
   let assigned = 0;
   const missingMatches = [];
 
@@ -72,15 +73,25 @@ async function main() {
       continue;
     }
 
+    // Safety: don't reassign if product already linked to another instructor unless explicitly allowed
+    if (chosen.instructorId && String(chosen.instructorId) !== String(inst._id) && !ALLOW_REASSIGN) {
+      console.log(`[${ts()}] Skip reassigning product ${chosen._id} already linked to ${chosen.instructorId} → ${inst._id}`);
+      continue;
+    }
+
     try {
-      await convex.mutation(api.products.updateProduct, {
-        id: chosen._id,
-        instructorId: inst._id,
-        mentorshipType: "one-on-one",
-        active: true,
-      });
-      console.log(`[${ts()}] Linked product ${chosen._id} → ${inst.slug || inst._id}`);
-      assigned++;
+      if (DRY_RUN) {
+        console.log(`[${ts()}] DRY-RUN would link product ${chosen._id} → ${inst.slug || inst._id}`);
+      } else {
+        await convex.mutation(api.products.updateProduct, {
+          id: chosen._id,
+          instructorId: inst._id,
+          mentorshipType: "one-on-one",
+          active: true,
+        });
+        console.log(`[${ts()}] Linked product ${chosen._id} → ${inst.slug || inst._id}`);
+        assigned++;
+      }
     } catch (e) {
       console.error(`[${ts()}] ERROR linking product ${chosen._id} to ${inst.slug || inst._id}:`, e instanceof Error ? e.message : String(e));
     }

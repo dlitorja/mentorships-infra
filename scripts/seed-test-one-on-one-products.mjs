@@ -21,8 +21,10 @@ function ts() { const d = new Date(); return `${fmt(d.getHours())}:${fmt(d.getMi
 
 async function getTemplateProduct() {
   const inst = await convex.query(api.instructors.getInstructorBySlug, { slug: TEMPLATE_INSTRUCTOR_SLUG });
-  if (!inst || !inst.instructorId) throw new Error(`Template instructor not found or missing instructorId: ${TEMPLATE_INSTRUCTOR_SLUG}`);
-  const products = await convex.query(api.products.getProductsByInstructorId, { instructorId: inst.instructorId });
+  if (!inst) throw new Error(`Template instructor not found: ${TEMPLATE_INSTRUCTOR_SLUG}`);
+  const templateInstructorId = inst.instructorId || inst._id;
+  if (!templateInstructorId) throw new Error(`Template instructor missing id: ${TEMPLATE_INSTRUCTOR_SLUG}`);
+  const products = await convex.query(api.products.getProductsByInstructorId, { instructorId: templateInstructorId });
   const ready = (products || []).find((p) => p.active && p.mentorshipType === "one-on-one" && p.stripePriceId);
   if (!ready) throw new Error(`No ready template product found for ${TEMPLATE_INSTRUCTOR_SLUG}`);
   return ready;
@@ -38,6 +40,16 @@ async function main() {
   const template = await getTemplateProduct();
   console.log(`[${ts()}] Template stripePriceId=${template.stripePriceId}, price=${template.price}`);
 
+  // Optional unique Stripe price creation per instructor if Stripe secret is provided
+  let stripe = null;
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (stripeKey) {
+    const Stripe = (await import('stripe')).default;
+    stripe = new Stripe(stripeKey);
+    console.log(`[${ts()}] Stripe key detected; will create unique Prices per instructor`);
+  } else {
+    console.log(`[${ts()}] No STRIPE_SECRET_KEY set; will reuse template stripePriceId for all seeded products`);
+  }
   const instructors = (await convex.query(api.instructors.getPublicInstructors, {})) || [];
   const active = instructors.filter((i) => i && i.isActive !== false);
   let created = 0;
@@ -52,6 +64,22 @@ async function main() {
     }
 
     try {
+      let stripePriceId = template.stripePriceId;
+      let stripeProductId = template.stripeProductId || undefined;
+      if (stripe) {
+        const unitAmount = Math.round(parseFloat(String(template.price)) * 100);
+        const currency = (template.currency || 'usd').toLowerCase();
+        const price = await stripe.prices.create({
+          unit_amount: unitAmount,
+          currency,
+          product_data: {
+            name: `Test 1-on-1 Pack (${inst.slug || inst.name || inst._id})`,
+          },
+        });
+        stripePriceId = price.id;
+        stripeProductId = typeof price.product === 'string' ? price.product : undefined;
+        console.log(`[${ts()}] Created Stripe price ${stripePriceId} for ${inst.slug || inst._id}`);
+      }
       await convex.mutation(api.products.createProduct, {
         instructorId: inst._id,
         title: `Test 1-on-1 Pack (${inst.slug || inst.name || inst._id})`,
@@ -60,8 +88,8 @@ async function main() {
         currency: template.currency || "usd",
         sessionsPerPack: template.sessionsPerPack || 4,
         validityDays: template.validityDays || 30,
-        stripePriceId: template.stripePriceId,
-        stripeProductId: template.stripeProductId || undefined,
+        stripePriceId,
+        stripeProductId,
         mentorshipType: "one-on-one",
         active: true,
       });
