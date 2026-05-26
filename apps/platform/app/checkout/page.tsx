@@ -127,7 +127,10 @@ function CheckoutContent(): React.JSX.Element {
       return createCheckoutSession({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName });
     },
     onSuccess: (data) => {
-      const url = data.url || data.approvalUrl;
+      // Some callers historically returned `approvalUrl` or `checkoutUrl`.
+      // Normalize here to tolerate older shapes.
+      const anyData = data as any;
+      const url = anyData.url || anyData.approvalUrl || anyData.checkoutUrl;
       if (url) {
         window.location.href = url;
       } else {
