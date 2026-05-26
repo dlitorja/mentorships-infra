@@ -20,7 +20,8 @@ export async function sendEmailLinkForUser(
     }
     // Prefer the backend EmailAddress prepareVerification with email_link strategy
     // Clerk backend typed API supports preparing verification on email address objects
-    await client.emailAddresses.prepareVerification(emailAddress.id, {
+    // Cast to any for cross-version compatibility; some Clerk SDK versions expose this on emailAddresses
+    await (client as any).emailAddresses.prepareVerification(emailAddress.id, {
       strategy: "email_link",
       redirectUrl,
     } as any);
