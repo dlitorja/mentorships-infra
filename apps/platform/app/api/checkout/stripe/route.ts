@@ -208,7 +208,43 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({ url: session.url });
-  } catch (error) {
+  } catch (error: any) {
+    // Special handling for Clerk API errors (e.g., 422 Unprocessable Entity)
+    if (error?.clerkError) {
+      try {
+        console.error("Clerk API error details:", {
+          status: error?.status,
+          code: error?.code,
+          clerkTraceId: error?.clerkTraceId,
+          errors: error?.errors,
+        });
+      } catch {
+        // ignore structured logging failures
+      }
+
+      if (orderId) {
+        try {
+          const convex = getConvexClient();
+          await convex.mutation(api.orders.updateOrder, {
+            id: orderId as Id<"orders">,
+            status: "failed",
+          });
+        } catch (cleanupError) {
+          console.error(`Failed to cleanup order ${orderId}:`, cleanupError);
+        }
+      }
+
+      // Surface a client-meaningful error instead of generic 500
+      return NextResponse.json(
+        {
+          error: "User creation failed",
+          code: error?.code ?? "clerk_error",
+          details: error?.errors ?? null,
+        },
+        { status: 400 }
+      );
+    }
+
     console.error("Stripe checkout error:", error);
 
     if (orderId) {
