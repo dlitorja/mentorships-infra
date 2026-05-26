@@ -65,15 +65,22 @@ export async function sendEmailLinkForUser(
   const baseDelayMs = 200; // initial backoff
 
   // During unit tests, allow overriding the Clerk client without requiring real env
-  const override = (globalThis as any).__TEST_CLERK_CLIENT__;
+  declare global {
+    // eslint-disable-next-line no-var
+    var __TEST_CLERK_CLIENT__: Awaited<ReturnType<typeof clerkClient>> | undefined;
+  }
+  const override = globalThis.__TEST_CLERK_CLIENT__;
   const client = override ?? (await clerkClient());
 
-  // Fetch user once; reuse email address id across retries
+  // Fetch user once; reuse primary email address id across retries
   let emailId: string | null = null;
   try {
     const user = await client.users.getUser(userId);
-    const emailAddress = user.emailAddresses?.[0];
-    if (!emailAddress) {
+    const primaryId = (user as any).primaryEmailAddressId as string | undefined;
+    const emailAddress = Array.isArray(user.emailAddresses)
+      ? user.emailAddresses.find((e: any) => e.id === primaryId) ?? user.emailAddresses[0]
+      : undefined;
+    if (!emailAddress || !emailAddress.id) {
       return { ok: false, error: "User has no email address" };
     }
     emailId = emailAddress.id;

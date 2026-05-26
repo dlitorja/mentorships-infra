@@ -295,18 +295,22 @@ function CheckoutContent(): React.JSX.Element {
             {!isSignedIn ? (
               <div className="grid gap-3">
                 <div>
-                  <label className="block text-sm mb-1">Email</label>
+                  <label htmlFor="checkout-email" className="block text-sm mb-1">Email</label>
                   <Input
                     type="email"
+                    id="checkout-email"
+                    name="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm mb-1">Full Name</label>
+                  <label htmlFor="checkout-full-name" className="block text-sm mb-1">Full Name</label>
                   <Input
                     type="text"
+                    id="checkout-full-name"
+                    name="fullName"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your full name"
