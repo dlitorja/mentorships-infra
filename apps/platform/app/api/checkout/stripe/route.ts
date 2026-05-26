@@ -208,7 +208,59 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({ url: session.url });
-  } catch (error) {
+  } catch (error: unknown) {
+    // Narrow Clerk API errors to avoid exposing PII and improve client feedback
+    const isClerkErr = (err: unknown): err is {
+      clerkError: true;
+      status?: number;
+      code?: string;
+      clerkTraceId?: string;
+      errors?: Array<unknown>;
+    } => typeof err === "object" && err !== null && (err as any).clerkError === true;
+
+    const sanitize = (errors: Array<unknown> | undefined) => {
+      if (!Array.isArray(errors)) return [] as Array<{ code: string | null; type: string | null }>;
+      return errors.map((e) => {
+        if (e && typeof e === "object") {
+          const obj = e as Record<string, unknown>;
+          return {
+            code: typeof obj.code === "string" ? (obj.code as string) : null,
+            type: typeof obj.type === "string" ? (obj.type as string) : null,
+          };
+        }
+        return { code: null, type: null };
+      });
+    };
+
+    if (isClerkErr(error)) {
+      const details = sanitize(error.errors);
+      try {
+        console.error("Clerk API error details:", {
+          status: error.status,
+          code: error.code,
+          clerkTraceId: error.clerkTraceId,
+          errors: details,
+        });
+      } catch {}
+
+      if (orderId) {
+        try {
+          const convex = getConvexClient();
+          await convex.mutation(api.orders.updateOrder, {
+            id: orderId as Id<"orders">,
+            status: "failed",
+          });
+        } catch (cleanupError) {
+          console.error(`Failed to cleanup order ${orderId}:`, cleanupError);
+        }
+      }
+
+      return NextResponse.json(
+        { error: "User creation failed", code: error.code ?? "clerk_error", details },
+        { status: 400 }
+      );
+    }
+
     console.error("Stripe checkout error:", error);
 
     if (orderId) {
