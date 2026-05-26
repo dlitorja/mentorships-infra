@@ -24,6 +24,36 @@ const checkoutSchema = z.object({
   promotionCode: z.string().optional(),
 });
 
+// Narrow Clerk error objects without exposing PII-heavy payloads
+function isClerkError(err: unknown): err is {
+  clerkError: true;
+  status?: number;
+  code?: string;
+  clerkTraceId?: string;
+  errors?: Array<unknown>;
+} {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    // @ts-expect-error runtime guard
+    !!(err as any).clerkError === true
+  );
+}
+
+function sanitizeClerkErrors(errors: Array<unknown> | undefined) {
+  if (!Array.isArray(errors)) return [] as Array<{ code: string | null; type: string | null }>;
+  return errors.map((e) => {
+    if (e && typeof e === "object") {
+      const obj = e as Record<string, unknown>;
+      return {
+        code: typeof obj.code === "string" ? (obj.code as string) : null,
+        type: typeof obj.type === "string" ? (obj.type as string) : null,
+      };
+    }
+    return { code: null, type: null };
+  });
+}
+
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 
@@ -208,15 +238,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({ url: session.url });
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Special handling for Clerk API errors (e.g., 422 Unprocessable Entity)
-    if (error?.clerkError) {
+    if (isClerkError(error)) {
+      const sanitizedErrors = sanitizeClerkErrors(error.errors);
       try {
         console.error("Clerk API error details:", {
-          status: error?.status,
-          code: error?.code,
-          clerkTraceId: error?.clerkTraceId,
-          errors: error?.errors,
+          status: error.status,
+          code: error.code,
+          clerkTraceId: error.clerkTraceId,
+          errors: sanitizedErrors,
         });
       } catch {
         // ignore structured logging failures
@@ -234,12 +265,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }
       }
 
-      // Surface a client-meaningful error instead of generic 500
+      // Surface a client-meaningful error instead of generic 500, without raw Clerk payload
       return NextResponse.json(
         {
           error: "User creation failed",
-          code: error?.code ?? "clerk_error",
-          details: error?.errors ?? null,
+          code: error.code ?? "clerk_error",
+          details: sanitizedErrors,
         },
         { status: 400 }
       );

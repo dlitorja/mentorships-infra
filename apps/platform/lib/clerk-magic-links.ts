@@ -78,10 +78,13 @@ export async function sendEmailLinkForUser(
   let emailId: string | null = null;
   try {
     const user = await client.users.getUser(userId);
-    const primaryId = (user as any).primaryEmailAddressId as string | undefined;
-    const emailAddress = Array.isArray(user.emailAddresses)
-      ? user.emailAddresses.find((e: any) => e.id === primaryId) ?? user.emailAddresses[0]
-      : undefined;
+    // Runtime-safe extraction without unsafe any-casts
+    type MinimalEmail = { id: string };
+    type MinimalUser = { primaryEmailAddressId?: string; emailAddresses?: MinimalEmail[] };
+    const mu = user as unknown as MinimalUser;
+    const emails: MinimalEmail[] = Array.isArray(mu.emailAddresses) ? mu.emailAddresses : [];
+    const primaryId = typeof mu.primaryEmailAddressId === "string" ? mu.primaryEmailAddressId : undefined;
+    const emailAddress = (primaryId ? emails.find((e) => e.id === primaryId) : undefined) ?? emails[0];
     if (!emailAddress || !emailAddress.id) {
       return { ok: false, error: "User has no email address" };
     }
