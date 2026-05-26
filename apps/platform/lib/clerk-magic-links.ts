@@ -68,18 +68,32 @@ export async function sendEmailLinkForUser(
   const override = (globalThis as any).__TEST_CLERK_CLIENT__;
   const client = override ?? (await clerkClient());
 
+  // Fetch user once; reuse email address id across retries
+  let emailId: string | null = null;
+  try {
+    const user = await client.users.getUser(userId);
+    const emailAddress = user.emailAddresses?.[0];
+    if (!emailAddress) {
+      return { ok: false, error: "User has no email address" };
+    }
+    emailId = emailAddress.id;
+  } catch (error) {
+    await reportError({
+      source: "clerk/magic-links",
+      error,
+      message: "Failed to load user before sending magic link",
+      level: "error",
+      context: { userId },
+    });
+    return { ok: false, error: (error as any)?.message || "Failed to load user" };
+  }
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const user = await client.users.getUser(userId);
-      const emailAddress = user.emailAddresses?.[0];
-      if (!emailAddress) {
-        return { ok: false, error: "User has no email address" };
-      }
-
       // Prefer the backend EmailAddress prepareVerification with email_link strategy
       // Clerk backend typed API supports preparing verification on email address objects
       // Cast to any for cross-version compatibility; some Clerk SDK versions expose this on emailAddresses
-      await (client as any).emailAddresses.prepareVerification(emailAddress.id, {
+      await (client as any).emailAddresses.prepareVerification(emailId!, {
         strategy: "email_link",
         redirectUrl,
       } as any);
@@ -87,7 +101,7 @@ export async function sendEmailLinkForUser(
       await reportInfo({
         source: "clerk/magic-links",
         message: "Magic link sent",
-        context: { userId, emailId: emailAddress.id, attempt },
+        context: { userId, emailId, attempt },
       });
       return { ok: true };
     } catch (error: any) {

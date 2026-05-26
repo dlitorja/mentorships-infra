@@ -119,18 +119,7 @@ function CheckoutContent(): React.JSX.Element {
  
         }
       }
-      if (false && data.paymentMethod === "paypal") {
-        const response = await fetch("/api/checkout/paypal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName }),
-        });
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({ error: "PayPal checkout failed" }));
-          throw new Error(error.error || "PayPal checkout failed");
- 
-        }
-      }
+      // Legacy PayPal path removed in favor of API client parity
  
       if (data.paymentMethod === "paypal") {
         return createPayPalCheckoutSession({
