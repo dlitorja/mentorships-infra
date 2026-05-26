@@ -216,23 +216,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       code?: string;
       clerkTraceId?: string;
       errors?: Array<unknown>;
-    } => typeof err === "object" && err !== null && (err as any).clerkError === true;
+    } => {
+      if (typeof err !== "object" || err === null) return false;
+      if (!("clerkError" in err)) return false;
+      const val = (err as { clerkError?: unknown }).clerkError;
+      return typeof val === "boolean" && val === true;
+    };
 
     const sanitize = (errors: Array<unknown> | undefined) => {
       if (!Array.isArray(errors)) return [] as Array<{ code: string | null; type: string | null }>;
       return errors.map((e) => {
         if (e && typeof e === "object") {
-          const obj = e as Record<string, unknown>;
-          return {
-            code: typeof obj.code === "string" ? (obj.code as string) : null,
-            type: typeof obj.type === "string" ? (obj.type as string) : null,
-          };
+          let code: string | null = null;
+          let type: string | null = null;
+          if ("code" in (e as object) && typeof (e as any).code === "string") code = (e as any).code;
+          if ("type" in (e as object) && typeof (e as any).type === "string") type = (e as any).type;
+          return { code, type };
         }
         return { code: null, type: null };
       });
     };
 
-    if (isClerkErr(error)) {
+    // Only treat Clerk validation errors as 422; other Clerk errors fall through
+    if (isClerkErr(error) && error.status === 422) {
       const details = sanitize(error.errors);
       try {
         console.error("Clerk API error details:", {
@@ -257,7 +263,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       return NextResponse.json(
         { error: "User creation failed", code: error.code ?? "clerk_error", details },
-        { status: 400 }
+        { status: 422 }
       );
     }
 

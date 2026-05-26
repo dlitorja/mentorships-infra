@@ -78,18 +78,30 @@ export async function sendEmailLinkForUser(
   let emailId: string | null = null;
   try {
     const user = await client.users.getUser(userId);
-    // Runtime-safe extraction without unsafe any-casts
     type MinimalEmail = { id: string };
-    type MinimalUser = { primaryEmailAddressId?: string; emailAddresses?: MinimalEmail[] };
-    const mu = user as unknown as MinimalUser;
-    const emails: MinimalEmail[] = Array.isArray(mu.emailAddresses) ? mu.emailAddresses : [];
-    const primaryId = typeof mu.primaryEmailAddressId === "string" ? mu.primaryEmailAddressId : undefined;
+    type MaybeMinimalUser = unknown;
+    const isMinimalUser = (u: MaybeMinimalUser): u is { primaryEmailAddressId?: string; emailAddresses?: MinimalEmail[] } => {
+      if (typeof u !== "object" || u === null) return false;
+      const obj = u as Record<string, unknown>;
+      const pea = obj["primaryEmailAddressId"];
+      const emails = obj["emailAddresses"];
+      const emailsValid = emails == null || (Array.isArray(emails) && emails.every((e) => e && typeof e === "object" && typeof (e as any).id === "string"));
+      const peaValid = pea == null || typeof pea === "string";
+      return emailsValid && peaValid;
+    };
+
+    if (!isMinimalUser(user)) {
+      return { ok: false, error: "Unexpected user shape from Clerk" };
+    }
+
+    const emails: MinimalEmail[] = Array.isArray(user.emailAddresses) ? user.emailAddresses : [];
+    const primaryId = typeof user.primaryEmailAddressId === "string" ? user.primaryEmailAddressId : undefined;
     const emailAddress = (primaryId ? emails.find((e) => e.id === primaryId) : undefined) ?? emails[0];
     if (!emailAddress || !emailAddress.id) {
       return { ok: false, error: "User has no email address" };
     }
     emailId = emailAddress.id;
-  } catch (error) {
+  } catch (error: unknown) {
     await reportError({
       source: "clerk/magic-links",
       error,
@@ -97,7 +109,8 @@ export async function sendEmailLinkForUser(
       level: "error",
       context: { userId },
     });
-    return { ok: false, error: (error as any)?.message || "Failed to load user" };
+    const message = typeof error === "object" && error && "message" in (error as any) && typeof (error as any).message === "string" ? (error as any).message : "Failed to load user";
+    return { ok: false, error: message };
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
