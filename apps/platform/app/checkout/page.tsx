@@ -120,7 +120,7 @@ function CheckoutContent(): React.JSX.Element {
         }
       }
       // Legacy PayPal path removed in favor of API client parity
- 
+
       if (data.paymentMethod === "paypal") {
         return createPayPalCheckoutSession({
           productId: data.productId,
@@ -128,7 +128,7 @@ function CheckoutContent(): React.JSX.Element {
           fullName: isSignedIn ? undefined : fullName,
         });
       }
- 
+
  
       return createCheckoutSession({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName });
     },

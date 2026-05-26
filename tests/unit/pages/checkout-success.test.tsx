@@ -11,7 +11,6 @@ vi.mock("next/navigation", async () => {
     useSearchParams: () => new URLSearchParams(mockSearch),
   };
 });
-
 // Ensure useUser is harmless in a unit-test environment without ClerkProvider
 vi.mock("@clerk/nextjs", () => ({
   __esModule: true,
