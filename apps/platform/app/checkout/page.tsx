@@ -19,6 +19,7 @@ import { useProductsByInstructorId, usePublicActiveProducts } from "@/lib/querie
 import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
 import { useUser } from "@clerk/nextjs";
+import { Input } from "@/components/ui/input";
 
 type PaymentMethod = "stripe" | "paypal";
 
@@ -133,10 +134,8 @@ function CheckoutContent(): React.JSX.Element {
       return createCheckoutSession({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName });
     },
     onSuccess: (data) => {
-      // Some callers historically returned `approvalUrl` or `checkoutUrl`.
-      // Normalize here to tolerate older shapes.
-      const anyData = data as any;
-      const url = anyData.url || anyData.approvalUrl || anyData.checkoutUrl;
+      // Normalize across Stripe and PayPal clients without unsafe casts
+      const url = data.url || ("checkoutUrl" in data ? data.checkoutUrl : undefined);
       if (url) {
         window.location.href = url;
       } else {
@@ -296,20 +295,22 @@ function CheckoutContent(): React.JSX.Element {
             {!isSignedIn ? (
               <div className="grid gap-3">
                 <div>
-                  <label className="block text-sm mb-1">Email</label>
-                  <input
+                  <label htmlFor="checkout-email" className="block text-sm mb-1">Email</label>
+                  <Input
                     type="email"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    id="checkout-email"
+                    name="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm mb-1">Full Name</label>
-                  <input
+                  <label htmlFor="checkout-full-name" className="block text-sm mb-1">Full Name</label>
+                  <Input
                     type="text"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    id="checkout-full-name"
+                    name="fullName"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your full name"

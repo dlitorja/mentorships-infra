@@ -21,20 +21,20 @@ import { useUser } from "@clerk/nextjs";
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
+// Test-only flags; undefined in production builds. Declared at module scope to satisfy TS ambient rules.
+declare global {
+  // eslint-disable-next-line no-var
+  var __TEST_IS_NEW__: boolean | undefined;
+}
+
 function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   // In some test environments, mocked useSearchParams may return null; guard defensively
   const sessionId = searchParams?.get("session_id") || null;
-  const testIsNew = (globalThis as any).__TEST_IS_NEW__;
-  const isNew = typeof testIsNew === "boolean" ? (testIsNew as boolean) : searchParams?.get("new") === "1";
-  // During unit tests, allow overriding signed-in state without requiring ClerkProvider
-  const testSignedIn = (globalThis as any).__TEST_IS_SIGNED_IN__;
-  // In unit tests, avoid requiring a ClerkProvider by skipping useUser entirely.
-  // This conditional is stable across renders in all environments (tests set the flag once),
-  // so it won't change hook call order at runtime.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const clerk = typeof testSignedIn === "boolean" ? { isSignedIn: false } : useUser();
-  const isSignedIn = typeof testSignedIn === "boolean" ? (testSignedIn as boolean) : clerk.isSignedIn;
+  const testIsNew = globalThis.__TEST_IS_NEW__;
+  const isNew = typeof testIsNew === "boolean" ? testIsNew : searchParams?.get("new") === "1";
+  // Always call useUser; tests must mock @clerk/nextjs.useUser
+  const { isSignedIn } = useUser();
 
   // Verify the session if session_id is provided
   const { isLoading: loading } = useQuery({
