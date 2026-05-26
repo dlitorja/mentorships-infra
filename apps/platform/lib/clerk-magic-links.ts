@@ -1,4 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
+import { reportError, reportInfo } from "@/lib/observability";
 
 /**
  * Send a Clerk email-link verification to an existing user's primary email address.
@@ -11,24 +12,111 @@ export async function sendEmailLinkForUser(
   userId: string,
   redirectUrl: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
-    const emailAddress = user.emailAddresses?.[0];
-    if (!emailAddress) {
-      return { ok: false, error: "User has no email address" };
-    }
-    // Prefer the backend EmailAddress prepareVerification with email_link strategy
-    // Clerk backend typed API supports preparing verification on email address objects
-    // Cast to any for cross-version compatibility; some Clerk SDK versions expose this on emailAddresses
-    await (client as any).emailAddresses.prepareVerification(emailAddress.id, {
-      strategy: "email_link",
-      redirectUrl,
-    } as any);
+  // Feature flag: allow disabling in local dev/tests without code changes
+  // ENABLE_MAGIC_LINKS=false will skip sending; default is enabled.
+  if (process.env.ENABLE_MAGIC_LINKS === "false") {
+    await reportInfo({
+      source: "clerk/magic-links",
+      message: "Magic link send skipped by flag",
+      context: { userId, redirectUrl },
+    });
     return { ok: true };
-  } catch (error: any) {
-    const message = error?.message || String(error);
-    console.error("[clerk] Failed to send email link:", message);
-    return { ok: false, error: message };
   }
+
+  // Validate redirectUrl formatting and origin for basic safety. Never throw; only log.
+  try {
+    const url = new URL(redirectUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      await reportInfo({
+        source: "clerk/magic-links",
+        level: "warn",
+        message: "Unexpected redirectUrl protocol",
+        context: { userId, redirectUrl },
+      });
+    }
+    // If NEXT_PUBLIC_URL/VERCEL_URL are set, warn on cross-origin
+    const allowed = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
+    if (allowed) {
+      try {
+        const allowedOrigin = new URL(allowed).origin;
+        if (url.origin !== allowedOrigin) {
+          await reportInfo({
+            source: "clerk/magic-links",
+            level: "warn",
+            message: "redirectUrl origin mismatch",
+            context: { userId, redirectUrl, allowedOrigin },
+          });
+        }
+      } catch {
+        // ignore bad allowed URL
+      }
+    }
+  } catch {
+    await reportInfo({
+      source: "clerk/magic-links",
+      level: "warn",
+      message: "Invalid redirectUrl",
+      context: { userId, redirectUrl },
+    });
+  }
+
+  // Small exponential backoff with jitter for transient Clerk hiccups
+  const maxAttempts = 3;
+  const baseDelayMs = 200; // initial backoff
+
+  // During unit tests, allow overriding the Clerk client without requiring real env
+  const override = (globalThis as any).__TEST_CLERK_CLIENT__;
+  const client = override ?? (await clerkClient());
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const user = await client.users.getUser(userId);
+      const emailAddress = user.emailAddresses?.[0];
+      if (!emailAddress) {
+        return { ok: false, error: "User has no email address" };
+      }
+
+      // Prefer the backend EmailAddress prepareVerification with email_link strategy
+      // Clerk backend typed API supports preparing verification on email address objects
+      // Cast to any for cross-version compatibility; some Clerk SDK versions expose this on emailAddresses
+      await (client as any).emailAddresses.prepareVerification(emailAddress.id, {
+        strategy: "email_link",
+        redirectUrl,
+      } as any);
+
+      await reportInfo({
+        source: "clerk/magic-links",
+        message: "Magic link sent",
+        context: { userId, emailId: emailAddress.id, attempt },
+      });
+      return { ok: true };
+    } catch (error: any) {
+      const status = error?.status || error?.statusCode;
+      const message = error?.message || String(error);
+
+      // Do not retry on 4xx except 429 which can be retried
+      const isTooMany = status === 429;
+      const isRetryable = status == null || status >= 500 || isTooMany;
+
+      await reportError({
+        source: "clerk/magic-links",
+        error,
+        message: "Magic link send failed",
+        level: isRetryable && attempt < maxAttempts ? "warn" : "error",
+        context: { userId, attempt, status, retryable: isRetryable },
+      });
+
+      if (!isRetryable || attempt === maxAttempts) {
+        return { ok: false, error: message };
+      }
+
+      // Exponential backoff with jitter
+      const jitter = Math.floor(Math.random() * 100);
+      const delay = baseDelayMs * Math.pow(2, attempt - 1) + jitter;
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
+
+  // Should not reach here
+  return { ok: false, error: "Unknown error" };
 }
