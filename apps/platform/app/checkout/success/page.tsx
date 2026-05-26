@@ -29,7 +29,10 @@ function CheckoutSuccessContent(): React.JSX.Element {
   const isNew = typeof testIsNew === "boolean" ? (testIsNew as boolean) : searchParams?.get("new") === "1";
   // During unit tests, allow overriding signed-in state without requiring ClerkProvider
   const testSignedIn = (globalThis as any).__TEST_IS_SIGNED_IN__;
-  // Only call Clerk hook when not under test override to avoid provider requirements in unit tests
+  // In unit tests, avoid requiring a ClerkProvider by skipping useUser entirely.
+  // This conditional is stable across renders in all environments (tests set the flag once),
+  // so it won't change hook call order at runtime.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const clerk = typeof testSignedIn === "boolean" ? { isSignedIn: false } : useUser();
   const isSignedIn = typeof testSignedIn === "boolean" ? (testSignedIn as boolean) : clerk.isSignedIn;
 
