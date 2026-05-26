@@ -1,6 +1,12 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { reportError, reportInfo } from "@/lib/observability";
 
+// Test-only override for unit tests; declared at module scope for TypeScript ambient rules
+declare global {
+  // eslint-disable-next-line no-var
+  var __TEST_CLERK_CLIENT__: Awaited<ReturnType<typeof clerkClient>> | undefined;
+}
+
 /**
  * Send a Clerk email-link verification to an existing user's primary email address.
  *
@@ -65,10 +71,6 @@ export async function sendEmailLinkForUser(
   const baseDelayMs = 200; // initial backoff
 
   // During unit tests, allow overriding the Clerk client without requiring real env
-  declare global {
-    // eslint-disable-next-line no-var
-    var __TEST_CLERK_CLIENT__: Awaited<ReturnType<typeof clerkClient>> | undefined;
-  }
   const override = globalThis.__TEST_CLERK_CLIENT__;
   const client = override ?? (await clerkClient());
 

@@ -21,15 +21,16 @@ import { useUser } from "@clerk/nextjs";
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
+// Test-only flags; undefined in production builds. Declared at module scope to satisfy TS ambient rules.
+declare global {
+  // eslint-disable-next-line no-var
+  var __TEST_IS_NEW__: boolean | undefined;
+}
+
 function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   // In some test environments, mocked useSearchParams may return null; guard defensively
   const sessionId = searchParams?.get("session_id") || null;
-  declare global {
-    // test-only flags; undefined in production
-    // eslint-disable-next-line no-var
-    var __TEST_IS_NEW__: boolean | undefined;
-  }
   const testIsNew = globalThis.__TEST_IS_NEW__;
   const isNew = typeof testIsNew === "boolean" ? testIsNew : searchParams?.get("new") === "1";
   // Always call useUser; tests must mock @clerk/nextjs.useUser
