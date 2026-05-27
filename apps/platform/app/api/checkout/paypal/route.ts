@@ -81,31 +81,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       const client = await clerkClient();
       const normalizedEmail = email.trim().toLowerCase();
-      const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-      if (data.length > 0) {
-        userIdForOrder = data[0].id;
-      } else {
-         const [firstName, ...rest] = fullName.trim().split(" ");
-         const lastName = rest.join(" ");
-         try {
-           const created = await client.users.createUser({
-             emailAddress: [normalizedEmail],
-             firstName: firstName || undefined,
-             lastName: lastName || undefined,
-             publicMetadata: { role: "student" },
-             // Allow creation without password in instances that require passwords
-            skipPasswordRequirement: true,
-          } as any);
-          userIdForOrder = created.id;
-          createdNewUser = true;
-        } catch (e: any) {
-          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-          if (again.data.length > 0) {
-            userIdForOrder = again.data[0].id;
-          } else {
-            throw e;
+      try {
+        const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+        if (data.length > 0) {
+          userIdForOrder = data[0].id;
+        } else {
+          const [firstName, ...rest] = fullName.trim().split(" ");
+          const lastName = rest.join(" ");
+          try {
+            const created = await client.users.createUser({
+              emailAddress: [normalizedEmail],
+              firstName: firstName || undefined,
+              lastName: lastName || undefined,
+              publicMetadata: { role: "student" },
+              // Allow creation without password in instances that require passwords
+              skipPasswordRequirement: true,
+            } as any);
+            userIdForOrder = created.id;
+            createdNewUser = true;
+          } catch (e: any) {
+            const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+            if (again.data.length > 0) {
+              userIdForOrder = again.data[0].id;
+            } else {
+              // Clerk failure or validation -> proceed as guest
+              const status = e?.status ?? e?.statusCode;
+              const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+              try {
+                console.error("Clerk create/find user failed; proceeding as guest", { status, code });
+              } catch {}
+              userIdForOrder = "guest";
+              createdNewUser = false;
+            }
           }
         }
+      } catch (e: any) {
+        const status = e?.status ?? e?.statusCode;
+        const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+        try {
+          console.error("Clerk user lookup failed; proceeding as guest", { status, code });
+        } catch {}
+        userIdForOrder = "guest";
+        createdNewUser = false;
       }
     }
 
