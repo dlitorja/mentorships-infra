@@ -225,8 +225,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       session = await stripe.checkout.sessions.create(sessionParams);
 
-      // Fire-and-forget: send email-link sign-in for newly created users
-      if (createdNewUser && userIdForOrder) {
+      // Fire-and-forget: send email-link sign-in for Clerk users (new or existing)
+      if (userIdForOrder && userIdForOrder !== "guest") {
         // Use the same baseUrl used for success/cancel URLs
         // Redirect path centralizes role-based landing in /auth-redirect
         void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {

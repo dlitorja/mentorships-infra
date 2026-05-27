@@ -176,8 +176,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         cancelUrl
       );
 
-      // Fire-and-forget: send email-link sign-in for newly created users
-      if (createdNewUser && userIdForOrder) {
+      // Fire-and-forget: send email-link sign-in for Clerk users (new or existing)
+      if (userIdForOrder && userIdForOrder !== "guest") {
         void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {
           console.error("[paypal] Failed to send magic link:", e);
         });
