@@ -27,6 +27,8 @@ function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   // In some test environments, mocked useSearchParams may return null; guard defensively
   const sessionId = searchParams?.get("session_id") || null;
+  const isNew = searchParams?.get("new") === "1";
+  const isGuest = searchParams?.get("guest") === "1";
   // Always call useUser; tests must mock @clerk/nextjs.useUser
   const { isSignedIn } = useUser();
 
@@ -80,14 +82,25 @@ function CheckoutSuccessContent(): React.JSX.Element {
 
             <div className="flex flex-col gap-2">
               {!isSignedIn ? (
-                <>
-                  <Button asChild className="w-full">
-                    <Link href="/sign-up">Create Your Account</Link>
-                  </Button>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/sign-in">Already have an account? Sign in</Link>
-                  </Button>
-                </>
+                isNew || isGuest ? (
+                  <>
+                    <div className="text-sm text-muted-foreground">
+                      We sent a sign-in link to your email. Open it to finish setting up your account and access your dashboard.
+                    </div>
+                    <Button asChild variant="outline" className="w-full">
+                      <Link href="/sign-in">Having trouble? Sign in</Link>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button asChild className="w-full">
+                      <Link href="/sign-in">Sign In to Your Account</Link>
+                    </Button>
+                    <Button asChild variant="outline" className="w-full">
+                      <Link href="/sign-up">Create an Account</Link>
+                    </Button>
+                  </>
+                )
               ) : (
                 <>
                   <Button asChild className="w-full">

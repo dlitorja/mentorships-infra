@@ -40,9 +40,11 @@ async function main() {
     "Content-Type": "application/json",
     "x-test-bypass": "1",
   };
-  if (process.env.TEST_WEBHOOK_BYPASS_KEY) {
-    headers["x-test-bypass-key"] = process.env.TEST_WEBHOOK_BYPASS_KEY;
+  if (!process.env.TEST_WEBHOOK_BYPASS_KEY) {
+    console.error("TEST_WEBHOOK_BYPASS_KEY must be set to use the bypass script.");
+    process.exit(1);
   }
+  headers["x-test-bypass-key"] = process.env.TEST_WEBHOOK_BYPASS_KEY as string;
 
   const res = await fetch(`${BASE_URL}/api/webhooks/stripe`, {
     method: "POST",
