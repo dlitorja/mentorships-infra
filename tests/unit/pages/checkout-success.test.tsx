@@ -25,14 +25,15 @@ describe("Checkout Success Page", () => {
     qc = new QueryClient();
   });
 
-  it("shows Create Your Account CTA for guest purchases", () => {
+  it("shows email-check guidance for new guest purchases", () => {
     (globalThis as any).__TEST_IS_SIGNED_IN__ = false;
+    mockSearch = "session_id=cs_test&new=1";
     render(
       <QueryClientProvider client={qc}>
         <CheckoutSuccessPage />
       </QueryClientProvider>
     );
-    expect(screen.getByText(/Create Your Account/i)).toBeInTheDocument();
+    expect(screen.getByText(/sent a sign-in link to your email/i)).toBeInTheDocument();
   });
 
   it("shows Go to Dashboard for signed-in users", () => {
@@ -45,14 +46,14 @@ describe("Checkout Success Page", () => {
     expect(screen.getByText(/Go to Dashboard/i)).toBeInTheDocument();
   });
 
-  it("shows account creation/sign-in CTAs when user is not signed in", () => {
+  it("shows sign-in CTA for returning students (no new/guest flag)", () => {
     (globalThis as any).__TEST_IS_SIGNED_IN__ = false;
+    mockSearch = "session_id=cs_test";
     render(
       <QueryClientProvider client={qc}>
         <CheckoutSuccessPage />
       </QueryClientProvider>
     );
-    expect(screen.getByText(/Create Your Account/i)).toBeInTheDocument();
-    expect(screen.getByText(/Already have an account\? Sign in/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sign In to Your Account/i)).toBeInTheDocument();
   });
 });

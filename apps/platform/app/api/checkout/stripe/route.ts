@@ -8,6 +8,7 @@ import { stripe } from "@/lib/stripe";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
+import { sendEmail } from "@/lib/email";
 
 function getConvexClient() {
   // Prefer public URL; fall back to server-only CONVEX_URL to avoid hard failures
@@ -204,7 +205,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             quantity: 1,
           },
         ],
-        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        success_url: `${baseUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
         cancel_url: cancelUrl,
         metadata: {
           order_id: orderId!,
@@ -231,6 +232,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {
           console.error("[stripe] Failed to send magic link:", e);
         });
+      }
+
+      // If we couldn't create a Clerk user and fell back to guest, send a guest onboarding email now
+      if (!createdNewUser && userIdForOrder === "guest" && customerEmail) {
+        const claimUrl = `${baseUrl}/sign-up`;
+        const dashboardUrl = `${baseUrl}/dashboard`;
+        const html = `
+          <div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
+            <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
+            <p style="margin:0 0 16px"><a href="${claimUrl}" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
+            <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
+            <p style="margin:0 0 8px">Once signed in, head to your dashboard:</p>
+            <p style="margin:0"><a href="${dashboardUrl}">${dashboardUrl}</a></p>
+            <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${customerEmail}) to automatically link your purchase.</p>
+          </div>`;
+        void sendEmail({
+          to: customerEmail,
+          subject: "Claim your account to access your session pack",
+          html,
+          headers: { "X-Email-Type": "guest_onboarding", "X-Provider": "stripe" },
+        }).catch((e) => console.error("[stripe] Guest onboarding email failed/skipped:", e));
       }
     } catch (stripeError) {
       if (orderId) {
