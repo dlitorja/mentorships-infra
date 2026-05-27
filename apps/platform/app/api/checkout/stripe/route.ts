@@ -71,7 +71,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let finalPrice = pack.price;
 
     // Resolve user: if authenticated, use that userId; otherwise upsert by email
-    const { userId: authedUserId } = await auth();
+    // Try Clerk auth; if it fails (e.g., SDK validation 422), proceed as guest
+    let authedUserId: string | null = null;
+    try {
+      const authRes = await auth();
+      authedUserId = authRes?.userId ?? null;
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+      try {
+        console.error("Clerk auth failed; proceeding as guest", { status, code });
+      } catch {}
+      authedUserId = null;
+    }
     let userIdForOrder: string | null = authedUserId ?? null;
     let customerEmail: string | undefined = undefined;
 
@@ -233,65 +245,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ url: session.url });
   } catch (error: unknown) {
-    // Narrow Clerk API errors to avoid exposing PII and improve client feedback
-    const isClerkErr = (err: unknown): err is {
-      clerkError: true;
-      status?: number;
-      code?: string;
-      clerkTraceId?: string;
-      errors?: Array<unknown>;
-    } => {
-      if (typeof err !== "object" || err === null) return false;
-      if (!("clerkError" in err)) return false;
-      const val = (err as { clerkError?: unknown }).clerkError;
-      return typeof val === "boolean" && val === true;
-    };
-
-    const sanitize = (errors: Array<unknown> | undefined) => {
-      if (!Array.isArray(errors)) return [] as Array<{ code: string | null; type: string | null }>;
-      return errors.map((e) => {
-        if (e && typeof e === "object") {
-          let code: string | null = null;
-          let type: string | null = null;
-          if ("code" in (e as object) && typeof (e as any).code === "string") code = (e as any).code;
-          if ("type" in (e as object) && typeof (e as any).type === "string") type = (e as any).type;
-          return { code, type };
-        }
-        return { code: null, type: null };
-      });
-    };
-
-    // Only treat Clerk validation errors as 422; other Clerk errors fall through
-    if (isClerkErr(error) && error.status === 422) {
-      const details = sanitize(error.errors);
-      try {
-        console.error("Clerk API error details:", {
-          status: error.status,
-          code: error.code,
-          clerkTraceId: error.clerkTraceId,
-          errors: details,
-        });
-      } catch {}
-
-      if (orderId) {
-        try {
-          const convex = getConvexClient();
-          await convex.mutation(api.orders.updateOrder, {
-            id: orderId as Id<"orders">,
-            status: "failed",
-          });
-        } catch (cleanupError) {
-          console.error(`Failed to cleanup order ${orderId}:`, cleanupError);
-        }
-      }
-
-      return NextResponse.json(
-        { error: "User creation failed", code: error.code ?? "clerk_error", details },
-        { status: 422 }
-      );
+    // Log any error (including Clerk) in a sanitized form; by this point, we cannot continue
+    try {
+      const status = (error as any)?.status ?? (error as any)?.statusCode;
+      const code = (error as any)?.code ?? ((typeof (error as any)?.message === "string") ? (error as any).message : undefined);
+      console.error("Checkout error:", { status, code });
+    } catch {
+      console.error("Checkout error (raw):", error);
     }
-
-    console.error("Stripe checkout error:", error);
 
     if (orderId) {
       try {
@@ -306,9 +267,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    return NextResponse.json(
-      { error: "Checkout failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Checkout failed" }, { status: 500 });
   }
 }
