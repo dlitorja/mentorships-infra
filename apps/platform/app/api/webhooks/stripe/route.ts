@@ -7,11 +7,13 @@ import { reportError, reportInfo } from "@/lib/observability";
 export async function POST(req: NextRequest) {
   // Test bypass for CI and integration tests
   // Requires env TEST_WEBHOOK_BYPASS=true and header x-test-bypass: 1
+  // Optional: if TEST_WEBHOOK_BYPASS_KEY is set, require x-test-bypass-key to match
   // Intentionally does NOT check NODE_ENV to allow testing on ephemeral/prod deployments
-  // Guarded by an explicit env var to avoid accidental exposure.
+  // Guarded by explicit env vars to avoid accidental exposure.
   if (
     process.env.TEST_WEBHOOK_BYPASS === "true" &&
-    req.headers.get("x-test-bypass") === "1"
+    req.headers.get("x-test-bypass") === "1" &&
+    ((process.env.TEST_WEBHOOK_BYPASS_KEY ?? "") === "" || req.headers.get("x-test-bypass-key") === process.env.TEST_WEBHOOK_BYPASS_KEY)
   ) {
     try {
       const payload = await req.json();

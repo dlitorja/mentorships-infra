@@ -36,12 +36,17 @@ async function main() {
     },
   };
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-test-bypass": "1",
+  };
+  if (process.env.TEST_WEBHOOK_BYPASS_KEY) {
+    headers["x-test-bypass-key"] = process.env.TEST_WEBHOOK_BYPASS_KEY;
+  }
+
   const res = await fetch(`${BASE_URL}/api/webhooks/stripe`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-test-bypass": "1",
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 
