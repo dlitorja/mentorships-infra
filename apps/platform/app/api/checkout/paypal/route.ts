@@ -7,6 +7,7 @@ import { createPayPalOrder } from "@mentorships/payments";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
+import { sendEmail } from "@/lib/email";
 
 function getConvexClient() {
   // Prefer public URL; fall back to server-only CONVEX_URL to avoid hard failures
@@ -154,7 +155,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
-        `${baseUrl}/checkout/success?order_id={ORDER_ID}`,
+        `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
         cancelUrl
       );
 
@@ -163,6 +164,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {
           console.error("[paypal] Failed to send magic link:", e);
         });
+      }
+
+      // If we couldn't create a Clerk user and fell back to guest, send a guest onboarding email now
+      if (!createdNewUser && userIdForOrder === "guest" && email) {
+        const claimUrl = `${baseUrl}/sign-up`;
+        const dashboardUrl = `${baseUrl}/dashboard`;
+        const normalizedEmail = email.trim().toLowerCase();
+        const html = `
+          <div style=\"font-family:Arial,sans-serif;color:#111\">\n            <h2 style=\"margin:0 0 12px\">You're in! Claim your account</h2>\n            <p style=\"margin:0 0 12px\">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>\n            <p style=\"margin:0 0 16px\"><a href=\"${claimUrl}\" style=\"background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none\">Claim your account</a></p>\n            <p style=\"margin:0 0 8px\">Already have an account? <a href=\"${baseUrl}/sign-in\">Sign in</a>.</p>\n            <hr style=\"border:none;border-top:1px solid #e5e7eb;margin:16px 0\" />\n            <p style=\"margin:0 0 8px\">Once signed in, head to your dashboard:</p>\n            <p style=\"margin:0\"><a href=\"${dashboardUrl}\">${dashboardUrl}</a></p>\n            <p style=\"color:#6b7280;margin-top:12px;font-size:12px\">Tip: Use the same email (${normalizedEmail}) to automatically link your purchase.</p>\n          </div>`;
+        void sendEmail({
+          to: normalizedEmail,
+          subject: "Claim your account to access your session pack",
+          html,
+          headers: { "X-Email-Type": "guest_onboarding", "X-Provider": "paypal" },
+        }).catch((e) => console.error("[paypal] Guest onboarding email failed/skipped:", e));
       }
     } catch (paypalError) {
       if (orderId) {
