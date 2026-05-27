@@ -183,6 +183,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         });
       }
 
+      // Backup email for newly created Clerk users to ensure they know next steps
+      if (createdNewUser && email) {
+        const signInUrl = `${baseUrl}/sign-in`;
+        const dashboardUrl = `${baseUrl}/dashboard`;
+        const normalizedEmail = email.trim().toLowerCase();
+        const html = `
+          <div style=\"font-family:Arial,sans-serif;color:#111\">\n            <h2 style=\"margin:0 0 12px\">You're almost done</h2>\n            <p style=\"margin:0 0 12px\">We created your account using this email. Check your inbox for a sign‑in link to finish.</p>\n            <p style=\"margin:0 0 8px\">If you don't see it, you can also sign in here:</p>\n            <p style=\"margin:0 0 16px\"><a href=\"${signInUrl}\" style=\"background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none\">Sign in</a></p>\n            <hr style=\"border:none;border-top:1px solid #e5e7eb;margin:16px 0\" />\n            <p style=\"margin:0 0 8px\">Once signed in, head to your dashboard:</p>\n            <p style=\"margin:0\"><a href=\"${dashboardUrl}\">${dashboardUrl}</a></p>\n          </div>`;
+        void sendEmail({
+          to: normalizedEmail,
+          subject: "Access your dashboard — finish sign‑in",
+          html,
+          headers: { "X-Email-Type": "new_account_onboarding", "X-Provider": "paypal" },
+        }).catch((e) => console.error("[paypal] New account onboarding email failed/skipped:", e));
+      }
+
       // If we couldn't create a Clerk user and fell back to guest, send a guest onboarding email now
       if (!createdNewUser && userIdForOrder === "guest" && email) {
         const claimUrl = `${baseUrl}/sign-up`;
