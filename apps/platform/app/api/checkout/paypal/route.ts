@@ -176,42 +176,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         cancelUrl
       );
 
-      // Fire-and-forget: send email-link sign-in for Clerk users (new or existing)
-      if (userIdForOrder && userIdForOrder !== "guest") {
-        void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {
-          console.error("[paypal] Failed to send magic link:", e);
-        });
-      }
-
-      // Backup email for newly created Clerk users to ensure they know next steps
-      if (createdNewUser && email) {
-        const signInUrl = `${baseUrl}/sign-in`;
-        const dashboardUrl = `${baseUrl}/dashboard`;
-        const normalizedEmail = email.trim().toLowerCase();
-        const html = `
-          <div style=\"font-family:Arial,sans-serif;color:#111\">\n            <h2 style=\"margin:0 0 12px\">You're almost done</h2>\n            <p style=\"margin:0 0 12px\">We created your account using this email. Check your inbox for a sign‑in link to finish.</p>\n            <p style=\"margin:0 0 8px\">If you don't see it, you can also sign in here:</p>\n            <p style=\"margin:0 0 16px\"><a href=\"${signInUrl}\" style=\"background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none\">Sign in</a></p>\n            <hr style=\"border:none;border-top:1px solid #e5e7eb;margin:16px 0\" />\n            <p style=\"margin:0 0 8px\">Once signed in, head to your dashboard:</p>\n            <p style=\"margin:0\"><a href=\"${dashboardUrl}\">${dashboardUrl}</a></p>\n          </div>`;
-        void sendEmail({
-          to: normalizedEmail,
-          subject: "Access your dashboard — finish sign‑in",
-          html,
-          headers: { "X-Email-Type": "new_account_onboarding", "X-Provider": "paypal" },
-        }).catch((e) => console.error("[paypal] New account onboarding email failed/skipped:", e));
-      }
-
-      // If we couldn't create a Clerk user and fell back to guest, send a guest onboarding email now
-      if (!createdNewUser && userIdForOrder === "guest" && email) {
-        const claimUrl = `${baseUrl}/sign-up`;
-        const dashboardUrl = `${baseUrl}/dashboard`;
-        const normalizedEmail = email.trim().toLowerCase();
-        const html = `
-          <div style=\"font-family:Arial,sans-serif;color:#111\">\n            <h2 style=\"margin:0 0 12px\">You're in! Claim your account</h2>\n            <p style=\"margin:0 0 12px\">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>\n            <p style=\"margin:0 0 16px\"><a href=\"${claimUrl}\" style=\"background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none\">Claim your account</a></p>\n            <p style=\"margin:0 0 8px\">Already have an account? <a href=\"${baseUrl}/sign-in\">Sign in</a>.</p>\n            <hr style=\"border:none;border-top:1px solid #e5e7eb;margin:16px 0\" />\n            <p style=\"margin:0 0 8px\">Once signed in, head to your dashboard:</p>\n            <p style=\"margin:0\"><a href=\"${dashboardUrl}\">${dashboardUrl}</a></p>\n            <p style=\"color:#6b7280;margin-top:12px;font-size:12px\">Tip: Use the same email (${normalizedEmail}) to automatically link your purchase.</p>\n          </div>`;
-        void sendEmail({
-          to: normalizedEmail,
-          subject: "Claim your account to access your session pack",
-          html,
-          headers: { "X-Email-Type": "guest_onboarding", "X-Provider": "paypal" },
-        }).catch((e) => console.error("[paypal] Guest onboarding email failed/skipped:", e));
-      }
+      // Do not send emails from the checkout route; post‑payment emails are handled by Inngest
     } catch (paypalError) {
       if (orderId) {
         try {
