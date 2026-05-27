@@ -9,9 +9,10 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 
 function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  // Prefer public URL; fall back to server-only CONVEX_URL to avoid hard failures
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL;
   if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+    throw new Error("NEXT_PUBLIC_CONVEX_URL or CONVEX_URL must be set");
   }
   return new ConvexHttpClient(convexUrl);
 }
@@ -55,7 +56,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Resolve user: if authenticated, use that userId; otherwise upsert by email
-    const { userId: authedUserId } = await auth();
+    let authedUserId: string | null = null;
+    try {
+      const authRes = await auth();
+      authedUserId = authRes?.userId ?? null;
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+      try {
+        console.error("Clerk auth failed; proceeding as guest", { status, code });
+      } catch {}
+      authedUserId = null;
+    }
     let userIdForOrder: string | null = authedUserId ?? null;
 
     let createdNewUser = false;
@@ -72,14 +84,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (data.length > 0) {
         userIdForOrder = data[0].id;
       } else {
-        const [firstName, ...rest] = fullName.trim().split(" ");
-        const lastName = rest.join(" ");
-        try {
-          const created = await client.users.createUser({
-            emailAddress: [normalizedEmail],
-            firstName: firstName || undefined,
-            lastName: lastName || undefined,
-            publicMetadata: { role: "student" },
+         const [firstName, ...rest] = fullName.trim().split(" ");
+         const lastName = rest.join(" ");
+         try {
+           const created = await client.users.createUser({
+             emailAddress: [normalizedEmail],
+             firstName: firstName || undefined,
+             lastName: lastName || undefined,
+             publicMetadata: { role: "student" },
+             // Allow creation without password in instances that require passwords
+            skipPasswordRequirement: true,
           } as any);
           userIdForOrder = created.id;
           createdNewUser = true;
@@ -140,7 +154,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
-        `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}`,
+        `${baseUrl}/checkout/success?order_id={ORDER_ID}`,
         cancelUrl
       );
 
