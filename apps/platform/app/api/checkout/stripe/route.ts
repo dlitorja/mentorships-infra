@@ -208,7 +208,65 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     return NextResponse.json({ url: session.url });
-  } catch (error) {
+  } catch (error: unknown) {
+    // Narrow Clerk API errors to avoid exposing PII and improve client feedback
+    const isClerkErr = (err: unknown): err is {
+      clerkError: true;
+      status?: number;
+      code?: string;
+      clerkTraceId?: string;
+      errors?: Array<unknown>;
+    } => {
+      if (typeof err !== "object" || err === null) return false;
+      if (!("clerkError" in err)) return false;
+      const val = (err as { clerkError?: unknown }).clerkError;
+      return typeof val === "boolean" && val === true;
+    };
+
+    const sanitize = (errors: Array<unknown> | undefined) => {
+      if (!Array.isArray(errors)) return [] as Array<{ code: string | null; type: string | null }>;
+      return errors.map((e) => {
+        if (e && typeof e === "object") {
+          let code: string | null = null;
+          let type: string | null = null;
+          if ("code" in (e as object) && typeof (e as any).code === "string") code = (e as any).code;
+          if ("type" in (e as object) && typeof (e as any).type === "string") type = (e as any).type;
+          return { code, type };
+        }
+        return { code: null, type: null };
+      });
+    };
+
+    // Only treat Clerk validation errors as 422; other Clerk errors fall through
+    if (isClerkErr(error) && error.status === 422) {
+      const details = sanitize(error.errors);
+      try {
+        console.error("Clerk API error details:", {
+          status: error.status,
+          code: error.code,
+          clerkTraceId: error.clerkTraceId,
+          errors: details,
+        });
+      } catch {}
+
+      if (orderId) {
+        try {
+          const convex = getConvexClient();
+          await convex.mutation(api.orders.updateOrder, {
+            id: orderId as Id<"orders">,
+            status: "failed",
+          });
+        } catch (cleanupError) {
+          console.error(`Failed to cleanup order ${orderId}:`, cleanupError);
+        }
+      }
+
+      return NextResponse.json(
+        { error: "User creation failed", code: error.code ?? "clerk_error", details },
+        { status: 422 }
+      );
+    }
+
     console.error("Stripe checkout error:", error);
 
     if (orderId) {
