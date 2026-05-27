@@ -10,9 +10,10 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 
 function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  // Prefer public URL; fall back to server-only CONVEX_URL to avoid hard failures
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL;
   if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+    throw new Error("NEXT_PUBLIC_CONVEX_URL or CONVEX_URL must be set");
   }
   return new ConvexHttpClient(convexUrl);
 }
@@ -82,37 +83,60 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           { status: 400 }
         );
       }
-      const client = await clerkClient();
+
       // Normalize email to avoid duplicate accounts for the same mailbox
       const normalizedEmail = email.trim().toLowerCase();
-      // Try to find existing user by email
-      const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-      if (data.length > 0) {
-        userIdForOrder = data[0].id;
-      } else {
-        const [firstName, ...rest] = fullName.trim().split(" ");
-        const lastName = rest.join(" ");
-        try {
-          const created = await client.users.createUser({
-            emailAddress: [normalizedEmail],
-            firstName: firstName || undefined,
-            lastName: lastName || undefined,
-            // Mark as a student in public metadata if used by the app
-            publicMetadata: { role: "student" },
-          } as any);
-          userIdForOrder = created.id;
-          createdNewUser = true;
-        } catch (e: any) {
-          // If user already exists due to a race, fetch again and proceed
-          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-          if (again.data.length > 0) {
-            userIdForOrder = again.data[0].id;
-          } else {
-            throw e;
+      customerEmail = normalizedEmail;
+
+      try {
+        const client = await clerkClient();
+        // Try to find existing user by email
+        const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+        if (data.length > 0) {
+          userIdForOrder = data[0].id;
+        } else {
+          const [firstName, ...rest] = fullName.trim().split(" ");
+          const lastName = rest.join(" ");
+          try {
+            const created = await client.users.createUser({
+              emailAddress: [normalizedEmail],
+              firstName: firstName || undefined,
+              lastName: lastName || undefined,
+              // Mark as a student in public metadata if used by the app
+              publicMetadata: { role: "student" },
+            } as any);
+            userIdForOrder = created.id;
+            createdNewUser = true;
+          } catch (e: any) {
+            // If user already exists due to a race, fetch again and proceed
+            const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+            if (again.data.length > 0) {
+              userIdForOrder = again.data[0].id;
+            } else {
+              // Any other Clerk error (including 422 form_data_missing): fallback to guest
+              const status = e?.status ?? e?.statusCode;
+              const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+              try {
+                console.error("Clerk create/find user failed; proceeding as guest", {
+                  status,
+                  code,
+                });
+              } catch {}
+              userIdForOrder = "guest";
+              createdNewUser = false;
+            }
           }
         }
+      } catch (e: any) {
+        // If even getUserList fails (e.g., 422 or config), proceed as guest
+        const status = e?.status ?? e?.statusCode;
+        const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+        try {
+          console.error("Clerk user lookup failed; proceeding as guest", { status, code });
+        } catch {}
+        userIdForOrder = "guest";
+        createdNewUser = false;
       }
-      customerEmail = normalizedEmail;
     }
 
     const order = await convex.mutation(api.orders.createOrder, {
