@@ -225,59 +225,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       session = await stripe.checkout.sessions.create(sessionParams);
 
-      // Fire-and-forget: send email-link sign-in for Clerk users (new or existing)
-      if (userIdForOrder && userIdForOrder !== "guest") {
-        // Use the same baseUrl used for success/cancel URLs
-        // Redirect path centralizes role-based landing in /auth-redirect
-        void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {
-          console.error("[stripe] Failed to send magic link:", e);
-        });
-      }
-
-      // Backup email for newly created Clerk users to ensure they know next steps
-      if (createdNewUser && customerEmail) {
-        const signInUrl = `${baseUrl}/sign-in`;
-        const dashboardUrl = `${baseUrl}/dashboard`;
-        const html = `
-          <div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">You're almost done</h2>
-            <p style="margin:0 0 12px">We created your account using this email. Check your inbox for a sign‑in link to finish.</p>
-            <p style="margin:0 0 8px">If you don't see it, you can also sign in here:</p>
-            <p style="margin:0 0 16px"><a href="${signInUrl}" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Sign in</a></p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
-            <p style="margin:0 0 8px">Once signed in, head to your dashboard:</p>
-            <p style="margin:0"><a href="${dashboardUrl}">${dashboardUrl}</a></p>
-          </div>`;
-        void sendEmail({
-          to: customerEmail,
-          subject: "Access your dashboard — finish sign‑in",
-          html,
-          headers: { "X-Email-Type": "new_account_onboarding", "X-Provider": "stripe" },
-        }).catch((e) => console.error("[stripe] New account onboarding email failed/skipped:", e));
-      }
-
-      // If we couldn't create a Clerk user and fell back to guest, send a guest onboarding email now
-      if (!createdNewUser && userIdForOrder === "guest" && customerEmail) {
-        const claimUrl = `${baseUrl}/sign-up`;
-        const dashboardUrl = `${baseUrl}/dashboard`;
-        const html = `
-          <div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
-            <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
-            <p style="margin:0 0 16px"><a href="${claimUrl}" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
-            <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
-            <p style="margin:0 0 8px">Once signed in, head to your dashboard:</p>
-            <p style="margin:0"><a href="${dashboardUrl}">${dashboardUrl}</a></p>
-            <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${customerEmail}) to automatically link your purchase.</p>
-          </div>`;
-        void sendEmail({
-          to: customerEmail,
-          subject: "Claim your account to access your session pack",
-          html,
-          headers: { "X-Email-Type": "guest_onboarding", "X-Provider": "stripe" },
-        }).catch((e) => console.error("[stripe] Guest onboarding email failed/skipped:", e));
-      }
+      // Do not send emails from the checkout route; post‑payment emails are handled by Inngest
     } catch (stripeError) {
       if (orderId) {
         try {

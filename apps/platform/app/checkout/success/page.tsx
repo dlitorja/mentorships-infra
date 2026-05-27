@@ -84,9 +84,15 @@ function CheckoutSuccessContent(): React.JSX.Element {
               {!isSignedIn ? (
                 isNew || isGuest ? (
                   <>
-                    <div className="text-sm text-muted-foreground">
-                      We sent a sign‑in link to your email. Open it to finish setting up your account and access your dashboard.
-                    </div>
+                    {isGuest ? (
+                      <div className="text-sm text-muted-foreground">
+                        We sent an email to create your account. Open it to finish setting up your account and access your dashboard.
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">
+                        We sent a sign‑in link to your email. Open it to finish setting up your account and access your dashboard.
+                      </div>
+                    )}
                     {/* No additional buttons for brand‑new students to reduce friction */}
                   </>
                 ) : (
