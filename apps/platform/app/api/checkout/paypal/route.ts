@@ -55,7 +55,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Resolve user: if authenticated, use that userId; otherwise upsert by email
-    const { userId: authedUserId } = await auth();
+    let authedUserId: string | null = null;
+    try {
+      const authRes = await auth();
+      authedUserId = authRes?.userId ?? null;
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+      try {
+        console.error("Clerk auth failed; proceeding as guest", { status, code });
+      } catch {}
+      authedUserId = null;
+    }
     let userIdForOrder: string | null = authedUserId ?? null;
 
     let createdNewUser = false;
@@ -72,25 +83,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (data.length > 0) {
         userIdForOrder = data[0].id;
       } else {
-        const [firstName, ...rest] = fullName.trim().split(" ");
-        const lastName = rest.join(" ");
-        try {
-          const created = await client.users.createUser({
-            emailAddress: [normalizedEmail],
-            firstName: firstName || undefined,
-            lastName: lastName || undefined,
-            publicMetadata: { role: "student" },
-          } as any);
-          userIdForOrder = created.id;
-          createdNewUser = true;
-        } catch (e: any) {
-          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-          if (again.data.length > 0) {
-            userIdForOrder = again.data[0].id;
-          } else {
-            throw e;
-          }
-        }
+         const [firstName, ...rest] = fullName.trim().split(" ");
+         const lastName = rest.join(" ");
+         try {
+           const created = await client.users.createUser({
+             emailAddress: [normalizedEmail],
+             firstName: firstName || undefined,
+             lastName: lastName || undefined,
+             publicMetadata: { role: "student" },
+             // Allow creation without password in instances that require passwords
+             skipPasswordRequirement: true,
+           } as any);
+           userIdForOrder = created.id;
+           createdNewUser = true;
+         } catch (e: any) {
+           const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+           if (again.data.length > 0) {
+             userIdForOrder = again.data[0].id;
+           } else {
+             throw e;
+           }
+         }
       }
     }
 
@@ -140,7 +153,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
-        `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}`,
+        `${baseUrl}/checkout/success?order_id={ORDER_ID}`,
         cancelUrl
       );
 

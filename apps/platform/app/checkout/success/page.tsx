@@ -21,18 +21,12 @@ import { useUser } from "@clerk/nextjs";
 // Force dynamic rendering to prevent static generation issues with useSearchParams
 export const dynamic = "force-dynamic";
 
-// Test-only flags; undefined in production builds. Declared at module scope to satisfy TS ambient rules.
-declare global {
-  // eslint-disable-next-line no-var
-  var __TEST_IS_NEW__: boolean | undefined;
-}
+// No test-only flags; CTA is determined solely by auth state.
 
 function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   // In some test environments, mocked useSearchParams may return null; guard defensively
   const sessionId = searchParams?.get("session_id") || null;
-  const testIsNew = globalThis.__TEST_IS_NEW__;
-  const isNew = typeof testIsNew === "boolean" ? testIsNew : searchParams?.get("new") === "1";
   // Always call useUser; tests must mock @clerk/nextjs.useUser
   const { isSignedIn } = useUser();
 
@@ -85,7 +79,7 @@ function CheckoutSuccessContent(): React.JSX.Element {
             )}
 
             <div className="flex flex-col gap-2">
-              {(!isSignedIn && isNew) ? (
+              {!isSignedIn ? (
                 <>
                   <Button asChild className="w-full">
                     <Link href="/sign-up">Create Your Account</Link>
