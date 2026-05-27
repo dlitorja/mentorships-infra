@@ -4,6 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
 import { sendEmail } from "@/lib/email";
+import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 import { reportInfo } from "@/lib/observability";
 
 function getConvexClient() {
@@ -317,6 +318,21 @@ const completedOrder = await step.run("update-order", async () => {
         level: res.ok ? "info" : "warn",
         context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false },
       });
+    });
+
+    await step.run("send-magic-link-to-clerk-user", async () => {
+      // Only for real Clerk users; skip guests and email-placeholders
+      if (!resolvedUserId || resolvedUserId === "guest" || resolvedUserId.startsWith("email:")) {
+        return { skipped: true } as const;
+      }
+      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      try {
+        const res = await sendEmailLinkForUser(resolvedUserId, `${baseUrl}/auth-redirect`);
+        return { ok: res.ok } as const;
+      } catch (e) {
+        console.error("[inngest/stripe] Failed to send magic link:", e);
+        return { ok: false } as const;
+      }
     });
 
     await step.run("trigger-onboarding", async () => {
@@ -670,6 +686,21 @@ export const processPayPalCheckout = inngest.createFunction(
         level: res.ok ? "info" : "warn",
         context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false },
       });
+    });
+
+    await step.run("send-magic-link-to-clerk-user", async () => {
+      const clerkId = order.userId as string;
+      if (!clerkId || clerkId === "guest" || clerkId.startsWith("email:")) {
+        return { skipped: true } as const;
+      }
+      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      try {
+        const res = await sendEmailLinkForUser(clerkId, `${baseUrl}/auth-redirect`);
+        return { ok: res.ok } as const;
+      } catch (e) {
+        console.error("[inngest/paypal] Failed to send magic link:", e);
+        return { ok: false } as const;
+      }
     });
 
     await step.run("trigger-onboarding", async () => {
