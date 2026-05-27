@@ -9,9 +9,10 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 
 function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  // Prefer public URL; fall back to server-only CONVEX_URL to avoid hard failures
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL;
   if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+    throw new Error("NEXT_PUBLIC_CONVEX_URL or CONVEX_URL must be set");
   }
   return new ConvexHttpClient(convexUrl);
 }
@@ -92,18 +93,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
              lastName: lastName || undefined,
              publicMetadata: { role: "student" },
              // Allow creation without password in instances that require passwords
-             skipPasswordRequirement: true,
-           } as any);
-           userIdForOrder = created.id;
-           createdNewUser = true;
-         } catch (e: any) {
-           const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-           if (again.data.length > 0) {
-             userIdForOrder = again.data[0].id;
-           } else {
-             throw e;
-           }
-         }
+            skipPasswordRequirement: true,
+          } as any);
+          userIdForOrder = created.id;
+          createdNewUser = true;
+        } catch (e: any) {
+          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+          if (again.data.length > 0) {
+            userIdForOrder = again.data[0].id;
+          } else {
+            throw e;
+          }
+        }
       }
     }
 

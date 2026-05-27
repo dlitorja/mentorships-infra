@@ -5,11 +5,12 @@ import { stripe } from "@/lib/stripe";
 import { reportError, reportInfo } from "@/lib/observability";
 
 export async function POST(req: NextRequest) {
-  // Test bypass for CI and local integration tests (development only)
+  // Test bypass for CI and integration tests
   // Requires env TEST_WEBHOOK_BYPASS=true and header x-test-bypass: 1
+  // Intentionally does NOT check NODE_ENV to allow testing on ephemeral/prod deployments
+  // Guarded by an explicit env var to avoid accidental exposure.
   if (
     process.env.TEST_WEBHOOK_BYPASS === "true" &&
-    process.env.NODE_ENV === "development" &&
     req.headers.get("x-test-bypass") === "1"
   ) {
     try {

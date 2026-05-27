@@ -117,6 +117,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               // Mark as a student in public metadata if used by the app
               publicMetadata: { role: "student" },
               // Allow creation without password in instances that require passwords
+              // so we can complete guest checkout and send a magic link
               skipPasswordRequirement: true,
             } as any);
             userIdForOrder = created.id;
