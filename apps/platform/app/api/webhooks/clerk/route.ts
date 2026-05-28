@@ -25,20 +25,34 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // --- DIAGNOSTIC: log raw body and Svix headers ---
+    // --- DIAGNOSTIC: log Svix headers and body metadata (no PII) ---
     const rawBody = await req.text();
-    const svixId = req.headers.get("svix-id");
-    const svixTimestamp = req.headers.get("svix-timestamp");
-    const svixSignature = req.headers.get("svix-signature");
+
+    let bodyInfo: Record<string, unknown> = { length: rawBody.length };
+    try {
+      const parsed = JSON.parse(rawBody);
+      bodyInfo.isValidJson = true;
+      bodyInfo.type = typeof parsed.type === "string" ? parsed.type : undefined;
+      if (parsed.type === "user.created") {
+        bodyInfo.hasUserId = Boolean(parsed.data?.id);
+        bodyInfo.emailCount = Array.isArray(parsed.data?.email_addresses) ? parsed.data.email_addresses.length : 0;
+      }
+      bodyInfo.dataKeys = typeof parsed.data === "object" && parsed.data !== null
+        ? Object.keys(parsed.data).filter(k => !["id", "email_addresses"].includes(k))
+        : undefined;
+    } catch {
+      bodyInfo.isValidJson = false;
+    }
 
     console.log("[clerk-webhook] Headers:", JSON.stringify({
-      "svix-id": svixId,
-      "svix-timestamp": svixTimestamp,
-      "svix-signature": svixSignature ? svixSignature.substring(0, 50) + "..." : null,
+      "svix-id": req.headers.get("svix-id"),
+      "svix-timestamp": req.headers.get("svix-timestamp"),
+      "svix-signature": req.headers.get("svix-signature")
+        ? (req.headers.get("svix-signature") as string).substring(0, 50) + "..."
+        : null,
       "content-type": req.headers.get("content-type"),
     }));
-    console.log("[clerk-webhook] Raw body length:", rawBody.length);
-    console.log("[clerk-webhook] Raw body (first 200 chars):", rawBody.substring(0, 200));
+    console.log("[clerk-webhook] Body info:", JSON.stringify(bodyInfo));
 
     // Reconstruct request since body was consumed for logging
     const reconstructedReq = new NextRequest(req.url, {
