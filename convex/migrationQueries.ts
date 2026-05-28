@@ -39,3 +39,11 @@ export const getAllSeatReservationsForMigration = internalQuery({
     return await ctx.db.query("seatReservations").collect();
   },
 });
+
+export const getGuestSessionPacksForMigration = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const allPacks = await ctx.db.query("sessionPacks").collect();
+    return allPacks.filter((pack) => pack.userId && pack.userId.startsWith("email:"));
+  },
+});

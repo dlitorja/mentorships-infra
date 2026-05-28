@@ -412,3 +412,25 @@ export const sendGracePeriodFinalWarning = internalAction({
     return { success: true, warningsSent: sentCount, failedCount };
   },
 });
+
+export const linkSeatReservationsByEmail = mutation({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.toLowerCase().trim();
+    const placeholderUserId = `email:${normalizedEmail}`;
+
+    const seatsToLink = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_userId", (q) => q.eq("userId", placeholderUserId))
+      .collect();
+
+    for (const seat of seatsToLink) {
+      await ctx.db.patch(seat._id, { userId: args.clerkUserId });
+    }
+
+    return { linked: seatsToLink.length };
+  },
+});
