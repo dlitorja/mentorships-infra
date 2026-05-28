@@ -25,8 +25,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // --- DIAGNOSTIC: log Svix headers and body metadata (no PII) ---
-    const rawBody = await req.text();
+    // TODO: Gate diagnostic logs behind CLERK_WEBHOOK_DEBUG or remove once
+    // root cause of "No matching signature found" is identified.
+    const clonedReq = req.clone();
+    const rawBody = await clonedReq.text();
 
     let bodyInfo: Record<string, unknown> = { length: rawBody.length };
     try {
@@ -54,15 +56,7 @@ export async function POST(req: NextRequest) {
     }));
     console.log("[clerk-webhook] Body info:", JSON.stringify(bodyInfo));
 
-    // Reconstruct request since body was consumed for logging
-    const reconstructedReq = new NextRequest(req.url, {
-      method: req.method,
-      headers: req.headers,
-      body: rawBody,
-    });
-    // --- END DIAGNOSTIC ---
-
-    const evt = await verifyWebhook(reconstructedReq, { signingSecret: webhookSecret });
+    const evt = await verifyWebhook(req, { signingSecret: webhookSecret });
 
     const eventType = evt.type;
 
