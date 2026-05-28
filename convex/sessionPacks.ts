@@ -446,3 +446,25 @@ export const migrateSessionPack = mutation({
     return { action: "inserted", id: insertResult };
   },
 });
+
+export const linkSessionPacksByEmail = mutation({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.toLowerCase().trim();
+    const placeholderUserId = `email:${normalizedEmail}`;
+
+    const packsToLink = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", placeholderUserId))
+      .collect();
+
+    for (const pack of packsToLink) {
+      await ctx.db.patch(pack._id, { userId: args.clerkUserId });
+    }
+
+    return { linked: packsToLink.length };
+  },
+});
