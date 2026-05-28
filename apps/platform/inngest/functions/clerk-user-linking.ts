@@ -1,7 +1,7 @@
 import { inngest } from "../client";
 import { api } from "../../../../convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
-import { reportInfo, reportError } from "@/lib/observability";
+import { reportInfo } from "@/lib/observability";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -21,6 +21,15 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
   async ({ event, step }) => {
     const { userId, email } = event.data;
 
+    if (!userId || typeof userId !== "string") {
+      return {
+        linked: false,
+        reason: "Invalid or missing userId",
+        sessionPacksLinked: 0,
+        seatReservationsLinked: 0,
+      };
+    }
+
     if (!email || typeof email !== "string") {
       await reportInfo({
         source: "inngest:clerk-user-linking",
@@ -37,7 +46,7 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const placeholderUserId = `email:${normalizedEmail}`;
+    const emailDomain = normalizedEmail.split("@")[1] ?? "unknown";
 
     await step.run("link-session-packs", async () => {
       const convex = getConvexClient();
@@ -49,12 +58,11 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
       await reportInfo({
         source: "inngest:clerk-user-linking",
-        message: `Linked ${result.linked} session packs for email ${normalizedEmail}`,
+        message: `Linked ${result.linked} session packs for user`,
         level: "info",
         context: {
           userId,
-          email: normalizedEmail,
-          placeholderUserId,
+          emailDomain,
           linkedCount: result.linked,
         },
       });
@@ -72,11 +80,11 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
       await reportInfo({
         source: "inngest:clerk-user-linking",
-        message: `Linked ${result.linked} seat reservations for email ${normalizedEmail}`,
+        message: `Linked ${result.linked} seat reservations for user`,
         level: "info",
         context: {
           userId,
-          email: normalizedEmail,
+          emailDomain,
           linkedCount: result.linked,
         },
       });
@@ -87,7 +95,6 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     return {
       linked: true,
       userId,
-      email: normalizedEmail,
     };
   }
 );
