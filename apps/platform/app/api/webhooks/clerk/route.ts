@@ -25,7 +25,30 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const evt = await verifyWebhook(req);
+    // --- DIAGNOSTIC: log raw body and Svix headers ---
+    const rawBody = await req.text();
+    const svixId = req.headers.get("svix-id");
+    const svixTimestamp = req.headers.get("svix-timestamp");
+    const svixSignature = req.headers.get("svix-signature");
+
+    console.log("[clerk-webhook] Headers:", JSON.stringify({
+      "svix-id": svixId,
+      "svix-timestamp": svixTimestamp,
+      "svix-signature": svixSignature ? svixSignature.substring(0, 50) + "..." : null,
+      "content-type": req.headers.get("content-type"),
+    }));
+    console.log("[clerk-webhook] Raw body length:", rawBody.length);
+    console.log("[clerk-webhook] Raw body (first 200 chars):", rawBody.substring(0, 200));
+
+    // Reconstruct request since body was consumed for logging
+    const reconstructedReq = new NextRequest(req.url, {
+      method: req.method,
+      headers: req.headers,
+      body: rawBody,
+    });
+    // --- END DIAGNOSTIC ---
+
+    const evt = await verifyWebhook(reconstructedReq, { signingSecret: webhookSecret });
 
     const eventType = evt.type;
 
