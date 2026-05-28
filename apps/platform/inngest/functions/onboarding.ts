@@ -70,6 +70,13 @@ export const onboardingFlow = inngest.createFunction(
     });
 
     const { orderId, clerkId, provider } = parsed.data;
+
+    // Skip onboarding for guest purchases — no real Clerk user to look up.
+    // The checkout flow already sends a generic Resend confirmation email.
+    if (!clerkId || clerkId === "guest" || clerkId.startsWith("email:")) {
+      return { success: true, skipped: true, reason: "guest user" };
+    }
+
     const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
