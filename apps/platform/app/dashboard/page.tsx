@@ -8,7 +8,6 @@ import { Calendar, Clock, User, BookOpen, CheckCircle2, Loader2 } from "lucide-r
 import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/lib/queries/convex/use-session-packs";
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor } from "@/lib/queries/convex/use-instructors";
-import { Id } from "@/convex/_generated/dataModel";
 import { useMemo, Suspense, useEffect, useState } from "react";
 
 function formatDate(date: number): string {
@@ -118,7 +117,7 @@ function DashboardContent() {
   const [googleBookings, setGoogleBookings] = useState<GoogleBooking[]>([]);
   const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
   const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
-  const [loadingGoogleCalendar, setLoadingGoogleCalendar] = useState(false);
+  const [loadingGoogleCalendar, setLoadingGoogleCalendar] = useState(true);
 
   const discordConnected = Boolean(
     user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
@@ -165,12 +164,12 @@ function DashboardContent() {
       return;
     }
     let cancelled = false;
-    async function loadGoogleStatus() {
+    async function loadGoogleStatus(): Promise<void> {
       setLoadingGoogleCalendar(true);
       try {
         const res = await fetch("/api/google/calendars");
         if (!cancelled) {
-          setGoogleCalendarConnected(res.ok && res.status !== 409);
+          setGoogleCalendarConnected(res.ok);
         }
       } catch {
         if (!cancelled) setGoogleCalendarConnected(false);

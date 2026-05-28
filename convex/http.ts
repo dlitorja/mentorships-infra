@@ -694,4 +694,20 @@ http.route({
   handler: httpClerkWebhook,
 });
 
+export const httpGetGuestSessionPacks = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const guestPacks = await ctx.runQuery(internal.migrationQueries.getGuestSessionPacksForMigration);
+
+  return new Response(JSON.stringify({ packs: guestPacks }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/internal/guest-session-packs",
+  method: "GET",
+  handler: httpGetGuestSessionPacks,
+});
+
 export default http;
