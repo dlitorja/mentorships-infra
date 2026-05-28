@@ -136,7 +136,7 @@ const completedOrder = await step.run("update-order", async () => {
     });
 
     const product = await step.run("get-product", async () => {
-      const productData = await convex.query(api.products.getProductById, {
+      const productData = await convex.query(api.products.getPublicProductById, {
         id: packId as Id<"products">,
       });
       if (!productData) {
@@ -526,7 +526,7 @@ export const processPayPalCheckout = inngest.createFunction(
     }
 
     const product = await step.run("get-product", async () => {
-      const productData = await convex.query(api.products.getProductById, {
+      const productData = await convex.query(api.products.getPublicProductById, {
         id: packId as Id<"products">,
       });
       if (!productData) {
