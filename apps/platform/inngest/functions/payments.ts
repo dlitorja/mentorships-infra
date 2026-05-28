@@ -4,7 +4,6 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
 import { sendEmail } from "@/lib/email";
-import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 import { reportInfo } from "@/lib/observability";
 
 function getConvexClient() {
@@ -283,56 +282,42 @@ const completedOrder = await step.run("update-order", async () => {
       });
     });
 
-    // Immediate guest onboarding email (low-risk conversion boost)
-    await step.run("send-guest-onboarding-email", async () => {
+    // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
+    await step.run("send-purchase-confirmation-email", async () => {
       const email = (studentEmail || "").trim().toLowerCase();
-      const isGuest = !userId || userId === "guest";
-      if (!email || (!isGuest && !String(resolvedUserId).startsWith("email:"))) return { skipped: true };
+      if (!email) return { skipped: true } as const;
 
+      const hasClerkAccount = resolvedUserId !== "guest" && !resolvedUserId.startsWith("email:");
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-      const claimUrl = `${baseUrl}/sign-up`;
-      const dashboardUrl = `${baseUrl}/dashboard`;
 
-      const html = `
-        <div style="font-family:Arial,sans-serif;color:#111">
-          <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
-          <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
-          <p style="margin:0 0 16px"><a href="${claimUrl}" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
-          <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
-          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
-          <p style="margin:0 0 8px">Once signed in, head to your dashboard:</p>
-          <p style="margin:0"><a href="${dashboardUrl}">${dashboardUrl}</a></p>
-          <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
-        </div>`;
+      const html = hasClerkAccount
+        ? `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Purchase confirmed</h2>
+            <p style="margin:0 0 12px">Your session pack has been purchased successfully. Head to your dashboard to book sessions and manage your mentorship.</p>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
+          </div>`
+        : `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
+            <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
+            <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
+            <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
+          </div>`;
 
       const res = await sendEmail({
         to: email,
-        subject: "Claim your account to access your session pack",
+        subject: hasClerkAccount ? "Your mentorship purchase is confirmed" : "Claim your account to access your session pack",
         html,
-        headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
+        headers: { "X-Email-Type": hasClerkAccount ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
       });
 
       await reportInfo({
         source: "inngest:process-stripe-checkout",
-        message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
+        message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
         level: res.ok ? "info" : "warn",
-        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false },
+        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, hasClerkAccount },
       });
-    });
-
-    await step.run("send-magic-link-to-clerk-user", async () => {
-      // Only for real Clerk users; skip guests and email-placeholders
-      if (!resolvedUserId || resolvedUserId === "guest" || resolvedUserId.startsWith("email:")) {
-        return { skipped: true } as const;
-      }
-      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-      try {
-        const res = await sendEmailLinkForUser(resolvedUserId, `${baseUrl}/auth-redirect`);
-        return { ok: res.ok } as const;
-      } catch (e) {
-        console.error("[inngest/stripe] Failed to send magic link:", e);
-        return { ok: false } as const;
-      }
     });
 
     await step.run("trigger-onboarding", async () => {
@@ -652,55 +637,43 @@ export const processPayPalCheckout = inngest.createFunction(
       });
     });
 
-    // Immediate guest onboarding email (PayPal)
-    await step.run("send-guest-onboarding-email", async () => {
-      const email = (event.data as any)?.studentEmail?.toString().trim().toLowerCase() || "";
-      if (!email) return { skipped: true };
+    // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
+    await step.run("send-purchase-confirmation-email", async () => {
+      const email = ((event.data as any)?.studentEmail as string | undefined)?.trim().toLowerCase() || "";
+      if (!email) return { skipped: true } as const;
 
+      const clerkId = order.userId as string;
+      const isGuest = !clerkId || clerkId === "guest" || clerkId.startsWith("email:");
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-      const claimUrl = `${baseUrl}/sign-up`;
-      const dashboardUrl = `${baseUrl}/dashboard`;
 
-      const html = `
-        <div style="font-family:Arial,sans-serif;color:#111">
-          <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
-          <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
-          <p style="margin:0 0 16px"><a href="${claimUrl}" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
-          <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
-          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
-          <p style="margin:0 0 8px">Once signed in, head to your dashboard:</p>
-          <p style="margin:0"><a href="${dashboardUrl}">${dashboardUrl}</a></p>
-          <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
-        </div>`;
+      const html = isGuest
+        ? `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
+            <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
+            <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
+            <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
+          </div>`
+        : `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Purchase confirmed</h2>
+            <p style="margin:0 0 12px">Your session pack has been purchased successfully. Head to your dashboard to book sessions and manage your mentorship.</p>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
+          </div>`;
 
       const res = await sendEmail({
         to: email,
-        subject: "Claim your account to access your session pack",
+        subject: isGuest ? "Claim your account to access your session pack" : "Your mentorship purchase is confirmed",
         html,
-        headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
+        headers: { "X-Email-Type": isGuest ? "guest_onboarding" : "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "paypal" },
       });
 
       await reportInfo({
         source: "inngest:process-paypal-checkout",
-        message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
+        message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
         level: res.ok ? "info" : "warn",
-        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false },
+        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, isGuest },
       });
-    });
-
-    await step.run("send-magic-link-to-clerk-user", async () => {
-      const clerkId = order.userId as string;
-      if (!clerkId || clerkId === "guest" || clerkId.startsWith("email:")) {
-        return { skipped: true } as const;
-      }
-      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-      try {
-        const res = await sendEmailLinkForUser(clerkId, `${baseUrl}/auth-redirect`);
-        return { ok: res.ok } as const;
-      } catch (e) {
-        console.error("[inngest/paypal] Failed to send magic link:", e);
-        return { ok: false } as const;
-      }
     });
 
     await step.run("trigger-onboarding", async () => {
