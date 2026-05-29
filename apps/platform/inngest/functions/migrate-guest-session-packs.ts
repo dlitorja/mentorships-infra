@@ -57,24 +57,16 @@ async function getClerkUserIdByEmail(email: string): Promise<string | null> {
     throw new Error("CLERK_SECRET_KEY is not set");
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-  let response: Response;
-  try {
-    response = await fetch(
-      `https://api.clerk.com/v1/users?email_address[]=${encodeURIComponent(email)}`,
-      {
-        headers: {
-          Authorization: `Bearer ${clerkSecretKey}`,
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-      }
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const response = await fetchWithTimeout(
+    `https://api.clerk.com/v1/users?email_address[]=${encodeURIComponent(email)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${clerkSecretKey}`,
+        "Content-Type": "application/json",
+      },
+      timeoutMs: 10000,
+    }
+  );
 
   if (!response.ok) {
     const body = await response.text().catch(() => "unknown");
@@ -175,10 +167,12 @@ export const migrateGuestSessionPacks = inngest.createFunction(
     let skipped = 0;
     let failed = 0;
 
+    let emailIndex = 0;
     for (const [email, packs] of packsByEmail) {
       const packIds = packs.map((p) => p.id);
+      const stepId = `migrate-pack-${emailIndex++}-${packs.length}`;
       try {
-        const stepResult = await step.run(`migrate-pack-${packIds.join("-")}`, async () => {
+        const stepResult = await step.run(stepId, async () => {
           const clerkUserId = await getClerkUserIdByEmail(email);
 
           if (!clerkUserId) {
@@ -192,50 +186,49 @@ export const migrateGuestSessionPacks = inngest.createFunction(
             return { status: "skipped", packIds };
           }
 
-          for (const pack of packs) {
-            const sessionPackRes = await fetchWithTimeout(
-              `${convexUrl}/internal/link-session-packs`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${convexHttpKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ clerkUserId, email }),
-                timeoutMs: 10000,
-              }
-            );
-
-            if (!sessionPackRes.ok) {
-              const errText = await sessionPackRes.text().catch(() => "unknown");
-              throw new Error(`Failed to link session pack: ${sessionPackRes.status} ${errText}`);
+          // Link all packs for this email with a single call per endpoint
+          const sessionPackRes = await fetchWithTimeout(
+            `${convexUrl}/internal/link-session-packs`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${convexHttpKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ clerkUserId, email }),
+              timeoutMs: 10000,
             }
+          );
 
-            const seatResRes = await fetchWithTimeout(
-              `${convexUrl}/internal/link-seat-reservations`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${convexHttpKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ clerkUserId, email }),
-                timeoutMs: 10000,
-              }
-            );
-
-            if (!seatResRes.ok) {
-              const errText = await seatResRes.text().catch(() => "unknown");
-              throw new Error(`Failed to link seat reservation: ${seatResRes.status} ${errText}`);
-            }
-
-            await reportInfo({
-              source: "inngest:migrate-guest-session-packs",
-              message: "Migrated session pack for user",
-              level: "info",
-              context: { packId: pack.id, clerkUserId },
-            });
+          if (!sessionPackRes.ok) {
+            const errText = await sessionPackRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link session packs: ${sessionPackRes.status} ${errText}`);
           }
+
+          const seatResRes = await fetchWithTimeout(
+            `${convexUrl}/internal/link-seat-reservations`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${convexHttpKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ clerkUserId, email }),
+              timeoutMs: 10000,
+            }
+          );
+
+          if (!seatResRes.ok) {
+            const errText = await seatResRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link seat reservations: ${seatResRes.status} ${errText}`);
+          }
+
+          await reportInfo({
+            source: "inngest:migrate-guest-session-packs",
+            message: `Migrated ${packs.length} session pack(s) for user`,
+            level: "info",
+            context: { packIds, clerkUserId },
+          });
 
           return { status: "migrated", packIds };
         });
