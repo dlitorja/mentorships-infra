@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -447,7 +447,7 @@ export const migrateSessionPack = mutation({
   },
 });
 
-export const linkSessionPacksByEmail = mutation({
+export const linkSessionPacksByEmail = internalMutation({
   args: {
     clerkUserId: v.string(),
     email: v.string(),
