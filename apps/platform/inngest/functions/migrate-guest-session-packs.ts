@@ -1,16 +1,6 @@
 import { inngest } from "../client";
-import { api } from "../../../../convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
 import { reportInfo, reportError } from "@/lib/observability";
 import { z } from "zod";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 function getConvexHttpKey() {
   const key = process.env.CONVEX_HTTP_KEY;
@@ -82,7 +72,6 @@ export const migrateGuestSessionPacks = inngest.createFunction(
   },
   { event: "migration/migrate-guest-session-packs" },
   async ({ step }) => {
-    const convex = getConvexClient();
     const convexHttpKey = getConvexHttpKey();
     const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
 
@@ -153,15 +142,33 @@ export const migrateGuestSessionPacks = inngest.createFunction(
             return { status: "skipped" };
           }
 
-          await convex.mutation(api.sessionPacks.linkSessionPacksByEmail, {
-            clerkUserId,
-            email: pack.email,
+          const sessionPackRes = await fetch(`${convexUrl}/api/internal/link-session-packs`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${convexHttpKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ clerkUserId, email: pack.email }),
           });
 
-          await convex.mutation(api.seatReservations.linkSeatReservationsByEmail, {
-            clerkUserId,
-            email: pack.email,
+          if (!sessionPackRes.ok) {
+            const errText = await sessionPackRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link session pack: ${sessionPackRes.status} ${errText}`);
+          }
+
+          const seatResRes = await fetch(`${convexUrl}/api/internal/link-seat-reservations`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${convexHttpKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ clerkUserId, email: pack.email }),
           });
+
+          if (!seatResRes.ok) {
+            const errText = await seatResRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link seat reservation: ${seatResRes.status} ${errText}`);
+          }
 
           await reportInfo({
             source: "inngest:migrate-guest-session-packs",

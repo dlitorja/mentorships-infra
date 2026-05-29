@@ -1,14 +1,20 @@
 import { inngest } from "../client";
-import { api } from "../../../../convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
 import { reportInfo } from "@/lib/observability";
 
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
+function getConvexHttpKey() {
+  const key = process.env.CONVEX_HTTP_KEY;
+  if (!key) {
+    throw new Error("CONVEX_HTTP_KEY is not set");
+  }
+  return key;
+}
+
+function getConvexUrl() {
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!url) {
     throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
   }
-  return new ConvexHttpClient(convexUrl);
+  return url;
 }
 
 export const linkClerkUserToSessionPacks = inngest.createFunction(
@@ -49,12 +55,24 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     const emailDomain = normalizedEmail.split("@")[1] ?? "unknown";
 
     await step.run("link-session-packs", async () => {
-      const convex = getConvexClient();
+      const convexUrl = getConvexUrl();
+      const convexHttpKey = getConvexHttpKey();
 
-      const result = await convex.mutation(api.sessionPacks.linkSessionPacksByEmail, {
-        clerkUserId: userId,
-        email: normalizedEmail,
+      const res = await fetch(`${convexUrl}/api/internal/link-session-packs`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${convexHttpKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ clerkUserId: userId, email: normalizedEmail }),
       });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "unknown");
+        throw new Error(`Failed to link session packs: ${res.status} ${errText}`);
+      }
+
+      const result = await res.json();
 
       await reportInfo({
         source: "inngest:clerk-user-linking",
@@ -71,12 +89,24 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     });
 
     await step.run("link-seat-reservations", async () => {
-      const convex = getConvexClient();
+      const convexUrl = getConvexUrl();
+      const convexHttpKey = getConvexHttpKey();
 
-      const result = await convex.mutation(api.seatReservations.linkSeatReservationsByEmail, {
-        clerkUserId: userId,
-        email: normalizedEmail,
+      const res = await fetch(`${convexUrl}/api/internal/link-seat-reservations`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${convexHttpKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ clerkUserId: userId, email: normalizedEmail }),
       });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "unknown");
+        throw new Error(`Failed to link seat reservations: ${res.status} ${errText}`);
+      }
+
+      const result = await res.json();
 
       await reportInfo({
         source: "inngest:clerk-user-linking",
