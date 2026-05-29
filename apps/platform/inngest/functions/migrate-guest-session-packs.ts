@@ -20,29 +20,30 @@ function getConvexHttpKey() {
   return key;
 }
 
-const clerkUsersResponseSchema = z.object({
-  data: z.array(z.object({ id: z.string() })).nullable(),
+const clerkUsersResponseSchema = z.array(z.object({ id: z.string() }));
+
+const guestPackSchema = z.object({
+  _id: z.string(),
+  userId: z.string(),
+});
+
+const convexResponseSchema = z.object({
+  packs: z.array(guestPackSchema),
 });
 
 async function getClerkUserIdByEmail(email: string): Promise<string | null> {
   const clerkSecretKey = process.env.CLERK_SECRET_KEY;
   if (!clerkSecretKey) {
-    await reportError({
-      source: "inngest:migrate-guest-session-packs",
-      error: new Error("CLERK_SECRET_KEY is not set"),
-      message: "Clerk secret key not configured",
-      level: "error",
-      context: {},
-    });
-    return null;
+    throw new Error("CLERK_SECRET_KEY is not set");
   }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+  let response: Response;
   try {
-    const response = await fetch(
-      `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(email)}`,
+    response = await fetch(
+      `https://api.clerk.com/v1/users?email_address[]=${encodeURIComponent(email)}`,
       {
         headers: {
           Authorization: `Bearer ${clerkSecretKey}`,
@@ -51,66 +52,27 @@ async function getClerkUserIdByEmail(email: string): Promise<string | null> {
         signal: controller.signal,
       }
     );
-
+  } finally {
     clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => "unknown");
-      await reportError({
-        source: "inngest:migrate-guest-session-packs",
-        error: new Error(`Clerk API error: ${response.status}`),
-        message: "Clerk user lookup failed",
-        level: "error",
-        context: { status: response.status, body },
-      });
-      return null;
-    }
-
-    const rawData = await response.json();
-    const parsed = clerkUsersResponseSchema.safeParse(rawData);
-
-    if (!parsed.success) {
-      await reportError({
-        source: "inngest:migrate-guest-session-packs",
-        error: parsed.error,
-        message: "Clerk response validation failed",
-        level: "error",
-        context: {},
-      });
-      return null;
-    }
-
-    if (parsed.data.data && parsed.data.data.length > 0) {
-      return parsed.data.data[0].id;
-    }
-    return null;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err instanceof Error && err.name === "AbortError") {
-      await reportError({
-        source: "inngest:migrate-guest-session-packs",
-        error: err,
-        message: "Clerk user lookup timed out",
-        level: "error",
-        context: {},
-      });
-    } else {
-      await reportError({
-        source: "inngest:migrate-guest-session-packs",
-        error: err instanceof Error ? err : new Error(String(err)),
-        message: "Clerk user lookup failed",
-        level: "error",
-        context: {},
-      });
-    }
-    return null;
   }
-}
 
-type GuestPackFromApi = {
-  _id: string;
-  userId: string;
-};
+  if (!response.ok) {
+    const body = await response.text().catch(() => "unknown");
+    throw new Error(`Clerk API error ${response.status}: ${body}`);
+  }
+
+  const rawData = await response.json();
+  const parsed = clerkUsersResponseSchema.safeParse(rawData);
+
+  if (!parsed.success) {
+    throw new Error(`Clerk response validation failed: ${parsed.error.message}`);
+  }
+
+  if (parsed.data.length > 0) {
+    return parsed.data[0].id;
+  }
+  return null;
+}
 
 export const migrateGuestSessionPacks = inngest.createFunction(
   {
@@ -135,8 +97,14 @@ export const migrateGuestSessionPacks = inngest.createFunction(
         throw new Error(`Failed to fetch guest session packs: ${res.status}`);
       }
 
-      const data = await res.json();
-      return (data.packs as GuestPackFromApi[]).map((pack: GuestPackFromApi) => ({
+      const rawData = await res.json();
+      const parsed = convexResponseSchema.safeParse(rawData);
+
+      if (!parsed.success) {
+        throw new Error(`Invalid Convex response: ${parsed.error.message}`);
+      }
+
+      return parsed.data.packs.map((pack) => ({
         id: pack._id,
         userId: pack.userId,
         email: pack.userId.replace("email:", ""),
@@ -169,60 +137,50 @@ export const migrateGuestSessionPacks = inngest.createFunction(
     let failed = 0;
 
     for (const pack of guestSessionPacks) {
-      const packId = pack.id as string;
-      const packEmail = pack.email as string;
-
       try {
-        const clerkUserId = await step.run(`lookup-clerk-user-${packId}`, async () => {
-          return await getClerkUserIdByEmail(packEmail);
-        });
+        await step.run(`migrate-pack-${pack.id}`, async () => {
+          const clerkUserId = await getClerkUserIdByEmail(pack.email);
 
-        if (!clerkUserId) {
-          const emailDomain = packEmail.split("@")[1] ?? "unknown";
-          await step.run(`report-no-clerk-user-${packId}`, async () => {
+          if (!clerkUserId) {
+            const emailDomain = pack.email.split("@")[1] ?? "unknown";
             await reportInfo({
               source: "inngest:migrate-guest-session-packs",
               message: "No Clerk user found for email domain",
               level: "warn",
-              context: { packId, emailDomain },
+              context: { packId: pack.id, emailDomain },
             });
-          });
-          skipped++;
-          continue;
-        }
+            skipped++;
+            return { status: "skipped" };
+          }
 
-        await step.run(`update-session-pack-${packId}`, async () => {
           await convex.mutation(api.sessionPacks.linkSessionPacksByEmail, {
             clerkUserId,
-            email: packEmail,
+            email: pack.email,
           });
-        });
 
-        await step.run(`update-seat-reservation-${packId}`, async () => {
           await convex.mutation(api.seatReservations.linkSeatReservationsByEmail, {
             clerkUserId,
-            email: packEmail,
+            email: pack.email,
           });
-        });
 
-        migrated++;
-
-        await step.run(`report-success-${packId}`, async () => {
           await reportInfo({
             source: "inngest:migrate-guest-session-packs",
-            message: `Migrated session pack for user`,
+            message: "Migrated session pack for user",
             level: "info",
-            context: { packId, clerkUserId },
+            context: { packId: pack.id, clerkUserId },
           });
+
+          migrated++;
+          return { status: "migrated" };
         });
       } catch (err) {
-        await step.run(`report-error-${packId}`, async () => {
+        await step.run(`report-error-${pack.id}`, async () => {
           await reportError({
             source: "inngest:migrate-guest-session-packs",
             error: err instanceof Error ? err : new Error(String(err)),
-            message: `Failed to migrate session pack`,
+            message: "Failed to migrate session pack",
             level: "error",
-            context: { packId },
+            context: { packId: pack.id },
           });
         });
         failed++;
