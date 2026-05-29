@@ -76,7 +76,7 @@ export const migrateGuestSessionPacks = inngest.createFunction(
     const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
 
     const guestSessionPacks = await step.run("find-guest-session-packs", async () => {
-      const res = await fetch(`${convexUrl}/api/internal/guest-session-packs`, {
+      const res = await fetch(`${convexUrl}/internal/guest-session-packs`, {
         headers: {
           Authorization: `Bearer ${convexHttpKey}`,
         },
@@ -142,7 +142,7 @@ export const migrateGuestSessionPacks = inngest.createFunction(
             return { status: "skipped" };
           }
 
-          const sessionPackRes = await fetch(`${convexUrl}/api/internal/link-session-packs`, {
+          const sessionPackRes = await fetch(`${convexUrl}/internal/link-session-packs`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${convexHttpKey}`,
@@ -156,7 +156,7 @@ export const migrateGuestSessionPacks = inngest.createFunction(
             throw new Error(`Failed to link session pack: ${sessionPackRes.status} ${errText}`);
           }
 
-          const seatResRes = await fetch(`${convexUrl}/api/internal/link-seat-reservations`, {
+          const seatResRes = await fetch(`${convexUrl}/internal/link-seat-reservations`, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${convexHttpKey}`,

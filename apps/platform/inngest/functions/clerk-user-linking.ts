@@ -58,7 +58,7 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
       const convexUrl = getConvexUrl();
       const convexHttpKey = getConvexHttpKey();
 
-      const res = await fetch(`${convexUrl}/api/internal/link-session-packs`, {
+      const res = await fetch(`${convexUrl}/internal/link-session-packs`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${convexHttpKey}`,
@@ -92,7 +92,7 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
       const convexUrl = getConvexUrl();
       const convexHttpKey = getConvexHttpKey();
 
-      const res = await fetch(`${convexUrl}/api/internal/link-seat-reservations`, {
+      const res = await fetch(`${convexUrl}/internal/link-seat-reservations`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${convexHttpKey}`,
