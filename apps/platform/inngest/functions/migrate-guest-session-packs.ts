@@ -1,16 +1,6 @@
 import { inngest } from "../client";
-import { api } from "../../../../convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
 import { reportInfo, reportError } from "@/lib/observability";
 import { z } from "zod";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
 
 function getConvexHttpKey() {
   const key = process.env.CONVEX_HTTP_KEY;
@@ -65,11 +55,6 @@ async function getClerkUserIdByEmail(email: string): Promise<string | null> {
   return null;
 }
 
-type GuestPackFromApi = {
-  _id: string;
-  userId: string;
-};
-
 export const migrateGuestSessionPacks = inngest.createFunction(
   {
     id: "migrate-guest-session-packs",
@@ -78,12 +63,11 @@ export const migrateGuestSessionPacks = inngest.createFunction(
   },
   { event: "migration/migrate-guest-session-packs" },
   async ({ step }) => {
-    const convex = getConvexClient();
     const convexHttpKey = getConvexHttpKey();
     const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL!;
 
     const guestSessionPacks = await step.run("find-guest-session-packs", async () => {
-      const res = await fetch(`${convexUrl}/api/internal/guest-session-packs`, {
+      const res = await fetch(`${convexUrl}/internal/guest-session-packs`, {
         headers: {
           Authorization: `Bearer ${convexHttpKey}`,
         },
@@ -93,8 +77,14 @@ export const migrateGuestSessionPacks = inngest.createFunction(
         throw new Error(`Failed to fetch guest session packs: ${res.status}`);
       }
 
-      const data = await res.json();
-      return (data.packs as GuestPackFromApi[]).map((pack: GuestPackFromApi) => ({
+      const rawData = await res.json();
+      const parsed = z.object({ packs: z.array(z.object({ _id: z.string(), userId: z.string() })) }).safeParse(rawData);
+
+      if (!parsed.success) {
+        throw new Error(`Invalid Convex response: ${parsed.error.message}`);
+      }
+
+      return parsed.data.packs.map((pack) => ({
         id: pack._id,
         userId: pack.userId,
         email: pack.userId.replace("email:", ""),
@@ -127,60 +117,68 @@ export const migrateGuestSessionPacks = inngest.createFunction(
     let failed = 0;
 
     for (const pack of guestSessionPacks) {
-      const packId = pack.id as string;
-      const packEmail = pack.email as string;
-
       try {
-        const clerkUserId = await step.run(`lookup-clerk-user-${packId}`, async () => {
-          return await getClerkUserIdByEmail(packEmail);
-        });
+        await step.run(`migrate-pack-${pack.id}`, async () => {
+          const clerkUserId = await getClerkUserIdByEmail(pack.email);
 
-        if (!clerkUserId) {
-          const emailDomain = packEmail.split("@")[1] ?? "unknown";
-          await step.run(`report-no-clerk-user-${packId}`, async () => {
+          if (!clerkUserId) {
+            const emailDomain = pack.email.split("@")[1] ?? "unknown";
             await reportInfo({
               source: "inngest:migrate-guest-session-packs",
               message: "No Clerk user found for email domain",
               level: "warn",
-              context: { packId, emailDomain },
+              context: { packId: pack.id, emailDomain },
             });
+            skipped++;
+            return { status: "skipped" };
+          }
+
+          const sessionPackRes = await fetch(`${convexUrl}/internal/link-session-packs`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${convexHttpKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ clerkUserId, email: pack.email }),
           });
-          skipped++;
-          continue;
-        }
 
-        await step.run(`update-session-pack-${packId}`, async () => {
-          await convex.mutation(api.sessionPacks.linkSessionPacksByEmail, {
-            clerkUserId,
-            email: packEmail,
+          if (!sessionPackRes.ok) {
+            const errText = await sessionPackRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link session pack: ${sessionPackRes.status} ${errText}`);
+          }
+
+          const seatResRes = await fetch(`${convexUrl}/internal/link-seat-reservations`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${convexHttpKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ clerkUserId, email: pack.email }),
           });
-        });
 
-        await step.run(`update-seat-reservation-${packId}`, async () => {
-          await convex.mutation(api.seatReservations.linkSeatReservationsByEmail, {
-            clerkUserId,
-            email: packEmail,
-          });
-        });
+          if (!seatResRes.ok) {
+            const errText = await seatResRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link seat reservation: ${seatResRes.status} ${errText}`);
+          }
 
-        migrated++;
-
-        await step.run(`report-success-${packId}`, async () => {
           await reportInfo({
             source: "inngest:migrate-guest-session-packs",
-            message: `Migrated session pack for user`,
+            message: "Migrated session pack for user",
             level: "info",
-            context: { packId, clerkUserId },
+            context: { packId: pack.id, clerkUserId },
           });
+
+          migrated++;
+          return { status: "migrated" };
         });
       } catch (err) {
-        await step.run(`report-error-${packId}`, async () => {
+        await step.run(`report-error-${pack.id}`, async () => {
           await reportError({
             source: "inngest:migrate-guest-session-packs",
             error: err instanceof Error ? err : new Error(String(err)),
-            message: `Failed to migrate session pack`,
+            message: "Failed to migrate session pack",
             level: "error",
-            context: { packId },
+            context: { packId: pack.id },
           });
         });
         failed++;
