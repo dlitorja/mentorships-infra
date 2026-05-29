@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
@@ -444,5 +444,27 @@ export const migrateSessionPack = mutation({
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+export const linkSessionPacksByEmail = internalMutation({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.toLowerCase().trim();
+    const placeholderUserId = `email:${normalizedEmail}`;
+
+    const packsToLink = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", placeholderUserId))
+      .collect();
+
+    for (const pack of packsToLink) {
+      await ctx.db.patch(pack._id, { userId: args.clerkUserId });
+    }
+
+    return { linked: packsToLink.length };
   },
 });
