@@ -413,7 +413,7 @@ export const sendGracePeriodFinalWarning = internalAction({
   },
 });
 
-export const linkSeatReservationsByEmail = mutation({
+export const linkSeatReservationsByEmail = internalMutation({
   args: {
     clerkUserId: v.string(),
     email: v.string(),

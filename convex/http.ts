@@ -710,4 +710,46 @@ http.route({
   handler: httpGetGuestSessionPacks,
 });
 
+export const httpLinkSessionPacksByEmail = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { clerkUserId, email } = await request.json();
+
+  const result = await ctx.runMutation(internal.sessionPacks.linkSessionPacksByEmail, {
+    clerkUserId,
+    email,
+  });
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+export const httpLinkSeatReservationsByEmail = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { clerkUserId, email } = await request.json();
+
+  const result = await ctx.runMutation(internal.seatReservations.linkSeatReservationsByEmail, {
+    clerkUserId,
+    email,
+  });
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/internal/link-session-packs",
+  method: "POST",
+  handler: httpLinkSessionPacksByEmail,
+});
+
+http.route({
+  path: "/internal/link-seat-reservations",
+  method: "POST",
+  handler: httpLinkSeatReservationsByEmail,
+});
+
 export default http;
