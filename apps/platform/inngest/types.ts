@@ -1,12 +1,13 @@
 import { z } from "zod";
 
 // Event schemas with runtime validation
+// Note: orderId and packId are Convex IDs, not UUIDs
 export const purchaseMentorshipEventSchema = z.object({
   name: z.literal("purchase/mentorship"),
   data: z.object({
-    orderId: z.string().uuid(),
-    clerkId: z.string(), // Clerk user ID
-    packId: z.string().uuid(),
+    orderId: z.string(),
+    clerkId: z.string(),
+    packId: z.string(),
     provider: z.enum(["stripe", "paypal"]),
   }),
 });
@@ -15,9 +16,9 @@ export const stripeCheckoutCompletedEventSchema = z.object({
   name: z.literal("stripe/checkout.session.completed"),
   data: z.object({
     sessionId: z.string(),
-    orderId: z.string().uuid(),
+    orderId: z.string(),
     userId: z.string(), // Clerk user ID from metadata
-    packId: z.string().uuid(),
+    packId: z.string(),
     studentEmail: z.string().email().optional(),
   }),
 });
@@ -33,9 +34,9 @@ export const stripeChargeRefundedEventSchema = z.object({
 export const paypalPaymentCompletedEventSchema = z.object({
   name: z.literal("paypal/payment.capture.completed"),
   data: z.object({
-    orderId: z.string().uuid(),
+    orderId: z.string(),
     captureId: z.string(),
-    packId: z.string().uuid(),
+    packId: z.string(),
   }),
 });
 
@@ -84,14 +85,14 @@ export const sessionScheduledEventSchema = z.object({
 export const packExpirationCheckEventSchema = z.object({
   name: z.literal("pack/expiration-check"),
   data: z.object({
-    packId: z.string().uuid(),
+    packId: z.string(), // Convex ID
   }),
 });
 
 export const sessionRenewalReminderEventSchema = z.object({
   name: z.literal("session/renewal-reminder"),
   data: z.object({
-    sessionPackId: z.string().uuid(),
+    sessionPackId: z.string(), // Convex ID
     userId: z.string(),
     sessionNumber: z.number().int().min(1).max(4),
     remainingSessions: z.number().int().min(0),
@@ -133,10 +134,10 @@ export const sessionBookingEmailEventSchema = z.object({
       "booking_confirmation_student",
       "booking_notification_instructor",
     ]),
-    sessionId: z.string().uuid(),
-    sessionPackId: z.string().uuid(),
+    sessionId: z.string(), // Convex ID
+    sessionPackId: z.string(), // Convex ID
     studentId: z.string(),
-    instructorId: z.string().uuid(),
+    instructorId: z.string(), // Convex ID
     scheduledAt: z.coerce.date(),
   }),
 });
@@ -145,10 +146,10 @@ export const sessionReminderEmailEventSchema = z.object({
   name: z.literal("session/reminder-email"),
   data: z.object({
     type: z.enum(["24h_before", "1h_before"]),
-    sessionId: z.string().uuid(),
-    sessionPackId: z.string().uuid(),
+    sessionId: z.string(), // Convex ID
+    sessionPackId: z.string(), // Convex ID
     studentId: z.string(),
-    instructorId: z.string().uuid(),
+    instructorId: z.string(), // Convex ID
     scheduledAt: z.coerce.date(),
   }),
 });
@@ -156,10 +157,10 @@ export const sessionReminderEmailEventSchema = z.object({
 export const sessionCancelledEmailEventSchema = z.object({
   name: z.literal("session/cancelled-email"),
   data: z.object({
-    sessionId: z.string().uuid(),
-    sessionPackId: z.string().uuid(),
+    sessionId: z.string(), // Convex ID
+    sessionPackId: z.string(), // Convex ID
     studentId: z.string(),
-    instructorId: z.string().uuid(),
+    instructorId: z.string(), // Convex ID
     scheduledAt: z.coerce.date(),
     cancelledBy: z.enum(["instructor", "student"]),
   }),
