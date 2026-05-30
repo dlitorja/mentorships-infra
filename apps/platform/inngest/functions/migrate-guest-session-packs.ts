@@ -192,50 +192,49 @@ export const migrateGuestSessionPacks = inngest.createFunction(
             return { status: "skipped", packIds };
           }
 
-          for (const pack of packs) {
-            const sessionPackRes = await fetchWithTimeout(
-              `${convexUrl}/internal/link-session-packs`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${convexHttpKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ clerkUserId, email }),
-                timeoutMs: 10000,
-              }
-            );
-
-            if (!sessionPackRes.ok) {
-              const errText = await sessionPackRes.text().catch(() => "unknown");
-              throw new Error(`Failed to link session pack: ${sessionPackRes.status} ${errText}`);
+          // Link all packs for this email with a single call per endpoint
+          const sessionPackRes = await fetchWithTimeout(
+            `${convexUrl}/internal/link-session-packs`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${convexHttpKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ clerkUserId, email }),
+              timeoutMs: 10000,
             }
+          );
 
-            const seatResRes = await fetchWithTimeout(
-              `${convexUrl}/internal/link-seat-reservations`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${convexHttpKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ clerkUserId, email }),
-                timeoutMs: 10000,
-              }
-            );
-
-            if (!seatResRes.ok) {
-              const errText = await seatResRes.text().catch(() => "unknown");
-              throw new Error(`Failed to link seat reservation: ${seatResRes.status} ${errText}`);
-            }
-
-            await reportInfo({
-              source: "inngest:migrate-guest-session-packs",
-              message: "Migrated session pack for user",
-              level: "info",
-              context: { packId: pack.id, clerkUserId },
-            });
+          if (!sessionPackRes.ok) {
+            const errText = await sessionPackRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link session packs: ${sessionPackRes.status} ${errText}`);
           }
+
+          const seatResRes = await fetchWithTimeout(
+            `${convexUrl}/internal/link-seat-reservations`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${convexHttpKey}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ clerkUserId, email }),
+              timeoutMs: 10000,
+            }
+          );
+
+          if (!seatResRes.ok) {
+            const errText = await seatResRes.text().catch(() => "unknown");
+            throw new Error(`Failed to link seat reservations: ${seatResRes.status} ${errText}`);
+          }
+
+          await reportInfo({
+            source: "inngest:migrate-guest-session-packs",
+            message: `Migrated ${packs.length} session pack(s) for user`,
+            level: "info",
+            context: { packIds, clerkUserId },
+          });
 
           return { status: "migrated", packIds };
         });
