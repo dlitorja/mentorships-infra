@@ -21,8 +21,15 @@ import { clsx } from "clsx";
 import { useUser } from "@clerk/nextjs";
 import { Input } from "@/components/ui/input";
 
+/**
+ * Payment method options for checkout.
+ * @typedef {"stripe" | "paypal"} PaymentMethod
+ */
 type PaymentMethod = "stripe" | "paypal";
 
+/**
+ * Instructor data returned from the public instructor query.
+ */
 type InstructorData = {
   instructor: {
     _id: string;
@@ -32,6 +39,9 @@ type InstructorData = {
   };
 };
 
+/**
+ * Product/Session pack available for purchase.
+ */
 type Product = {
   _id: string;
   title: string;
@@ -44,6 +54,10 @@ type Product = {
   active: boolean;
 };
 
+/**
+ * Main checkout form content component.
+ * Handles product selection, guest checkout details, and payment method selection.
+ */
 function CheckoutContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -303,6 +317,7 @@ function CheckoutContent(): React.JSX.Element {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
+                    className="!bg-input !text-foreground"
                   />
                 </div>
                 <div>
@@ -314,6 +329,7 @@ function CheckoutContent(): React.JSX.Element {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your full name"
+                    className="!bg-input !text-foreground"
                   />
                 </div>
               </div>
@@ -460,6 +476,9 @@ function CheckoutContent(): React.JSX.Element {
   );
 }
 
+/**
+ * Checkout page component with Suspense boundary for useSearchParams.
+ */
 export default function CheckoutPage(): React.JSX.Element {
   return (
     <Suspense
