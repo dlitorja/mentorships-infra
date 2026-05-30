@@ -1,12 +1,18 @@
 import { z } from "zod";
 
+/**
+ * Non-empty trimmed string schema for identifier fields.
+ * Prevents empty or whitespace-only values from passing validation.
+ */
+const idString = () => z.string().trim().min(1);
+
 // Event schemas with runtime validation
 export const purchaseMentorshipEventSchema = z.object({
   name: z.literal("purchase/mentorship"),
   data: z.object({
-    orderId: z.string(),
-    clerkId: z.string(), // Clerk user ID
-    packId: z.string(),
+    orderId: idString(),
+    clerkId: idString(), // Clerk user ID
+    packId: idString(),
     provider: z.enum(["stripe", "paypal"]),
   }),
 });
@@ -14,10 +20,10 @@ export const purchaseMentorshipEventSchema = z.object({
 export const stripeCheckoutCompletedEventSchema = z.object({
   name: z.literal("stripe/checkout.session.completed"),
   data: z.object({
-    sessionId: z.string(),
-    orderId: z.string(),
-    userId: z.string(), // Clerk user ID from metadata
-    packId: z.string(),
+    sessionId: idString(),
+    orderId: idString(),
+    userId: idString(), // Clerk user ID from metadata
+    packId: idString(),
     studentEmail: z.string().email().optional(),
   }),
 });
@@ -25,32 +31,32 @@ export const stripeCheckoutCompletedEventSchema = z.object({
 export const stripeChargeRefundedEventSchema = z.object({
   name: z.literal("stripe/charge.refunded"),
   data: z.object({
-    chargeId: z.string(),
-    paymentIntentId: z.string(),
+    chargeId: idString(),
+    paymentIntentId: idString(),
   }),
 });
 
 export const paypalPaymentCompletedEventSchema = z.object({
   name: z.literal("paypal/payment.capture.completed"),
   data: z.object({
-    orderId: z.string(),
-    captureId: z.string(),
-    packId: z.string(),
+    orderId: idString(),
+    captureId: idString(),
+    packId: idString(),
   }),
 });
 
 export const paypalPaymentRefundedEventSchema = z.object({
   name: z.literal("paypal/payment.capture.refunded"),
   data: z.object({
-    captureId: z.string(),
-    refundId: z.string(),
+    captureId: idString(),
+    refundId: idString(),
   }),
 });
 
 export const clerkUserCreatedEventSchema = z.object({
   name: z.literal("clerk/user.created"),
   data: z.object({
-    userId: z.string(),
+    userId: idString(),
     email: z.string().email(),
   }),
 });
@@ -58,25 +64,25 @@ export const clerkUserCreatedEventSchema = z.object({
 export const userDiscordConnectedEventSchema = z.object({
   name: z.literal("user/discord.connected"),
   data: z.object({
-    clerkId: z.string(),
-    discordId: z.string(),
+    clerkId: idString(),
+    discordId: idString(),
   }),
 });
 
 export const sessionCompletedEventSchema = z.object({
   name: z.literal("session/completed"),
   data: z.object({
-    sessionId: z.string(),
-    sessionPackId: z.string(),
-    userId: z.string(), // Clerk user ID
+    sessionId: idString(),
+    sessionPackId: idString(),
+    userId: idString(), // Clerk user ID
   }),
 });
 
 export const sessionScheduledEventSchema = z.object({
   name: z.literal("session/scheduled"),
   data: z.object({
-    sessionId: z.string(),
-    sessionPackId: z.string(),
+    sessionId: idString(),
+    sessionPackId: idString(),
     scheduledAt: z.coerce.date(),
   }),
 });
@@ -84,15 +90,15 @@ export const sessionScheduledEventSchema = z.object({
 export const packExpirationCheckEventSchema = z.object({
   name: z.literal("pack/expiration-check"),
   data: z.object({
-    packId: z.string(),
+    packId: idString(),
   }),
 });
 
 export const sessionRenewalReminderEventSchema = z.object({
   name: z.literal("session/renewal-reminder"),
   data: z.object({
-    sessionPackId: z.string(),
-    userId: z.string(),
+    sessionPackId: idString(),
+    userId: idString(),
     sessionNumber: z.number().int().min(1).max(4),
     remainingSessions: z.number().int().min(0),
     gracePeriodEndsAt: z.coerce.date().optional(),
@@ -107,8 +113,8 @@ export const notificationSendEventSchema = z.object({
       "final_renewal_reminder",
       "grace_period_final_warning",
     ]),
-    userId: z.string(),
-    sessionPackId: z.string(),
+    userId: idString(),
+    sessionPackId: idString(),
     message: z.string(),
     sessionNumber: z.number().int().min(1).max(4).optional(),
     gracePeriodEndsAt: z.coerce.date().optional(),
@@ -118,7 +124,7 @@ export const notificationSendEventSchema = z.object({
 export const inventoryChangedEventSchema = z.object({
   name: z.literal("inventory/changed"),
   data: z.object({
-    instructorSlug: z.string(),
+    instructorSlug: idString(),
     type: z.enum(["one-on-one", "group"]),
     previousInventory: z.number().int().min(0),
     newInventory: z.number().int().min(-1),
@@ -133,10 +139,10 @@ export const sessionBookingEmailEventSchema = z.object({
       "booking_confirmation_student",
       "booking_notification_instructor",
     ]),
-    sessionId: z.string(),
-    sessionPackId: z.string(),
-    studentId: z.string(),
-    instructorId: z.string(),
+    sessionId: idString(),
+    sessionPackId: idString(),
+    studentId: idString(),
+    instructorId: idString(),
     scheduledAt: z.coerce.date(),
   }),
 });
@@ -145,10 +151,10 @@ export const sessionReminderEmailEventSchema = z.object({
   name: z.literal("session/reminder-email"),
   data: z.object({
     type: z.enum(["24h_before", "1h_before"]),
-    sessionId: z.string(),
-    sessionPackId: z.string(),
-    studentId: z.string(),
-    instructorId: z.string(),
+    sessionId: idString(),
+    sessionPackId: idString(),
+    studentId: idString(),
+    instructorId: idString(),
     scheduledAt: z.coerce.date(),
   }),
 });
@@ -156,10 +162,10 @@ export const sessionReminderEmailEventSchema = z.object({
 export const sessionCancelledEmailEventSchema = z.object({
   name: z.literal("session/cancelled-email"),
   data: z.object({
-    sessionId: z.string(),
-    sessionPackId: z.string(),
-    studentId: z.string(),
-    instructorId: z.string(),
+    sessionId: idString(),
+    sessionPackId: idString(),
+    studentId: idString(),
+    instructorId: idString(),
     scheduledAt: z.coerce.date(),
     cancelledBy: z.enum(["instructor", "student"]),
   }),
@@ -208,10 +214,10 @@ export type InngestEvent =
 export const paymentCreatedEventSchema = z.object({
   name: z.literal("data.sync/payment.created"),
   data: z.object({
-    id: z.string(),
-    orderId: z.string(),
+    id: idString(),
+    orderId: idString(),
     provider: z.enum(["stripe", "paypal"]),
-    providerPaymentId: z.string(),
+    providerPaymentId: idString(),
     amount: z.string(),
     currency: z.string(),
     status: z.enum(["pending", "completed", "refunded", "failed"]),
@@ -224,8 +230,8 @@ export const paymentCreatedEventSchema = z.object({
 export const paymentUpdatedEventSchema = z.object({
   name: z.literal("data.sync/payment.updated"),
   data: z.object({
-    id: z.string(),
-    orderId: z.string(),
+    id: idString(),
+    orderId: idString(),
     status: z.enum(["pending", "completed", "refunded", "failed"]),
     refundedAmount: z.string().nullable().optional(),
     updatedAt: z.number(),
@@ -235,8 +241,8 @@ export const paymentUpdatedEventSchema = z.object({
 export const orderCreatedEventSchema = z.object({
   name: z.literal("data.sync/order.created"),
   data: z.object({
-    id: z.string(),
-    userId: z.string(),
+    id: idString(),
+    userId: idString(),
     status: z.enum(["pending", "paid", "refunded", "failed", "canceled"]),
     provider: z.enum(["stripe", "paypal"]),
     totalAmount: z.string(),
@@ -249,7 +255,7 @@ export const orderCreatedEventSchema = z.object({
 export const orderUpdatedEventSchema = z.object({
   name: z.literal("data.sync/order.updated"),
   data: z.object({
-    id: z.string(),
+    id: idString(),
     status: z.enum(["pending", "paid", "refunded", "failed", "canceled"]),
     updatedAt: z.number(),
   }),
@@ -258,15 +264,15 @@ export const orderUpdatedEventSchema = z.object({
 export const sessionPackCreatedEventSchema = z.object({
   name: z.literal("data.sync/sessionPack.created"),
   data: z.object({
-    id: z.string(),
-    userId: z.string(),
-    instructorId: z.string(),
+    id: idString(),
+    userId: idString(),
+    instructorId: idString(),
     totalSessions: z.number(),
     remainingSessions: z.number(),
     purchasedAt: z.number(),
     expiresAt: z.number().nullable().optional(),
     status: z.enum(["active", "depleted", "expired", "refunded"]),
-    paymentId: z.string(),
+    paymentId: idString(),
     createdAt: z.number(),
     updatedAt: z.number(),
   }),
@@ -275,7 +281,7 @@ export const sessionPackCreatedEventSchema = z.object({
 export const sessionPackUpdatedEventSchema = z.object({
   name: z.literal("data.sync/sessionPack.updated"),
   data: z.object({
-    id: z.string(),
+    id: idString(),
     remainingSessions: z.number().optional(),
     status: z.enum(["active", "depleted", "expired", "refunded"]).optional(),
     updatedAt: z.number(),
@@ -285,10 +291,10 @@ export const sessionPackUpdatedEventSchema = z.object({
 export const seatReservationCreatedEventSchema = z.object({
   name: z.literal("data.sync/seatReservation.created"),
   data: z.object({
-    id: z.string(),
-    userId: z.string(),
-    instructorId: z.string(),
-    sessionPackId: z.string(),
+    id: idString(),
+    userId: idString(),
+    instructorId: idString(),
+    sessionPackId: idString(),
     status: z.enum(["active", "grace", "released"]),
     seatExpiresAt: z.number().nullable().optional(),
     gracePeriodEndsAt: z.number().nullable().optional(),
@@ -300,7 +306,7 @@ export const seatReservationCreatedEventSchema = z.object({
 export const seatReservationUpdatedEventSchema = z.object({
   name: z.literal("data.sync/seatReservation.updated"),
   data: z.object({
-    id: z.string(),
+    id: idString(),
     status: z.enum(["active", "grace", "released"]).optional(),
     seatExpiresAt: z.number().nullable().optional(),
     gracePeriodEndsAt: z.number().nullable().optional(),

@@ -723,10 +723,24 @@ export const httpLinkSessionPacksByEmail = httpAction(async (ctx, request) => {
     });
   }
 
+  // Presence validation
+  if (!clerkUserId || typeof clerkUserId !== "string" || !clerkUserId.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty clerkUserId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!email || typeof email !== "string" || !email.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty email" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const result = await ctx.runMutation(internal.sessionPacks.linkSessionPacksByEmail, {
-      clerkUserId,
-      email,
+      clerkUserId: clerkUserId.trim(),
+      email: email.trim().toLowerCase(),
     });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
@@ -752,10 +766,24 @@ export const httpLinkSeatReservationsByEmail = httpAction(async (ctx, request) =
     });
   }
 
+  // Presence validation
+  if (!clerkUserId || typeof clerkUserId !== "string" || !clerkUserId.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty clerkUserId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!email || typeof email !== "string" || !email.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty email" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const result = await ctx.runMutation(internal.seatReservations.linkSeatReservationsByEmail, {
-      clerkUserId,
-      email,
+      clerkUserId: clerkUserId.trim(),
+      email: email.trim().toLowerCase(),
     });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
