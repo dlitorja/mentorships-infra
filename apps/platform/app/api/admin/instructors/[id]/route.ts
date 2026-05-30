@@ -61,7 +61,7 @@ const updateInstructorSchema = z.object({
   deactivateProducts: z.boolean().optional(),
   oneOnOneInventory: z.number().int().min(0).optional(),
   groupInventory: z.number().int().min(0).optional(),
-  maxActiveStudents: z.number().int().min(1).optional(),
+  maxActiveStudents: z.number().int().min(0).optional(),
   instructorId: z.string().optional().nullable().transform((v) => {
     if (v === undefined || v === null) return v;
     return v.trim() === "" ? null : v.trim();
@@ -206,7 +206,7 @@ export async function PUT(
     const validationResult = updateInstructorSchema.safeParse(body);
 
     if (!validationResult.success) {
-      console.error("Validation error:", validationResult.error.issues);
+      console.error("Validation error:", JSON.stringify(validationResult.error.issues, null, 2), "Body received:", JSON.stringify(body));
       return NextResponse.json(
         { error: "Invalid request", details: validationResult.error.issues },
         { status: 400 }
