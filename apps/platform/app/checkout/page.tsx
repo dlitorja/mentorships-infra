@@ -328,7 +328,7 @@ function CheckoutContent(): React.JSX.Element {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
-                    className="!bg-input !text-foreground"
+className="!bg-input !text-foreground"
                   />
                 </div>
                 <div>
@@ -340,7 +340,7 @@ function CheckoutContent(): React.JSX.Element {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your full name"
-                    className="!bg-input !text-foreground"
+className="!bg-input !text-foreground"
                   />
                 </div>
               </div>
