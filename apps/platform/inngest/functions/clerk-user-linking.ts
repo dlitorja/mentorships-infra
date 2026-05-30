@@ -1,7 +1,36 @@
 import { inngest } from "../client";
 import { reportInfo } from "@/lib/observability";
 
-function getConvexUrl() {
+/**
+ * Fetches from a URL with a timeout using AbortController.
+ * @param url - The URL to fetch
+ * @param options - Fetch options including optional timeoutms
+ * @param timeoutMs - Timeout in milliseconds (default 10000)
+ */
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit & { timeoutMs?: number } = {}
+): Promise<Response> {
+  const { timeoutMs = 10000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Gets the Convex URL from environment.
+ * @throws Error if NEXT_PUBLIC_CONVEX_URL is not set
+ */
+function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) {
     throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
@@ -9,7 +38,11 @@ function getConvexUrl() {
   return url;
 }
 
-function getConvexHttpKey() {
+/**
+ * Gets the Convex HTTP key from environment.
+ * @throws Error if CONVEX_HTTP_KEY is not set
+ */
+function getConvexHttpKey(): string {
   const key = process.env.CONVEX_HTTP_KEY;
   if (!key) {
     throw new Error("CONVEX_HTTP_KEY is not set");
@@ -17,6 +50,10 @@ function getConvexHttpKey() {
   return key;
 }
 
+/**
+ * Links a Clerk user to their session packs and seat reservations
+ * after the user is created in Clerk.
+ */
 export const linkClerkUserToSessionPacks = inngest.createFunction(
   {
     id: "link-clerk-user-to-session-packs",
@@ -56,14 +93,18 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     const convexUrl = getConvexUrl();
     const convexHttpKey = getConvexHttpKey();
 
-    await step.run("link-session-packs", async () => {
-      const res = await fetch(`${convexUrl}/internal/link-session-packs`, {
+    let sessionPacksLinked = 0;
+    let seatReservationsLinked = 0;
+
+    const sessionPackResult = await step.run("link-session-packs", async () => {
+      const res = await fetchWithTimeout(`${convexUrl}/internal/link-session-packs`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${convexHttpKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ clerkUserId: userId, email: normalizedEmail }),
+        timeoutMs: 10000,
       });
 
       if (!res.ok) {
@@ -86,15 +127,17 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
       return result;
     });
+    sessionPacksLinked = sessionPackResult?.linked ?? 0;
 
-    await step.run("link-seat-reservations", async () => {
-      const res = await fetch(`${convexUrl}/internal/link-seat-reservations`, {
+    const seatReservationResult = await step.run("link-seat-reservations", async () => {
+      const res = await fetchWithTimeout(`${convexUrl}/internal/link-seat-reservations`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${convexHttpKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ clerkUserId: userId, email: normalizedEmail }),
+        timeoutMs: 10000,
       });
 
       if (!res.ok) {
@@ -117,10 +160,13 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
       return result;
     });
+    seatReservationsLinked = seatReservationResult?.linked ?? 0;
 
     return {
       linked: true,
       userId,
+      sessionPacksLinked,
+      seatReservationsLinked,
     };
   }
 );
