@@ -93,7 +93,10 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
     const convexUrl = getConvexUrl();
     const convexHttpKey = getConvexHttpKey();
 
-    await step.run("link-session-packs", async () => {
+    let sessionPacksLinked = 0;
+    let seatReservationsLinked = 0;
+
+    const sessionPackResult = await step.run("link-session-packs", async () => {
       const res = await fetchWithTimeout(`${convexUrl}/internal/link-session-packs`, {
         method: "POST",
         headers: {
@@ -124,8 +127,9 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
       return result;
     });
+    sessionPacksLinked = sessionPackResult?.linked ?? 0;
 
-    await step.run("link-seat-reservations", async () => {
+    const seatReservationResult = await step.run("link-seat-reservations", async () => {
       const res = await fetchWithTimeout(`${convexUrl}/internal/link-seat-reservations`, {
         method: "POST",
         headers: {
@@ -156,10 +160,13 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
       return result;
     });
+    seatReservationsLinked = seatReservationResult?.linked ?? 0;
 
     return {
       linked: true,
       userId,
+      sessionPacksLinked,
+      seatReservationsLinked,
     };
   }
 );

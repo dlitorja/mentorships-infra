@@ -158,93 +158,108 @@ export const migrateGuestSessionPacks = inngest.createFunction(
       });
     });
 
+    // Deduplicate by email to avoid redundant Clerk API calls
+    const packsByEmail = new Map<string, typeof guestSessionPacks>();
+    for (const pack of guestSessionPacks) {
+      const existing = packsByEmail.get(pack.email);
+      if (existing) {
+        existing.push(pack);
+      } else {
+        packsByEmail.set(pack.email, [pack]);
+      }
+    }
+
     // Track counts outside step.run callbacks so they persist across retries
     // Step results are memoized, so we track based on return value
     let migrated = 0;
     let skipped = 0;
     let failed = 0;
 
-    for (const pack of guestSessionPacks) {
+    for (const [email, packs] of packsByEmail) {
+      const packIds = packs.map((p) => p.id);
       try {
-        const stepResult = await step.run(`migrate-pack-${pack.id}`, async () => {
-          const clerkUserId = await getClerkUserIdByEmail(pack.email);
+        const stepResult = await step.run(`migrate-pack-${packIds.join("-")}`, async () => {
+          const clerkUserId = await getClerkUserIdByEmail(email);
 
           if (!clerkUserId) {
-            const emailDomain = pack.email.split("@")[1] ?? "unknown";
+            const emailDomain = email.split("@")[1] ?? "unknown";
             await reportInfo({
               source: "inngest:migrate-guest-session-packs",
               message: "No Clerk user found for email domain",
               level: "warn",
-              context: { packId: pack.id, emailDomain },
+              context: { packIds, emailDomain },
             });
-            return { status: "skipped", packId: pack.id };
+            return { status: "skipped", packIds };
           }
 
-          const sessionPackRes = await fetchWithTimeout(
-            `${convexUrl}/internal/link-session-packs`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${convexHttpKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ clerkUserId, email: pack.email }),
-              timeoutMs: 10000,
+          for (const pack of packs) {
+            const sessionPackRes = await fetchWithTimeout(
+              `${convexUrl}/internal/link-session-packs`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${convexHttpKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ clerkUserId, email }),
+                timeoutMs: 10000,
+              }
+            );
+
+            if (!sessionPackRes.ok) {
+              const errText = await sessionPackRes.text().catch(() => "unknown");
+              throw new Error(`Failed to link session pack: ${sessionPackRes.status} ${errText}`);
             }
-          );
 
-          if (!sessionPackRes.ok) {
-            const errText = await sessionPackRes.text().catch(() => "unknown");
-            throw new Error(`Failed to link session pack: ${sessionPackRes.status} ${errText}`);
-          }
+            const seatResRes = await fetchWithTimeout(
+              `${convexUrl}/internal/link-seat-reservations`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${convexHttpKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ clerkUserId, email }),
+                timeoutMs: 10000,
+              }
+            );
 
-          const seatResRes = await fetchWithTimeout(
-            `${convexUrl}/internal/link-seat-reservations`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${convexHttpKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ clerkUserId, email: pack.email }),
-              timeoutMs: 10000,
+            if (!seatResRes.ok) {
+              const errText = await seatResRes.text().catch(() => "unknown");
+              throw new Error(`Failed to link seat reservation: ${seatResRes.status} ${errText}`);
             }
-          );
 
-          if (!seatResRes.ok) {
-            const errText = await seatResRes.text().catch(() => "unknown");
-            throw new Error(`Failed to link seat reservation: ${seatResRes.status} ${errText}`);
+            await reportInfo({
+              source: "inngest:migrate-guest-session-packs",
+              message: "Migrated session pack for user",
+              level: "info",
+              context: { packId: pack.id, clerkUserId },
+            });
           }
 
-          await reportInfo({
-            source: "inngest:migrate-guest-session-packs",
-            message: "Migrated session pack for user",
-            level: "info",
-            context: { packId: pack.id, clerkUserId },
-          });
-
-          return { status: "migrated", packId: pack.id };
+          return { status: "migrated", packIds };
         });
 
         // Track based on step result status
         const status = stepResult.status;
         if (status === "migrated") {
-          migrated++;
+          migrated += packs.length;
         } else if (status === "skipped") {
-          skipped++;
+          skipped += packs.length;
         }
       } catch (err) {
         // Error in step.run - report it and mark as failed
-        await step.run(`report-error-${pack.id}`, async () => {
+        const errorPackId = packIds[0];
+        await step.run(`report-error-${errorPackId}`, async () => {
           await reportError({
             source: "inngest:migrate-guest-session-packs",
             error: err instanceof Error ? err : new Error(String(err)),
             message: "Failed to migrate session pack",
             level: "error",
-            context: { packId: pack.id },
+            context: { packIds },
           });
         });
-        failed++;
+        failed += packs.length;
       }
     }
 
