@@ -742,7 +742,6 @@ export const httpLinkSessionPacksByEmail = httpAction(async (ctx, request) => {
       clerkUserId: clerkUserId.trim(),
       email: email.trim().toLowerCase(),
     });
-    });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
     });
@@ -785,7 +784,6 @@ export const httpLinkSeatReservationsByEmail = httpAction(async (ctx, request) =
     const result = await ctx.runMutation(internal.seatReservations.linkSeatReservationsByEmail, {
       clerkUserId: clerkUserId.trim(),
       email: email.trim().toLowerCase(),
-    });
     });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
