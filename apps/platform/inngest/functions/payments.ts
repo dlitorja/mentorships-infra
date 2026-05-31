@@ -22,18 +22,46 @@ const clerkUserSchema = z.array(
 
 type ClerkUser = z.infer<typeof clerkUserSchema>[number];
 
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
+function getConvexUrl(): string {
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+  if (!url) {
     throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
   }
-  return new ConvexHttpClient(convexUrl);
+  return url;
+}
+
+function getConvexHttpKey(): string {
+  const key = process.env.CONVEX_HTTP_KEY;
+  if (!key) {
+    throw new Error("CONVEX_HTTP_KEY is not set");
+  }
+  return key;
+}
+
+async function convexQuery<T>(queryName: string, args: Record<string, unknown>): Promise<T> {
+  const url = getConvexUrl();
+  const key = getConvexHttpKey();
+  const res = await fetch(`${url}/api/query/${queryName}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) {
+    throw new Error(`Convex query ${queryName} failed: ${res.status}`);
+  }
+  const json = await res.json();
+  return json as T;
 }
 
 async function getInstructorNameFromClerk(instructorId: Id<"instructors">, fallbackName: string): Promise<string> {
   try {
-    const convex = getConvexClient();
-    const instructorName = await convex.query(api.instructors.getInstructorNameById, { id: instructorId });
+    const instructorName = await convexQuery<string | null>(
+      "instructors/getInstructorNameById",
+      { id: instructorId }
+    );
     if (!instructorName) {
       return fallbackName;
     }
