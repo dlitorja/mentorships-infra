@@ -4,8 +4,30 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
 import { sendEmail } from "@/lib/email";
-import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 import { reportInfo } from "@/lib/observability";
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+type EmailResult = { id: string | null; ok: boolean };
+
+function parseEmailResult(res: { ok: true; id: string | null } | { ok: false; skipped?: true; error?: string }): EmailResult {
+  if (res.ok) {
+    return { ok: true, id: res.id ?? null };
+  }
+  return { ok: false, id: null };
+}
+
+function formatPrice(amount: string | null, currency: string): string {
+  if (amount === null || amount === undefined) return "N/A";
+  return `${currency} ${amount}`;
+}
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -143,6 +165,18 @@ const completedOrder = await step.run("update-order", async () => {
         throw new Error(`Product not found: ${packId}`);
       }
       return productData;
+    });
+
+    const instructorName = await step.run("get-instructor-name", async () => {
+      if (!product.instructorId) return "your instructor";
+      try {
+        const instructor = await convex.query(api.instructors.getInstructorById, {
+          id: product.instructorId as Id<"instructors">,
+        });
+        return instructor?.name ?? "your instructor";
+      } catch {
+        return "your instructor";
+      }
     });
 
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
@@ -283,6 +317,10 @@ const completedOrder = await step.run("update-order", async () => {
       });
     });
 
+    const sessionsCount = product.sessionsPerPack || 0;
+    const pricePaid = fullSession.amount_total ? (fullSession.amount_total / 100).toFixed(2) : null;
+    const currency = fullSession.currency?.toUpperCase() || "USD";
+
     // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
     await step.run("send-purchase-confirmation-email", async () => {
       const email = (studentEmail || "").trim().toLowerCase();
@@ -291,48 +329,80 @@ const completedOrder = await step.run("update-order", async () => {
       const hasClerkAccount = resolvedUserId !== "guest" && !resolvedUserId.startsWith("email:");
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-      const html = hasClerkAccount
-        ? `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">Purchase confirmed</h2>
-            <p style="margin:0 0 12px">Your session pack has been purchased successfully. Head to your dashboard to book sessions and manage your mentorship.</p>
+      if (hasClerkAccount) {
+        // Returning user - already has Clerk account, show dashboard CTA with purchase details
+        const html = `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! Your session pack is now active.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#6b7280">Total paid</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+              </tr>
+            </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
-          </div>`
-        : `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
-            <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
-            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
-            <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
-            <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
           </div>`;
 
-      const res = await sendEmail({
-        to: email,
-        subject: hasClerkAccount ? "Your mentorship purchase is confirmed" : "Claim your account to access your session pack",
-        html,
-        headers: { "X-Email-Type": hasClerkAccount ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
-      });
+        const res = await sendEmail({
+          to: email,
+          subject: "Your mentorship purchase is confirmed",
+          html,
+          headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "stripe" },
+        });
 
-      await reportInfo({
-        source: "inngest:process-stripe-checkout",
-        message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
-        level: res.ok ? "info" : "warn",
-        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, hasClerkAccount },
-      });
-    });
+        const parsedResult = parseEmailResult(res);
+        await reportInfo({
+          source: "inngest:process-stripe-checkout",
+          message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
+          level: res.ok ? "info" : "warn",
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, hasClerkAccount },
+        });
+      } else {
+        // New user - needs to create account and verify email
+        const html = `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! Click below to create your account and access your session pack. This will also verify your email address.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#6b7280">Total paid</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
+            <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
+            <p style="margin:4px 0 0;font-size:14px"><a href="${baseUrl}/instructors">Browse instructors</a></p>
+          </div>`;
 
-    await step.run("send-magic-link-to-clerk-user", async () => {
-      // Only for real Clerk users; skip guests and email-placeholders
-      if (!resolvedUserId || resolvedUserId === "guest" || resolvedUserId.startsWith("email:")) {
-        return { skipped: true } as const;
-      }
-      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-      try {
-        const res = await sendEmailLinkForUser(resolvedUserId, `${baseUrl}/auth-redirect`);
-        return { ok: res.ok } as const;
-      } catch (e) {
-        console.error("[inngest/stripe] Failed to send magic link:", e);
-        return { ok: false } as const;
+        const res = await sendEmail({
+          to: email,
+          subject: "Your mentorship purchase is confirmed — Create your account",
+          html,
+          headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
+        });
+
+        const parsedResult = parseEmailResult(res);
+        await reportInfo({
+          source: "inngest:process-stripe-checkout",
+          message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
+          level: res.ok ? "info" : "warn",
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, hasClerkAccount },
+        });
       }
     });
 
@@ -535,6 +605,18 @@ export const processPayPalCheckout = inngest.createFunction(
       return productData;
     });
 
+    const instructorName = await step.run("get-instructor-name", async () => {
+      if (!product.instructorId) return "your instructor";
+      try {
+        const instructor = await convex.query(api.instructors.getInstructorById, {
+          id: product.instructorId as Id<"instructors">,
+        });
+        return instructor?.name ?? "your instructor";
+      } catch {
+        return "your instructor";
+      }
+    });
+
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
 
     const sessionPack = await step.run("create-session-pack", async () => {
@@ -654,6 +736,10 @@ export const processPayPalCheckout = inngest.createFunction(
     });
 
     // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
+    const sessionsCount = product.sessionsPerPack || 0;
+    const pricePaid = order.totalAmount || null;
+    const currency = (order.currency ?? "USD").toUpperCase();
+
     await step.run("send-purchase-confirmation-email", async () => {
       const email = ((event.data as any)?.studentEmail as string | undefined)?.trim().toLowerCase() || "";
       if (!email) return { skipped: true } as const;
@@ -662,48 +748,80 @@ export const processPayPalCheckout = inngest.createFunction(
       const isGuest = !clerkId || clerkId === "guest" || clerkId.startsWith("email:");
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-      const html = isGuest
-        ? `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">You're in! Claim your account</h2>
-            <p style="margin:0 0 12px">We created your purchase using this email. Create your account to link it now and access your session pack anytime.</p>
-            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Claim your account</a></p>
-            <p style="margin:0 0 8px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a>.</p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
-            <p style="color:#6b7280;margin-top:12px;font-size:12px">Tip: Use the same email (${email}) to automatically link your purchase.</p>
-          </div>`
-        : `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">Purchase confirmed</h2>
-            <p style="margin:0 0 12px">Your session pack has been purchased successfully. Head to your dashboard to book sessions and manage your mentorship.</p>
+      if (isGuest) {
+        // New user - needs to create account and verify email
+        const html = `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! Click below to create your account and access your session pack. This will also verify your email address.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#6b7280">Total paid</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
+            <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
+            <p style="margin:4px 0 0;font-size:14px"><a href="${baseUrl}/instructors">Browse instructors</a></p>
+          </div>`;
+
+        const res = await sendEmail({
+          to: email,
+          subject: "Your mentorship purchase is confirmed — Create your account",
+          html,
+          headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
+        });
+
+        const parsedResult = parseEmailResult(res);
+        await reportInfo({
+          source: "inngest:process-paypal-checkout",
+          message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
+          level: res.ok ? "info" : "warn",
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isGuest },
+        });
+      } else {
+        // Returning user - already has Clerk account
+        const html = `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! Your session pack is now active.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#6b7280">Total paid</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+              </tr>
+            </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
           </div>`;
 
-      const res = await sendEmail({
-        to: email,
-        subject: isGuest ? "Claim your account to access your session pack" : "Your mentorship purchase is confirmed",
-        html,
-        headers: { "X-Email-Type": isGuest ? "guest_onboarding" : "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "paypal" },
-      });
+        const res = await sendEmail({
+          to: email,
+          subject: "Your mentorship purchase is confirmed",
+          html,
+          headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "paypal" },
+        });
 
-      await reportInfo({
-        source: "inngest:process-paypal-checkout",
-        message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
-        level: res.ok ? "info" : "warn",
-        context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, isGuest },
-      });
-    });
-
-    await step.run("send-magic-link-to-clerk-user", async () => {
-      const clerkId = order.userId as string;
-      if (!clerkId || clerkId === "guest" || clerkId.startsWith("email:")) {
-        return { skipped: true } as const;
-      }
-      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-      try {
-        const res = await sendEmailLinkForUser(clerkId, `${baseUrl}/auth-redirect`);
-        return { ok: res.ok } as const;
-      } catch (e) {
-        console.error("[inngest/paypal] Failed to send magic link:", e);
-        return { ok: false } as const;
+        const parsedResult = parseEmailResult(res);
+        await reportInfo({
+          source: "inngest:process-paypal-checkout",
+          message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
+          level: res.ok ? "info" : "warn",
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isGuest },
+        });
       }
     });
 
