@@ -7,6 +7,54 @@ import { sendEmail } from "@/lib/email";
 import { reportInfo } from "@/lib/observability";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 
+function getConvexClient() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  return new ConvexHttpClient(convexUrl);
+}
+
+async function getInstructorNameFromClerk(instructorId: Id<"instructors">, fallbackName: string): Promise<string> {
+  try {
+    const convex = getConvexClient();
+    const instructorName = await convex.query(api.instructors.getInstructorNameById, { id: instructorId });
+    if (!instructorName) {
+      return fallbackName;
+    }
+    return instructorName;
+  } catch {
+    return fallbackName;
+  }
+}
+
+async function findClerkUserIdByEmail(email: string): Promise<string | null> {
+  try {
+    const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+    if (!clerkSecretKey) {
+      return null;
+    }
+    const normalizedEmail = email.toLowerCase().trim();
+    const queryParams = new URLSearchParams({ 'email_address': normalizedEmail });
+    const response = await fetch(`https://api.clerk.com/v1/users?${queryParams}`, {
+      headers: {
+        Authorization: `Bearer ${clerkSecretKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json() as { data: Array<{ id: string; email_addresses: Array<{ email_address: string }> }> };
+    const user = data.data.find(u => 
+      u.email_addresses.some(addr => addr.email_address.toLowerCase() === normalizedEmail)
+    );
+    return user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -28,14 +76,6 @@ function parseEmailResult(res: { ok: true; id: string | null } | { ok: false; sk
 function formatPrice(amount: string | null, currency: string): string {
   if (amount === null || amount === undefined) return "N/A";
   return `${currency} ${amount}`;
-}
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
 }
 
 export const processStripeCheckout = inngest.createFunction(
@@ -170,14 +210,7 @@ const completedOrder = await step.run("update-order", async () => {
 
     const instructorName = await step.run("get-instructor-name", async () => {
       if (!product.instructorId) return "your instructor";
-      try {
-        const instructor = await convex.query(api.instructors.getInstructorById, {
-          id: product.instructorId as Id<"instructors">,
-        });
-        return instructor?.name ?? "your instructor";
-      } catch {
-        return "your instructor";
-      }
+      return await getInstructorNameFromClerk(product.instructorId as Id<"instructors">, "your instructor");
     });
 
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
@@ -328,25 +361,31 @@ const completedOrder = await step.run("update-order", async () => {
       const email = (fullSession.customer_details?.email || studentEmail || "").trim().toLowerCase();
       if (!email) return { skipped: true } as const;
 
-      const isClerkUser = resolvedUserId !== "guest" && !resolvedUserId.startsWith("email:");
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-      // Only send magic link when a Clerk account exists; guests get a different email template.
+      // Check if a Clerk user already exists for this email address
+      const existingClerkUserId = await findClerkUserIdByEmail(email);
+
+      // Determine the userId to use for magic link: prefer resolved userId, fallback to existing Clerk user
+      const isClerkUser = resolvedUserId !== "guest" && !resolvedUserId.startsWith("email:");
+      const clerkUserIdForMagicLink = isClerkUser ? resolvedUserId : existingClerkUserId;
+
+      // Only send magic link when a Clerk account exists
       let magicLinkSent = false;
-      if (isClerkUser) {
+      if (clerkUserIdForMagicLink) {
         const magicLinkRedirectUrl = `${baseUrl}/sign-in`;
-        const magicLinkResult = await sendEmailLinkForUser(resolvedUserId, magicLinkRedirectUrl);
+        const magicLinkResult = await sendEmailLinkForUser(clerkUserIdForMagicLink, magicLinkRedirectUrl);
         magicLinkSent = magicLinkResult.ok;
         await reportInfo({
           source: "inngest:process-stripe-checkout",
           message: magicLinkResult.ok ? "Magic link sent" : `Magic link failed: ${magicLinkResult.error}`,
           level: magicLinkResult.ok ? "info" : "warn",
-          context: { orderId, ok: magicLinkSent },
+          context: { orderId, ok: magicLinkSent, hasExistingClerkAccount: !!existingClerkUserId },
         });
       } else {
         await reportInfo({
           source: "inngest:process-stripe-checkout",
-          message: "Skipped magic link for guest user",
+          message: "No Clerk account found, sending create account email",
           level: "info",
           context: { orderId },
         });
@@ -615,14 +654,7 @@ export const processPayPalCheckout = inngest.createFunction(
 
     const instructorName = await step.run("get-instructor-name", async () => {
       if (!product.instructorId) return "your instructor";
-      try {
-        const instructor = await convex.query(api.instructors.getInstructorById, {
-          id: product.instructorId as Id<"instructors">,
-        });
-        return instructor?.name ?? "your instructor";
-      } catch {
-        return "your instructor";
-      }
+      return await getInstructorNameFromClerk(product.instructorId as Id<"instructors">, "your instructor");
     });
 
     const expiresAt = Date.now() + (product.validityDays || 60) * 24 * 60 * 60 * 1000;
@@ -752,24 +784,37 @@ export const processPayPalCheckout = inngest.createFunction(
       const email = ((event.data as any)?.studentEmail as string | undefined)?.trim().toLowerCase() || "";
       if (!email) return { skipped: true } as const;
 
+      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+
+      // Check if a Clerk user already exists for this email address
+      const existingClerkUserId = await findClerkUserIdByEmail(email);
+
+      // Determine the userId to use for magic link: prefer order userId, fallback to existing Clerk user
       const clerkId = order.userId as string;
       const isGuest = !clerkId || clerkId === "guest" || clerkId.startsWith("email:");
       const isClerkUser = !isGuest;
-      const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+      const clerkUserIdForMagicLink = isClerkUser ? clerkId : existingClerkUserId;
 
       // Send a Clerk magic link so the user can access their account regardless of whether
       // they are "new" (created during checkout) or returning. Clerk's prepareVerification
       // skips sending if the email is already verified, so this is safe to call always.
       let magicLinkSent = false;
-      if (isClerkUser) {
+      if (clerkUserIdForMagicLink) {
         const magicLinkRedirectUrl = `${baseUrl}/sign-in`;
-        const magicLinkResult = await sendEmailLinkForUser(clerkId, magicLinkRedirectUrl);
+        const magicLinkResult = await sendEmailLinkForUser(clerkUserIdForMagicLink, magicLinkRedirectUrl);
         magicLinkSent = magicLinkResult.ok;
         await reportInfo({
           source: "inngest:process-paypal-checkout",
           message: magicLinkResult.ok ? "Magic link sent" : `Magic link failed: ${magicLinkResult.error}`,
           level: magicLinkResult.ok ? "info" : "warn",
-          context: { orderId, ok: magicLinkSent },
+          context: { orderId, ok: magicLinkSent, hasExistingClerkAccount: !!existingClerkUserId },
+        });
+      } else {
+        await reportInfo({
+          source: "inngest:process-paypal-checkout",
+          message: "No Clerk account found, sending create account email",
+          level: "info",
+          context: { orderId },
         });
       }
 
