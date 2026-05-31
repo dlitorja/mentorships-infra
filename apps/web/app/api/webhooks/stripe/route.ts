@@ -51,9 +51,22 @@ export async function POST(req: NextRequest) {
         const studentEmail = session.customer_details?.email || undefined;
 
         if (!orderId || !userId || !packId) {
+          if (event.livemode) {
+            await reportError({
+              source: "webhooks/stripe",
+              error: new Error("Missing required metadata in live mode checkout session"),
+              message: "Missing required metadata in checkout session - returning 400 for retry",
+              level: "error",
+              context: { orderId, userId, packId, sessionId: session.id },
+            });
+            return NextResponse.json(
+              { error: "Missing required metadata" },
+              { status: 400 }
+            );
+          }
           await reportError({
             source: "webhooks/stripe",
-            error: new Error("Missing required metadata in checkout session"),
+            error: new Error("Missing required metadata in test mode checkout session"),
             message: "Missing required metadata in checkout session - skipping processing",
             level: "warn",
             context: { orderId, userId, packId, sessionId: session.id },
@@ -85,12 +98,27 @@ export async function POST(req: NextRequest) {
 
       case "charge.refunded": {
         const charge = event.data.object as Stripe.Charge;
-        const paymentIntentId = charge.payment_intent as string;
+        const rawPaymentIntent = charge.payment_intent;
+        const paymentIntentId =
+          typeof rawPaymentIntent === "string" ? rawPaymentIntent : rawPaymentIntent?.id ?? null;
 
         if (!paymentIntentId) {
+          if (event.livemode) {
+            await reportError({
+              source: "webhooks/stripe",
+              error: new Error("Missing payment_intent in live mode charge refund event"),
+              message: "Missing payment_intent in charge refund event - returning 400 for retry",
+              level: "error",
+              context: { chargeId: charge.id },
+            });
+            return NextResponse.json(
+              { error: "Missing payment_intent" },
+              { status: 400 }
+            );
+          }
           await reportError({
             source: "webhooks/stripe",
-            error: new Error("Missing payment_intent in charge refund event"),
+            error: new Error("Missing payment_intent in test mode charge refund event"),
             message: "Missing payment_intent in charge refund event - skipping processing",
             level: "warn",
             context: { chargeId: charge.id },
