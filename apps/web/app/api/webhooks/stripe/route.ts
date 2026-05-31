@@ -54,13 +54,13 @@ export async function POST(req: NextRequest) {
           await reportError({
             source: "webhooks/stripe",
             error: new Error("Missing required metadata in checkout session"),
-            message: "Missing required metadata in checkout session",
-            level: "error",
+            message: "Missing required metadata in checkout session - skipping processing",
+            level: "warn",
             context: { orderId, userId, packId, sessionId: session.id },
           });
           return NextResponse.json(
-            { error: "Missing required metadata" },
-            { status: 400 }
+            { received: true, skipped: "missing_metadata" },
+            { status: 200 }
           );
         }
 
@@ -91,13 +91,13 @@ export async function POST(req: NextRequest) {
           await reportError({
             source: "webhooks/stripe",
             error: new Error("Missing payment_intent in charge refund event"),
-            message: "Missing payment_intent in charge refund event",
-            level: "error",
+            message: "Missing payment_intent in charge refund event - skipping processing",
+            level: "warn",
             context: { chargeId: charge.id },
           });
           return NextResponse.json(
-            { error: "Missing payment_intent" },
-            { status: 400 }
+            { received: true, skipped: "missing_payment_intent" },
+            { status: 200 }
           );
         }
 
