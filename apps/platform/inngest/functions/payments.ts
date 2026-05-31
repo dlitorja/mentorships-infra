@@ -25,7 +25,7 @@ type ClerkUser = z.infer<typeof clerkUserSchema>[number];
 function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
   if (!url) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+    throw new Error("NEXT_PUBLIC_CONVEX_URL or CONVEX_DEPLOYMENT_URL is not set");
   }
   return url;
 }
@@ -41,37 +41,43 @@ function getConvexHttpKey(): string {
 async function convexQuery<T>(queryName: string, args: Record<string, unknown>): Promise<T> {
   const url = getConvexUrl();
   const key = getConvexHttpKey();
-  const res = await fetch(`${url}/api/query/${queryName}`, {
+  const res = await fetch(`${url}/api/query`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
     },
-    body: JSON.stringify(args),
+    body: JSON.stringify({ path: queryName, args, format: "json" }),
   });
   if (!res.ok) {
     throw new Error(`Convex query ${queryName} failed: ${res.status}`);
   }
-  const json = await res.json();
-  return json as T;
+  const json = await res.json() as { status: string; value: T; errorMessage?: string };
+  if (json.status === "error") {
+    throw new Error(`Convex query ${queryName} failed: ${json.errorMessage}`);
+  }
+  return json.value;
 }
 
 async function convexMutation<T>(mutationName: string, args: Record<string, unknown>): Promise<T> {
   const url = getConvexUrl();
   const key = getConvexHttpKey();
-  const res = await fetch(`${url}/api/mutation/${mutationName}`, {
+  const res = await fetch(`${url}/api/mutation`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${key}`,
     },
-    body: JSON.stringify(args),
+    body: JSON.stringify({ path: mutationName, args, format: "json" }),
   });
   if (!res.ok) {
     throw new Error(`Convex mutation ${mutationName} failed: ${res.status}`);
   }
-  const json = await res.json();
-  return json as T;
+  const json = await res.json() as { status: string; value: T; errorMessage?: string };
+  if (json.status === "error") {
+    throw new Error(`Convex mutation ${mutationName} failed: ${json.errorMessage}`);
+  }
+  return json.value;
 }
 
 async function getInstructorNameFromClerk(instructorId: Id<"instructors">, fallbackName: string): Promise<string> {
