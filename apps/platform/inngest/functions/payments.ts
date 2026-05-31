@@ -6,6 +6,21 @@ import { stripe } from "../../lib/stripe";
 import { sendEmail } from "@/lib/email";
 import { reportInfo } from "@/lib/observability";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
+import { z } from "zod";
+import type { PaypalPaymentCompletedEvent } from "../types";
+
+const clerkUserSchema = z.array(
+  z.object({
+    id: z.string(),
+    email_addresses: z.array(
+      z.object({
+        email_address: z.string(),
+      })
+    ),
+  })
+);
+
+type ClerkUser = z.infer<typeof clerkUserSchema>[number];
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -45,8 +60,13 @@ async function findClerkUserIdByEmail(email: string): Promise<string | null> {
     if (!response.ok) {
       return null;
     }
-    const data = await response.json() as { data: Array<{ id: string; email_addresses: Array<{ email_address: string }> }> };
-    const user = data.data.find(u => 
+    const json = await response.json();
+    const parseResult = clerkUserSchema.safeParse(json);
+    if (!parseResult.success) {
+      return null;
+    }
+    const users: ClerkUser[] = parseResult.data;
+    const user = users.find(u => 
       u.email_addresses.some(addr => addr.email_address.toLowerCase() === normalizedEmail)
     );
     return user?.id ?? null;
@@ -596,7 +616,7 @@ export const processPayPalCheckout = inngest.createFunction(
   { id: "process-paypal-checkout", name: "Process PayPal Checkout", retries: 3 },
   { event: "paypal/payment.capture.completed" },
   async ({ event, step }) => {
-    const { captureId, orderId, packId } = event.data;
+    const { captureId, orderId, packId } = event.data as unknown as PaypalPaymentCompletedEvent["data"];
     const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
