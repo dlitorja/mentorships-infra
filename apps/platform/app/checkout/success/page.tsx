@@ -82,7 +82,22 @@ function CheckoutSuccessContent(): React.JSX.Element {
 
             <div className="flex flex-col gap-2">
               {!isSignedIn ? (
-                isNew || isGuest ? (
+                isNew && !isGuest ? (
+                  <>
+                    <div className="text-sm text-muted-foreground">
+                      <p>Check your email — we've sent you a login link to access your session pack.</p>
+                    </div>
+                    <Button asChild className="w-full">
+                      <Link href="/sign-in">Check your email for login link</Link>
+                    </Button>
+                    <Button asChild variant="outline" className="w-full">
+                      <Link href="/sign-in">Already have an account? Sign in</Link>
+                    </Button>
+                    <Button asChild variant="outline" className="w-full">
+                      <Link href="/sign-up">Create an account instead</Link>
+                    </Button>
+                  </>
+                ) : isGuest ? (
                   <>
                     <div className="text-sm text-muted-foreground">
                       <p>Check your email for purchase confirmation details.</p>
@@ -94,9 +109,6 @@ function CheckoutSuccessContent(): React.JSX.Element {
                     <Button asChild variant="outline" className="w-full">
                       <Link href="/sign-in">Already have an account? Sign in</Link>
                     </Button>
-                    <Button asChild variant="ghost" className="w-full">
-                      <Link href="/instructors">Browse Instructors</Link>
-                    </Button>
                   </>
                 ) : (
                   <>
@@ -106,20 +118,12 @@ function CheckoutSuccessContent(): React.JSX.Element {
                     <Button asChild variant="outline" className="w-full">
                       <Link href="/sign-up">Create an Account</Link>
                     </Button>
-                    <Button asChild variant="outline" className="w-full">
-                      <Link href="/instructors">Browse Instructors</Link>
-                    </Button>
                   </>
                 )
               ) : (
-                <>
-                  <Button asChild className="w-full">
-                    <Link href="/dashboard">Go to Dashboard</Link>
-                  </Button>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/instructors">Browse Instructors</Link>
-                  </Button>
-                </>
+                <Button asChild className="w-full">
+                  <Link href="/dashboard">Go to Dashboard</Link>
+                </Button>
               )}
             </div>
           </>
