@@ -686,6 +686,15 @@ export const getInstructorById = query({
   },
 });
 
+export const getInstructorNameById = query({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.id);
+    if (!instructor) return null;
+    return instructor.name ?? null;
+  },
+});
+
 /** Returns non-deleted instructors matching the given ids. */
 export const getInstructorsByIds = query({
   args: { ids: v.array(v.id("instructors")) },
@@ -1904,6 +1913,18 @@ export const getInstructorByEmailInternal = internalQuery({
       .query("instructors")
       .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
       .collect();
+  },
+});
+
+export const getInstructorBasicById = internalQuery({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.id);
+    if (!instructor) return null;
+    return {
+      name: instructor.name ?? null,
+      userId: instructor.userId ?? null,
+    };
   },
 });
 
