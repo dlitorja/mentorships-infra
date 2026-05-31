@@ -15,6 +15,20 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#039;");
 }
 
+type EmailResult = { id: string | null; ok: boolean };
+
+function parseEmailResult(res: { ok: true; id: string | null } | { ok: false; skipped?: true; error?: string }): EmailResult {
+  if (res.ok) {
+    return { ok: true, id: res.id ?? null };
+  }
+  return { ok: false, id: null };
+}
+
+function formatPrice(amount: string | null, currency: string): string {
+  if (amount === null || amount === undefined) return "N/A";
+  return `${currency} ${amount}`;
+}
+
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
@@ -331,7 +345,7 @@ const completedOrder = await step.run("update-order", async () => {
               </tr>
               <tr>
                 <td style="padding:8px 0;color:#6b7280">Total paid</td>
-                <td style="padding:8px 0;font-weight:500">${currency} ${pricePaid}</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
               </tr>
             </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
@@ -344,11 +358,12 @@ const completedOrder = await step.run("update-order", async () => {
           headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "stripe" },
         });
 
+        const parsedResult = parseEmailResult(res);
         await reportInfo({
           source: "inngest:process-stripe-checkout",
           message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
           level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, hasClerkAccount },
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, hasClerkAccount },
         });
       } else {
         // New user - needs to create account and verify email
@@ -366,11 +381,12 @@ const completedOrder = await step.run("update-order", async () => {
               </tr>
               <tr>
                 <td style="padding:8px 0;color:#6b7280">Total paid</td>
-                <td style="padding:8px 0;font-weight:500">${currency} ${pricePaid}</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
               </tr>
             </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
-            <p style="color:#6b7280;font-size:14px">After creating your account, check your inbox for a magic link to access your dashboard.</p>
+            <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
+            <p style="margin:4px 0 0;font-size:14px"><a href="${baseUrl}/instructors">Browse instructors</a></p>
           </div>`;
 
         const res = await sendEmail({
@@ -380,11 +396,12 @@ const completedOrder = await step.run("update-order", async () => {
           headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
         });
 
+        const parsedResult = parseEmailResult(res);
         await reportInfo({
           source: "inngest:process-stripe-checkout",
           message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
           level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, hasClerkAccount },
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, hasClerkAccount },
         });
       }
     });
@@ -747,11 +764,12 @@ export const processPayPalCheckout = inngest.createFunction(
               </tr>
               <tr>
                 <td style="padding:8px 0;color:#6b7280">Total paid</td>
-                <td style="padding:8px 0;font-weight:500">${currency} ${pricePaid}</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
               </tr>
             </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
-            <p style="color:#6b7280;font-size:14px">After creating your account, check your inbox for a magic link to access your dashboard.</p>
+            <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
+            <p style="margin:4px 0 0;font-size:14px"><a href="${baseUrl}/instructors">Browse instructors</a></p>
           </div>`;
 
         const res = await sendEmail({
@@ -761,11 +779,12 @@ export const processPayPalCheckout = inngest.createFunction(
           headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
         });
 
+        const parsedResult = parseEmailResult(res);
         await reportInfo({
           source: "inngest:process-paypal-checkout",
           message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
           level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, isGuest },
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isGuest },
         });
       } else {
         // Returning user - already has Clerk account
@@ -783,7 +802,7 @@ export const processPayPalCheckout = inngest.createFunction(
               </tr>
               <tr>
                 <td style="padding:8px 0;color:#6b7280">Total paid</td>
-                <td style="padding:8px 0;font-weight:500">${currency} ${pricePaid}</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
               </tr>
             </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
@@ -796,11 +815,12 @@ export const processPayPalCheckout = inngest.createFunction(
           headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "paypal" },
         });
 
+        const parsedResult = parseEmailResult(res);
         await reportInfo({
           source: "inngest:process-paypal-checkout",
           message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
           level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: (res as any).id || null, ok: (res as any).ok ?? false, isGuest },
+          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isGuest },
         });
       }
     });
