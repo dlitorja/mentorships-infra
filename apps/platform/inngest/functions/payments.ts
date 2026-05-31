@@ -456,14 +456,16 @@ const completedOrder = await step.run("update-order", async () => {
       } else {
         await reportInfo({
           source: "inngest:process-stripe-checkout",
-          message: "No Clerk account found, sending create account email",
+          message: "No Clerk account found via email lookup, sending sign-in email",
           level: "info",
           context: { orderId },
         });
       }
 
       // Branch on magicLinkSent: Clerk user who received a magic link gets the
-      // "check your inbox" template; guests get the "create account" template.
+      // "check your inbox" template; guests get the "your account is ready" template.
+      // Note: Even when email lookup fails, a Clerk account was created at checkout time,
+      // so we always send the "account ready" template with sign-in button.
       const html = magicLinkSent
         ? `<div style="font-family:Arial,sans-serif;color:#111">
             <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
@@ -486,8 +488,8 @@ const completedOrder = await step.run("update-order", async () => {
             <p style="margin:8px 0 0;font-size:14px">Didn't receive the email? Check your spam folder or <a href="${baseUrl}/sign-in">sign in</a> to resend it.</p>
           </div>`
         : `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
-            <p style="margin:0 0 16px">Thank you for your purchase! Complete your account setup to access your session pack. This will also verify your email address.</p>
+            <h2 style="margin:0 0 12px">Your account is ready</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! Your account has been created. Click the button below to sign in and access your dashboard to start booking sessions.</p>
             <table style="border-collapse:collapse;margin:0 0 16px">
               <tr>
                 <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
@@ -502,15 +504,15 @@ const completedOrder = await step.run("update-order", async () => {
                 <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
               </tr>
             </table>
-            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
-            <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-in" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Sign in to your account</a></p>
+            <p style="margin:8px 0 0;font-size:14px">Need help accessing your account? <a href="${baseUrl}/sign-in">Sign in here</a></p>
           </div>`;
 
       const res = await sendEmail({
         to: email,
         subject: magicLinkSent
           ? "Your mentorship purchase is confirmed — Check your email for your login link"
-          : "Your mentorship purchase is confirmed — Create your account",
+          : "Your mentorship purchase is confirmed",
         html,
         headers: { "X-Email-Type": magicLinkSent ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
       });

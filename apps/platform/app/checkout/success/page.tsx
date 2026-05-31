@@ -114,14 +114,13 @@ function CheckoutSuccessContent(): React.JSX.Element {
                 ) : isGuest ? (
                   <>
                     <div className="text-sm text-muted-foreground">
-                      <p>Check your email for purchase confirmation details.</p>
-                      <p className="mt-1">Then create your account to access your session pack.</p>
+                      <p>Check your email — we&apos;ve sent you a login link to access your session pack.</p>
                     </div>
                     <Button asChild className="w-full">
-                      <Link href="/sign-up">Create Your Account</Link>
+                      <Link href="/sign-in">Sign In</Link>
                     </Button>
                     <Button asChild variant="outline" className="w-full">
-                      <Link href="/sign-in">Already have an account? Sign in</Link>
+                      <Link href="/sign-up">Create an account instead</Link>
                     </Button>
                   </>
                 ) : (
