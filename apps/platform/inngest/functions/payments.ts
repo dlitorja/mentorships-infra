@@ -331,45 +331,78 @@ const completedOrder = await step.run("update-order", async () => {
       const isClerkUser = resolvedUserId !== "guest" && !resolvedUserId.startsWith("email:");
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-      // Send a Clerk magic link so the user can access their account regardless of whether
-      // they are "new" (created during checkout) or returning. Clerk's prepareVerification
-      // skips sending if the email is already verified, so this is safe to call always.
-      const magicLinkRedirectUrl = `${baseUrl}/sign-in`;
-      const magicLinkResult = await sendEmailLinkForUser(resolvedUserId, magicLinkRedirectUrl);
-      await reportInfo({
-        source: "inngest:process-stripe-checkout",
-        message: magicLinkResult.ok ? "Magic link sent" : `Magic link failed: ${magicLinkResult.error}`,
-        level: magicLinkResult.ok ? "info" : "warn",
-        context: { orderId, resolvedUserId, email, isClerkUser },
-      });
+      // Only send magic link when a Clerk account exists; guests get a different email template.
+      let magicLinkSent = false;
+      if (isClerkUser) {
+        const magicLinkRedirectUrl = `${baseUrl}/sign-in`;
+        const magicLinkResult = await sendEmailLinkForUser(resolvedUserId, magicLinkRedirectUrl);
+        magicLinkSent = magicLinkResult.ok;
+        await reportInfo({
+          source: "inngest:process-stripe-checkout",
+          message: magicLinkResult.ok ? "Magic link sent" : `Magic link failed: ${magicLinkResult.error}`,
+          level: magicLinkResult.ok ? "info" : "warn",
+          context: { orderId, ok: magicLinkSent },
+        });
+      } else {
+        await reportInfo({
+          source: "inngest:process-stripe-checkout",
+          message: "Skipped magic link for guest user",
+          level: "info",
+          context: { orderId },
+        });
+      }
 
-      // Unified email for all users: guides them to check their inbox for the magic link.
-      const html = `<div style="font-family:Arial,sans-serif;color:#111">
-          <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
-          <p style="margin:0 0 16px">Thank you for your purchase! We've sent a login link to your email — click it to access your dashboard and start booking sessions.</p>
-          <table style="border-collapse:collapse;margin:0 0 16px">
-            <tr>
-              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
-              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
-              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 0;color:#6b7280">Total paid</td>
-              <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
-            </tr>
-          </table>
-          <p style="margin:0 0 16px"><a href="${baseUrl}/sign-in" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Sign in to your account</a></p>
-          <p style="margin:8px 0 0;font-size:14px">Didn't receive the email? Check your spam folder or <a href="${baseUrl}/sign-in">sign in</a> to resend it.</p>
-        </div>`;
+      // Branch on magicLinkSent: Clerk user who received a magic link gets the
+      // "check your inbox" template; guests get the "create account" template.
+      const html = magicLinkSent
+        ? `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! We've sent a login link to your email — click it to access your dashboard and start booking sessions.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#6b7280">Total paid</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-in" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Sign in to your account</a></p>
+            <p style="margin:8px 0 0;font-size:14px">Didn't receive the email? Check your spam folder or <a href="${baseUrl}/sign-in">sign in</a> to resend it.</p>
+          </div>`
+        : `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! Complete your account setup to access your session pack. This will also verify your email address.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#6b7280">Total paid</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
+            <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
+          </div>`;
 
       const res = await sendEmail({
         to: email,
-        subject: "Your mentorship purchase is confirmed — Check your email for your login link",
+        subject: magicLinkSent
+          ? "Your mentorship purchase is confirmed — Check your email for your login link"
+          : "Your mentorship purchase is confirmed — Create your account",
         html,
-        headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "stripe" },
+        headers: { "X-Email-Type": magicLinkSent ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
       });
 
       const parsedResult = parseEmailResult(res);
@@ -377,7 +410,7 @@ const completedOrder = await step.run("update-order", async () => {
         source: "inngest:process-stripe-checkout",
         message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
         level: res.ok ? "info" : "warn",
-        context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isClerkUser },
+        context: { orderId, ok: parsedResult.ok },
       });
     });
 
@@ -727,21 +760,23 @@ export const processPayPalCheckout = inngest.createFunction(
       // Send a Clerk magic link so the user can access their account regardless of whether
       // they are "new" (created during checkout) or returning. Clerk's prepareVerification
       // skips sending if the email is already verified, so this is safe to call always.
+      let magicLinkSent = false;
       if (isClerkUser) {
         const magicLinkRedirectUrl = `${baseUrl}/sign-in`;
         const magicLinkResult = await sendEmailLinkForUser(clerkId, magicLinkRedirectUrl);
+        magicLinkSent = magicLinkResult.ok;
         await reportInfo({
           source: "inngest:process-paypal-checkout",
           message: magicLinkResult.ok ? "Magic link sent" : `Magic link failed: ${magicLinkResult.error}`,
           level: magicLinkResult.ok ? "info" : "warn",
-          context: { orderId, clerkId, email },
+          context: { orderId, ok: magicLinkSent },
         });
       }
 
-      // Branch on whether the user has a Clerk account:
-      // - isClerkUser: Clerk account exists, magic link was sent → guide to check inbox
-      // - isGuest: No Clerk account yet → guide to create account
-      const html = isClerkUser
+      // Branch on whether the magic link was actually sent:
+      // - magicLinkSent: Clerk account exists, magic link was delivered → guide to check inbox
+      // - !magicLinkSent: No Clerk account or link failed → guide to create account
+      const html = magicLinkSent
         ? `<div style="font-family:Arial,sans-serif;color:#111">
             <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
             <p style="margin:0 0 16px">Thank you for your purchase! We've sent a login link to your email — click it to access your dashboard and start booking sessions.</p>
@@ -785,11 +820,11 @@ export const processPayPalCheckout = inngest.createFunction(
 
       const res = await sendEmail({
         to: email,
-        subject: isClerkUser
+        subject: magicLinkSent
           ? "Your mentorship purchase is confirmed — Check your email for your login link"
           : "Your mentorship purchase is confirmed — Create your account",
         html,
-        headers: { "X-Email-Type": isClerkUser ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
+        headers: { "X-Email-Type": magicLinkSent ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
       });
 
       const parsedResult = parseEmailResult(res);
@@ -797,7 +832,7 @@ export const processPayPalCheckout = inngest.createFunction(
         source: "inngest:process-paypal-checkout",
         message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
         level: res.ok ? "info" : "warn",
-        context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isClerkUser },
+        context: { orderId, ok: parsedResult.ok },
       });
     });
 
