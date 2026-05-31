@@ -42,6 +42,7 @@ export const paypalPaymentCompletedEventSchema = z.object({
     orderId: idString(),
     captureId: idString(),
     packId: idString(),
+    studentEmail: z.string().email().optional(),
   }),
 });
 
