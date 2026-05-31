@@ -505,7 +505,7 @@ const completedOrder = await step.run("update-order", async () => {
               </tr>
             </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/sign-in" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Sign in to your account</a></p>
-            <p style="margin:8px 0 0;font-size:14px">Didn't receive the email? Check your spam folder or <a href="${baseUrl}/sign-in">sign in</a> to resend it.</p>
+            <p style="margin:8px 0 0;font-size:14px">Need help accessing your account? <a href="${baseUrl}/sign-in">Sign in here</a></p>
           </div>`;
 
       const res = await sendEmail({
