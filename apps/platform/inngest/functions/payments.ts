@@ -22,18 +22,70 @@ const clerkUserSchema = z.array(
 
 type ClerkUser = z.infer<typeof clerkUserSchema>[number];
 
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+function getConvexUrl(): string {
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+  if (!url) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL or CONVEX_DEPLOYMENT_URL is not set");
   }
-  return new ConvexHttpClient(convexUrl);
+  return url;
+}
+
+function getConvexHttpKey(): string {
+  const key = process.env.CONVEX_HTTP_KEY;
+  if (!key) {
+    throw new Error("CONVEX_HTTP_KEY is not set");
+  }
+  return key;
+}
+
+async function convexQuery<T>(queryName: string, args: Record<string, unknown>): Promise<T> {
+  const url = getConvexUrl();
+  const key = getConvexHttpKey();
+  const res = await fetch(`${url}/api/query`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({ path: queryName, args, format: "json" }),
+  });
+  if (!res.ok) {
+    throw new Error(`Convex query ${queryName} failed: ${res.status}`);
+  }
+  const json = await res.json() as { status: string; value: T; errorMessage?: string };
+  if (json.status === "error") {
+    throw new Error(`Convex query ${queryName} failed: ${json.errorMessage}`);
+  }
+  return json.value;
+}
+
+async function convexMutation<T>(mutationName: string, args: Record<string, unknown>): Promise<T> {
+  const url = getConvexUrl();
+  const key = getConvexHttpKey();
+  const res = await fetch(`${url}/api/mutation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({ path: mutationName, args, format: "json" }),
+  });
+  if (!res.ok) {
+    throw new Error(`Convex mutation ${mutationName} failed: ${res.status}`);
+  }
+  const json = await res.json() as { status: string; value: T; errorMessage?: string };
+  if (json.status === "error") {
+    throw new Error(`Convex mutation ${mutationName} failed: ${json.errorMessage}`);
+  }
+  return json.value;
 }
 
 async function getInstructorNameFromClerk(instructorId: Id<"instructors">, fallbackName: string): Promise<string> {
   try {
-    const convex = getConvexClient();
-    const instructorName = await convex.query(api.instructors.getInstructorNameById, { id: instructorId });
+    const instructorName = await convexQuery<string | null>(
+      "instructors/getInstructorNameById",
+      { id: instructorId }
+    );
     if (!instructorName) {
       return fallbackName;
     }
@@ -109,13 +161,12 @@ export const processStripeCheckout = inngest.createFunction(
       packId: string;
       studentEmail?: string;
     };
-    const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
       let attempts = 0;
       let foundOrder = null;
       while (attempts < 3 && !foundOrder) {
-        foundOrder = await convex.query(api.orders.getOrderByIdPublic, {
+        foundOrder = await convexQuery<any>("orders/getOrderByIdPublic", {
           id: orderId as Id<"orders">,
         });
         if (!foundOrder) {
@@ -165,7 +216,7 @@ export const processStripeCheckout = inngest.createFunction(
     }
 
 const completedOrder = await step.run("update-order", async () => {
-      return await convex.mutation(api.orders.completeOrder, {
+      return await convexMutation<any>("orders/completeOrder", {
         id: orderId as Id<"orders">,
       });
     });
@@ -186,7 +237,7 @@ const completedOrder = await step.run("update-order", async () => {
     });
 
     const payment = await step.run("create-payment", async () => {
-      return await convex.mutation(api.payments.createPayment, {
+      return await convexMutation<any>("payments/createPayment", {
         orderId: orderId as Id<"orders">,
         provider: "stripe",
         providerPaymentId: fullSession.payment_intent as string || sessionId,
@@ -219,7 +270,7 @@ const completedOrder = await step.run("update-order", async () => {
     });
 
     const product = await step.run("get-product", async () => {
-      const productData = await convex.query(api.products.getPublicProductById, {
+      const productData = await convexQuery<any>("products/getPublicProductById", {
         id: packId as Id<"products">,
       });
       if (!productData) {
@@ -244,7 +295,7 @@ const completedOrder = await step.run("update-order", async () => {
       // replaced later by syncUser when the visitor signs up with Clerk.
       const placeholderUserId = `email:${email}`;
       try {
-        await convex.mutation(api.users.createUser, {
+        await convexMutation<any>("users/createUser", {
           userId: placeholderUserId,
           email,
           role: "student",
@@ -259,7 +310,7 @@ const completedOrder = await step.run("update-order", async () => {
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      return await convex.mutation(api.sessionPacks.createSessionPack, {
+      return await convexMutation<any>("sessionPacks/createSessionPack", {
         userId: resolvedUserId,
         instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
@@ -297,7 +348,7 @@ const completedOrder = await step.run("update-order", async () => {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
       try {
-        return await convex.mutation(api.seatReservations.createSeatReservation, {
+        return await convexMutation<any>("seatReservations/createSeatReservation", {
           instructorId: product.instructorId as Id<"instructors">,
           userId: resolvedUserId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
@@ -306,7 +357,7 @@ const completedOrder = await step.run("update-order", async () => {
         });
       } catch (error) {
         if (error instanceof Error && error.message.includes("already exists")) {
-          const existing = await convex.query(api.seatReservations.getSeatReservationBySessionPack, {
+          const existing = await convexQuery<any>("seatReservations/getSeatReservationBySessionPack", {
             sessionPackId: sessionPack._id as Id<"sessionPacks">,
           });
           if (existing) {
@@ -365,7 +416,7 @@ const completedOrder = await step.run("update-order", async () => {
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      await convex.mutation(api.instructors.decrementInventory, {
+      await convexMutation<any>("instructors/decrementInventory", {
         id: product.instructorId as Id<"instructors">,
         type: inventoryType,
       });
@@ -499,10 +550,9 @@ export const processStripeRefund = inngest.createFunction(
   { event: "stripe/charge.refunded" },
   async ({ event, step }) => {
     const { paymentIntentId } = event.data;
-    const convex = getConvexClient();
 
     const payment = await step.run("get-payment", async () => {
-      return await convex.query(api.payments.getPaymentByProviderId, {
+      return await convexQuery<any>("payments/getPaymentByProviderId", {
         provider: "stripe",
         providerPaymentId: paymentIntentId,
       });
@@ -513,7 +563,7 @@ export const processStripeRefund = inngest.createFunction(
     }
 
     const sessionPack = await step.run("get-session-pack", async () => {
-      return await convex.query(api.sessionPacks.getSessionPackByPaymentId, {
+      return await convexQuery<any>("sessionPacks/getSessionPackByPaymentId", {
         paymentId: payment._id,
       });
     });
@@ -523,16 +573,16 @@ export const processStripeRefund = inngest.createFunction(
     }
 
     const instructorProducts = await step.run("get-instructor-products", async () => {
-      return await convex.query(api.products.getProductsByInstructorId, {
+      return await convexQuery<any>("products/getProductsByInstructorId", {
         instructorId: sessionPack.instructorId as Id<"instructors">,
       });
     });
 
-    const product = instructorProducts.find(p => p.sessionsPerPack === sessionPack.totalSessions);
+    const product = instructorProducts.find((p: any) => p.sessionsPerPack === sessionPack.totalSessions);
     const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
 
 const refundedSessionPack = await step.run("refund-session-pack", async () => {
-      return await convex.mutation(api.sessionPacks.refundSessionPack, {
+      return await convexMutation<any>("sessionPacks/refundSessionPack", {
         id: sessionPack._id,
       });
     });
@@ -553,14 +603,14 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     await step.run("increment-inventory", async () => {
-      await convex.mutation(api.instructors.incrementInventory, {
+      await convexMutation<any>("instructors/incrementInventory", {
         id: sessionPack.instructorId as Id<"instructors">,
         type: refundInventoryType,
       });
     });
 
     const refundedPayment = await step.run("update-payment-status", async () => {
-      return await convex.mutation(api.payments.refundPayment, {
+      return await convexMutation<any>("payments/refundPayment", {
         id: payment._id,
         refundedAmount: payment.amount,
       });
@@ -584,7 +634,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     const refundedOrder = await step.run("update-order-status", async () => {
-      return await convex.mutation(api.orders.refundOrder, {
+      return await convexMutation<any>("orders/refundOrder", {
         id: payment.orderId as Id<"orders">,
       });
     });
@@ -617,13 +667,12 @@ export const processPayPalCheckout = inngest.createFunction(
   { event: "paypal/payment.capture.completed" },
   async ({ event, step }) => {
     const { captureId, orderId, packId } = event.data as unknown as PaypalPaymentCompletedEvent["data"];
-    const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
       let attempts = 0;
       let foundOrder = null;
       while (attempts < 3 && !foundOrder) {
-        foundOrder = await convex.query(api.orders.getOrderByIdPublic, {
+        foundOrder = await convexQuery<any>("orders/getOrderByIdPublic", {
           id: orderId as Id<"orders">,
         });
         if (!foundOrder) {
@@ -642,13 +691,13 @@ export const processPayPalCheckout = inngest.createFunction(
     }
 
     await step.run("update-order", async () => {
-      await convex.mutation(api.orders.completeOrder, {
+      await convexMutation<any>("orders/completeOrder", {
         id: orderId as Id<"orders">,
       });
     });
 
     const payment = await step.run("create-payment", async () => {
-      return await convex.mutation(api.payments.createPayment, {
+      return await convexMutation<any>("payments/createPayment", {
         orderId: orderId as Id<"orders">,
         provider: "paypal",
         providerPaymentId: captureId,
@@ -663,7 +712,7 @@ export const processPayPalCheckout = inngest.createFunction(
     }
 
     const product = await step.run("get-product", async () => {
-      const productData = await convex.query(api.products.getPublicProductById, {
+      const productData = await convexQuery<any>("products/getPublicProductById", {
         id: packId as Id<"products">,
       });
       if (!productData) {
@@ -683,7 +732,7 @@ export const processPayPalCheckout = inngest.createFunction(
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      return await convex.mutation(api.sessionPacks.createSessionPack, {
+      return await convexMutation<any>("sessionPacks/createSessionPack", {
         userId: order.userId,
         instructorId: product.instructorId as Id<"instructors">,
         totalSessions: product.sessionsPerPack,
@@ -721,7 +770,7 @@ export const processPayPalCheckout = inngest.createFunction(
         throw new Error(`Product has no instructorId: ${packId}`);
       }
       try {
-        return await convex.mutation(api.seatReservations.createSeatReservation, {
+        return await convexMutation<any>("seatReservations/createSeatReservation", {
           instructorId: product.instructorId as Id<"instructors">,
           userId: order.userId,
           sessionPackId: sessionPack._id as Id<"sessionPacks">,
@@ -730,7 +779,7 @@ export const processPayPalCheckout = inngest.createFunction(
         });
       } catch (error) {
         if (error instanceof Error && error.message.includes("already exists")) {
-          const existing = await convex.query(api.seatReservations.getSeatReservationBySessionPack, {
+          const existing = await convexQuery<any>("seatReservations/getSeatReservationBySessionPack", {
             sessionPackId: sessionPack._id as Id<"sessionPacks">,
           });
           if (existing) {
@@ -789,7 +838,7 @@ export const processPayPalCheckout = inngest.createFunction(
       if (!product.instructorId) {
         throw new Error(`Product has no instructorId: ${packId}`);
       }
-      await convex.mutation(api.instructors.decrementInventory, {
+      await convexMutation<any>("instructors/decrementInventory", {
         id: product.instructorId as Id<"instructors">,
         type: paypalInventoryType,
       });
@@ -927,10 +976,9 @@ export const processPayPalRefund = inngest.createFunction(
   { event: "paypal/payment.capture.refunded" },
   async ({ event, step }) => {
     const { captureId } = event.data;
-    const convex = getConvexClient();
 
     const payment = await step.run("get-payment", async () => {
-      return await convex.query(api.payments.getPaymentByProviderId, {
+      return await convexQuery<any>("payments/getPaymentByProviderId", {
         provider: "paypal",
         providerPaymentId: captureId,
       });
@@ -949,7 +997,7 @@ export const processPayPalRefund = inngest.createFunction(
     }
 
     const sessionPack = await step.run("get-session-pack", async () => {
-      return await convex.query(api.sessionPacks.getSessionPackByPaymentId, {
+      return await convexQuery<any>("sessionPacks/getSessionPackByPaymentId", {
         paymentId: payment._id,
       });
     });
@@ -959,16 +1007,16 @@ export const processPayPalRefund = inngest.createFunction(
     }
 
     const instructorProducts = await step.run("get-instructor-products", async () => {
-      return await convex.query(api.products.getProductsByInstructorId, {
+      return await convexQuery<any>("products/getProductsByInstructorId", {
         instructorId: sessionPack.instructorId as Id<"instructors">,
       });
     });
 
-    const product = instructorProducts.find(p => p.sessionsPerPack === sessionPack.totalSessions);
+    const product = instructorProducts.find((p: any) => p.sessionsPerPack === sessionPack.totalSessions);
     const refundInventoryType = product?.mentorshipType === "group" ? "group" : "oneOnOne";
 
 const refundedSessionPack = await step.run("refund-session-pack", async () => {
-      return await convex.mutation(api.sessionPacks.refundSessionPack, {
+      return await convexMutation<any>("sessionPacks/refundSessionPack", {
         id: sessionPack._id,
       });
     });
@@ -989,14 +1037,14 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     await step.run("increment-inventory", async () => {
-      await convex.mutation(api.instructors.incrementInventory, {
+      await convexMutation<any>("instructors/incrementInventory", {
         id: sessionPack.instructorId as Id<"instructors">,
         type: refundInventoryType,
       });
     });
 
     const refundedPayment = await step.run("update-payment-status", async () => {
-      return await convex.mutation(api.payments.refundPayment, {
+      return await convexMutation<any>("payments/refundPayment", {
         id: payment._id,
         refundedAmount: payment.amount,
       });
@@ -1020,7 +1068,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
     });
 
     const refundedOrder = await step.run("update-order-status", async () => {
-      return await convex.mutation(api.orders.refundOrder, {
+      return await convexMutation<any>("orders/refundOrder", {
         id: payment.orderId as Id<"orders">,
       });
     });
