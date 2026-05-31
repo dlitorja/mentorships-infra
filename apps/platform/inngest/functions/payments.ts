@@ -5,6 +5,7 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import { stripe } from "../../lib/stripe";
 import { sendEmail } from "@/lib/email";
 import { reportInfo } from "@/lib/observability";
+import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
 
 function escapeHtml(value: string): string {
   return value
@@ -323,87 +324,61 @@ const completedOrder = await step.run("update-order", async () => {
 
     // Post-purchase confirmation email (Resend) for ALL purchasers with an email address
     await step.run("send-purchase-confirmation-email", async () => {
-      const email = (studentEmail || "").trim().toLowerCase();
+      // Prefer Stripe's customer_details.email as the authoritative source; fall back to webhook event data
+      const email = (fullSession.customer_details?.email || studentEmail || "").trim().toLowerCase();
       if (!email) return { skipped: true } as const;
 
-      const hasClerkAccount = resolvedUserId !== "guest" && !resolvedUserId.startsWith("email:");
+      const isClerkUser = resolvedUserId !== "guest" && !resolvedUserId.startsWith("email:");
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-      if (hasClerkAccount) {
-        // Returning user - already has Clerk account, show dashboard CTA with purchase details
-        const html = `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
-            <p style="margin:0 0 16px">Thank you for your purchase! Your session pack is now active.</p>
-            <table style="border-collapse:collapse;margin:0 0 16px">
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
-              </tr>
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
-              </tr>
-              <tr>
-                <td style="padding:8px 0;color:#6b7280">Total paid</td>
-                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
-              </tr>
-            </table>
-            <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
-          </div>`;
+      // Send a Clerk magic link so the user can access their account regardless of whether
+      // they are "new" (created during checkout) or returning. Clerk's prepareVerification
+      // skips sending if the email is already verified, so this is safe to call always.
+      const magicLinkRedirectUrl = `${baseUrl}/sign-in`;
+      const magicLinkResult = await sendEmailLinkForUser(resolvedUserId, magicLinkRedirectUrl);
+      await reportInfo({
+        source: "inngest:process-stripe-checkout",
+        message: magicLinkResult.ok ? "Magic link sent" : `Magic link failed: ${magicLinkResult.error}`,
+        level: magicLinkResult.ok ? "info" : "warn",
+        context: { orderId, resolvedUserId, email, isClerkUser },
+      });
 
-        const res = await sendEmail({
-          to: email,
-          subject: "Your mentorship purchase is confirmed",
-          html,
-          headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "stripe" },
-        });
+      // Unified email for all users: guides them to check their inbox for the magic link.
+      const html = `<div style="font-family:Arial,sans-serif;color:#111">
+          <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+          <p style="margin:0 0 16px">Thank you for your purchase! We've sent a login link to your email — click it to access your dashboard and start booking sessions.</p>
+          <table style="border-collapse:collapse;margin:0 0 16px">
+            <tr>
+              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+              <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+            </tr>
+            <tr>
+              <td style="padding:8px 0;color:#6b7280">Total paid</td>
+              <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+            </tr>
+          </table>
+          <p style="margin:0 0 16px"><a href="${baseUrl}/sign-in" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Sign in to your account</a></p>
+          <p style="margin:8px 0 0;font-size:14px">Didn't receive the email? Check your spam folder or <a href="${baseUrl}/sign-in">sign in</a> to resend it.</p>
+        </div>`;
 
-        const parsedResult = parseEmailResult(res);
-        await reportInfo({
-          source: "inngest:process-stripe-checkout",
-          message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
-          level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, hasClerkAccount },
-        });
-      } else {
-        // New user - needs to create account and verify email
-        const html = `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
-            <p style="margin:0 0 16px">Thank you for your purchase! Click below to create your account and access your session pack. This will also verify your email address.</p>
-            <table style="border-collapse:collapse;margin:0 0 16px">
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
-              </tr>
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
-              </tr>
-              <tr>
-                <td style="padding:8px 0;color:#6b7280">Total paid</td>
-                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
-              </tr>
-            </table>
-            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
-            <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
-            <p style="margin:4px 0 0;font-size:14px"><a href="${baseUrl}/instructors">Browse instructors</a></p>
-          </div>`;
+      const res = await sendEmail({
+        to: email,
+        subject: "Your mentorship purchase is confirmed — Check your email for your login link",
+        html,
+        headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "stripe" },
+      });
 
-        const res = await sendEmail({
-          to: email,
-          subject: "Your mentorship purchase is confirmed — Create your account",
-          html,
-          headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "stripe" },
-        });
-
-        const parsedResult = parseEmailResult(res);
-        await reportInfo({
-          source: "inngest:process-stripe-checkout",
-          message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
-          level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, hasClerkAccount },
-        });
-      }
+      const parsedResult = parseEmailResult(res);
+      await reportInfo({
+        source: "inngest:process-stripe-checkout",
+        message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
+        level: res.ok ? "info" : "warn",
+        context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isClerkUser },
+      });
     });
 
     await step.run("trigger-onboarding", async () => {
@@ -746,13 +721,50 @@ export const processPayPalCheckout = inngest.createFunction(
 
       const clerkId = order.userId as string;
       const isGuest = !clerkId || clerkId === "guest" || clerkId.startsWith("email:");
+      const isClerkUser = !isGuest;
       const baseUrl = process.env.NEXT_PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-      if (isGuest) {
-        // New user - needs to create account and verify email
-        const html = `<div style="font-family:Arial,sans-serif;color:#111">
+      // Send a Clerk magic link so the user can access their account regardless of whether
+      // they are "new" (created during checkout) or returning. Clerk's prepareVerification
+      // skips sending if the email is already verified, so this is safe to call always.
+      if (isClerkUser) {
+        const magicLinkRedirectUrl = `${baseUrl}/sign-in`;
+        const magicLinkResult = await sendEmailLinkForUser(clerkId, magicLinkRedirectUrl);
+        await reportInfo({
+          source: "inngest:process-paypal-checkout",
+          message: magicLinkResult.ok ? "Magic link sent" : `Magic link failed: ${magicLinkResult.error}`,
+          level: magicLinkResult.ok ? "info" : "warn",
+          context: { orderId, clerkId, email },
+        });
+      }
+
+      // Branch on whether the user has a Clerk account:
+      // - isClerkUser: Clerk account exists, magic link was sent → guide to check inbox
+      // - isGuest: No Clerk account yet → guide to create account
+      const html = isClerkUser
+        ? `<div style="font-family:Arial,sans-serif;color:#111">
             <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
-            <p style="margin:0 0 16px">Thank you for your purchase! Click below to create your account and access your session pack. This will also verify your email address.</p>
+            <p style="margin:0 0 16px">Thank you for your purchase! We've sent a login link to your email — click it to access your dashboard and start booking sessions.</p>
+            <table style="border-collapse:collapse;margin:0 0 16px">
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
+                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;color:#6b7280">Total paid</td>
+                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
+              </tr>
+            </table>
+            <p style="margin:0 0 16px"><a href="${baseUrl}/sign-in" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Sign in to your account</a></p>
+            <p style="margin:8px 0 0;font-size:14px">Didn't receive the email? Check your spam folder or <a href="${baseUrl}/sign-in">sign in</a> to resend it.</p>
+          </div>`
+        : `<div style="font-family:Arial,sans-serif;color:#111">
+            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
+            <p style="margin:0 0 16px">Thank you for your purchase! Complete your account setup to access your session pack. This will also verify your email address.</p>
             <table style="border-collapse:collapse;margin:0 0 16px">
               <tr>
                 <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
@@ -769,60 +781,24 @@ export const processPayPalCheckout = inngest.createFunction(
             </table>
             <p style="margin:0 0 16px"><a href="${baseUrl}/sign-up" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Create your account</a></p>
             <p style="margin:8px 0 0;font-size:14px">Already have an account? <a href="${baseUrl}/sign-in">Sign in</a></p>
-            <p style="margin:4px 0 0;font-size:14px"><a href="${baseUrl}/instructors">Browse instructors</a></p>
           </div>`;
 
-        const res = await sendEmail({
-          to: email,
-          subject: "Your mentorship purchase is confirmed — Create your account",
-          html,
-          headers: { "X-Email-Type": "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
-        });
+      const res = await sendEmail({
+        to: email,
+        subject: isClerkUser
+          ? "Your mentorship purchase is confirmed — Check your email for your login link"
+          : "Your mentorship purchase is confirmed — Create your account",
+        html,
+        headers: { "X-Email-Type": isClerkUser ? "purchase_confirmation" : "guest_onboarding", "X-Order-Id": orderId, "X-Provider": "paypal" },
+      });
 
-        const parsedResult = parseEmailResult(res);
-        await reportInfo({
-          source: "inngest:process-paypal-checkout",
-          message: res.ok ? "Guest onboarding email sent" : "Guest onboarding email skipped/failed",
-          level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isGuest },
-        });
-      } else {
-        // Returning user - already has Clerk account
-        const html = `<div style="font-family:Arial,sans-serif;color:#111">
-            <h2 style="margin:0 0 12px">Your mentorship purchase is confirmed</h2>
-            <p style="margin:0 0 16px">Thank you for your purchase! Your session pack is now active.</p>
-            <table style="border-collapse:collapse;margin:0 0 16px">
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280;width:120px">Instructor</td>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${escapeHtml(instructorName)}</td>
-              </tr>
-              <tr>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;color:#6b7280">Sessions</td>
-                <td style="padding:8px 0;border-bottom:1px solid #e5e7eb;font-weight:500">${sessionsCount} sessions</td>
-              </tr>
-              <tr>
-                <td style="padding:8px 0;color:#6b7280">Total paid</td>
-                <td style="padding:8px 0;font-weight:500">${formatPrice(pricePaid, currency)}</td>
-              </tr>
-            </table>
-            <p style="margin:0 0 16px"><a href="${baseUrl}/dashboard" style="background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none">Go to your dashboard</a></p>
-          </div>`;
-
-        const res = await sendEmail({
-          to: email,
-          subject: "Your mentorship purchase is confirmed",
-          html,
-          headers: { "X-Email-Type": "purchase_confirmation", "X-Order-Id": orderId, "X-Provider": "paypal" },
-        });
-
-        const parsedResult = parseEmailResult(res);
-        await reportInfo({
-          source: "inngest:process-paypal-checkout",
-          message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
-          level: res.ok ? "info" : "warn",
-          context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isGuest },
-        });
-      }
+      const parsedResult = parseEmailResult(res);
+      await reportInfo({
+        source: "inngest:process-paypal-checkout",
+        message: res.ok ? "Purchase confirmation email sent" : "Purchase confirmation email skipped/failed",
+        level: res.ok ? "info" : "warn",
+        context: { orderId, email, resendId: parsedResult.id, ok: parsedResult.ok, isClerkUser },
+      });
     });
 
     await step.run("trigger-onboarding", async () => {
