@@ -181,6 +181,60 @@ export const getRecentSessionsWithInstructor = query({
   },
 });
 
+/** Returns all sessions for a student with instructor info and remaining sessions. Used by sessions page. */
+export const getAllStudentSessionsWithInstructor = query({
+  args: {
+    studentId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const limit = args.limit ?? 50;
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId", (q) => q.eq("studentId", args.studentId))
+      .collect();
+
+    const sortedSessions = sessions.sort((a, b) => b.scheduledAt - a.scheduledAt);
+    const limitedSessions = sortedSessions.slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      limitedSessions.map(async (session) => {
+        const instructor = await ctx.db.get(session.instructorId);
+        let instructorEmail: string | null = null;
+        const instructorUserId = instructor?.userId;
+        if (instructorUserId) {
+          const users = await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", instructorUserId))
+            .first();
+          instructorEmail = users?.email ?? null;
+        }
+
+        const sessionPack = await ctx.db.get(session.sessionPackId);
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          completedAt: session.completedAt,
+          canceledAt: session.canceledAt,
+          status: session.status,
+          recordingUrl: session.recordingUrl ?? null,
+          notes: session.notes ?? null,
+          instructorEmail,
+          packId: session.sessionPackId,
+          remainingSessions: sessionPack?.remainingSessions ?? null,
+        };
+      })
+    );
+
+    return sessionsWithData;
+  },
+});
+
 /** Returns a session matching a Google Calendar event ID. */
 export const getSessionByCalendarEventId = query({
   args: { eventId: v.string() },

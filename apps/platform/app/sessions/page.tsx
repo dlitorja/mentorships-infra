@@ -1,140 +1,146 @@
-export const dynamic = "force-dynamic";
+"use client";
 
-import { requireDbUser } from "@/lib/auth";
-import { db, sessions, sessionPacks, instructors, users, eq, desc } from "@mentorships/db";
-import { ProtectedLayout } from "@/components/navigation/protected-layout";
+import { Suspense } from "react";
+import { useUser } from "@clerk/nextjs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useAllStudentSessions } from "@/lib/queries/convex/use-sessions";
+import { Loader2 } from "lucide-react";
 
-export default async function SessionsPage() {
-  const user = await requireDbUser();
+function formatDateTime(date: number): string {
+  return new Date(date).toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
-  // Fetch user's sessions with related data
-  const userSessions: {
-    id: string;
-    scheduledAt: Date;
-    completedAt: Date | null;
-    canceledAt: Date | null;
-    status: string;
-    recordingUrl: string | null;
-    notes: string | null;
-    instructorEmail: string;
-    packId: string;
-    remainingSessions: number;
-  }[] = await db
-    .select({
-      id: sessions.id,
-      scheduledAt: sessions.scheduledAt,
-      completedAt: sessions.completedAt,
-      canceledAt: sessions.canceledAt,
-      status: sessions.status,
-      recordingUrl: sessions.recordingUrl,
-      notes: sessions.notes,
-      instructorEmail: users.email,
-      packId: sessions.sessionPackId,
-      remainingSessions: sessionPacks.remainingSessions,
-    })
-    .from(sessions)
-    .innerJoin(sessionPacks, eq(sessions.sessionPackId, sessionPacks.id))
-    .innerJoin(instructors, eq(sessions.instructorId, instructors.id))
-    .innerJoin(users, eq(instructors.userId, users.id))
-    .where(eq(sessions.studentId, user.id))
-    .orderBy(desc(sessions.scheduledAt))
-    .limit(50);
+function getStatusBadgeVariant(status: string) {
+  switch (status) {
+    case "completed":
+      return "default";
+    case "scheduled":
+      return "secondary";
+    case "canceled":
+      return "destructive";
+    case "no_show":
+      return "outline";
+    default:
+      return "outline";
+  }
+}
 
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "default";
-      case "scheduled":
-        return "secondary";
-      case "canceled":
-        return "destructive";
-      case "no_show":
-        return "outline";
-      default:
-        return "outline";
-    }
-  };
+function SessionsContent() {
+  const { user, isLoaded } = useUser();
+  const userId = user?.id;
+
+  const { data: userSessions, isLoading } = useAllStudentSessions(userId || "");
+
+  if (!isLoaded) {
+    return (
+      <div className="container mx-auto p-4 md:p-8 flex justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="container mx-auto p-4 md:p-8 flex justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <ProtectedLayout currentPath="/sessions">
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">My Sessions</h2>
-          <p className="text-muted-foreground">
-            View and manage your mentorship sessions
-          </p>
-        </div>
-
-        {userSessions.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">
-                You don't have any sessions yet. Book your first session through the calendar!
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4">
-            {userSessions.map((session) => (
-              <Card key={session.id}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-xl">{session.instructorEmail}</CardTitle>
-                      <CardDescription>
-                        {new Date(session.scheduledAt).toLocaleString("en-US", {
-                          weekday: "long",
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </CardDescription>
-                    </div>
-                    <Badge variant={getStatusBadgeVariant(session.status)}>
-                      {session.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    {session.remainingSessions !== null && (
-                      <p className="text-sm text-muted-foreground">
-                        Remaining sessions in pack: {session.remainingSessions}
-                      </p>
-                    )}
-                    {session.completedAt && (
-                      <p className="text-sm text-muted-foreground">
-                        Completed: {new Date(session.completedAt).toLocaleString()}
-                      </p>
-                    )}
-                    {session.recordingUrl && (
-                      <a
-                        href={session.recordingUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-primary hover:underline"
-                      >
-                        View Recording
-                      </a>
-                    )}
-                    {session.notes && (
-                      <div className="mt-2">
-                        <p className="text-sm font-medium">Notes:</p>
-                        <p className="text-sm text-muted-foreground">{session.notes}</p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+    <div className="container mx-auto p-4 md:p-8 space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">My Sessions</h2>
+        <p className="text-muted-foreground">
+          View and manage your mentorship sessions
+        </p>
       </div>
-    </ProtectedLayout>
+
+      {isLoading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      ) : !userSessions || userSessions.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-muted-foreground">
+              You don't have any sessions yet. Book your first session through the calendar!
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4">
+          {(userSessions as any[]).map((session) => (
+            <Card key={session.id}>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-xl">{session.instructorEmail || "Unknown Instructor"}</CardTitle>
+                    <CardDescription>
+                      {formatDateTime(session.scheduledAt)}
+                    </CardDescription>
+                  </div>
+                  <Badge variant={getStatusBadgeVariant(session.status)}>
+                    {session.status}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {session.remainingSessions !== null && (
+                    <p className="text-sm text-muted-foreground">
+                      Remaining sessions in pack: {session.remainingSessions}
+                    </p>
+                  )}
+                  {session.completedAt && (
+                    <p className="text-sm text-muted-foreground">
+                      Completed: {formatDateTime(session.completedAt)}
+                    </p>
+                  )}
+                  {session.recordingUrl && (
+                    <a
+                      href={session.recordingUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-primary hover:underline"
+                    >
+                      View Recording
+                    </a>
+                  )}
+                  {session.notes && (
+                    <div className="mt-2">
+                      <p className="text-sm font-medium">Notes:</p>
+                      <p className="text-sm text-muted-foreground">{session.notes}</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
+export default function SessionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="container mx-auto p-4 md:p-8 flex justify-center">
+          <Loader2 className="h-8 w-8 animate-spin" />
+        </div>
+      }
+    >
+      <SessionsContent />
+    </Suspense>
+  );
+}
