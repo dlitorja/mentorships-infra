@@ -191,6 +191,10 @@ export const getAllStudentSessionsWithInstructor = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
+    if (identity.tokenIdentifier !== args.studentId) {
+      throw new Error("Forbidden: cannot access another user's sessions");
+    }
+
     const limit = args.limit ?? 50;
 
     const sessions = await ctx.db
