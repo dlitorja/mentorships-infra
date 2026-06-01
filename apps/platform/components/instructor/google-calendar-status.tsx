@@ -5,10 +5,17 @@ import { Calendar, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react"
 import Link from "next/link";
 
 type Props = {
+  /** Whether the instructor has connected their Google Calendar */
   isCalendarConnected: boolean;
+  /** Whether to show the "Manage Calendar" link to settings */
   showManageLink?: boolean;
 };
 
+/**
+ * Displays the Google Calendar connection status for an instructor.
+ * Shows a green "Connected" badge with a manage link, or an amber
+ * "Not Connected" status with a button to connect.
+ */
 export function GoogleCalendarStatus({ isCalendarConnected, showManageLink = true }: Props) {
   if (isCalendarConnected) {
     return (
@@ -46,11 +53,18 @@ export function GoogleCalendarStatus({ isCalendarConnected, showManageLink = tru
 }
 
 type AlertBannerProps = {
+  /** Whether the instructor has connected their Google Calendar */
   isCalendarConnected: boolean;
+  /** Whether the instructor has set their time zone */
   hasTimeZone: boolean;
+  /** Whether the instructor has configured working hours */
   hasWorkingHours: boolean;
 };
 
+/**
+ * Shows a contextual alert banner prompting the instructor to complete
+ * their Google Calendar setup. Returns null if setup is complete.
+ */
 export function GoogleCalendarAlertBanner({ isCalendarConnected, hasTimeZone, hasWorkingHours }: AlertBannerProps) {
   const isSetupComplete = isCalendarConnected && hasTimeZone && hasWorkingHours;
 
