@@ -138,7 +138,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
             </CardHeader>
             <CardContent>
               <GoogleCalendarStatus
-                isCalendarConnected={!!(convexInstructor as any)?.googleRefreshToken}
+                isCalendarConnected={!!convexInstructor?.googleRefreshToken}
               />
             </CardContent>
           </Card>
