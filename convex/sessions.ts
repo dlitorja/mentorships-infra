@@ -34,14 +34,81 @@ export const getStudentSessions = query({
 export const getInstructorSessions = query({
   args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       return [];
     }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
     return await ctx.db
       .query("sessions")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
+  },
+});
+
+/** Returns upcoming scheduled sessions for an instructor with student info. */
+export const getInstructorUpcomingSessions = query({
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
+    const limit = args.limit ?? 10;
+    const now = Date.now();
+
+    const allSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    const upcoming = allSessions
+      .filter((s) => s.status === "scheduled" && s.scheduledAt > now)
+      .sort((a, b) => a.scheduledAt - b.scheduledAt)
+      .slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      upcoming.map(async (session) => {
+        const studentUser = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
+          .first();
+
+        const sessionPack = await ctx.db.get(session.sessionPackId);
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          status: session.status,
+          studentEmail: studentUser?.email ?? null,
+          remainingSessions: sessionPack?.remainingSessions ?? null,
+        };
+      })
+    );
+
+    return sessionsWithData;
   },
 });
 

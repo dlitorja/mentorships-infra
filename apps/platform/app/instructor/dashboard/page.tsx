@@ -5,11 +5,12 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, Users, BookOpen, CheckCircle2 } from "lucide-react";
+import { Calendar, Users, BookOpen, CheckCircle2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { InstructorBookingsList } from "@/components/instructor/bookings-list";
+import { GoogleCalendarAlertBanner } from "@/components/instructor/google-calendar-status";
 
 function formatDate(date: Date | string | null): string {
   if (!date) return "N/A";
@@ -55,10 +56,33 @@ export default async function InstructorDashboardPage() {
 
   // Using Convex for all instructor data
   // Session data comes from Convex queries
-  const upcomingSessions: any[] = [];
+  let upcomingSessions: any[] = [];
   const pastSessions: any[] = [];
-  const activeSeats: any[] = [];
-  const seatAvailability = { activeSeats: 0, maxSeats: 0, remainingSeats: 0 };
+  let activeSeatsData: any[] = [];
+  let maxSeats = 0;
+  let activeStudentsCount = 0;
+
+  if (instructorRecord?._id) {
+    try {
+      // Get active seats and calculate unique students
+      activeSeatsData = await convex.query(api.seatReservations.getInstructorActiveSeats, { instructorId: instructorRecord._id as any });
+      const uniqueStudentIds = new Set(activeSeatsData.map((seat: any) => seat.userId));
+      activeStudentsCount = uniqueStudentIds.size;
+
+      // Calculate max seats from instructor inventory
+      const oneOnOne = (instructorRecord as any)?.oneOnOneInventory ?? 0;
+      const group = (instructorRecord as any)?.groupInventory ?? 0;
+      maxSeats = oneOnOne + group;
+
+      // Get upcoming sessions with student info
+      const sessionsResult = await convex.query(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as any, limit: 5 });
+      upcomingSessions = sessionsResult;
+    } catch (e) {
+      console.error("Failed to load instructor dashboard stats", e);
+    }
+  }
+
+  const remainingSeats = Math.max(0, maxSeats - activeSeatsData.length);
 
   // Bookings created via Google Calendar integration
   let bookings: Array<{ id: string; startUtc: number; endUtc: number; studentEmail: string; status: string }> = [];
@@ -66,15 +90,9 @@ export default async function InstructorDashboardPage() {
     try {
       bookings = await convex.query(api.bookings.listInstructorBookings, { instructorId: instructorRecord._id as any, limit: 10 });
     } catch (e) {
-      // Non-fatal: bookings list unavailable
+      console.error("Failed to load instructor bookings", e);
     }
-  }
-
-  const profileIncomplete =
-    !instructorRecord.timeZone ||
-    !instructorRecord.workingHours ||
-    Object.keys(instructorRecord.workingHours || {}).length === 0;
- 
+}
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
@@ -90,19 +108,11 @@ export default async function InstructorDashboardPage() {
           <UserButton />
         </div>
 
-        {profileIncomplete && (
-          <div className="rounded-md border p-4 bg-amber-50 border-amber-200 text-amber-800">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="font-medium">Finish Setting Up Your Profile</p>
-                <p className="text-sm">Set your time zone and working hours so students can book you.</p>
-              </div>
-              <Button asChild variant="outline">
-                <Link href="/instructor/onboarding">Complete Setup</Link>
-              </Button>
-            </div>
-          </div>
-        )}
+        <GoogleCalendarAlertBanner
+          isCalendarConnected={!!(instructorRecord as any)?.googleRefreshToken}
+          hasTimeZone={!!instructorRecord.timeZone}
+          hasWorkingHours={!!instructorRecord.workingHours && Object.keys(instructorRecord.workingHours).length > 0}
+        />
 
         {/* Stats Overview */}
         <div className="grid gap-4 md:grid-cols-3">
@@ -115,10 +125,10 @@ export default async function InstructorDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {seatAvailability.activeSeats}
+                {activeStudentsCount}
               </div>
               <p className="text-xs text-muted-foreground">
-                of {seatAvailability.maxSeats} seats filled
+                of {maxSeats} seats filled
               </p>
             </CardContent>
           </Card>
@@ -145,10 +155,10 @@ export default async function InstructorDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {seatAvailability.remainingSeats}
+                {remainingSeats}
               </div>
               <p className="text-xs text-muted-foreground">
-                {seatAvailability.remainingSeats === 1
+                {remainingSeats === 1
                   ? "seat"
                   : "seats"}{" "}
                 available
@@ -193,13 +203,13 @@ export default async function InstructorDashboardPage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="font-semibold">
-                            {session.student.email}
+                            {session.studentEmail ?? "Unknown student"}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {formatDateTime(session.scheduledAt)}
+                            {formatDateTime(new Date(session.scheduledAt))}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {session.sessionPack.remainingSessions} sessions remaining
+                            {session.remainingSessions !== null ? `${session.remainingSessions} sessions remaining` : ""}
                           </p>
                         </div>
                         <Badge variant="secondary">Scheduled</Badge>
@@ -264,30 +274,30 @@ export default async function InstructorDashboardPage() {
         </div>
 
         {/* Active Students */}
-        {activeSeats.length > 0 && (
+        {activeSeatsData.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Active Students</CardTitle>
               <CardDescription>
-                Students with active session packs ({activeSeats.length} of {seatAvailability.maxSeats})
+                Students with active session packs ({activeSeatsData.length} of {maxSeats})
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {activeSeats.map((seat) => (
+                {activeSeatsData.map((seat) => (
                   <div
-                    key={seat.id}
+                    key={seat._id}
                     className="border rounded-lg p-4 space-y-2"
                   >
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="font-semibold">Student ID: {seat.userId}</p>
                         <p className="text-sm text-muted-foreground">
-                          Seat expires {formatDate(seat.seatExpiresAt)}
+                          Seat expires {formatDate(new Date(seat.seatExpiresAt))}
                         </p>
                         {seat.gracePeriodEndsAt && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            Grace period ends {formatDate(seat.gracePeriodEndsAt)}
+                            Grace period ends {formatDate(new Date(seat.gracePeriodEndsAt))}
                           </p>
                         )}
                       </div>
