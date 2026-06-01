@@ -148,6 +148,56 @@ Owner
 
 Last Updated: May 20, 2026 (post PR #314 plan)
 
+### NEW: Student Dashboard Fixes & Discord Role Assignment (May 31, 2026)
+
+**Problem**: Student users visiting `/dashboard` encountered a 500 error on `GET /api/google/calendars` because:
+1. The endpoint requires `instructor` role but was being called by all users (including students)
+2. Error handling caught `ForbiddenError` and returned 500 instead of proper 403
+3. Students were shown "Connect Google Calendar" checklist item (instructor-only feature)
+
+**Fixes Implemented**:
+
+1. **Fixed `/api/google/calendars` error handling** (`apps/platform/app/api/google/calendars/route.ts`):
+   - Added proper distinction between auth errors (401/403) and server errors (500)
+   - `ForbiddenError` → 403, `UnauthorizedError` → 401, other errors → 500
+
+2. **Fixed dashboard Google Calendar check for students** (`apps/platform/app/dashboard/page.tsx`):
+   - Added `userRole` check from Clerk's `publicMetadata.role`
+   - Only calls `/api/google/calendars` for instructors/admins
+   - Students see `googleCalendarConnected = false` without making the API call
+
+3. **Removed "Connect Google Calendar" from student dashboard checklist**:
+   - Checklist item now only appears for instructors/admins (`isInstructorOrAdmin` check)
+   - Students don't connect Google Calendar (only instructors do)
+
+4. **Hidden GoogleCalendarCard on settings page for students** (`apps/platform/app/settings/page.tsx`):
+   - `GoogleCalendarCard` only shown when `user.role === "instructor" || user.role === "admin"`
+
+5. **Implemented Discord role assignment for students** (Option A):
+   - Created `POST /api/user/discord/sync-role` endpoint
+   - Dashboard calls endpoint when student has Discord connected
+   - Endpoint extracts Discord ID from Clerk external accounts
+   - Stores Discord identity in Convex via `api.userIdentities.upsertUserIdentity`
+   - Calls `addGuildMemberRoleByName` to assign student role in Discord guild
+   - Idempotent: safe to call repeatedly (Discord API handles duplicate role adds gracefully)
+
+**New Files Created**:
+- `apps/platform/app/api/user/discord/sync-role/route.ts` - Discord role sync endpoint
+
+**Environment Variables Added** (`.env.local`):
+- `DISCORD_STUDENT_ROLE_NAME=Student` - Discord role name to assign to students
+
+**Existing Environment Variables Used**:
+- `DISCORD_GUILD_ID=1073746392121610302` - Discord server/guild ID
+
+**Flow**:
+1. Student visits `/dashboard`
+2. Dashboard detects Discord connected via `user.externalAccounts`
+3. Dashboard calls `POST /api/user/discord/sync-role`
+4. Endpoint stores Discord identity in Convex
+5. Endpoint adds student role to Discord guild member
+
+**Status**: ✅ COMPLETED - May 31, 2026
 
 ---
 
