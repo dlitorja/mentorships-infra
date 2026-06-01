@@ -1,29 +1,16 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Calendar, CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
-type InstructorData = {
-  googleRefreshToken?: string | null;
-  timeZone?: string | null;
-  workingHours?: Record<string, { start: string; end: string }[]>;
-};
-
 type Props = {
-  instructor: InstructorData;
+  isCalendarConnected: boolean;
   showManageLink?: boolean;
 };
 
-export function GoogleCalendarStatus({ instructor, showManageLink = true }: Props) {
-  const isConnected = !!instructor.googleRefreshToken;
-  const hasTimeZone = !!instructor.timeZone;
-  const hasWorkingHours =
-    instructor.workingHours && Object.keys(instructor.workingHours).length > 0;
-  const isSetupComplete = isConnected && hasTimeZone && hasWorkingHours;
-
-  if (isConnected) {
+export function GoogleCalendarStatus({ isCalendarConnected, showManageLink = true }: Props) {
+  if (isCalendarConnected) {
     return (
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
@@ -58,12 +45,14 @@ export function GoogleCalendarStatus({ instructor, showManageLink = true }: Prop
   );
 }
 
-export function GoogleCalendarAlertBanner({ instructor }: { instructor: InstructorData }) {
-  const isConnected = !!instructor.googleRefreshToken;
-  const hasTimeZone = !!instructor.timeZone;
-  const hasWorkingHours =
-    instructor.workingHours && Object.keys(instructor.workingHours).length > 0;
-  const isSetupComplete = isConnected && hasTimeZone && hasWorkingHours;
+type AlertBannerProps = {
+  isCalendarConnected: boolean;
+  hasTimeZone: boolean;
+  hasWorkingHours: boolean;
+};
+
+export function GoogleCalendarAlertBanner({ isCalendarConnected, hasTimeZone, hasWorkingHours }: AlertBannerProps) {
+  const isSetupComplete = isCalendarConnected && hasTimeZone && hasWorkingHours;
 
   if (isSetupComplete) {
     return null;
@@ -73,7 +62,7 @@ export function GoogleCalendarAlertBanner({ instructor }: { instructor: Instruct
     <div className="rounded-md border p-4 bg-amber-50 border-amber-200 text-amber-800">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          {isConnected ? (
+          {isCalendarConnected ? (
             <>
               <Calendar className="h-5 w-5" />
               <div>
@@ -96,7 +85,7 @@ export function GoogleCalendarAlertBanner({ instructor }: { instructor: Instruct
           )}
         </div>
         <div className="flex items-center gap-2">
-          {!isConnected && (
+          {!isCalendarConnected && (
             <Button size="sm" variant="outline" asChild>
               <a href="/api/auth/google">
                 <Calendar className="mr-1 h-4 w-4" />
@@ -105,8 +94,8 @@ export function GoogleCalendarAlertBanner({ instructor }: { instructor: Instruct
             </Button>
           )}
           <Button size="sm" variant="outline" asChild>
-            <Link href={isConnected ? "/instructor/settings" : "/instructor/onboarding"}>
-              {isConnected ? "Set Availability" : "Complete Setup"}
+            <Link href={isCalendarConnected ? "/instructor/settings" : "/instructor/onboarding"}>
+              {isCalendarConnected ? "Set Availability" : "Complete Setup"}
             </Link>
           </Button>
         </div>
