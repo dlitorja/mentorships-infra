@@ -146,7 +146,7 @@ Owner
 - Platform app ownership for OAuth, picker UX, and availability logic.
 - Convex ownership for schema field addition and update mutation.
 
-Last Updated: May 20, 2026 (post PR #314 plan)
+Last Updated: June 1, 2026 (Student Booking Flow COMPLETED: calendar + sessions pages migrated to Convex, availability preview added to checkout)
 
 ### NEW: Student Dashboard Fixes & Discord Role Assignment (May 31, 2026)
 
@@ -197,7 +197,75 @@ Last Updated: May 20, 2026 (post PR #314 plan)
 4. Endpoint stores Discord identity in Convex
 5. Endpoint adds student role to Discord guild member
 
-**Status**: ✅ COMPLETED - May 31, 2026
+**Status**: ✅ COMPLETED - May 31, 2026 (PR #382 with review fixes)
+
+**PR #382 Review Fixes Applied**:
+- Added role guard to Discord sync endpoint (rejects instructors/admins with 403)
+- Replaced `discordRoleSyncing` state with `useRef` for deduplication (fixes state never resetting bug)
+- Fixed "You're all set!" block to show for students without requiring `googleCalendarConnected`
+
+### NEW: Student Booking Flow - Next Phase (June 1, 2026)
+
+**Problem**: While the booking API endpoints (`/api/bookings`, `/api/instructors/[id]/availability`) use Convex correctly, the `/calendar` page uses SQL/Drizzle queries (`@mentorships/db`) for sessions and session packs. This is broken in the Convex-only architecture and will not show correct data.
+
+**Current State**:
+- ✅ `/api/bookings` (POST) - Works with Convex, creates Google Calendar events
+- ✅ `/api/bookings/series` - Works with Convex, creates weekly booking series
+- ✅ `/api/instructors/[id]/availability` - Works with Convex, returns free/busy from Google Calendar
+- ✅ `BookWithGoogle` component - Calls availability API correctly, posts to `/api/bookings`
+- ✅ `/calendar` page - Migrated from SQL to Convex queries (June 1, 2026)
+- ✅ `/sessions` page - Migrated from SQL to Convex query (June 1, 2026)
+- ✅ Availability preview on checkout page - Shows next 3 slots before purchase (June 1, 2026)
+
+**Fixes Implemented**:
+1. **Migrated `/calendar` page from SQL to Convex**:
+   - Converted from Server Component to Client Component (pattern matching dashboard)
+   - Replaced `requireDbUser()` with `useUser()` from Clerk
+   - Replaced SQL queries with `useActiveSessionPacksByUser` and `useUpcomingStudentSessions` hooks
+   - Added loading states for packs and sessions
+   - Fixed session ID reference (`id` → `_id` for Convex documents)
+   - Removed `ProtectedLayout` (client component pattern doesn't use it)
+   - Added Suspense boundary for proper loading states
+
+2. **Migrated `/sessions` page from SQL to Convex**:
+   - Added new Convex query `getAllStudentSessionsWithInstructor` (sessions.ts:184)
+   - Joins sessions → instructor → users for instructorEmail
+   - Joins sessions → sessionPacks for remainingSessions
+   - Added `useAllStudentSessions` hook (use-sessions.ts:29)
+   - Converted page from Server Component to Client Component
+   - Added Suspense boundary and loading states
+
+3. **Added availability preview on checkout page**:
+   - Created `/api/instructors/[id]/availability-preview` endpoint (lightweight, returns next 3 slots)
+   - Created `useInstructorAvailabilityPreview` hook (TanStack Query)
+   - Created `AvailabilityPreview` component (shows loading, "not connected", or slot list)
+   - Integrated into checkout page above product selection
+   - Only shows when single-instructor context (`?instructor=slug`)
+
+**Status**: ✅ COMPLETED - June 1, 2026 (full booking flow with availability preview)
+
+---
+
+### NEW: apps/platform Feature Parity Checklist (June 1, 2026)
+
+**Completed**:
+- ✅ Student dashboard with role-based UI (no Google Calendar for students)
+- ✅ Discord role assignment via `/api/user/discord/sync-role`
+- ✅ Instructor Google Calendar OAuth flow (connect/disconnect/select)
+- ✅ Booking API with Google Calendar integration
+- ✅ Availability API with free/busy checking
+- ✅ Calendar page SQL → Convex migration (June 1, 2026)
+- ✅ Sessions page SQL → Convex migration (June 1, 2026)
+- ✅ Instructor availability preview on checkout page (June 1, 2026)
+
+**In Progress / Not Started**:
+- ❌ Student cannot browse instructors and book directly (only via `/calendar` after purchase)
+- ❌ No per-instructor booking page (students must purchase first)
+
+**Priority Items**:
+1. Consider adding direct booking flow from instructor profile
+
+**Status**: 🟡 IN PROGRESS - June 1, 2026 (availability preview added to checkout)
 
 ---
 
