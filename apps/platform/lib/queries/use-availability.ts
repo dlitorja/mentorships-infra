@@ -1,10 +1,22 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { z } from "zod";
 
-type AvailabilityPreviewResponse =
-  | { connected: false; slots: never[]; message: string }
-  | { connected: true; instructorTimeZone: string | null; slots: string[] };
+const availabilityPreviewSchema = z.discriminatedUnion("connected", [
+  z.object({
+    connected: z.literal(false),
+    slots: z.array(z.never()),
+    message: z.string(),
+  }),
+  z.object({
+    connected: z.literal(true),
+    instructorTimeZone: z.string().nullable(),
+    slots: z.array(z.string()),
+  }),
+]);
+
+export type AvailabilityPreviewResponse = z.infer<typeof availabilityPreviewSchema>;
 
 async function fetchInstructorAvailabilityPreview(
   instructorId: string,
@@ -16,7 +28,12 @@ async function fetchInstructorAvailabilityPreview(
   if (!res.ok) {
     throw new Error("Failed to fetch availability");
   }
-  return res.json();
+  const json = await res.json();
+  const parsed = availabilityPreviewSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error(`Invalid availability response: ${parsed.error.message}`);
+  }
+  return parsed.data;
 }
 
 export function useInstructorAvailabilityPreview(
