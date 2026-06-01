@@ -206,7 +206,7 @@ export default async function InstructorDashboardPage() {
                             {session.studentEmail ?? "Unknown student"}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            {formatDateTime(session.scheduledAt)}
+                            {formatDateTime(new Date(session.scheduledAt))}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">
                             {session.remainingSessions !== null ? `${session.remainingSessions} sessions remaining` : ""}
