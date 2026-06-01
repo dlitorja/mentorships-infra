@@ -23,6 +23,11 @@ type UpcomingSession = {
 
 type SeatReservation = Doc<"seatReservations">;
 
+/**
+ * Format a date for display in the dashboard.
+ * @param date - The date to format (can be Date, string, number, or null)
+ * @returns A formatted date string like "Jun 1, 2026" or "N/A" if null
+ */
 function formatDate(date: Date | string | null | number): string {
   if (!date) return "N/A";
   const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
@@ -33,6 +38,11 @@ function formatDate(date: Date | string | null | number): string {
   });
 }
 
+/**
+ * Format a date and time for display in the dashboard.
+ * @param date - The date to format (can be Date, string, or number from Unix timestamp)
+ * @returns A formatted date-time string like "Jun 1, 2026 at 2:30 PM"
+ */
 function formatDateTime(date: Date | string | number): string {
   const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
   return d.toLocaleString("en-US", {
@@ -44,6 +54,12 @@ function formatDateTime(date: Date | string | number): string {
   });
 }
 
+/**
+ * Instructor dashboard page displaying active students, upcoming sessions,
+ * available seats, and Google Calendar connection status.
+ * Fetches real-time data from Convex including active seat reservations,
+ * upcoming sessions, and instructor profile information.
+ */
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
   const convex = getConvexClient();
