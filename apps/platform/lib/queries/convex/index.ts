@@ -5,3 +5,4 @@ export * from "./use-sessions";
 export * from "./use-workspaces";
 export * from "./use-users";
 export * from "./use-waitlist";
+export * from "./use-instructor-dashboard";
