@@ -34,10 +34,20 @@ export const getStudentSessions = query({
 export const getInstructorSessions = query({
   args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       return [];
     }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
     return await ctx.db
       .query("sessions")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
@@ -52,9 +62,18 @@ export const getInstructorUpcomingSessions = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
     }
 
     const limit = args.limit ?? 10;
