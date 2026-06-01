@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, UseQueryResult } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -13,7 +13,7 @@ export type UpcomingSession = {
   remainingSessions: number | null;
 };
 
-export function useInstructorUpcomingSessions(instructorId: string) {
+export function useInstructorUpcomingSessions(instructorId: Id<"instructors"> | undefined): UseQueryResult<UpcomingSession[], Error> {
   return useQuery({
     ...convexQuery(api.sessions.getInstructorUpcomingSessions, {
       instructorId: instructorId as Id<"instructors">,
