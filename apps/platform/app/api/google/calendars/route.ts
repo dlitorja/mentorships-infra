@@ -4,6 +4,7 @@ import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { getGoogleCalendarClient } from "@/lib/google";
+import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
@@ -47,6 +48,12 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("[platform] List calendars error:", error);
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+    }
     return NextResponse.json({ error: "Failed to list calendars" }, { status: 500 });
   }
 }
