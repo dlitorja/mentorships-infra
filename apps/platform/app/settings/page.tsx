@@ -24,7 +24,7 @@ export default async function SettingsPage() {
         <TimeZoneSelector />
 
         {/* Integrations */}
-        <GoogleCalendarCard />
+        {(user.role === "instructor" || user.role === "admin") && <GoogleCalendarCard />}
 
         {/* Profile Information */}
         <Card>
