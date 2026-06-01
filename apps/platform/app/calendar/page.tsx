@@ -128,7 +128,7 @@ function CalendarContent() {
                         </p>
                         <p className="text-sm text-muted-foreground">
                           {pack.expiresAt
-                            ? `Expires: ${new Date(pack.expiresAt).toLocaleDateString()}`
+                            ? `Expires: ${pack.expiresAt.toLocaleDateString()}`
                             : "No expiration"}
                         </p>
                       </div>
