@@ -77,19 +77,21 @@ function getLocalWeekdayAndMinutes(date: Date, timeZone: string): { day: 0 | 1 |
   }
 }
 
-function isWithinWorkingHours(slotStart: Date, timeZone: string, workingHours: WorkingHours): boolean {
+function isWithinWorkingHours(slotStart: Date, slotMinutes: number, timeZone: string, workingHours: WorkingHours): boolean {
   const local = getLocalWeekdayAndMinutes(slotStart, timeZone);
   if (!local) return true;
 
   const intervals = workingHours[local.day];
   if (!intervals || intervals.length === 0) return false;
 
+  const slotEndMinutes = local.minutes + slotMinutes;
+
   for (const i of intervals) {
     const startMin = parseHHMM(i.start);
     const endMin = parseHHMM(i.end);
     if (startMin === null || endMin === null) continue;
     if (endMin <= startMin) continue;
-    if (local.minutes >= startMin && local.minutes < endMin) return true;
+    if (local.minutes >= startMin && slotEndMinutes <= endMin) return true;
   }
 
   return false;
@@ -115,8 +117,21 @@ export async function GET(
     const convex = getConvexClient();
 
     const { searchParams } = new URL(request.url);
-    const slotsToReturn = Math.min(parseInt(searchParams.get("slots") ?? "3", 10), 10);
-    const rangeDays = Math.min(parseInt(searchParams.get("days") ?? "14", 10), 30);
+
+    const parsedSlots = parseInt(searchParams.get("slots") ?? "3", 10);
+    const parsedDays = parseInt(searchParams.get("days") ?? "14", 10);
+
+    const defaultSlots = 3;
+    const defaultDays = 14;
+    const maxSlots = 10;
+    const maxDays = 30;
+
+    const slotsToReturn = Number.isFinite(parsedSlots) && parsedSlots > 0
+      ? Math.min(parsedSlots, maxSlots)
+      : defaultSlots;
+    const rangeDays = Number.isFinite(parsedDays) && parsedDays > 0
+      ? Math.min(parsedDays, maxDays)
+      : defaultDays;
 
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
@@ -136,9 +151,9 @@ export async function GET(
     }
 
     const calendar = await getGoogleCalendarClient(refreshToken);
-    const calendarIds: string[] = Array.isArray((instructor as any).googleAvailabilityCalendarIds)
-      && (instructor as any).googleAvailabilityCalendarIds.length > 0
-      ? (instructor as any).googleAvailabilityCalendarIds
+    const googleAvailabilityCalendarIds = instructor.googleAvailabilityCalendarIds;
+    const calendarIds: string[] = Array.isArray(googleAvailabilityCalendarIds) && googleAvailabilityCalendarIds.length > 0
+      ? googleAvailabilityCalendarIds
       : [instructor.googleCalendarId || "primary"];
 
     const start = ceilToSlot(new Date(), 60);
@@ -180,7 +195,7 @@ export async function GET(
       if (!overlaps) {
         const withinWorkingHours = !instructor.timeZone || !instructor.workingHours
           ? true
-          : isWithinWorkingHours(cursor, instructor.timeZone, instructor.workingHours as WorkingHours);
+          : isWithinWorkingHours(cursor, 60, instructor.timeZone, instructor.workingHours as WorkingHours);
 
         if (withinWorkingHours) {
           availableSlots.push(cursor.toISOString());

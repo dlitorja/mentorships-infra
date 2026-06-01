@@ -2,8 +2,10 @@
 
 import { Suspense } from "react";
 import { useUser } from "@clerk/nextjs";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useAllStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { Loader2 } from "lucide-react";
 
@@ -50,7 +52,19 @@ function SessionsContent() {
   if (!user) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle>Sign In Required</CardTitle>
+            <CardDescription>
+              Please sign in to view your sessions.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/sign-in">Sign In</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -78,7 +92,7 @@ function SessionsContent() {
         </Card>
       ) : (
         <div className="grid gap-4">
-          {(userSessions as any[]).map((session) => (
+          {userSessions.map((session) => (
             <Card key={session.id}>
               <CardHeader>
                 <div className="flex items-center justify-between">
