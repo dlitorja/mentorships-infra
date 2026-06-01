@@ -8,7 +8,7 @@ import { Calendar, Clock, User, BookOpen, CheckCircle2, Loader2 } from "lucide-r
 import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/lib/queries/convex/use-session-packs";
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
 import { useInstructor } from "@/lib/queries/convex/use-instructors";
-import { useMemo, Suspense, useEffect, useState } from "react";
+import { useMemo, Suspense, useEffect, useState, useRef } from "react";
 
 function formatDate(date: number): string {
   return new Date(date).toLocaleDateString("en-US", {
@@ -118,7 +118,6 @@ function DashboardContent() {
   const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
   const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
   const [loadingGoogleCalendar, setLoadingGoogleCalendar] = useState(true);
-  const [discordRoleSyncing, setDiscordRoleSyncing] = useState(false);
 
   const discordConnected = Boolean(
     user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
@@ -191,27 +190,18 @@ function DashboardContent() {
     };
   }, [isLoaded, userId, isInstructorOrAdmin]);
 
+  const discordSyncRef = useRef(false);
+
   useEffect(() => {
     if (!isLoaded || !userId) return;
     if (isInstructorOrAdmin) return;
     if (!discordConnected) return;
-    if (discordRoleSyncing) return;
-    let cancelled = false;
-    async function syncDiscordRole(): Promise<void> {
-      setDiscordRoleSyncing(true);
-      try {
-        await fetch("/api/user/discord/sync-role", { method: "POST" });
-      } catch {
-        // Silently fail - role assignment is best-effort
-      } finally {
-        if (!cancelled) setDiscordRoleSyncing(false);
-      }
-    }
-    syncDiscordRole();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoaded, userId, isInstructorOrAdmin, discordConnected, discordRoleSyncing]);
+    if (discordSyncRef.current) return;
+    discordSyncRef.current = true;
+    fetch("/api/user/discord/sync-role", { method: "POST" }).catch(() => {
+      // Silently fail - role assignment is best-effort
+    });
+  }, [isLoaded, userId, isInstructorOrAdmin, discordConnected]);
 
   const sortedPacks = useMemo(() => {
     if (!sessionPacks) return [];
@@ -364,7 +354,7 @@ function DashboardContent() {
             </div>
           )}
 
-          {discordConnected && googleCalendarConnected && (totalSessions ?? 0) === 0 && sortedPacks.length === 0 && (
+          {discordConnected && (!isInstructorOrAdmin || googleCalendarConnected) && (totalSessions ?? 0) === 0 && sortedPacks.length === 0 && (
             <div className="text-center py-4 text-muted-foreground">
               <p>You're all set! Browse instructors to get started.</p>
               <Link className="text-primary hover:underline mt-2 inline-block" href="/instructors">
