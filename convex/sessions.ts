@@ -82,10 +82,15 @@ export const getInstructorUpcomingSessions = query({
     const allSessions = await ctx.db
       .query("sessions")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("status"), "scheduled"),
+          q.gt(q.field("scheduledAt"), now)
+        )
+      )
       .collect();
 
     const upcoming = allSessions
-      .filter((s) => s.status === "scheduled" && s.scheduledAt > now)
       .sort((a, b) => a.scheduledAt - b.scheduledAt)
       .slice(0, limit);
 
