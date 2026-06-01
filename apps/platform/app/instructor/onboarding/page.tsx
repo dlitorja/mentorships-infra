@@ -133,11 +133,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
             </CardHeader>
             <CardContent>
               <GoogleCalendarStatus
-                instructor={{
-                  googleRefreshToken: (convexInstructor as any)?.googleRefreshToken,
-                  timeZone: (convexInstructor as any)?.timeZone,
-                  workingHours: (convexInstructor as any)?.workingHours,
-                }}
+                isCalendarConnected={!!(convexInstructor as any)?.googleRefreshToken}
               />
             </CardContent>
           </Card>
