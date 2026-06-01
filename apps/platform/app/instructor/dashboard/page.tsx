@@ -78,7 +78,7 @@ export default async function InstructorDashboardPage() {
       const sessionsResult = await convex.query(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as any, limit: 5 });
       upcomingSessions = sessionsResult;
     } catch (e) {
-      // Non-fatal: stats unavailable
+      console.error("Failed to load instructor dashboard stats", e);
     }
   }
 
@@ -90,7 +90,7 @@ export default async function InstructorDashboardPage() {
     try {
       bookings = await convex.query(api.bookings.listInstructorBookings, { instructorId: instructorRecord._id as any, limit: 10 });
     } catch (e) {
-      // Non-fatal: bookings list unavailable
+      console.error("Failed to load instructor bookings", e);
     }
 }
 
@@ -108,7 +108,11 @@ export default async function InstructorDashboardPage() {
           <UserButton />
         </div>
 
-        <GoogleCalendarAlertBanner instructor={instructorRecord} />
+        <GoogleCalendarAlertBanner
+          isCalendarConnected={!!(instructorRecord as any)?.googleRefreshToken}
+          hasTimeZone={!!instructorRecord.timeZone}
+          hasWorkingHours={!!instructorRecord.workingHours && Object.keys(instructorRecord.workingHours).length > 0}
+        />
 
         {/* Stats Overview */}
         <div className="grid gap-4 md:grid-cols-3">
@@ -289,11 +293,11 @@ export default async function InstructorDashboardPage() {
                       <div>
                         <p className="font-semibold">Student ID: {seat.userId}</p>
                         <p className="text-sm text-muted-foreground">
-                          Seat expires {formatDate(seat.seatExpiresAt)}
+                          Seat expires {formatDate(new Date(seat.seatExpiresAt))}
                         </p>
                         {seat.gracePeriodEndsAt && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            Grace period ends {formatDate(seat.gracePeriodEndsAt)}
+                            Grace period ends {formatDate(new Date(seat.gracePeriodEndsAt))}
                           </p>
                         )}
                       </div>
