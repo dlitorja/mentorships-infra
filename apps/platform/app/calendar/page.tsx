@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useClerk } from "@clerk/nextjs";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,17 @@ function CalendarContent() {
   const { data: sessionPacks, isLoading: packsLoading } = useActiveSessionPacksByUser(userId || "");
   const { data: upcomingSessions, isLoading: sessionsLoading } = useUpcomingStudentSessions(userId || "");
 
+  const activePacks = useMemo(() => {
+    if (!sessionPacks) return [];
+    return sessionPacks.map((p) => ({
+      id: p._id,
+      instructorId: p.instructorId,
+      remainingSessions: p.remainingSessions,
+      expiresAt: p.expiresAt ? new Date(p.expiresAt) : null,
+      status: p.status,
+    }));
+  }, [sessionPacks]);
+
   if (!isLoaded) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
@@ -41,7 +52,19 @@ function CalendarContent() {
   if (!user) {
     return (
       <div className="container mx-auto p-4 md:p-8 flex justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <Card className="max-w-md w-full">
+          <CardHeader>
+            <CardTitle>Sign In Required</CardTitle>
+            <CardDescription>
+              Please sign in to view your calendar and book sessions.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link href="/sign-in">Sign In</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -65,17 +88,6 @@ function CalendarContent() {
       </div>
     );
   }
-
-  const activePacks = useMemo(() => {
-    if (!sessionPacks) return [];
-    return sessionPacks.map((p: any) => ({
-      id: p._id,
-      instructorId: p.instructorId,
-      remainingSessions: p.remainingSessions,
-      expiresAt: p.expiresAt,
-      status: p.status,
-    }));
-  }, [sessionPacks]);
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6">
@@ -157,7 +169,7 @@ function CalendarContent() {
             </p>
           ) : (
             <div className="space-y-4">
-              {(upcomingSessions as any[]).map((session: any) => (
+              {upcomingSessions.map((session) => (
                 <div
                   key={session._id}
                   className="flex items-center justify-between p-4 border rounded-lg"
