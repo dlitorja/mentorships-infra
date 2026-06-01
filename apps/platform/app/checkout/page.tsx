@@ -20,6 +20,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
 import { useUser } from "@clerk/nextjs";
 import { Input } from "@/components/ui/input";
+import { AvailabilityPreview } from "@/components/checkout/availability-preview";
 
 /**
  * Payment method options for checkout.
@@ -302,6 +303,14 @@ function CheckoutContent(): React.JSX.Element {
               })}
             </div>
           </div>
+
+          {/* Availability Preview - only show when in single instructor context */}
+          {instructorId && (
+            <AvailabilityPreview
+              instructorId={instructorId}
+              instructorName={instructorName}
+            />
+          )}
 
           {/* Your Details */}
           <div className="space-y-3">
