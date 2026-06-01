@@ -45,6 +45,54 @@ export const getInstructorSessions = query({
   },
 });
 
+/** Returns upcoming scheduled sessions for an instructor with student info. */
+export const getInstructorUpcomingSessions = query({
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+
+    const limit = args.limit ?? 10;
+    const now = Date.now();
+
+    const allSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    const upcoming = allSessions
+      .filter((s) => s.status === "scheduled" && s.scheduledAt > now)
+      .sort((a, b) => a.scheduledAt - b.scheduledAt)
+      .slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      upcoming.map(async (session) => {
+        const studentUser = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
+          .first();
+
+        const sessionPack = await ctx.db.get(session.sessionPackId);
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          status: session.status,
+          studentEmail: studentUser?.email ?? null,
+          remainingSessions: sessionPack?.remainingSessions ?? null,
+        };
+      })
+    );
+
+    return sessionsWithData;
+  },
+});
+
 /** Returns upcoming scheduled sessions for a student. */
 export const getUpcomingSessions = query({
   args: { studentId: v.string() },
