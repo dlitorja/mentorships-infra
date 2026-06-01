@@ -3,6 +3,7 @@ import { UserButton } from "@clerk/nextjs";
 
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
+import { Id, Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Users, BookOpen, CheckCircle2 } from "lucide-react";
@@ -12,9 +13,19 @@ import Link from "next/link";
 import { InstructorBookingsList } from "@/components/instructor/bookings-list";
 import { GoogleCalendarAlertBanner } from "@/components/instructor/google-calendar-status";
 
-function formatDate(date: Date | string | null): string {
+type UpcomingSession = {
+  id: Id<"sessions">;
+  scheduledAt: number;
+  status: string;
+  studentEmail: string | null;
+  remainingSessions: number | null;
+};
+
+type SeatReservation = Doc<"seatReservations">;
+
+function formatDate(date: Date | string | null | number): string {
   if (!date) return "N/A";
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
   return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -22,8 +33,8 @@ function formatDate(date: Date | string | null): string {
   });
 }
 
-function formatDateTime(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
+function formatDateTime(date: Date | string | number): string {
+  const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
   return d.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -56,27 +67,27 @@ export default async function InstructorDashboardPage() {
 
   // Using Convex for all instructor data
   // Session data comes from Convex queries
-  let upcomingSessions: any[] = [];
-  const pastSessions: any[] = [];
-  let activeSeatsData: any[] = [];
+  let upcomingSessions: UpcomingSession[] = [];
+  const pastSessions: UpcomingSession[] = [];
+  let activeSeatsData: SeatReservation[] = [];
   let maxSeats = 0;
   let activeStudentsCount = 0;
 
   if (instructorRecord?._id) {
     try {
       // Get active seats and calculate unique students
-      activeSeatsData = await convex.query(api.seatReservations.getInstructorActiveSeats, { instructorId: instructorRecord._id as any });
-      const uniqueStudentIds = new Set(activeSeatsData.map((seat: any) => seat.userId));
+      activeSeatsData = await convex.query(api.seatReservations.getInstructorActiveSeats, { instructorId: instructorRecord._id as Id<"instructors"> });
+      const uniqueStudentIds = new Set(activeSeatsData.map((seat) => seat.userId));
       activeStudentsCount = uniqueStudentIds.size;
 
       // Calculate max seats from instructor inventory
-      const oneOnOne = (instructorRecord as any)?.oneOnOneInventory ?? 0;
-      const group = (instructorRecord as any)?.groupInventory ?? 0;
+      const oneOnOne = (instructorRecord as Doc<"instructors">)?.oneOnOneInventory ?? 0;
+      const group = (instructorRecord as Doc<"instructors">)?.groupInventory ?? 0;
       maxSeats = oneOnOne + group;
 
       // Get upcoming sessions with student info
-      const sessionsResult = await convex.query(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as any, limit: 5 });
-      upcomingSessions = sessionsResult;
+      const sessionsResult = await convex.query(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
+      upcomingSessions = sessionsResult as UpcomingSession[];
     } catch (e) {
       console.error("Failed to load instructor dashboard stats", e);
     }
@@ -235,7 +246,7 @@ export default async function InstructorDashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {pastSessions.map((session) => (
+                  {pastSessions.map((session: any) => (
                     <div
                       key={session.id}
                       className="border rounded-lg p-4 space-y-2"
