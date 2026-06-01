@@ -17,7 +17,18 @@ import { Badge } from '@/components/ui/badge';
 import { usePublicInstructors, type PublicInstructor } from '@/lib/queries/convex/use-instructors';
 import { shuffle } from '@/lib/utils/shuffle';
 
-function mapPublicToInstructor(inst: PublicInstructor) {
+interface Instructor {
+  id: string;
+  name: string;
+  slug: string;
+  tagline: string;
+  bio: string;
+  profileImage: string;
+  specialties: string[];
+  isNew: boolean;
+}
+
+function mapPublicToInstructor(inst: PublicInstructor): Instructor {
   return {
     id: inst._id,
     name: inst.name ?? '',
@@ -27,33 +38,24 @@ function mapPublicToInstructor(inst: PublicInstructor) {
     profileImage: inst.profileImageUrl ?? '/placeholder-instructor.svg',
     specialties: inst.specialties ?? [],
     isNew: false,
-    isHidden: inst.isHidden,
-    isActive: inst.isActive,
   };
 }
 
 export function InstructorCarousel(): React.JSX.Element {
   const { data: instructorsData, isLoading } = usePublicInstructors();
-  const [instructors, setInstructors] = useState<ReturnType<typeof mapPublicToInstructor>[]>([]);
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  const shuffledData = useMemo(() => {
+  const instructors = useMemo(() => {
     if (!instructorsData) return [];
-    return shuffle(instructorsData.filter((inst) => !inst.isHidden));
+    return shuffle(instructorsData).map(mapPublicToInstructor);
   }, [instructorsData]);
-
-  useEffect(() => {
-    if (shuffledData.length > 0) {
-      setInstructors(shuffledData.map(mapPublicToInstructor));
-    }
-  }, [shuffledData]);
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setPrefersReducedMotion(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(mq.matches);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
