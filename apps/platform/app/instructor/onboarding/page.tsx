@@ -24,6 +24,11 @@ type PageProps = {
   searchParams: Promise<{ submissionId?: string }>;
 };
 
+/**
+ * Instructor onboarding page for initial setup and profile completion.
+ * Displays submission review status, Google Calendar connection,
+ * and scheduling settings configuration.
+ */
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
   const instructorRecord = await getInstructorByUserId(user.id);
@@ -133,7 +138,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
             </CardHeader>
             <CardContent>
               <GoogleCalendarStatus
-                isCalendarConnected={!!(convexInstructor as any)?.googleRefreshToken}
+                isCalendarConnected={!!convexInstructor?.googleRefreshToken}
               />
             </CardContent>
           </Card>
