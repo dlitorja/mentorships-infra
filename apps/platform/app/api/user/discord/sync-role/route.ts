@@ -32,7 +32,8 @@ function getDiscordProviderUserIdFromClerkExternalAccounts(
 
 export async function POST(): Promise<NextResponse> {
   try {
-    const { userId } = await auth();
+    const clerkAuth = await auth();
+    const { userId } = clerkAuth;
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -48,11 +49,23 @@ export async function POST(): Promise<NextResponse> {
     }
 
     const clerk = await clerkClient();
-    let clerkUser;
+    let clerkUser: Awaited<ReturnType<typeof clerk.users.getUser>> | null = null;
     try {
       clerkUser = await clerk.users.getUser(userId);
     } catch {
       return NextResponse.json({ error: "Failed to fetch Clerk user" }, { status: 500 });
+    }
+
+    if (!clerkUser) {
+      return NextResponse.json({ error: "Failed to fetch Clerk user" }, { status: 500 });
+    }
+
+    const userRole = (clerkUser.publicMetadata?.role as string | undefined) ?? "student";
+    if (userRole === "instructor" || userRole === "admin") {
+      return NextResponse.json(
+        { error: "Students only - instructors/admins cannot self-assign Discord roles" },
+        { status: 403 }
+      );
     }
 
     const discordUserId = getDiscordProviderUserIdFromClerkExternalAccounts(
@@ -67,7 +80,7 @@ export async function POST(): Promise<NextResponse> {
     }
 
     const convex = getConvexClient();
-    const token = await auth().then((a) => a.getToken({ template: "convex" }));
+    const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
