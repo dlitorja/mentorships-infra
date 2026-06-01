@@ -118,10 +118,14 @@ function DashboardContent() {
   const [loadingGoogleBookings, setLoadingGoogleBookings] = useState(false);
   const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
   const [loadingGoogleCalendar, setLoadingGoogleCalendar] = useState(true);
+  const [discordRoleSyncing, setDiscordRoleSyncing] = useState(false);
 
   const discordConnected = Boolean(
     user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
   );
+
+  const userRole = (user?.publicMetadata?.role as string | undefined) ?? "student";
+  const isInstructorOrAdmin = userRole === "instructor" || userRole === "admin";
 
   const { data: sessionPacks, isLoading: packsLoading } = useActiveSessionPacksByUser(userId || "");
   const { data: totalSessions } = useUserTotalRemainingSessions(userId || "");
@@ -163,6 +167,11 @@ function DashboardContent() {
       setLoadingGoogleCalendar(false);
       return;
     }
+    if (!isInstructorOrAdmin) {
+      setGoogleCalendarConnected(false);
+      setLoadingGoogleCalendar(false);
+      return;
+    }
     let cancelled = false;
     async function loadGoogleStatus(): Promise<void> {
       setLoadingGoogleCalendar(true);
@@ -180,7 +189,29 @@ function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [isLoaded, userId]);
+  }, [isLoaded, userId, isInstructorOrAdmin]);
+
+  useEffect(() => {
+    if (!isLoaded || !userId) return;
+    if (isInstructorOrAdmin) return;
+    if (!discordConnected) return;
+    if (discordRoleSyncing) return;
+    let cancelled = false;
+    async function syncDiscordRole(): Promise<void> {
+      setDiscordRoleSyncing(true);
+      try {
+        await fetch("/api/user/discord/sync-role", { method: "POST" });
+      } catch {
+        // Silently fail - role assignment is best-effort
+      } finally {
+        if (!cancelled) setDiscordRoleSyncing(false);
+      }
+    }
+    syncDiscordRole();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, userId, isInstructorOrAdmin, discordConnected, discordRoleSyncing]);
 
   const sortedPacks = useMemo(() => {
     if (!sessionPacks) return [];
@@ -293,7 +324,7 @@ function DashboardContent() {
             </div>
           )}
 
-          {!googleCalendarConnected && !loadingGoogleCalendar && (
+          {!googleCalendarConnected && !loadingGoogleCalendar && isInstructorOrAdmin && (
             <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/50">
               <div className="flex-1">
                 <div className="font-medium flex items-center gap-2">
