@@ -467,10 +467,28 @@ export const cancelSession = mutation({
       throw new Error("Session not found");
     }
 
-    await ctx.db.patch(args.id, {
+    if (session.status !== "scheduled") {
+      throw new Error("Only scheduled sessions can be canceled");
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot cancel another instructor's session");
+    }
+
+    const updates: Record<string, unknown> = {
       status: "canceled",
       canceledAt: Date.now(),
-    });
+    };
+    if (args.reason) {
+      updates.cancelReason = args.reason;
+    }
+
+    await ctx.db.patch(args.id, updates);
 
     return await ctx.db.get(args.id);
   },
@@ -487,13 +505,17 @@ export const rescheduleSession = mutation({
     if (!session) {
       throw new Error("Session not found");
     }
-    
+
+    if (session.status !== "scheduled") {
+      throw new Error("Only scheduled sessions can be rescheduled");
+    }
+
     const instructor = await ctx.db.get(session.instructorId);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Unauthorized");
     }
-    if (instructor && instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
       throw new Error("Forbidden: cannot reschedule another instructor's session");
     }
 
@@ -522,7 +544,7 @@ export const updateSessionNotes = mutation({
     if (!identity) {
       throw new Error("Unauthorized");
     }
-    if (instructor && instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
       throw new Error("Forbidden: cannot update another instructor's session");
     }
 
