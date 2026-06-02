@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Loader2, Calendar, Mail, Clock, FileText } from "lucide-react";
 import { BookSessionDialog } from "./book-session-dialog";
+import { StudentDetailSessionActions } from "./student-detail-session-actions";
 
 type StudentDetails = {
   userId: string;
@@ -207,6 +208,10 @@ export function StudentDetail({ studentId }: StudentDetailProps) {
                         </div>
                       )}
                     </div>
+                    <StudentDetailSessionActions 
+                      session={session}
+                      allowedActions={session.status === "scheduled" ? ["reschedule", "cancel", "notes"] : ["notes"]}
+                    />
                   </div>
                 </div>
               ))}
