@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -15,13 +15,7 @@ type Session = {
   scheduledAt: number;
   studentEmail: string | null;
   notes?: string | null;
-};
-
-type RescheduleDialogProps = {
-  session: Session;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSuccess?: () => void;
+  status?: string;
 };
 
 function formatDateTime(ms: number): string {
@@ -34,20 +28,31 @@ function formatDateTime(ms: number): string {
 
 function formatDateForInput(ms: number): string {
   const date = new Date(ms);
-  const offset = date.getTimezoneOffset();
-  const localDate = new Date(date.getTime() - offset * 60 * 1000);
-  const year = localDate.getFullYear();
-  const month = String(localDate.getMonth() + 1).padStart(2, "0");
-  const day = String(localDate.getDate()).padStart(2, "0");
-  const hours = String(localDate.getHours()).padStart(2, "0");
-  const minutes = String(localDate.getMinutes()).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
+
+type RescheduleDialogProps = {
+  session: Session;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
+};
 
 export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess }: RescheduleDialogProps) {
   const [newDateTime, setNewDateTime] = useState(() => formatDateForInput(session.scheduledAt));
   const [isPending, startTransition] = useTransition();
   const reschedule = useMutation(api.sessions.rescheduleSession);
+
+  useEffect(() => {
+    if (open) {
+      setNewDateTime(formatDateForInput(session.scheduledAt));
+    }
+  }, [open, session.scheduledAt]);
 
   async function handleReschedule() {
     const newScheduledAt = new Date(newDateTime).getTime();
@@ -92,9 +97,6 @@ export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess
               className="w-full px-3 py-2 border rounded-md text-sm"
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            The student will be notified of this change via email.
-          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -118,6 +120,12 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
   const [reason, setReason] = useState("");
   const [isPending, startTransition] = useTransition();
   const cancel = useMutation(api.sessions.cancelSession);
+
+  useEffect(() => {
+    if (open) {
+      setReason("");
+    }
+  }, [open]);
 
   async function handleCancel() {
     startTransition(async () => {
@@ -158,9 +166,6 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
               maxLength={500}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            The student will be notified of this cancellation via email.
-          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Keep Session</Button>
@@ -184,6 +189,12 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
   const [notes, setNotes] = useState(session.notes ?? "");
   const [isPending, startTransition] = useTransition();
   const updateNotes = useMutation(api.sessions.updateSessionNotes);
+
+  useEffect(() => {
+    if (open) {
+      setNotes(session.notes ?? "");
+    }
+  }, [open, session.notes]);
 
   async function handleSave() {
     startTransition(async () => {
@@ -238,40 +249,51 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
 type SessionActionsProps = {
   session: Session;
   onSessionUpdated?: () => void;
+  allowedActions?: Array<"reschedule" | "cancel" | "notes">;
 };
 
-export function SessionActions({ session, onSessionUpdated }: SessionActionsProps) {
+export function SessionActions({ session, onSessionUpdated, allowedActions }: SessionActionsProps) {
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
 
+  const canReschedule = !allowedActions || allowedActions.includes("reschedule");
+  const canCancel = !allowedActions || allowedActions.includes("cancel");
+  const canNotes = !allowedActions || allowedActions.includes("notes");
+
   return (
     <>
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setRescheduleOpen(true)}
-          title="Reschedule"
-        >
-          <Calendar className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setCancelOpen(true)}
-          title="Cancel"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setNotesOpen(true)}
-          title="Notes"
-        >
-          <FileText className="h-4 w-4" />
-        </Button>
+        {canReschedule && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setRescheduleOpen(true)}
+            title="Reschedule"
+          >
+            <Calendar className="h-4 w-4" />
+          </Button>
+        )}
+        {canCancel && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCancelOpen(true)}
+            title="Cancel"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+        {canNotes && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setNotesOpen(true)}
+            title="Notes"
+          >
+            <FileText className="h-4 w-4" />
+          </Button>
+        )}
       </div>
 
       <RescheduleSessionDialog
