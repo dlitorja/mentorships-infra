@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Minus, Plus, Calendar } from "lucide-react";
+import { Loader2, Minus, Plus, Calendar, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 
 type Student = {
@@ -160,100 +161,119 @@ export default function InstructorStudentsPage() {
       ) : (
         <div className="grid gap-4">
           {students.map((student) => (
-            <Card key={student.sessionPackId}>
-              <CardContent className="pt-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="font-medium text-lg">{student.email}</div>
-                    <div className="flex items-center gap-3 mt-2">
-                      <Badge variant={getStatusColor(student.status, student.remainingSessions)}>
-                        {student.status}
-                      </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {student.completedSessionCount} of {student.totalSessions} sessions used
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Last session:</span>
-                      <div className="flex items-center gap-1 text-sm">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                        {formatDate(student.lastSessionCompletedAt)}
+            <Link key={student.sessionPackId} href={`/instructor/students/${student.userId}`} className="block">
+              <Card className="hover:border-primary/50 transition-colors cursor-pointer">
+                <CardContent className="pt-6">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="font-medium text-lg">{student.email}</div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="flex items-center gap-3 mt-2">
+                        <Badge variant={getStatusColor(student.status, student.remainingSessions)}>
+                          {student.status}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {student.completedSessionCount} of {student.totalSessions} sessions used
+                        </span>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground mr-2">Sessions:</span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => handleDecrement(student.sessionPackId)}
-                      disabled={
-                        updateMutation.isPending ||
-                        student.remainingSessions === 0
-                      }
-                    >
-                      <Minus className="h-4 w-4" />
-                    </Button>
-
-                    {editingPackId === student.sessionPackId ? (
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
-                          min="0"
-                          value={customAmount}
-                          onChange={(e) => setCustomAmount(e.target.value)}
-                          className="w-20 h-9 text-center"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleCustomSet(student.sessionPackId);
-                            if (e.key === "Escape") {
-                              setEditingPackId(null);
-                              setCustomAmount("");
-                            }
-                          }}
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => handleCustomSet(student.sessionPackId)}
-                          disabled={updateMutation.isPending}
-                        >
-                          Set
-                        </Button>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Last session:</span>
+                        <div className="flex items-center gap-1 text-sm">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          {formatDate(student.lastSessionCompletedAt)}
+                        </div>
                       </div>
-                    ) : (
+                    </div>
+
+                    <div className="flex items-center gap-2" onClick={(e) => e.preventDefault()}>
+                      <span className="text-sm text-muted-foreground mr-2">Sessions:</span>
                       <Button
-                        variant="ghost"
-                        className="min-w-[60px] font-mono"
-                        onClick={() => {
-                          setEditingPackId(student.sessionPackId);
-                          setCustomAmount(String(student.remainingSessions));
+                        variant="outline"
+                        size="icon"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDecrement(student.sessionPackId);
                         }}
+                        disabled={
+                          updateMutation.isPending ||
+                          student.remainingSessions === 0
+                        }
                       >
-                        {student.remainingSessions}
+                        <Minus className="h-4 w-4" />
                       </Button>
-                    )}
 
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => handleIncrement(student.sessionPackId)}
-                      disabled={updateMutation.isPending}
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
+                      {editingPackId === student.sessionPackId ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            min="0"
+                            value={customAmount}
+                            onChange={(e) => setCustomAmount(e.target.value)}
+                            className="w-20 h-9 text-center"
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") handleCustomSet(student.sessionPackId);
+                              if (e.key === "Escape") {
+                                setEditingPackId(null);
+                                setCustomAmount("");
+                              }
+                            }}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleCustomSet(student.sessionPackId);
+                            }}
+                            disabled={updateMutation.isPending}
+                          >
+                            Set
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          className="min-w-[60px] font-mono"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setEditingPackId(student.sessionPackId);
+                            setCustomAmount(String(student.remainingSessions));
+                          }}
+                        >
+                          {student.remainingSessions}
+                        </Button>
+                      )}
 
-                {student.expiresAt && (
-                  <div className="mt-3 text-sm text-muted-foreground">
-                    Expires: {new Date(student.expiresAt).toLocaleDateString()}
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleIncrement(student.sessionPackId);
+                        }}
+                        disabled={updateMutation.isPending}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+
+                  {student.expiresAt && (
+                    <div className="mt-3 text-sm text-muted-foreground">
+                      Expires: {new Date(student.expiresAt).toLocaleDateString()}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}
