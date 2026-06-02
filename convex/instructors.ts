@@ -1906,6 +1906,75 @@ export const getUserSessionCountForInstructor = query({
   },
 });
 
+/** Returns detailed info about a student with all their sessions for an instructor. */
+export const getStudentDetails = query({
+  args: { 
+    instructorId: v.id("instructors"),
+    studentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== user.tokenIdentifier) {
+      return null;
+    }
+
+    const studentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentId))
+      .first();
+
+    if (!studentUser) {
+      return null;
+    }
+
+    const sessionPacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentId))
+      .filter((q) => q.eq(q.field("instructorId"), args.instructorId))
+      .collect();
+
+    const activePacks = sessionPacks.filter(p => p.status === "active");
+    const pack = activePacks.length > 0 ? activePacks[0] : sessionPacks[0];
+
+    const allSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .filter((q) => q.eq(q.field("studentId"), args.studentId))
+      .collect();
+
+    const sortedSessions = allSessions.sort((a, b) => b.scheduledAt - a.scheduledAt);
+
+    return {
+      userId: args.studentId,
+      email: studentUser.email,
+      firstName: studentUser.firstName ?? null,
+      lastName: studentUser.lastName ?? null,
+      timeZone: studentUser.timeZone ?? null,
+      sessionPack: pack ? {
+        id: pack._id,
+        totalSessions: pack.totalSessions,
+        remainingSessions: pack.remainingSessions,
+        expiresAt: pack.expiresAt ?? null,
+        status: pack.status,
+      } : null,
+      sessions: sortedSessions.map(s => ({
+        id: s._id,
+        scheduledAt: s.scheduledAt,
+        completedAt: s.completedAt ?? null,
+        canceledAt: s.canceledAt ?? null,
+        status: s.status,
+        notes: s.notes ?? null,
+        cancelReason: s.cancelReason ?? null,
+      })),
+    };
+  },
+});
+
 export const getInstructorByEmailInternal = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
