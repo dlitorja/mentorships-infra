@@ -14,7 +14,7 @@ const updateSessionCountSchema = z.discriminatedUnion("action", [
 ]);
 
 /**
- * PATCH /api/instructor/students/[sessionPackId]
+ * PATCH /api/instructor/session-packs/[sessionPackId]
  * Update session count for a student's session pack
  */
 export async function PATCH(
