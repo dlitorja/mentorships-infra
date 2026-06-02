@@ -125,6 +125,18 @@ export function buildSessionRescheduledEmail(args: {
   return { subject, text, html, headers: { "X-Email-Type": "session_rescheduled_student" } };
 }
 
+/**
+ * Builds a session reminder email for students.
+ * Sent 30 minutes before a scheduled session to remind the student.
+ *
+ * @param args.studentEmail - The student's email address
+ * @param args.studentName - The student's name
+ * @param args.instructorName - The instructor's name
+ * @param args.scheduledAt - The session's scheduled date/time
+ * @param args.minutesUntil - Number of minutes until the session (typically 30)
+ * @param args.studentTimeZone - Optional timezone for display formatting
+ * @returns Email payload with subject, text, HTML, and headers
+ */
 export function buildSessionReminderEmail(args: {
   studentEmail: string;
   studentName: string;
@@ -172,6 +184,19 @@ export function buildSessionReminderEmail(args: {
   return { subject, text, html, headers: { "X-Email-Type": "session_reminder_student" } };
 }
 
+/**
+ * Builds a session reminder email for instructors.
+ * Sent 30 minutes before a scheduled session to remind the instructor.
+ *
+ * @param args.instructorEmail - The instructor's email address
+ * @param args.instructorName - The instructor's name
+ * @param args.studentName - The student's name
+ * @param args.studentEmail - The student's email address
+ * @param args.scheduledAt - The session's scheduled date/time
+ * @param args.minutesUntil - Number of minutes until the session (typically 30)
+ * @param args.instructorTimeZone - Optional timezone for display formatting
+ * @returns Email payload with subject, text, HTML, and headers
+ */
 export function buildInstructorReminderEmail(args: {
   instructorEmail: string;
   instructorName: string;
@@ -222,6 +247,19 @@ export function buildInstructorReminderEmail(args: {
   return { subject, text, html, headers: { "X-Email-Type": "session_reminder_instructor" } };
 }
 
+/**
+ * Builds an email notification for instructors when a student cancels a session.
+ * Notifies the instructor about the cancellation with session details and optional reason.
+ *
+ * @param args.instructorEmail - The instructor's email address
+ * @param args.instructorName - The instructor's name
+ * @param args.studentName - The student's name
+ * @param args.studentEmail - The student's email address
+ * @param args.scheduledAt - The session's scheduled date/time
+ * @param args.reason - Optional cancellation reason provided by the student
+ * @param args.instructorTimeZone - Optional timezone for display formatting
+ * @returns Email payload with subject, text, HTML, and headers
+ */
 export function buildStudentCanceledEmail(args: {
   instructorEmail: string;
   instructorName: string;
