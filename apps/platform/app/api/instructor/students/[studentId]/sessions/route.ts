@@ -46,6 +46,31 @@ export async function POST(
       );
     }
 
+    const sessionPack = await convex.query(api.sessionPacks.getSessionPackById, {
+      id: sessionPackId as any,
+    });
+
+    if (!sessionPack) {
+      return NextResponse.json(
+        { error: "Session pack not found" },
+        { status: 404 }
+      );
+    }
+
+    if (sessionPack.remainingSessions <= 0) {
+      return NextResponse.json(
+        { error: "No remaining sessions in this pack. Student needs to renew." },
+        { status: 400 }
+      );
+    }
+
+    if (sessionPack.status !== "active") {
+      return NextResponse.json(
+        { error: `Cannot book session: pack status is ${sessionPack.status}` },
+        { status: 400 }
+      );
+    }
+
     const sessionId = await convex.mutation(api.sessions.createSession, {
       instructorId: instructor._id,
       studentId: studentId,
