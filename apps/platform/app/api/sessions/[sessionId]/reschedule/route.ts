@@ -16,7 +16,7 @@ export async function POST(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const user = await requireRoleForApi("instructor");
+    const { id: userId } = await requireRoleForApi("instructor");
     const convex = getConvexClient();
     const { sessionId } = await params;
 
@@ -38,11 +38,25 @@ export async function POST(
       );
     }
 
+    if (newScheduledAtMs <= Date.now()) {
+      return NextResponse.json(
+        { error: "newScheduledAt must be in the future" },
+        { status: 400 }
+      );
+    }
+
     const session = await convex.query(api.sessions.getSessionById, {
       id: sessionId as Id<"sessions">,
     });
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    const currentInstructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+    if (!currentInstructor || currentInstructor._id !== session.instructorId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const oldScheduledAtUtc = session.scheduledAt;
