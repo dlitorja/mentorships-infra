@@ -72,7 +72,8 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_scheduledAt", ["scheduledAt"])
     .index("by_studentId_status_scheduledAt", ["studentId", "status", "scheduledAt"])
-    .index("by_googleCalendarEventId", ["googleCalendarEventId"]),
+    .index("by_googleCalendarEventId", ["googleCalendarEventId"])
+    .index("by_instructorId_status_scheduledAt", ["instructorId", "status", "scheduledAt"]),
 
   seatReservations: defineTable({
     instructorId: v.id("instructors"),
