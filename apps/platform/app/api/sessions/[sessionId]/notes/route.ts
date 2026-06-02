@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
@@ -13,7 +14,7 @@ export async function PATCH(
   { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
-    const user = await requireRoleForApi("instructor");
+    const { id: userId } = await requireRoleForApi("instructor");
     const convex = getConvexClient();
     const { sessionId } = await params;
 
@@ -27,8 +28,22 @@ export async function PATCH(
       );
     }
 
+    const session = await convex.query(api.sessions.getSessionById, {
+      id: sessionId as Id<"sessions">,
+    });
+    if (!session) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    const currentInstructor = await convex.query(api.instructors.getInstructorByUserId, {
+      userId,
+    });
+    if (!currentInstructor || currentInstructor._id !== session.instructorId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     await convex.mutation(api.sessions.updateSessionNotes, {
-      id: sessionId as any,
+      id: sessionId as Id<"sessions">,
       notes,
     });
 
