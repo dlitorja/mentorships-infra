@@ -37,7 +37,7 @@ async function updateSessionCount(
   action: "increment" | "decrement" | "set",
   amount: number = 1
 ) {
-  const response = await fetch(`/api/instructor/students/${sessionPackId}`, {
+  const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action, amount }),
