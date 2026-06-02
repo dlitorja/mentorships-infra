@@ -222,7 +222,7 @@ export function buildInstructorReminderEmail(args: {
   return { subject, text, html, headers: { "X-Email-Type": "session_reminder_instructor" } };
 }
 
-export function buildStudentCancelledEmail(args: {
+export function buildStudentCanceledEmail(args: {
   instructorEmail: string;
   instructorName: string;
   studentName: string;
