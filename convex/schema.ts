@@ -64,6 +64,7 @@ export default defineSchema({
     recordingExpiresAt: v.optional(v.number()),
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
+    cancelReason: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_studentId", ["studentId"])
