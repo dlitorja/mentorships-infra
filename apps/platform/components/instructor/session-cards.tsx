@@ -103,7 +103,7 @@ export function PastSessionCard({ session }: PastSessionCardProps) {
           >
             {session.status}
           </Badge>
-          <SessionActions session={session} onSessionUpdated={handleRefresh} />
+          <SessionActions session={session} onSessionUpdated={handleRefresh} allowedActions={["notes"]} />
         </div>
       </div>
     </div>

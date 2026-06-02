@@ -9,6 +9,13 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
+export type SessionEmailPayload = {
+  subject: string;
+  text: string;
+  html: string;
+  headers: Record<string, string>;
+};
+
 export function buildSessionCanceledEmail(args: {
   studentEmail: string;
   studentName: string;
@@ -16,7 +23,7 @@ export function buildSessionCanceledEmail(args: {
   scheduledAt: Date;
   reason?: string | null;
   studentTimeZone?: string | null;
-}) {
+}): SessionEmailPayload {
   const sessionDateTime = formatSessionDateTime(args.scheduledAt, args.studentTimeZone || undefined);
   const calendarUrl = `${getBaseUrl()}/calendar`;
 
@@ -70,7 +77,7 @@ export function buildSessionRescheduledEmail(args: {
   oldScheduledAt: Date;
   newScheduledAt: Date;
   studentTimeZone?: string | null;
-}) {
+}): SessionEmailPayload {
   const oldSessionDateTime = formatSessionDateTime(args.oldScheduledAt, args.studentTimeZone || undefined);
   const newSessionDateTime = formatSessionDateTime(args.newScheduledAt, args.studentTimeZone || undefined);
   const calendarUrl = `${getBaseUrl()}/calendar`;
