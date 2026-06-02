@@ -1,6 +1,6 @@
 import { logger, schedules, task } from "@trigger.dev/sdk";
 import { sendEmail } from "@mentorships/emails/send";
-import { buildSessionCanceledEmail, buildSessionRescheduledEmail, buildStudentCancelledEmail, buildSessionReminderEmail, buildInstructorReminderEmail } from "@mentorships/emails/session-changes";
+import { buildSessionCanceledEmail, buildSessionRescheduledEmail, buildStudentCanceledEmail, buildSessionReminderEmail, buildInstructorReminderEmail } from "@mentorships/emails/session-changes";
 import { db } from "../../packages/db/src/lib/drizzle";
 import { sessions, users, instructors, sessionPacks } from "../../packages/db/src/schema";
 import { eq, and, gte, lt } from "drizzle-orm";
@@ -159,7 +159,7 @@ export const studentCancelledBookingNotifications = task({
       return { ok: true, skipped: true, reason: "no_instructor_email" };
     }
 
-    const built = buildStudentCancelledEmail({
+    const built = buildStudentCanceledEmail({
       instructorEmail: instructorUser.email,
       instructorName: instructor.name,
       studentName: student.email.split("@")[0],
@@ -182,7 +182,7 @@ export const studentCancelledBookingNotifications = task({
 });
 
 const REMINDER_MINUTES = 30;
-const REMINDER_WINDOW_MINUTES = 5;
+const REMINDER_WINDOW_MINUTES = 2;
 
 export const sendSessionReminders = schedules.task({
   id: "send-session-reminders",
