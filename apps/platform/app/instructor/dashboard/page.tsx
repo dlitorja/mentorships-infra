@@ -8,10 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Users, BookOpen, CheckCircle2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { InstructorBookingsList } from "@/components/instructor/bookings-list";
 import { GoogleCalendarAlertBanner } from "@/components/instructor/google-calendar-status";
+import { UpcomingSessionCard, PastSessionCard } from "@/components/instructor/session-cards";
 
 type UpcomingSession = {
   id: Id<"sessions">;
@@ -19,6 +19,16 @@ type UpcomingSession = {
   status: string;
   studentEmail: string | null;
   remainingSessions: number | null;
+};
+
+type PastSession = {
+  id: Id<"sessions">;
+  scheduledAt: number;
+  completedAt: number | null;
+  canceledAt: number | null;
+  status: string;
+  studentEmail: string | null;
+  notes: string | null;
 };
 
 type SeatReservation = Doc<"seatReservations">;
@@ -84,7 +94,7 @@ export default async function InstructorDashboardPage() {
   // Using Convex for all instructor data
   // Session data comes from Convex queries
   let upcomingSessions: UpcomingSession[] = [];
-  const pastSessions: UpcomingSession[] = [];
+  let pastSessions: PastSession[] = [];
   let activeSeatsData: SeatReservation[] = [];
   let maxSeats = 0;
   let activeStudentsCount = 0;
@@ -104,6 +114,10 @@ export default async function InstructorDashboardPage() {
       // Get upcoming sessions with student info
       const sessionsResult = await convex.query(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
       upcomingSessions = sessionsResult as UpcomingSession[];
+
+      // Get past sessions with student info
+      const pastSessionsResult = await convex.query(api.sessions.getInstructorPastSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
+      pastSessions = pastSessionsResult as PastSession[];
     } catch (e) {
       console.error("Failed to load instructor dashboard stats", e);
     }
@@ -223,25 +237,7 @@ export default async function InstructorDashboardPage() {
               ) : (
                 <div className="space-y-4">
                   {upcomingSessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className="border rounded-lg p-4 space-y-2"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-semibold">
-                            {session.studentEmail ?? "Unknown student"}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {formatDateTime(new Date(session.scheduledAt))}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {session.remainingSessions !== null ? `${session.remainingSessions} sessions remaining` : ""}
-                          </p>
-                        </div>
-                        <Badge variant="secondary">Scheduled</Badge>
-                      </div>
-                    </div>
+                    <UpcomingSessionCard key={session.id} session={session} />
                   ))}
                 </div>
               )}
@@ -262,37 +258,8 @@ export default async function InstructorDashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {pastSessions.map((session: any) => (
-                    <div
-                      key={session.id}
-                      className="border rounded-lg p-4 space-y-2"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-semibold">
-                            {session.student.email}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {session.completedAt
-                              ? `Completed ${formatDateTime(session.completedAt)}`
-                              : session.status === "canceled"
-                              ? `Canceled ${formatDateTime(session.canceledAt || session.scheduledAt)}`
-                              : `Scheduled ${formatDateTime(session.scheduledAt)}`}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            session.status === "completed"
-                              ? "default"
-                              : session.status === "canceled"
-                              ? "destructive"
-                              : "outline"
-                          }
-                        >
-                          {session.status}
-                        </Badge>
-                      </div>
-                    </div>
+                  {pastSessions.map((session) => (
+                    <PastSessionCard key={session.id} session={session} />
                   ))}
                 </div>
               )}
