@@ -47,6 +47,12 @@
       ],
       "@mentorships/emails/*": [
         "../../packages/emails/src/*"
+      ],
+      "@/trigger": [
+        "../../src/trigger"
+      ],
+      "@/trigger/*": [
+        "../../src/trigger/*"
       ]
     }
   },
