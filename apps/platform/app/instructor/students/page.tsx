@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Minus, Plus, Calendar, ChevronRight } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Minus, Plus, Calendar, ChevronRight, Search, ArrowUpDown } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 
 type Student = {
@@ -55,6 +62,9 @@ export default function InstructorStudentsPage() {
   const queryClient = useQueryClient();
   const [editingPackId, setEditingPackId] = useState<string | null>(null);
   const [customAmount, setCustomAmount] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<"email" | "status" | "remaining" | "lastSession">("email");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["instructor-students"],
@@ -141,6 +151,38 @@ export default function InstructorStudentsPage() {
 
   const students = data?.items || [];
 
+  const filteredAndSortedStudents = useMemo(() => {
+    let result = [...students];
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((s) => s.email.toLowerCase().includes(query));
+    }
+
+    result.sort((a, b) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case "email":
+          comparison = a.email.localeCompare(b.email);
+          break;
+        case "status":
+          comparison = a.status.localeCompare(b.status);
+          break;
+        case "remaining":
+          comparison = a.remainingSessions - b.remainingSessions;
+          break;
+        case "lastSession":
+          const aTime = a.lastSessionCompletedAt ? new Date(a.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
+          const bTime = b.lastSessionCompletedAt ? new Date(b.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
+          comparison = aTime - bTime;
+          break;
+      }
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+
+    return result;
+  }, [students, searchQuery, sortBy, sortOrder]);
+
   return (
     <div className="container mx-auto py-8">
       <div className="mb-6">
@@ -150,7 +192,48 @@ export default function InstructorStudentsPage() {
         </p>
       </div>
 
-      {students.length === 0 ? (
+      <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by email..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={sortBy} onValueChange={(v) => { setSortBy(v as typeof sortBy); setSortOrder("asc"); }}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="email">Sort by Email</SelectItem>
+            <SelectItem value="status">Sort by Status</SelectItem>
+            <SelectItem value="remaining">Sort by Remaining</SelectItem>
+            <SelectItem value="lastSession">Sort by Last Session</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+          title={sortOrder === "asc" ? "Ascending" : "Descending"}
+        >
+          <ArrowUpDown className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {filteredAndSortedStudents.length === 0 && students.length > 0 && (
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-muted-foreground">
+              No students match your search.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {filteredAndSortedStudents.length === 0 && students.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
             <p className="text-center text-muted-foreground">
@@ -160,7 +243,7 @@ export default function InstructorStudentsPage() {
         </Card>
       ) : (
         <div className="grid gap-4">
-          {students.map((student) => (
+          {filteredAndSortedStudents.map((student) => (
             <Link key={student.sessionPackId} href={`/instructor/students/${student.userId}`} className="block">
               <Card className="hover:border-primary/50 transition-colors cursor-pointer">
                 <CardContent className="pt-6">

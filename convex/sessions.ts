@@ -187,6 +187,79 @@ export const getInstructorPastSessions = query({
   },
 });
 
+export type InstructorAllSession = {
+  id: Id<"sessions">;
+  scheduledAt: number;
+  status: "scheduled" | "completed" | "canceled" | "no_show";
+  notes: string | null;
+  recordingUrl: string | null;
+  completedAt: number | null;
+  canceledAt: number | null;
+  studentEmail: string | null;
+  remainingSessions: number | null;
+  sessionPackId: Id<"sessionPacks">;
+};
+
+/** Returns all sessions for an instructor with student info and session pack data. */
+export const getInstructorAllSessions = query({
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
+    const limit = args.limit ?? 100;
+
+    const allSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    const sortedSessions = allSessions
+      .sort((a, b) => b.scheduledAt - a.scheduledAt)
+      .slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      sortedSessions.map(async (session) => {
+        const studentUser = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
+          .first();
+
+        const sessionPack = await ctx.db.get(session.sessionPackId);
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          status: session.status,
+          notes: session.notes ?? null,
+          recordingUrl: session.recordingUrl ?? null,
+          completedAt: session.completedAt ?? null,
+          canceledAt: session.canceledAt ?? null,
+          studentEmail: studentUser?.email ?? null,
+          remainingSessions: sessionPack?.remainingSessions ?? null,
+          sessionPackId: session.sessionPackId,
+        } as InstructorAllSession;
+      })
+    );
+
+    return sessionsWithData;
+  },
+});
+
 /** Returns upcoming scheduled sessions for a student. */
 export const getUpcomingSessions = query({
   args: { studentId: v.string() },
