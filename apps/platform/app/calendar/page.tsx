@@ -5,7 +5,6 @@ import { useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookSessionForm } from "@/components/calendar/book-session-form";
 import { BookWithGoogle } from "@/components/calendar/book-with-google";
 import { useActiveSessionPacksByUser } from "@/lib/queries/convex/use-session-packs";
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
@@ -142,10 +141,7 @@ function CalendarContent() {
             </Card>
           )}
 
-          {/* Booking (Legacy Packs) */}
-          {activePacks.length > 0 && <BookSessionForm packs={activePacks} userId={user.id} />}
-
-          {/* Booking (Google Calendar MVP) - uses the first active pack's instructor */}
+          {/* Booking (Google Calendar) - uses the first active pack's instructor */}
           {activePacks.length > 0 && (
             <BookWithGoogle packs={activePacks.map((p) => ({ id: p.id, instructorId: p.instructorId }))} />
           )}
