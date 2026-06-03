@@ -306,7 +306,7 @@ Last Updated: June 2, 2026 (Calendar Slot Picker: month view UX for students, Ca
 
 ### NEW: Calendar Slot Picker - Month View UX (June 2, 2026)
 
-**Completed (PR TBD)**:
+**Completed (PR #391)**:
 
 **Problem**: The student slot picker (`BookWithGoogle` component) displayed 60+ time slot buttons in a flat grid — no visual calendar, no date grouping. Students had to scroll through a long list with no sense of which days had availability.
 
@@ -324,16 +324,60 @@ Last Updated: June 2, 2026 (Calendar Slot Picker: month view UX for students, Ca
 - `apps/platform/app/instructor/dashboard/page.tsx` - renamed "Booked Sessions" → "Calendar Bookings"
 - `apps/platform/app/dashboard/page.tsx` - renamed "Google Booked Sessions" → "Calendar Bookings"
 
+**Bug Fixes**:
+- Fixed zero-padding bug: days 1-9 now correctly highlighted as available (`String(day).padStart(2, "0")`)
+- Fixed last-day-of-month availability (off-by-one boundary error)
+- Fixed stale `selectedSlot` on month navigation
+
+**Consolidation**:
+- Removed legacy `BookSessionForm` (created sessions without Google Calendar events)
+- `BookWithGoogle` is now the only booking path on /calendar
+
 **UX Improvements**:
 - Students see availability patterns at a glance (which days are open)
 - Two-step pick: day → time slot (Calendy-style)
 - Confirmation step before booking (prevents accidental clicks)
-- Build passes, typecheck passes, lint clean (9 pre-existing empty-catch warnings)
 
 **Not Implemented** (per preference):
 - Expose calendar config in instructor dashboard (one-time setup in Settings is adequate)
 
-**Status**: ✅ COMPLETED - June 2, 2026
+**Status**: ✅ COMPLETED - June 2, 2026 (PR #391)
+
+---
+
+### NEW: Instructor Dashboard Student Identity & Availability Preview (June 3, 2026)
+
+**Completed (PR #393)**:
+
+**Problem**: 
+1. Active Students list on instructor dashboard showed only student IDs — instructors couldn't distinguish between students without clicking each one
+2. Instructors had no way to preview what students see when booking
+
+**Solution**:
+
+1. **Student name/email in Active Students list**:
+   - Modified `getInstructorActiveSeats` to join with `users` table and return `studentEmail`, `studentFirstName`, `studentLastName`
+   - Dashboard now shows student name (or email fallback) as clickable link to `/instructor/students/[studentId]`
+   - Email only shown as secondary when a name is displayed (prevents duplicate email display)
+
+2. **Availability preview in instructor settings**:
+   - Created `InstructorAvailabilityPreview` wrapper component
+   - Added to instructor settings page below scheduling form
+   - Instructors can now see what students see when booking a session
+
+**Security Fix**:
+- Added ownership check to `getInstructorActiveSeats` — verifies `instructor.userId === user.subject` before returning student PII
+- Only the instructor themselves can view their student list with names/emails
+
+**Files Created/Modified**:
+- `convex/seatReservations.ts` - added user join and ownership check
+- `apps/platform/app/instructor/dashboard/page.tsx` - displays student name/email with links
+- `apps/platform/app/instructor/settings/page.tsx` - added InstructorAvailabilityPreview
+- `apps/platform/components/instructor/instructor-availability-preview.tsx` - NEW wrapper component
+- `apps/platform/components/checkout/availability-preview.tsx` - leveraged existing component
+- `apps/platform/lib/queries/use-availability.ts` - leveraged existing hook
+
+**Status**: ✅ COMPLETED - June 3, 2026 (PR #393)
 
 ---
 
@@ -350,8 +394,8 @@ This has been superseded by the apps/platform decision. The new architecture wil
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: June 2, 2026
-**PRs**: Calendar Slot Picker (month view UX), Session Notifications (#389, #390), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
+**Last Updated**: June 3, 2026
+**PRs**: Instructor Dashboard Student Identity + Availability Preview (#393), Calendar Slot Picker (#391), Session Notifications (#389, #390), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, **Session Notifications via Trigger.dev: COMPLETE** (PRs #387-389), **Instructor Dashboard Past Sessions & Actions: COMPLETE** (PR #387), **Calendar/Sessions SQL→Convex Migration: COMPLETE** (PR #383), **Instructor Dashboard Stats + Google Calendar: COMPLETE** (PR #385), **Student Dashboard 500 Fix + Discord Role: COMPLETE** (PR #382), **Post-Purchase Email Flow: COMPLETE** (PRs #360, #375-381), **Clerk API + internalMutation Fixes: COMPLETE** (PRs #370-371), **Checkout UX Improvements: COMPLETE** (PRs #373-374), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
