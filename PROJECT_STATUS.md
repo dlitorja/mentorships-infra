@@ -146,7 +146,7 @@ Owner
 - Platform app ownership for OAuth, picker UX, and availability logic.
 - Convex ownership for schema field addition and update mutation.
 
-Last Updated: June 2, 2026 (Session Notifications COMPLETED: cancel/reschedule/30-min reminder emails via Trigger.dev; Instructor Dashboard Enhanced: past sessions, session actions (reschedule/cancel/notes), student deep dive)
+Last Updated: June 2, 2026 (Calendar Slot Picker: month view UX for students, Calendly-style day→time slot selection; Session Notifications COMPLETED: cancel/reschedule/30-min reminder emails via Trigger.dev; Instructor Dashboard Enhanced: past sessions, session actions (reschedule/cancel/notes), student deep dive; Docstrings on session email templates (#390))
 
 ### NEW: Student Dashboard Fixes & Discord Role Assignment (May 31, 2026)
 
@@ -296,6 +296,43 @@ Last Updated: June 2, 2026 (Session Notifications COMPLETED: cancel/reschedule/3
 - `packages/emails/src/session-changes.ts` - new email template functions
 - `src/trigger/session-change-notifications.ts` - new trigger tasks
 
+**Status**: ✅ COMPLETED - June 2, 2026 (PRs #387, #388, #389, #390)
+
+**Phase 4 - Docstrings (PR #390)**:
+- ✅ Added docstrings to all session email template functions in `packages/emails/src/session-changes.ts`
+- ✅ Satisfied CodeRabbit 80% docstring coverage threshold
+
+---
+
+### NEW: Calendar Slot Picker - Month View UX (June 2, 2026)
+
+**Completed (PR TBD)**:
+
+**Problem**: The student slot picker (`BookWithGoogle` component) displayed 60+ time slot buttons in a flat grid — no visual calendar, no date grouping. Students had to scroll through a long list with no sense of which days had availability.
+
+**Solution**: Replaced the flat button grid with a `CalendarSlotPicker` component:
+
+- **Month grid view** — navigable prev/next month, shows availability dots on calendar days
+- **Available days highlighted** in emerald green; past/unavailable days grayed out
+- **Click a day** → reveals time slots for that specific day
+- **Confirm booking** via "Confirm Booking" button after slot selection
+- **No external dependencies** — pure Tailwind + React, zero extra packages
+
+**Files Created/Modified**:
+- `apps/platform/components/calendar/calendar-slot-picker.tsx` - NEW calendar slot picker component
+- `apps/platform/components/calendar/book-with-google.tsx` - replaced slot grid with CalendarSlotPicker
+- `apps/platform/app/instructor/dashboard/page.tsx` - renamed "Booked Sessions" → "Calendar Bookings"
+- `apps/platform/app/dashboard/page.tsx` - renamed "Google Booked Sessions" → "Calendar Bookings"
+
+**UX Improvements**:
+- Students see availability patterns at a glance (which days are open)
+- Two-step pick: day → time slot (Calendy-style)
+- Confirmation step before booking (prevents accidental clicks)
+- Build passes, typecheck passes, lint clean (9 pre-existing empty-catch warnings)
+
+**Not Implemented** (per preference):
+- Expose calendar config in instructor dashboard (one-time setup in Settings is adequate)
+
 **Status**: ✅ COMPLETED - June 2, 2026
 
 ---
@@ -314,7 +351,7 @@ This has been superseded by the apps/platform decision. The new architecture wil
     - Supabase Storage images retained as backup (dual-write during transition)
 
 **Last Updated**: June 2, 2026
-**PRs**: Session Notifications (#389), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
+**PRs**: Calendar Slot Picker (month view UX), Session Notifications (#389, #390), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, **Session Notifications via Trigger.dev: COMPLETE** (PRs #387-389), **Instructor Dashboard Past Sessions & Actions: COMPLETE** (PR #387), **Calendar/Sessions SQL→Convex Migration: COMPLETE** (PR #383), **Instructor Dashboard Stats + Google Calendar: COMPLETE** (PR #385), **Student Dashboard 500 Fix + Discord Role: COMPLETE** (PR #382), **Post-Purchase Email Flow: COMPLETE** (PRs #360, #375-381), **Clerk API + internalMutation Fixes: COMPLETE** (PRs #370-371), **Checkout UX Improvements: COMPLETE** (PRs #373-374), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
