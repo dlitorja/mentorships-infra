@@ -82,6 +82,7 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
   const [viewMonth, setViewMonth] = useState(() => today.getMonth());
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
 
   const days = useMemo(() => buildCalendarDays(viewYear, viewMonth), [viewYear, viewMonth]);
 
@@ -104,23 +105,21 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
   );
 
   function prevMonth() {
-    setViewMonth((m) => {
-      if (m === 0) {
-        setViewYear((y) => y - 1);
-        return 11;
-      }
-      return m - 1;
-    });
+    if (viewMonth === 0) {
+      setViewMonth(11);
+      setViewYear(viewYear - 1);
+    } else {
+      setViewMonth(viewMonth - 1);
+    }
   }
 
   function nextMonth() {
-    setViewMonth((m) => {
-      if (m === 11) {
-        setViewYear((y) => y + 1);
-        return 0;
-      }
-      return m + 1;
-    });
+    if (viewMonth === 11) {
+      setViewMonth(0);
+      setViewYear(viewYear + 1);
+    } else {
+      setViewMonth(viewMonth + 1);
+    }
   }
 
   function daySessions(day: number): Session[] {
@@ -133,12 +132,17 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
     setIsDialogOpen(true);
   }
 
+  function handleShowMore(day: number) {
+    setSelectedDay(day);
+    setSelectedSession(daySessions(day)[3]);
+    setIsDialogOpen(true);
+  }
+
   function handleRefresh() {
     router.refresh();
     setIsDialogOpen(false);
   }
 
-  const hasUpcoming = sessions.some(s => s.status === "scheduled" && s.scheduledAt > Date.now());
   const isUpcoming = selectedSession ? selectedSession.status === "scheduled" && selectedSession.scheduledAt > Date.now() : false;
 
   return (
@@ -151,6 +155,65 @@ export function SessionsCalendarView({ sessions }: SessionsCalendarViewProps) {
         <Button variant="ghost" size="icon" onClick={nextMonth} aria-label="Next month">
           <ChevronRight className="h-4 w-4" />
         </Button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1 text-center">
+        {DAY_LABELS.map((d) => (
+          <div key={d} className="text-xs text-muted-foreground py-2 font-medium border-b">
+            {d}
+          </div>
+        ))}
+        {days.map((day, idx) => {
+          if (day === null) return <div key={`empty-${idx}`} className="min-h-[80px] border-b border-r bg-muted/20" />;
+          const dayKey = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const daySessionsList = sessionsByDay[dayKey] ?? [];
+          const isPast = new Date(viewYear, viewMonth, day) < today;
+
+          return (
+            <div
+              key={day}
+              className={[
+                "min-h-[80px] border-b border-r p-1 text-left",
+                isPast ? "bg-muted/10" : "bg-background",
+              ].join(" ")}
+            >
+              <div className={[
+                "text-xs font-medium mb-1",
+                isPast ? "text-muted-foreground" : "text-foreground",
+              ].join(" ")}>
+                {day}
+              </div>
+              <div className="space-y-0.5">
+                {daySessionsList.slice(0, 3).map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => handleSessionClick(session)}
+                    className={[
+                      "w-full text-left text-[10px] px-1 py-0.5 rounded border truncate",
+                      session.status === "scheduled" && session.scheduledAt > Date.now()
+                        ? "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                        : session.status === "completed"
+                        ? "bg-green-50 text-green-700 border-green-200"
+                        : "bg-gray-50 text-gray-600 border-gray-200",
+                    ].join(" ")}
+                  >
+                    {formatTime(session.scheduledAt)} {session.studentEmail?.split("@")[0] ?? "?"}
+                  </button>
+                ))}
+                {daySessionsList.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => handleShowMore(day)}
+                    className="w-full text-[10px] text-muted-foreground text-center hover:text-foreground"
+                  >
+                    +{daySessionsList.length - 3} more
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-7 gap-1 text-center">

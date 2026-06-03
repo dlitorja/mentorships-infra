@@ -172,8 +172,8 @@ export default function InstructorStudentsPage() {
           comparison = a.remainingSessions - b.remainingSessions;
           break;
         case "lastSession":
-          const aTime = a.lastSessionCompletedAt ? new Date(a.lastSessionCompletedAt).getTime() : 0;
-          const bTime = b.lastSessionCompletedAt ? new Date(b.lastSessionCompletedAt).getTime() : 0;
+          const aTime = a.lastSessionCompletedAt ? new Date(a.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
+          const bTime = b.lastSessionCompletedAt ? new Date(b.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
           comparison = aTime - bTime;
           break;
       }
@@ -182,15 +182,6 @@ export default function InstructorStudentsPage() {
 
     return result;
   }, [students, searchQuery, sortBy, sortOrder]);
-
-  function toggleSort(field: typeof sortBy) {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
-    } else {
-      setSortBy(field);
-      setSortOrder("asc");
-    }
-  }
 
   return (
     <div className="container mx-auto py-8">

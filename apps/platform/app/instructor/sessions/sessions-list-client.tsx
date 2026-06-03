@@ -30,7 +30,7 @@ type SessionsListClientProps = {
 };
 
 function formatDateTime(date: Date | string | number): string {
-  const d = typeof date === "number" ? new Date(date) : new Date(date);
+  const d = new Date(date);
   return d.toLocaleString("en-US", {
     weekday: "long",
     year: "numeric",
