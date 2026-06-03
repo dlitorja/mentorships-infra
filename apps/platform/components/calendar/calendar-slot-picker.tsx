@@ -121,7 +121,7 @@ export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot, onNaviga
         ))}
         {days.map((day, idx) => {
           if (day === null) return <div key={`empty-${idx}`} />;
-          const isAvailable = availableDays.has(String(day));
+          const isAvailable = availableDays.has(String(day).padStart(2, "0"));
           const isPast = new Date(viewYear, viewMonth, day) < today;
           const isSelected = selectedDay === day;
           return (
