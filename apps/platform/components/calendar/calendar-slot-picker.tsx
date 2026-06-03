@@ -24,9 +24,10 @@ type CalendarSlotPickerProps = {
   slots: string[];
   selectedSlot: string | null;
   onSelectSlot: (iso: string) => void;
+  onNavigate?: () => void;
 };
 
-export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot }: CalendarSlotPickerProps) {
+export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot, onNavigate }: CalendarSlotPickerProps) {
   const today = useMemo(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -38,17 +39,6 @@ export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot }: Calend
   const [selectedDay, setSelectedDay] = React.useState<number | null>(null);
 
   const days = useMemo(() => buildCalendarDays(viewYear, viewMonth), [viewYear, viewMonth]);
-
-  const availableDays = useMemo(() => {
-    const s = new Date(viewYear, viewMonth, 1);
-    const e = new Date(viewYear, viewMonth + 1, 0);
-    const result = new Set<string>();
-    for (const iso of slots) {
-      const d = new Date(iso);
-      if (d >= s && d <= e) result.add(String(d.getDate()));
-    }
-    return result;
-  }, [slots, viewYear, viewMonth]);
 
   const slotsByDay = useMemo(() => {
     const result: Record<string, string[]> = {};
@@ -62,6 +52,18 @@ export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot }: Calend
     }
     return result;
   }, [slots]);
+
+  const availableDays = useMemo(() => {
+    const prefix = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-`;
+    const result = new Set<string>();
+    for (const key of Object.keys(slotsByDay)) {
+      if (key.startsWith(prefix)) {
+        const day = key.slice(prefix.length);
+        result.add(day);
+      }
+    }
+    return result;
+  }, [slotsByDay, viewYear, viewMonth]);
 
   const monthName = useMemo(
     () => new Date(viewYear, viewMonth, 1).toLocaleString("en-US", { month: "long", year: "numeric" }),
@@ -77,6 +79,7 @@ export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot }: Calend
       return m - 1;
     });
     setSelectedDay(null);
+    onNavigate?.();
   }
 
   function nextMonth() {
@@ -88,6 +91,7 @@ export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot }: Calend
       return m + 1;
     });
     setSelectedDay(null);
+    onNavigate?.();
   }
 
   function daySlots(day: number): string[] {
@@ -132,8 +136,6 @@ export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot }: Calend
                   ? "bg-primary text-primary-foreground border-primary"
                   : isAvailable && !isPast
                   ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 cursor-pointer"
-                  : isPast
-                  ? "bg-muted/30 text-muted-foreground border-transparent cursor-not-allowed opacity-40"
                   : "bg-muted/30 text-muted-foreground border-transparent cursor-not-allowed opacity-40",
               ].join(" ")}
               aria-label={
