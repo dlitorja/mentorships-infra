@@ -69,6 +69,12 @@ export const getInstructorActiveSeats = query({
     if (!user) {
       return [];
     }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== user.subject) {
+      return [];
+    }
+
     const seats = await ctx.db
       .query("seatReservations")
       .withIndex("by_instructorId_status", (q) =>
