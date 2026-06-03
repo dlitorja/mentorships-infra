@@ -209,10 +209,10 @@ export default async function InstructorDashboardPage() {
         </div>
 
 <div className="grid gap-6 md:grid-cols-2">
-          {/* Booked Sessions (Google) */}
+          {/* Calendar Bookings */}
           <Card>
             <CardHeader>
-              <CardTitle>Booked Sessions</CardTitle>
+              <CardTitle>Calendar Bookings</CardTitle>
               <CardDescription>Bookings created via Google Calendar</CardDescription>
             </CardHeader>
             <CardContent>

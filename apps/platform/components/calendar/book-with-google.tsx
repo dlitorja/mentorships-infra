@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { fetchInstructorAvailability } from "@/lib/queries/api-client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { CalendarSlotPicker } from "./calendar-slot-picker";
 
 function addHours(dateIso: string, hours: number): string {
   const d = new Date(dateIso);
@@ -30,6 +31,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
 
   const [studentName, setStudentName] = React.useState("");
   const [bookingInFlightIso, setBookingInFlightIso] = React.useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = React.useState<string | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["availability", selectedInstructorId, start, end, 60],
@@ -37,7 +39,9 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
     enabled: !!selectedInstructorId,
   });
 
-  async function book(slotIso: string) {
+  async function book() {
+    const slotIso = selectedSlot;
+    if (!slotIso) return;
     try {
       setBookingInFlightIso(slotIso);
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -105,6 +109,7 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
         }
         // Refetch availability to reflect booking
         void refetch();
+        setSelectedSlot(null);
       } else if (res.status === 409) {
         toast.error("Slot no longer available. Please pick another.");
       } else if (res.status === 502) {
@@ -200,30 +205,47 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
         ) : slots.length === 0 ? (
           <p className="text-sm text-muted-foreground">No available slots in the next {windowDays} days.</p>
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {slots.slice(0, 60).map((iso) => {
-              const d = new Date(iso);
-              const inFlight = bookingInFlightIso === iso;
-              return (
-                <Button key={iso} variant="outline" onClick={() => book(iso)} disabled={Boolean(bookingInFlightIso)} aria-busy={inFlight}
-                >
-                  {inFlight ? (
-                    <span className="inline-flex items-center">
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Booking…
-                    </span>
-                  ) : (
-                    d.toLocaleString("en-US", {
-                      weekday: "short",
-                      month: "short",
+          <div className="space-y-4">
+            <CalendarSlotPicker
+              slots={slots}
+              selectedSlot={selectedSlot}
+              onSelectSlot={(iso) => {
+                setSelectedSlot(iso);
+              }}
+              onNavigate={() => {
+                setSelectedSlot(null);
+              }}
+            />
+            {selectedSlot && (
+              <div className="flex items-center gap-3 border-t pt-4">
+                <p className="text-sm text-muted-foreground">
+                  Selected:{" "}
+                  <span className="font-medium text-foreground">
+                    {new Date(selectedSlot).toLocaleString("en-US", {
+                      weekday: "long",
+                      month: "long",
                       day: "numeric",
                       hour: "numeric",
                       minute: "2-digit",
-                    })
+                    })}
+                  </span>
+                </p>
+                <Button
+                  onClick={() => book()}
+                  disabled={Boolean(bookingInFlightIso)}
+                  aria-busy={Boolean(bookingInFlightIso)}
+                >
+                  {bookingInFlightIso ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Booking…
+                    </span>
+                  ) : (
+                    "Confirm Booking"
                   )}
                 </Button>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
       </CardContent>
