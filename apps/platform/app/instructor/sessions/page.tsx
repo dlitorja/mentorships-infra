@@ -1,42 +1,29 @@
 import { requireRole } from "@/lib/auth-helpers";
-import {
-  getInstructorByUserId,
-  getInstructorSessions,
-} from "@mentorships/db";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { SessionsListClient } from "./sessions-list-client";
 
-function formatDateTime(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function getStatusBadgeVariant(status: string) {
-  switch (status) {
-    case "completed":
-      return "default";
-    case "scheduled":
-      return "secondary";
-    case "canceled":
-      return "destructive";
-    case "no_show":
-      return "outline";
-    default:
-      return "outline";
-  }
-}
+type InstructorAllSession = {
+  id: Id<"sessions">;
+  scheduledAt: number;
+  status: "scheduled" | "completed" | "canceled" | "no_show";
+  notes: string | null;
+  recordingUrl: string | null;
+  completedAt: number | null;
+  canceledAt: number | null;
+  studentEmail: string | null;
+  remainingSessions: number | null;
+  sessionPackId: Id<"sessionPacks">;
+};
 
 export default async function InstructorSessionsPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await getInstructorByUserId(user.id);
+  const convex = getConvexClient();
+
+  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructorRecord) {
     return (
@@ -54,15 +41,10 @@ export default async function InstructorSessionsPage() {
     );
   }
 
-  const allSessions = await getInstructorSessions(instructorRecord.id, 100);
-
-  // Separate sessions by status
-  const upcomingSessions = allSessions.filter(
-    (s) => s.status === "scheduled" && new Date(s.scheduledAt) >= new Date()
-  );
-  const pastSessions = allSessions.filter(
-    (s) => s.status !== "scheduled" || new Date(s.scheduledAt) < new Date()
-  );
+  const allSessions = await convex.query(api.sessions.getInstructorAllSessions, {
+    instructorId: instructorRecord._id as Id<"instructors">,
+    limit: 100,
+  });
 
   return (
     <ProtectedLayout currentPath="/instructor/sessions">
@@ -74,118 +56,7 @@ export default async function InstructorSessionsPage() {
           </p>
         </div>
 
-        {/* Upcoming Sessions */}
-        {upcomingSessions.length > 0 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Upcoming Sessions</h3>
-            <div className="grid gap-4">
-              {upcomingSessions.map((session) => (
-                <Card key={session.id}>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-xl">
-                          {session.student.email}
-                        </CardTitle>
-                        <CardDescription>
-                          {formatDateTime(session.scheduledAt)}
-                        </CardDescription>
-                      </div>
-                      <Badge variant={getStatusBadgeVariant(session.status)}>
-                        {session.status}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      <p className="text-sm text-muted-foreground">
-                        Remaining sessions in pack: {session.sessionPack.remainingSessions}
-                      </p>
-                      {session.notes && (
-                        <div className="mt-2">
-                          <p className="text-sm font-medium">Notes:</p>
-                          <p className="text-sm text-muted-foreground">
-                            {session.notes}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Past Sessions */}
-        {pastSessions.length > 0 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Past Sessions</h3>
-            <div className="grid gap-4">
-              {pastSessions.map((session) => (
-                <Card key={session.id}>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-xl">
-                          {session.student.email}
-                        </CardTitle>
-                        <CardDescription>
-                          {formatDateTime(session.scheduledAt)}
-                        </CardDescription>
-                      </div>
-                      <Badge variant={getStatusBadgeVariant(session.status)}>
-                        {session.status}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {session.completedAt && (
-                        <p className="text-sm text-muted-foreground">
-                          Completed: {formatDateTime(session.completedAt)}
-                        </p>
-                      )}
-                      {session.canceledAt && (
-                        <p className="text-sm text-muted-foreground">
-                          Canceled: {formatDateTime(session.canceledAt)}
-                        </p>
-                      )}
-                      {session.recordingUrl && (
-                        <a
-                          href={session.recordingUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm text-primary hover:underline"
-                        >
-                          View Recording
-                        </a>
-                      )}
-                      {session.notes && (
-                        <div className="mt-2">
-                          <p className="text-sm font-medium">Notes:</p>
-                          <p className="text-sm text-muted-foreground">
-                            {session.notes}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {allSessions.length === 0 && (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-center text-muted-foreground">
-                You don't have any sessions yet.
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        <SessionsListClient sessions={allSessions as InstructorAllSession[]} />
       </div>
     </ProtectedLayout>
   );
