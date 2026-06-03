@@ -31,7 +31,11 @@ type PastSession = {
   notes: string | null;
 };
 
-type SeatReservation = Doc<"seatReservations">;
+type SeatReservation = Doc<"seatReservations"> & {
+  studentEmail: string | null;
+  studentFirstName: string | null;
+  studentLastName: string | null;
+};
 
 /**
  * Format a date for display in the dashboard.
@@ -285,8 +289,22 @@ export default async function InstructorDashboardPage() {
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-semibold">Student ID: {seat.userId}</p>
-                        <p className="text-sm text-muted-foreground">
+                        <Link
+                          href={`/instructor/students/${seat.userId}`}
+                          className="hover:underline"
+                        >
+                          <p className="font-semibold">
+                            {seat.studentFirstName || seat.studentLastName
+                              ? `${seat.studentFirstName ?? ""} ${seat.studentLastName ?? ""}`.trim()
+                              : seat.studentEmail ?? seat.userId}
+                          </p>
+                          {(seat.studentFirstName || seat.studentLastName) && seat.studentEmail && (
+                            <p className="text-sm text-muted-foreground">
+                              {seat.studentEmail}
+                            </p>
+                          )}
+                        </Link>
+                        <p className="text-sm text-muted-foreground mt-1">
                           Seat expires {formatDate(new Date(seat.seatExpiresAt))}
                         </p>
                         {seat.gracePeriodEndsAt && (
