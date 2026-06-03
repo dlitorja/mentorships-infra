@@ -453,7 +453,7 @@ function DashboardContent() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Google Booked Sessions</CardTitle>
+            <CardTitle>Calendar Bookings</CardTitle>
             <CardDescription>
               <div className="space-y-2">
                 <p>Bookings created via Google Calendar</p>
