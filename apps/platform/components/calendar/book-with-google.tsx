@@ -212,6 +212,9 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: string;
               onSelectSlot={(iso) => {
                 setSelectedSlot(iso);
               }}
+              onNavigate={() => {
+                setSelectedSlot(null);
+              }}
             />
             {selectedSlot && (
               <div className="flex items-center gap-3 border-t pt-4">
