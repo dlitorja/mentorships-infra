@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { Mail } from "lucide-react";
 
 type PreviewType = "reschedule" | "cancel";
@@ -31,6 +30,7 @@ export function EmailPreviewTab({
   const [preview, setPreview] = useState<EmailPreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const previewRequestId = useRef(0);
 
   useEffect(() => {
     if (activeTab === "preview" && !preview) {
@@ -45,6 +45,7 @@ export function EmailPreviewTab({
   }, [sessionId, previewType, newScheduledAt, reason]);
 
   async function loadPreview() {
+    const requestId = ++previewRequestId.current;
     setIsLoading(true);
     setError(null);
 
@@ -57,8 +58,11 @@ export function EmailPreviewTab({
         body.newScheduledAt = newScheduledAt;
       }
 
-      if (previewType === "cancel" && reason) {
-        body.reason = reason;
+      if (previewType === "cancel") {
+        const trimmedReason = reason?.trim();
+        if (trimmedReason) {
+          body.reason = trimmedReason;
+        }
       }
 
       const response = await fetch(
@@ -70,17 +74,27 @@ export function EmailPreviewTab({
         }
       );
 
+      if (requestId !== previewRequestId.current) {
+        return;
+      }
+
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || "Failed to load preview");
       }
 
       const data = await response.json();
-      setPreview(data.preview);
+      if (requestId === previewRequestId.current) {
+        setPreview(data.preview);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load preview");
+      if (requestId === previewRequestId.current) {
+        setError(e instanceof Error ? e.message : "Failed to load preview");
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === previewRequestId.current) {
+        setIsLoading(false);
+      }
     }
   }
 

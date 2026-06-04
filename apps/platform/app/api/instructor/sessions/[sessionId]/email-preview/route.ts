@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ConvexHttpClient } from "convex/browser";
+import { z } from "zod";
 import { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import {
@@ -12,7 +12,6 @@ import {
   buildSessionCanceledEmail,
   buildSessionRescheduledEmail,
 } from "@mentorships/emails/session-changes";
-import { formatSessionDateTime, getBaseUrl } from "@mentorships/emails/send";
 
 type PreviewType = "reschedule" | "cancel";
 
@@ -21,8 +20,6 @@ const previewSchema = z.object({
   newScheduledAt: z.number().optional(),
   reason: z.string().optional(),
 });
-
-import { z } from "zod";
 
 export async function POST(
   request: NextRequest,
@@ -57,13 +54,33 @@ export async function POST(
 
     if (session.instructorId !== instructor._id) {
       return NextResponse.json(
-        { error: "Unauthorized: Session does not belong to this instructor" },
+        { error: "Forbidden: Session does not belong to this instructor" },
         { status: 403 }
       );
     }
 
-    const body = await request.json();
-    const validatedData = previewSchema.parse(body);
+    let body: z.infer<typeof previewSchema>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
+    }
+
+    let validatedData: z.infer<typeof previewSchema>;
+    try {
+      validatedData = previewSchema.parse(body);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return NextResponse.json(
+          { error: "Invalid request data", details: error.issues },
+          { status: 400 }
+        );
+      }
+      throw error;
+    }
 
     const student = session.studentId
       ? await convex.query(api.users.getUserById, {
@@ -125,11 +142,8 @@ export async function POST(
       },
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Invalid request data", details: error.issues },
-        { status: 400 }
-      );
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     if (isUnauthorizedError(error)) {
