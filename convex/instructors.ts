@@ -1147,6 +1147,14 @@ export const deleteInstructor = mutation({
   },
 });
 
+/** Permanently hard-deletes an instructor. Use with caution - this is irreversible. */
+export const hardDeleteInstructor = mutation({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    await ctx.db.delete(args.id);
+  },
+});
+
 /** Decrements the oneOnOne or group inventory for an instructor by 1. */
 export const decrementInventory = mutation({
   args: { 

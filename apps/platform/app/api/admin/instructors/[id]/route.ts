@@ -448,3 +448,56 @@ export async function DELETE(
     );
   }
 }
+
+/**
+ * PURGE /api/admin/instructors/[id]
+ * Permanently delete an instructor (hard delete - irreversible)
+ */
+export async function PURGE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { requireRoleForApi } = await import("@/lib/auth-helpers");
+    await requireRoleForApi("admin");
+
+    const { id } = await params;
+    const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
+
+    const resolved = await resolveInstructorByIdOrSlug(convex, id);
+    const existing = resolved.instructor;
+    const resolvedId = resolved.resolvedId;
+    if (!existing || !resolvedId) {
+      return NextResponse.json(
+        { error: "Instructor not found" },
+        { status: 404 }
+      );
+    }
+
+    await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });
+
+    return NextResponse.json({
+      success: true,
+      message: "Instructor permanently deleted",
+    });
+  } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    }
+
+    console.error("Error permanently deleting instructor:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to permanently delete instructor" },
+      { status: 500 }
+    );
+  }
+}
