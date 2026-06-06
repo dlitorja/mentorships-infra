@@ -58,7 +58,7 @@ export default function InstructorsPage() {
 
   const hardDeleteInstructorMutation = useMutation({
     mutationFn: async (id: Id<"instructors">) => {
-      const res = await fetch(`/api/admin/instructors/${id}`, { method: "PURGE" });
+      const res = await fetch(`/api/admin/instructors/${id}?hard=true`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || "Failed to permanently delete instructor");

@@ -398,7 +398,7 @@ export async function PUT(
 
 /**
  * DELETE /api/admin/instructors/[id]
- * Delete an instructor (soft delete)
+ * Delete an instructor (soft delete by default, hard delete with ?hard=true)
  */
 export async function DELETE(
   req: NextRequest,
@@ -409,6 +409,9 @@ export async function DELETE(
     await requireRoleForApi("admin");
 
     const { id } = await params;
+    const url = new URL(req.url);
+    const hardDelete = url.searchParams.get("hard") === "true";
+
     const convex = getConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
@@ -425,6 +428,14 @@ export async function DELETE(
         { error: "Instructor not found" },
         { status: 404 }
       );
+    }
+
+    if (hardDelete) {
+      await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });
+      return NextResponse.json({
+        success: true,
+        message: "Instructor permanently deleted",
+      });
     }
 
     await convex.mutation(api.instructors.deleteInstructor, { id: resolvedId as any });
@@ -444,59 +455,6 @@ export async function DELETE(
     console.error("Error deleting instructor:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to delete instructor" },
-      { status: 500 }
-    );
-  }
-}
-
-/**
- * PURGE /api/admin/instructors/[id]
- * Permanently delete an instructor (hard delete - irreversible)
- */
-export async function PURGE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { requireRoleForApi } = await import("@/lib/auth-helpers");
-    await requireRoleForApi("admin");
-
-    const { id } = await params;
-    const convex = getConvexClient();
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    convex.setAuth(token);
-
-    const resolved = await resolveInstructorByIdOrSlug(convex, id);
-    const existing = resolved.instructor;
-    const resolvedId = resolved.resolvedId;
-    if (!existing || !resolvedId) {
-      return NextResponse.json(
-        { error: "Instructor not found" },
-        { status: 404 }
-      );
-    }
-
-    await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });
-
-    return NextResponse.json({
-      success: true,
-      message: "Instructor permanently deleted",
-    });
-  } catch (error) {
-    if (isUnauthorizedError(error)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (isForbiddenError(error)) {
-      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
-    }
-
-    console.error("Error permanently deleting instructor:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to permanently delete instructor" },
       { status: 500 }
     );
   }
