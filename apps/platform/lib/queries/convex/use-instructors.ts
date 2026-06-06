@@ -135,6 +135,17 @@ export function useDeleteInstructor() {
   });
 }
 
+export function useHardDeleteInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.hardDeleteInstructor),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
 export function useCreateTestimonial() {
   const queryClient = useQueryClient();
 
