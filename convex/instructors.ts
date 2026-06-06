@@ -1139,18 +1139,32 @@ export const updateInstructor = mutation({
   },
 });
 
-/** Soft-deletes an instructor by setting deletedAt to the current timestamp. */
+/** Soft-deletes an instructor by setting deletedAt to the current timestamp. Requires admin role. */
 export const deleteInstructor = mutation({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
 
-/** Permanently hard-deletes an instructor. Use with caution - this is irreversible. */
+/** Permanently hard-deletes an instructor. Use with caution - this is irreversible. Requires admin role. */
 export const hardDeleteInstructor = mutation({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     await ctx.db.delete(args.id);
   },
 });
