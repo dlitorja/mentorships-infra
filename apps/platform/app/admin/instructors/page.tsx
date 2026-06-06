@@ -53,6 +53,7 @@ export default function InstructorsPage() {
 
   const [purgeInstructor, setPurgeInstructor] = useState<Instructor | null>(null);
   const [isPurging, setIsPurging] = useState(false);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
 
   const { data: allInstructors, isLoading, refetch } = useAllInstructors();
 
@@ -67,17 +68,23 @@ export default function InstructorsPage() {
     },
     onSuccess: () => {
       setPurgeInstructor(null);
+      setPurgeError(null);
       refetch();
+    },
+    onError: (error: Error) => {
+      setPurgeError(error.message);
+      setIsPurging(false);
     },
   });
 
   async function handlePurge(instructor: Instructor) {
     if (!instructor._id) return;
     setIsPurging(true);
+    setPurgeError(null);
     try {
       await hardDeleteInstructorMutation.mutateAsync(instructor._id);
-    } finally {
-      setIsPurging(false);
+    } catch {
+      // Error is handled in onError
     }
   }
 
@@ -239,7 +246,7 @@ export default function InstructorsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!purgeInstructor} onOpenChange={(open) => !open && setPurgeInstructor(null)}>
+      <Dialog open={!!purgeInstructor} onOpenChange={(open) => !open && (setPurgeInstructor(null), setPurgeError(null))}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
@@ -248,11 +255,17 @@ export default function InstructorsPage() {
             </DialogTitle>
             <DialogDescription>
               This action cannot be undone. The instructor &quot;{purgeInstructor?.name}&quot; will be
-              permanently removed from the database along with all associated data.
+              permanently removed from the database. Related records (sessions, bookings, etc.)
+              will remain but lose their instructor reference.
             </DialogDescription>
           </DialogHeader>
+          {purgeError && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              {purgeError}
+            </div>
+          )}
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setPurgeInstructor(null)} disabled={isPurging}>
+            <Button variant="outline" onClick={() => { setPurgeInstructor(null); setPurgeError(null); }} disabled={isPurging}>
               Cancel
             </Button>
             <Button
