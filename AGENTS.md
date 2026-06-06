@@ -27,6 +27,28 @@ This repo’s DB changes follow widen-migrate-narrow using Supabase CLI. Assista
 2. Apply them to the linked Supabase project with the CLI
 3. Open a PR with a summary and verification steps
 
+## Greptile Code Review
+
+**Run Greptile before creating any pull request.**
+
+Before opening a PR, run the Greptile CLI on the changed files to catch potential issues:
+
+```bash
+greptile add <repository>  # If not already added to session
+greptile review --diff HEAD~1  # Review changes in last commit
+```
+
+Or review all changed files since the main branch:
+
+```bash
+greptile review --diff origin/main...HEAD
+```
+
+If Greptile reports issues:
+1. Fix the reported issues in the code
+2. Re-run Greptile to verify fixes
+3. Only proceed to PR creation once Greptile reports no new issues
+
 ## Engineering Quality Policy
 
 Always prefer sound, durable engineering solutions over band-aids or temporary fixes.
