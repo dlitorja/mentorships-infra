@@ -17,8 +17,9 @@ export default function SignUpRedirectPage() {
       return;
     }
 
-    const role = user.publicMetadata?.role as string | undefined;
-    if (role === "instructor") {
+    const roleValue = user.publicMetadata?.role;
+    const role = typeof roleValue === "string" ? roleValue.toLowerCase() : "";
+    if (role === "instructor" || role === "admin") {
       router.push("/instructor/dashboard");
     } else {
       router.push("/dashboard");
