@@ -1,6 +1,10 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Migrates a video editor assignment from legacy system.
+ * Updates existing assignment if found by videoEditorId and instructorId, otherwise creates new.
+ */
 export const migrateVideoEditorAssignment = mutation({
   args: {
     videoEditorId: v.string(),

@@ -1,6 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Lists student invitations with optional filtering by status, instructor, and pagination.
+ * Returns items with instructor details attached.
+ */
 export const listStudentInvitations = query({
   args: {
     status: v.optional(v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled"), v.literal("all"))),
@@ -53,6 +57,10 @@ export const listStudentInvitations = query({
   },
 });
 
+/**
+ * Creates a new student invitation for an instructor.
+ * Prevents duplicate pending invitations for the same email and instructor combination.
+ */
 export const createStudentInvitation = mutation({
   args: {
     email: v.string(),
@@ -88,6 +96,10 @@ export const createStudentInvitation = mutation({
   },
 });
 
+/**
+ * Updates the status of a student invitation (pending, accepted, expired, cancelled).
+ * Requires admin authentication.
+ */
 export const updateStudentInvitationStatus = mutation({
   args: {
     id: v.id("studentInvitations"),
@@ -102,6 +114,10 @@ export const updateStudentInvitationStatus = mutation({
   },
 });
 
+/**
+ * Migrates a student invitation from legacy system.
+ * Updates existing invitation if found by email and instructor, otherwise creates new.
+ */
 export const migrateInvitation = mutation({
   args: {
     id: v.string(),
