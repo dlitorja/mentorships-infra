@@ -7,6 +7,12 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { getGoogleCalendarClient } from "@/lib/google";
 
+/**
+ * DELETE /api/bookings/[id]
+ * Cancels a booking and deletes the associated Google Calendar event.
+ * Requires instructor role and ownership verification. Best-effort
+ * calendar deletion (errors logged but don't fail cancellation).
+ */
 export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
