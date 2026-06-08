@@ -61,7 +61,7 @@ export const getInstructorSeatReservations = query({
   },
 });
 
-/** Returns all active seat reservations for a given instructor ID. */
+/** Returns all active seat reservations for a given instructor ID with student details. */
 export const getInstructorActiveSeats = query({
   args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -69,12 +69,33 @@ export const getInstructorActiveSeats = query({
     if (!user) {
       return [];
     }
-    return await ctx.db
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== user.subject) {
+      return [];
+    }
+
+    const seats = await ctx.db
       .query("seatReservations")
       .withIndex("by_instructorId_status", (q) =>
         q.eq("instructorId", args.instructorId).eq("status", "active")
       )
       .collect();
+
+    return Promise.all(
+      seats.map(async (seat) => {
+        const student = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", seat.userId))
+          .first();
+        return {
+          ...seat,
+          studentEmail: student?.email ?? null,
+          studentFirstName: student?.firstName ?? null,
+          studentLastName: student?.lastName ?? null,
+        };
+      })
+    );
   },
 });
 
@@ -410,5 +431,27 @@ export const sendGracePeriodFinalWarning = internalAction({
     }
 
     return { success: true, warningsSent: sentCount, failedCount };
+  },
+});
+
+export const linkSeatReservationsByEmail = internalMutation({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const normalizedEmail = args.email.toLowerCase().trim();
+    const placeholderUserId = `email:${normalizedEmail}`;
+
+    const seatsToLink = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_userId", (q) => q.eq("userId", placeholderUserId))
+      .collect();
+
+    for (const seat of seatsToLink) {
+      await ctx.db.patch(seat._id, { userId: args.clerkUserId });
+    }
+
+    return { linked: seatsToLink.length };
   },
 });

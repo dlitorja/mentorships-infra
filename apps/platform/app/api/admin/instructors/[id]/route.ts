@@ -61,7 +61,7 @@ const updateInstructorSchema = z.object({
   deactivateProducts: z.boolean().optional(),
   oneOnOneInventory: z.number().int().min(0).optional(),
   groupInventory: z.number().int().min(0).optional(),
-  maxActiveStudents: z.number().int().min(1).optional(),
+  maxActiveStudents: z.number().int().min(0).optional(),
   instructorId: z.string().optional().nullable().transform((v) => {
     if (v === undefined || v === null) return v;
     return v.trim() === "" ? null : v.trim();
@@ -206,7 +206,7 @@ export async function PUT(
     const validationResult = updateInstructorSchema.safeParse(body);
 
     if (!validationResult.success) {
-      console.error("Validation error:", validationResult.error.issues);
+      console.error("Validation error:", JSON.stringify(validationResult.error.issues, null, 2), "Body received:", JSON.stringify(body));
       return NextResponse.json(
         { error: "Invalid request", details: validationResult.error.issues },
         { status: 400 }
@@ -398,7 +398,7 @@ export async function PUT(
 
 /**
  * DELETE /api/admin/instructors/[id]
- * Delete an instructor (soft delete)
+ * Delete an instructor (soft delete by default, hard delete with ?hard=true)
  */
 export async function DELETE(
   req: NextRequest,
@@ -409,6 +409,9 @@ export async function DELETE(
     await requireRoleForApi("admin");
 
     const { id } = await params;
+    const url = new URL(req.url);
+    const hardDelete = url.searchParams.get("hard") === "true";
+
     const convex = getConvexClient();
     const clerkAuth = await auth();
     const token = await clerkAuth.getToken({ template: "convex" });
@@ -425,6 +428,14 @@ export async function DELETE(
         { error: "Instructor not found" },
         { status: 404 }
       );
+    }
+
+    if (hardDelete) {
+      await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });
+      return NextResponse.json({
+        success: true,
+        message: "Instructor permanently deleted",
+      });
     }
 
     await convex.mutation(api.instructors.deleteInstructor, { id: resolvedId as any });

@@ -214,7 +214,7 @@ function InstructorRow({
         <td className="py-3 px-4">
           <div className="flex items-center gap-2">
             <input
-              className="w-16 border rounded px-2 py-1 text-sm"
+              className="w-16 border rounded px-2 py-1 text-sm bg-input text-foreground"
               type="number"
               min={0}
               max={999}
@@ -235,7 +235,7 @@ function InstructorRow({
         <td className="py-3 px-4">
           <div className="flex items-center gap-2">
             <input
-              className="w-16 border rounded px-2 py-1 text-sm"
+              className="w-16 border rounded px-2 py-1 text-sm bg-input text-foreground"
               type="number"
               min={0}
               max={999}
@@ -261,7 +261,7 @@ function InstructorRow({
         <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-2">
             <input
-              className="w-16 border rounded px-2 py-1 text-sm"
+              className="w-16 border rounded px-2 py-1 text-sm bg-input text-foreground"
               type="number"
               min={1}
               max={100}

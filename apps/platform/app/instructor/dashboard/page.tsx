@@ -3,17 +3,48 @@ import { UserButton } from "@clerk/nextjs";
 
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
+import { Id, Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, Users, BookOpen, CheckCircle2 } from "lucide-react";
+import { Calendar, Users, BookOpen, CheckCircle2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { InstructorBookingsList } from "@/components/instructor/bookings-list";
+import { GoogleCalendarAlertBanner } from "@/components/instructor/google-calendar-status";
+import { UpcomingSessionCard, PastSessionCard } from "@/components/instructor/session-cards";
 
-function formatDate(date: Date | string | null): string {
+type UpcomingSession = {
+  id: Id<"sessions">;
+  scheduledAt: number;
+  status: string;
+  studentEmail: string | null;
+  remainingSessions: number | null;
+};
+
+type PastSession = {
+  id: Id<"sessions">;
+  scheduledAt: number;
+  completedAt: number | null;
+  canceledAt: number | null;
+  status: string;
+  studentEmail: string | null;
+  notes: string | null;
+};
+
+type SeatReservation = Doc<"seatReservations"> & {
+  studentEmail: string | null;
+  studentFirstName: string | null;
+  studentLastName: string | null;
+};
+
+/**
+ * Format a date for display in the dashboard.
+ * @param date - The date to format (can be Date, string, number, or null)
+ * @returns A formatted date string like "Jun 1, 2026" or "N/A" if null
+ */
+function formatDate(date: Date | string | null | number): string {
   if (!date) return "N/A";
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
   return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -21,8 +52,13 @@ function formatDate(date: Date | string | null): string {
   });
 }
 
-function formatDateTime(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
+/**
+ * Format a date and time for display in the dashboard.
+ * @param date - The date to format (can be Date, string, or number from Unix timestamp)
+ * @returns A formatted date-time string like "Jun 1, 2026 at 2:30 PM"
+ */
+function formatDateTime(date: Date | string | number): string {
+  const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
   return d.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -32,6 +68,12 @@ function formatDateTime(date: Date | string): string {
   });
 }
 
+/**
+ * Instructor dashboard page displaying active students, upcoming sessions,
+ * available seats, and Google Calendar connection status.
+ * Fetches real-time data from Convex including active seat reservations,
+ * upcoming sessions, and instructor profile information.
+ */
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
   const convex = getConvexClient();
@@ -55,10 +97,37 @@ export default async function InstructorDashboardPage() {
 
   // Using Convex for all instructor data
   // Session data comes from Convex queries
-  const upcomingSessions: any[] = [];
-  const pastSessions: any[] = [];
-  const activeSeats: any[] = [];
-  const seatAvailability = { activeSeats: 0, maxSeats: 0, remainingSeats: 0 };
+  let upcomingSessions: UpcomingSession[] = [];
+  let pastSessions: PastSession[] = [];
+  let activeSeatsData: SeatReservation[] = [];
+  let maxSeats = 0;
+  let activeStudentsCount = 0;
+
+  if (instructorRecord?._id) {
+    try {
+      // Get active seats and calculate unique students
+      activeSeatsData = await convex.query(api.seatReservations.getInstructorActiveSeats, { instructorId: instructorRecord._id as Id<"instructors"> });
+      const uniqueStudentIds = new Set(activeSeatsData.map((seat) => seat.userId));
+      activeStudentsCount = uniqueStudentIds.size;
+
+      // Calculate max seats from instructor inventory
+      const oneOnOne = (instructorRecord as Doc<"instructors">)?.oneOnOneInventory ?? 0;
+      const group = (instructorRecord as Doc<"instructors">)?.groupInventory ?? 0;
+      maxSeats = oneOnOne + group;
+
+      // Get upcoming sessions with student info
+      const sessionsResult = await convex.query(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
+      upcomingSessions = sessionsResult as UpcomingSession[];
+
+      // Get past sessions with student info
+      const pastSessionsResult = await convex.query(api.sessions.getInstructorPastSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
+      pastSessions = pastSessionsResult as PastSession[];
+    } catch (e) {
+      console.error("Failed to load instructor dashboard stats", e);
+    }
+  }
+
+  const remainingSeats = Math.max(0, maxSeats - activeSeatsData.length);
 
   // Bookings created via Google Calendar integration
   let bookings: Array<{ id: string; startUtc: number; endUtc: number; studentEmail: string; status: string }> = [];
@@ -66,15 +135,9 @@ export default async function InstructorDashboardPage() {
     try {
       bookings = await convex.query(api.bookings.listInstructorBookings, { instructorId: instructorRecord._id as any, limit: 10 });
     } catch (e) {
-      // Non-fatal: bookings list unavailable
+      console.error("Failed to load instructor bookings", e);
     }
-  }
-
-  const profileIncomplete =
-    !instructorRecord.timeZone ||
-    !instructorRecord.workingHours ||
-    Object.keys(instructorRecord.workingHours || {}).length === 0;
- 
+}
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
@@ -90,19 +153,11 @@ export default async function InstructorDashboardPage() {
           <UserButton />
         </div>
 
-        {profileIncomplete && (
-          <div className="rounded-md border p-4 bg-amber-50 border-amber-200 text-amber-800">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="font-medium">Finish Setting Up Your Profile</p>
-                <p className="text-sm">Set your time zone and working hours so students can book you.</p>
-              </div>
-              <Button asChild variant="outline">
-                <Link href="/instructor/onboarding">Complete Setup</Link>
-              </Button>
-            </div>
-          </div>
-        )}
+        <GoogleCalendarAlertBanner
+          isCalendarConnected={!!(instructorRecord as any)?.googleRefreshToken}
+          hasTimeZone={!!instructorRecord.timeZone}
+          hasWorkingHours={!!instructorRecord.workingHours && Object.keys(instructorRecord.workingHours).length > 0}
+        />
 
         {/* Stats Overview */}
         <div className="grid gap-4 md:grid-cols-3">
@@ -115,10 +170,10 @@ export default async function InstructorDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {seatAvailability.activeSeats}
+                {activeStudentsCount}
               </div>
               <p className="text-xs text-muted-foreground">
-                of {seatAvailability.maxSeats} seats filled
+                of {maxSeats} seats filled
               </p>
             </CardContent>
           </Card>
@@ -145,10 +200,10 @@ export default async function InstructorDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {seatAvailability.remainingSeats}
+                {remainingSeats}
               </div>
               <p className="text-xs text-muted-foreground">
-                {seatAvailability.remainingSeats === 1
+                {remainingSeats === 1
                   ? "seat"
                   : "seats"}{" "}
                 available
@@ -158,10 +213,10 @@ export default async function InstructorDashboardPage() {
         </div>
 
 <div className="grid gap-6 md:grid-cols-2">
-          {/* Booked Sessions (Google) */}
+          {/* Calendar Bookings */}
           <Card>
             <CardHeader>
-              <CardTitle>Booked Sessions</CardTitle>
+              <CardTitle>Calendar Bookings</CardTitle>
               <CardDescription>Bookings created via Google Calendar</CardDescription>
             </CardHeader>
             <CardContent>
@@ -186,25 +241,7 @@ export default async function InstructorDashboardPage() {
               ) : (
                 <div className="space-y-4">
                   {upcomingSessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className="border rounded-lg p-4 space-y-2"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-semibold">
-                            {session.student.email}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {formatDateTime(session.scheduledAt)}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {session.sessionPack.remainingSessions} sessions remaining
-                          </p>
-                        </div>
-                        <Badge variant="secondary">Scheduled</Badge>
-                      </div>
-                    </div>
+                    <UpcomingSessionCard key={session.id} session={session} />
                   ))}
                 </div>
               )}
@@ -226,36 +263,7 @@ export default async function InstructorDashboardPage() {
               ) : (
                 <div className="space-y-4">
                   {pastSessions.map((session) => (
-                    <div
-                      key={session.id}
-                      className="border rounded-lg p-4 space-y-2"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <p className="font-semibold">
-                            {session.student.email}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {session.completedAt
-                              ? `Completed ${formatDateTime(session.completedAt)}`
-                              : session.status === "canceled"
-                              ? `Canceled ${formatDateTime(session.canceledAt || session.scheduledAt)}`
-                              : `Scheduled ${formatDateTime(session.scheduledAt)}`}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            session.status === "completed"
-                              ? "default"
-                              : session.status === "canceled"
-                              ? "destructive"
-                              : "outline"
-                          }
-                        >
-                          {session.status}
-                        </Badge>
-                      </div>
-                    </div>
+                    <PastSessionCard key={session.id} session={session} />
                   ))}
                 </div>
               )}
@@ -264,30 +272,44 @@ export default async function InstructorDashboardPage() {
         </div>
 
         {/* Active Students */}
-        {activeSeats.length > 0 && (
+        {activeSeatsData.length > 0 && (
           <Card>
             <CardHeader>
               <CardTitle>Active Students</CardTitle>
               <CardDescription>
-                Students with active session packs ({activeSeats.length} of {seatAvailability.maxSeats})
+                Students with active session packs ({activeSeatsData.length} of {maxSeats})
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {activeSeats.map((seat) => (
+                {activeSeatsData.map((seat) => (
                   <div
-                    key={seat.id}
+                    key={seat._id}
                     className="border rounded-lg p-4 space-y-2"
                   >
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-semibold">Student ID: {seat.userId}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Seat expires {formatDate(seat.seatExpiresAt)}
+                        <Link
+                          href={`/instructor/students/${seat.userId}`}
+                          className="hover:underline"
+                        >
+                          <p className="font-semibold">
+                            {seat.studentFirstName || seat.studentLastName
+                              ? `${seat.studentFirstName ?? ""} ${seat.studentLastName ?? ""}`.trim()
+                              : seat.studentEmail ?? seat.userId}
+                          </p>
+                          {(seat.studentFirstName || seat.studentLastName) && seat.studentEmail && (
+                            <p className="text-sm text-muted-foreground">
+                              {seat.studentEmail}
+                            </p>
+                          )}
+                        </Link>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Seat expires {formatDate(new Date(seat.seatExpiresAt))}
                         </p>
                         {seat.gracePeriodEndsAt && (
                           <p className="text-xs text-muted-foreground mt-1">
-                            Grace period ends {formatDate(seat.gracePeriodEndsAt)}
+                            Grace period ends {formatDate(new Date(seat.gracePeriodEndsAt))}
                           </p>
                         )}
                       </div>

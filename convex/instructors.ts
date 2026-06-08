@@ -686,6 +686,15 @@ export const getInstructorById = query({
   },
 });
 
+export const getInstructorNameById = query({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.id);
+    if (!instructor) return null;
+    return instructor.name ?? null;
+  },
+});
+
 /** Returns non-deleted instructors matching the given ids. */
 export const getInstructorsByIds = query({
   args: { ids: v.array(v.id("instructors")) },
@@ -1130,11 +1139,33 @@ export const updateInstructor = mutation({
   },
 });
 
-/** Soft-deletes an instructor by setting deletedAt to the current timestamp. */
+/** Soft-deletes an instructor by setting deletedAt to the current timestamp. Requires admin role. */
 export const deleteInstructor = mutation({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
+  },
+});
+
+/** Permanently hard-deletes an instructor. Use with caution - this is irreversible. Requires admin role. */
+export const hardDeleteInstructor = mutation({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+    await ctx.db.delete(args.id);
   },
 });
 
@@ -1897,6 +1928,75 @@ export const getUserSessionCountForInstructor = query({
   },
 });
 
+/** Returns detailed info about a student with all their sessions for an instructor. */
+export const getStudentDetails = query({
+  args: { 
+    instructorId: v.id("instructors"),
+    studentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== user.tokenIdentifier) {
+      return null;
+    }
+
+    const studentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentId))
+      .first();
+
+    if (!studentUser) {
+      return null;
+    }
+
+    const sessionPacks = await ctx.db
+      .query("sessionPacks")
+      .withIndex("by_userId", (q) => q.eq("userId", args.studentId))
+      .filter((q) => q.eq(q.field("instructorId"), args.instructorId))
+      .collect();
+
+    const activePacks = sessionPacks.filter(p => p.status === "active");
+    const pack = activePacks.length > 0 ? activePacks[0] : sessionPacks[0];
+
+    const allSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .filter((q) => q.eq(q.field("studentId"), args.studentId))
+      .collect();
+
+    const sortedSessions = allSessions.sort((a, b) => b.scheduledAt - a.scheduledAt);
+
+    return {
+      userId: args.studentId,
+      email: studentUser.email,
+      firstName: studentUser.firstName ?? null,
+      lastName: studentUser.lastName ?? null,
+      timeZone: studentUser.timeZone ?? null,
+      sessionPack: pack ? {
+        id: pack._id,
+        totalSessions: pack.totalSessions,
+        remainingSessions: pack.remainingSessions,
+        expiresAt: pack.expiresAt ?? null,
+        status: pack.status,
+      } : null,
+      sessions: sortedSessions.map(s => ({
+        id: s._id,
+        scheduledAt: s.scheduledAt,
+        completedAt: s.completedAt ?? null,
+        canceledAt: s.canceledAt ?? null,
+        status: s.status,
+        notes: s.notes ?? null,
+        cancelReason: s.cancelReason ?? null,
+      })),
+    };
+  },
+});
+
 export const getInstructorByEmailInternal = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
@@ -1904,6 +2004,18 @@ export const getInstructorByEmailInternal = internalQuery({
       .query("instructors")
       .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
       .collect();
+  },
+});
+
+export const getInstructorBasicById = internalQuery({
+  args: { id: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.id);
+    if (!instructor) return null;
+    return {
+      name: instructor.name ?? null,
+      userId: instructor.userId ?? null,
+    };
   },
 });
 

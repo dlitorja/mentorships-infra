@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
+import { GoogleCalendarStatus } from "@/components/instructor/google-calendar-status";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import {
@@ -23,6 +24,11 @@ type PageProps = {
   searchParams: Promise<{ submissionId?: string }>;
 };
 
+/**
+ * Instructor onboarding page for initial setup and profile completion.
+ * Displays submission review status, Google Calendar connection,
+ * and scheduling settings configuration.
+ */
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
   const instructorRecord = await getInstructorByUserId(user.id);
@@ -121,19 +127,19 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
           </Card>
         </div>
 
-        {/* Calendar connect placeholder */}
+        {/* Calendar connect section */}
         <div>
           <Card>
             <CardHeader>
               <CardTitle>Connect Google Calendar</CardTitle>
               <CardDescription>
-                Coming soon: Connect your calendar to manage availability and avoid conflicts automatically.
+                Connect your calendar so students can book sessions and see your availability in real-time.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button type="button" disabled>
-                Connect Calendar (Coming Soon)
-              </Button>
+              <GoogleCalendarStatus
+                isCalendarConnected={!!convexInstructor?.googleRefreshToken}
+              />
             </CardContent>
           </Card>
         </div>

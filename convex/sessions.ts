@@ -34,14 +34,229 @@ export const getStudentSessions = query({
 export const getInstructorSessions = query({
   args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
       return [];
     }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
     return await ctx.db
       .query("sessions")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
       .collect();
+  },
+});
+
+/** Returns upcoming scheduled sessions for an instructor with student info. */
+export const getInstructorUpcomingSessions = query({
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
+    const limit = args.limit ?? 10;
+    const now = Date.now();
+
+    const allSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("status"), "scheduled"),
+          q.gt(q.field("scheduledAt"), now)
+        )
+      )
+      .collect();
+
+    const upcoming = allSessions
+      .sort((a, b) => a.scheduledAt - b.scheduledAt)
+      .slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      upcoming.map(async (session) => {
+        const studentUser = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
+          .first();
+
+        const sessionPack = await ctx.db.get(session.sessionPackId);
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          status: session.status,
+          studentEmail: studentUser?.email ?? null,
+          remainingSessions: sessionPack?.remainingSessions ?? null,
+        };
+      })
+    );
+
+    return sessionsWithData;
+  },
+});
+
+/** Returns past sessions (completed/canceled/no_show) for an instructor within a time window. */
+export const getInstructorPastSessions = query({
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+    days: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
+    const limit = args.limit ?? 10;
+    const days = args.days ?? 30;
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId_status_scheduledAt", (q) =>
+        q.eq("instructorId", args.instructorId)
+      )
+      .collect();
+
+    const pastSessions = sessions
+      .filter((session) =>
+        (session.status === "completed" ||
+          session.status === "canceled" ||
+          session.status === "no_show") &&
+        session.scheduledAt >= cutoff
+      )
+      .sort((a, b) => {
+        const aTime = a.completedAt || a.canceledAt || a.scheduledAt;
+        const bTime = b.completedAt || b.canceledAt || b.scheduledAt;
+        return bTime - aTime;
+      })
+      .slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      pastSessions.map(async (session) => {
+        const studentUser = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
+          .first();
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          completedAt: session.completedAt,
+          canceledAt: session.canceledAt,
+          status: session.status,
+          studentEmail: studentUser?.email ?? null,
+          notes: session.notes ?? null,
+        };
+      })
+    );
+
+    return sessionsWithData;
+  },
+});
+
+export type InstructorAllSession = {
+  id: Id<"sessions">;
+  scheduledAt: number;
+  status: "scheduled" | "completed" | "canceled" | "no_show";
+  notes: string | null;
+  recordingUrl: string | null;
+  completedAt: number | null;
+  canceledAt: number | null;
+  studentEmail: string | null;
+  remainingSessions: number | null;
+  sessionPackId: Id<"sessionPacks">;
+};
+
+/** Returns all sessions for an instructor with student info and session pack data. */
+export const getInstructorAllSessions = query({
+  args: {
+    instructorId: v.id("instructors"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      return [];
+    }
+
+    if (instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot access another instructor's sessions");
+    }
+
+    const limit = args.limit ?? 100;
+
+    const allSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    const sortedSessions = allSessions
+      .sort((a, b) => b.scheduledAt - a.scheduledAt)
+      .slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      sortedSessions.map(async (session) => {
+        const studentUser = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
+          .first();
+
+        const sessionPack = await ctx.db.get(session.sessionPackId);
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          status: session.status,
+          notes: session.notes ?? null,
+          recordingUrl: session.recordingUrl ?? null,
+          completedAt: session.completedAt ?? null,
+          canceledAt: session.canceledAt ?? null,
+          studentEmail: studentUser?.email ?? null,
+          remainingSessions: sessionPack?.remainingSessions ?? null,
+          sessionPackId: session.sessionPackId,
+        } as InstructorAllSession;
+      })
+    );
+
+    return sessionsWithData;
   },
 });
 
@@ -181,6 +396,64 @@ export const getRecentSessionsWithInstructor = query({
   },
 });
 
+/** Returns all sessions for a student with instructor info and remaining sessions. Used by sessions page. */
+export const getAllStudentSessionsWithInstructor = query({
+  args: {
+    studentId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    if (identity.tokenIdentifier !== args.studentId) {
+      throw new Error("Forbidden: cannot access another user's sessions");
+    }
+
+    const limit = args.limit ?? 50;
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId", (q) => q.eq("studentId", args.studentId))
+      .collect();
+
+    const sortedSessions = sessions.sort((a, b) => b.scheduledAt - a.scheduledAt);
+    const limitedSessions = sortedSessions.slice(0, limit);
+
+    const sessionsWithData = await Promise.all(
+      limitedSessions.map(async (session) => {
+        const instructor = await ctx.db.get(session.instructorId);
+        let instructorEmail: string | null = null;
+        const instructorUserId = instructor?.userId;
+        if (instructorUserId) {
+          const users = await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", instructorUserId))
+            .first();
+          instructorEmail = users?.email ?? null;
+        }
+
+        const sessionPack = await ctx.db.get(session.sessionPackId);
+
+        return {
+          id: session._id,
+          scheduledAt: session.scheduledAt,
+          completedAt: session.completedAt,
+          canceledAt: session.canceledAt,
+          status: session.status,
+          recordingUrl: session.recordingUrl ?? null,
+          notes: session.notes ?? null,
+          instructorEmail,
+          packId: session.sessionPackId,
+          remainingSessions: sessionPack?.remainingSessions ?? null,
+        };
+      })
+    );
+
+    return sessionsWithData;
+  },
+});
+
 /** Returns a session matching a Google Calendar event ID. */
 export const getSessionByCalendarEventId = query({
   args: { eventId: v.string() },
@@ -257,11 +530,99 @@ export const completeSession = mutation({
 
 /** Cancels a session by setting its status to canceled. */
 export const cancelSession = mutation({
-  args: { id: v.id("sessions") },
+  args: { 
+    id: v.id("sessions"),
+    reason: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, {
+    const session = await ctx.db.get(args.id);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    if (session.status !== "scheduled") {
+      throw new Error("Only scheduled sessions can be canceled");
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot cancel another instructor's session");
+    }
+
+    const updates: Record<string, unknown> = {
       status: "canceled",
       canceledAt: Date.now(),
+    };
+    if (args.reason) {
+      updates.cancelReason = args.reason;
+    }
+
+    await ctx.db.patch(args.id, updates);
+
+    return await ctx.db.get(args.id);
+  },
+});
+
+/** Reschedules a session to a new time. Instructors can reschedule at any time. */
+export const rescheduleSession = mutation({
+  args: {
+    id: v.id("sessions"),
+    newScheduledAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.id);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    if (session.status !== "scheduled") {
+      throw new Error("Only scheduled sessions can be rescheduled");
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot reschedule another instructor's session");
+    }
+
+    await ctx.db.patch(args.id, {
+      scheduledAt: args.newScheduledAt,
+    });
+
+    return await ctx.db.get(args.id);
+  },
+});
+
+/** Updates session notes. */
+export const updateSessionNotes = mutation({
+  args: {
+    id: v.id("sessions"),
+    notes: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.id);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    
+    const instructor = await ctx.db.get(session.instructorId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: cannot update another instructor's session");
+    }
+
+    await ctx.db.patch(args.id, {
+      notes: args.notes,
     });
     return await ctx.db.get(args.id);
   },

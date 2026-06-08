@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 
@@ -14,23 +14,48 @@ import {
 } from '@/components/ui/carousel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import type { Instructor } from '@/lib/instructors';
-import { getRandomizedInstructors, getAlphabeticalInstructors } from '@/lib/instructors';
+import { usePublicInstructors, type PublicInstructor } from '@/lib/queries/convex/use-instructors';
+import { shuffle } from '@/lib/utils/shuffle';
+
+interface Instructor {
+  id: string;
+  name: string;
+  slug: string;
+  tagline: string;
+  bio: string;
+  profileImage: string;
+  specialties: string[];
+  isNew: boolean;
+}
+
+function mapPublicToInstructor(inst: PublicInstructor): Instructor {
+  return {
+    id: inst._id,
+    name: inst.name ?? '',
+    slug: inst.slug ?? '',
+    tagline: inst.tagline ?? '',
+    bio: inst.bio ?? '',
+    profileImage: inst.profileImageUrl ?? '/placeholder-instructor.svg',
+    specialties: inst.specialties ?? [],
+    isNew: false,
+  };
+}
 
 export function InstructorCarousel(): React.JSX.Element {
-  const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const { data: instructorsData, isLoading } = usePublicInstructors();
   const [api, setApi] = useState<CarouselApi>();
   const [paused, setPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  useEffect(() => {
-    setInstructors(getRandomizedInstructors());
-  }, []);
+  const instructors = useMemo(() => {
+    if (!instructorsData) return [];
+    return shuffle(instructorsData).map(mapPublicToInstructor);
+  }, [instructorsData]);
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     setPrefersReducedMotion(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(mq.matches);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
@@ -47,10 +72,10 @@ export function InstructorCarousel(): React.JSX.Element {
     return startInterval();
   }, [startInterval]);
 
-  if (instructors.length === 0) {
+  if (isLoading || instructors.length === 0) {
     return (
       <div className='w-full h-32 flex items-center justify-center bg-card rounded-xl'>
-        <p className='text-muted-foreground text-sm'>No instructors available</p>
+        <p className='text-muted-foreground text-sm'>{isLoading ? 'Loading instructors...' : 'No instructors available'}</p>
       </div>
     );
   }

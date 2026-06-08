@@ -694,4 +694,118 @@ http.route({
   handler: httpClerkWebhook,
 });
 
+export const httpGetGuestSessionPacks = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const guestPacks = await ctx.runQuery(internal.migrationQueries.getGuestSessionPacksForMigration);
+
+  return new Response(JSON.stringify({ packs: guestPacks }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/internal/guest-session-packs",
+  method: "GET",
+  handler: httpGetGuestSessionPacks,
+});
+
+export const httpLinkSessionPacksByEmail = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let clerkUserId: string, email: string;
+  try {
+    ({ clerkUserId, email } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // Presence validation
+  if (!clerkUserId || typeof clerkUserId !== "string" || !clerkUserId.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty clerkUserId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!email || typeof email !== "string" || !email.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty email" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(internal.sessionPacks.linkSessionPacksByEmail, {
+      clerkUserId: clerkUserId.trim(),
+      email: email.trim().toLowerCase(),
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpLinkSeatReservationsByEmail = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let clerkUserId: string, email: string;
+  try {
+    ({ clerkUserId, email } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // Presence validation
+  if (!clerkUserId || typeof clerkUserId !== "string" || !clerkUserId.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty clerkUserId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!email || typeof email !== "string" || !email.trim()) {
+    return new Response(JSON.stringify({ error: "Missing or empty email" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(internal.seatReservations.linkSeatReservationsByEmail, {
+      clerkUserId: clerkUserId.trim(),
+      email: email.trim().toLowerCase(),
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+http.route({
+  path: "/internal/link-session-packs",
+  method: "POST",
+  handler: httpLinkSessionPacksByEmail,
+});
+
+http.route({
+  path: "/internal/link-seat-reservations",
+  method: "POST",
+  handler: httpLinkSeatReservationsByEmail,
+});
+
 export default http;

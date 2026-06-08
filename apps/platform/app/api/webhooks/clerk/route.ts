@@ -25,7 +25,38 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const evt = await verifyWebhook(req);
+    // TODO: Gate diagnostic logs behind CLERK_WEBHOOK_DEBUG or remove once
+    // root cause of "No matching signature found" is identified.
+    const clonedReq = req.clone();
+    const rawBody = await clonedReq.text();
+
+    let bodyInfo: Record<string, unknown> = { length: rawBody.length };
+    try {
+      const parsed = JSON.parse(rawBody);
+      bodyInfo.isValidJson = true;
+      bodyInfo.type = typeof parsed.type === "string" ? parsed.type : undefined;
+      if (parsed.type === "user.created") {
+        bodyInfo.hasUserId = Boolean(parsed.data?.id);
+        bodyInfo.emailCount = Array.isArray(parsed.data?.email_addresses) ? parsed.data.email_addresses.length : 0;
+      }
+      bodyInfo.dataKeys = typeof parsed.data === "object" && parsed.data !== null
+        ? Object.keys(parsed.data).filter(k => !["id", "email_addresses"].includes(k))
+        : undefined;
+    } catch {
+      bodyInfo.isValidJson = false;
+    }
+
+    console.log("[clerk-webhook] Headers:", JSON.stringify({
+      "svix-id": req.headers.get("svix-id"),
+      "svix-timestamp": req.headers.get("svix-timestamp"),
+      "svix-signature": req.headers.get("svix-signature")
+        ? (req.headers.get("svix-signature") as string).substring(0, 50) + "..."
+        : null,
+      "content-type": req.headers.get("content-type"),
+    }));
+    console.log("[clerk-webhook] Body info:", JSON.stringify(bodyInfo));
+
+    const evt = await verifyWebhook(req, { signingSecret: webhookSecret });
 
     const eventType = evt.type;
 

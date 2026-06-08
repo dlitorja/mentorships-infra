@@ -1,6 +1,12 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { reportError, reportInfo } from "@/lib/observability";
 
+// Test-only override for unit tests; declared at module scope for TypeScript ambient rules
+declare global {
+  // eslint-disable-next-line no-var
+  var __TEST_CLERK_CLIENT__: Awaited<ReturnType<typeof clerkClient>> | undefined;
+}
+
 /**
  * Send a Clerk email-link verification to an existing user's primary email address.
  *
@@ -65,19 +71,37 @@ export async function sendEmailLinkForUser(
   const baseDelayMs = 200; // initial backoff
 
   // During unit tests, allow overriding the Clerk client without requiring real env
-  const override = (globalThis as any).__TEST_CLERK_CLIENT__;
+  const override = globalThis.__TEST_CLERK_CLIENT__;
   const client = override ?? (await clerkClient());
 
-  // Fetch user once; reuse email address id across retries
+  // Fetch user once; reuse primary email address id across retries
   let emailId: string | null = null;
   try {
     const user = await client.users.getUser(userId);
-    const emailAddress = user.emailAddresses?.[0];
-    if (!emailAddress) {
+    type MinimalEmail = { id: string };
+    type MaybeMinimalUser = unknown;
+    const isMinimalUser = (u: MaybeMinimalUser): u is { primaryEmailAddressId?: string; emailAddresses?: MinimalEmail[] } => {
+      if (typeof u !== "object" || u === null) return false;
+      const obj = u as Record<string, unknown>;
+      const pea = obj["primaryEmailAddressId"];
+      const emails = obj["emailAddresses"];
+      const emailsValid = emails == null || (Array.isArray(emails) && emails.every((e) => e && typeof e === "object" && typeof (e as any).id === "string"));
+      const peaValid = pea == null || typeof pea === "string";
+      return emailsValid && peaValid;
+    };
+
+    if (!isMinimalUser(user)) {
+      return { ok: false, error: "Unexpected user shape from Clerk" };
+    }
+
+    const emails: MinimalEmail[] = Array.isArray(user.emailAddresses) ? user.emailAddresses : [];
+    const primaryId = typeof user.primaryEmailAddressId === "string" ? user.primaryEmailAddressId : undefined;
+    const emailAddress = (primaryId ? emails.find((e) => e.id === primaryId) : undefined) ?? emails[0];
+    if (!emailAddress || !emailAddress.id) {
       return { ok: false, error: "User has no email address" };
     }
     emailId = emailAddress.id;
-  } catch (error) {
+  } catch (error: unknown) {
     await reportError({
       source: "clerk/magic-links",
       error,
@@ -85,7 +109,8 @@ export async function sendEmailLinkForUser(
       level: "error",
       context: { userId },
     });
-    return { ok: false, error: (error as any)?.message || "Failed to load user" };
+    const message = typeof error === "object" && error && "message" in (error as any) && typeof (error as any).message === "string" ? (error as any).message : "Failed to load user";
+    return { ok: false, error: message };
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

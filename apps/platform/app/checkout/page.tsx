@@ -19,9 +19,18 @@ import { useProductsByInstructorId, usePublicActiveProducts } from "@/lib/querie
 import { Id } from "@/convex/_generated/dataModel";
 import { clsx } from "clsx";
 import { useUser } from "@clerk/nextjs";
+import { Input } from "@/components/ui/input";
+import { AvailabilityPreview } from "@/components/checkout/availability-preview";
 
+/**
+ * Payment method options for checkout.
+ * @typedef {"stripe" | "paypal"} PaymentMethod
+ */
 type PaymentMethod = "stripe" | "paypal";
 
+/**
+ * Instructor data returned from the public instructor query.
+ */
 type InstructorData = {
   instructor: {
     _id: string;
@@ -31,6 +40,9 @@ type InstructorData = {
   };
 };
 
+/**
+ * Product/Session pack available for purchase.
+ */
 type Product = {
   _id: string;
   title: string;
@@ -43,6 +55,10 @@ type Product = {
   active: boolean;
 };
 
+/**
+ * Main checkout form content component.
+ * Handles product selection, guest checkout details, and payment method selection.
+ */
 function CheckoutContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -133,10 +149,8 @@ function CheckoutContent(): React.JSX.Element {
       return createCheckoutSession({ productId: data.productId, email: isSignedIn ? undefined : email, fullName: isSignedIn ? undefined : fullName });
     },
     onSuccess: (data) => {
-      // Some callers historically returned `approvalUrl` or `checkoutUrl`.
-      // Normalize here to tolerate older shapes.
-      const anyData = data as any;
-      const url = anyData.url || anyData.approvalUrl || anyData.checkoutUrl;
+      // Normalize across Stripe and PayPal clients without unsafe casts
+      const url = data.url || ("checkoutUrl" in data ? data.checkoutUrl : undefined);
       if (url) {
         window.location.href = url;
       } else {
@@ -290,29 +304,41 @@ function CheckoutContent(): React.JSX.Element {
             </div>
           </div>
 
+          {/* Availability Preview - only show when in single instructor context */}
+          {instructorId && (
+            <AvailabilityPreview
+              instructorId={instructorId}
+              instructorName={instructorName}
+            />
+          )}
+
           {/* Your Details */}
           <div className="space-y-3">
             <label className="text-sm font-medium">Your Details</label>
             {!isSignedIn ? (
               <div className="grid gap-3">
                 <div>
-                  <label className="block text-sm mb-1">Email</label>
-                  <input
+                  <label htmlFor="checkout-email" className="block text-sm mb-1">Email</label>
+                  <Input
                     type="email"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    id="checkout-email"
+                    name="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
+                    className="!bg-input !text-foreground"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm mb-1">Full Name</label>
-                  <input
+                  <label htmlFor="checkout-full-name" className="block text-sm mb-1">Full Name</label>
+                  <Input
                     type="text"
-                    className="w-full rounded-md border px-3 py-2 text-sm"
+                    id="checkout-full-name"
+                    name="fullName"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your full name"
+                    className="!bg-input !text-foreground"
                   />
                 </div>
               </div>
@@ -459,6 +485,9 @@ function CheckoutContent(): React.JSX.Element {
   );
 }
 
+/**
+ * Checkout page component with Suspense boundary for useSearchParams.
+ */
 export default function CheckoutPage(): React.JSX.Element {
   return (
     <Suspense

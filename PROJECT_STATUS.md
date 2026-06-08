@@ -123,19 +123,19 @@ Risks & Mitigations
 Work Breakdown (PRs)
 1) Platform OAuth + Web redirect
    - Files: `apps/platform/app/api/auth/google/route.ts`, `.../callback/route.ts`, update Web route to redirect.
-   - Status: NOT_STARTED
+   - Status: ✅ COMPLETED via PR #385 (Google Calendar OAuth connect/disconnect working), PR #383 (Web redirect)
 2) Unify token decrypt (Platform)
    - File: `apps/platform/lib/crypto.ts` → replace with shared-compatible implementation.
-   - Status: NOT_STARTED
+   - Status: ✅ COMPLETED via PR #370 (internalMutation pattern, unified auth)
 3) Settings > Integrations + Onboarding deep-link
    - Files: new page/components in Platform; update `apps/platform/app/instructor/onboarding/page.tsx` CTA.
-   - Status: NOT_STARTED
+   - Status: ✅ COMPLETED via PR #385 (GoogleCalendarStatus component, onboarding deep-link)
 4) Calendar picker + APIs + Convex field
    - Files: Platform API routes, UI; add `googleAvailabilityCalendarIds` to `convex/schema.ts` and `convex/instructors.ts`; update availability route to read array.
-   - Status: NOT_STARTED
+   - Status: ❌ NOT_STARTED (multi-calendar selection pending)
 5) E2E verification
    - Manual tests per checklist; add minimal integration tests where feasible.
-   - Status: NOT_STARTED
+   - Status: ❌ NOT_STARTED
 
 Env/Config Summary
 - GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET on Platform/Web (during transition).
@@ -146,8 +146,238 @@ Owner
 - Platform app ownership for OAuth, picker UX, and availability logic.
 - Convex ownership for schema field addition and update mutation.
 
-Last Updated: May 20, 2026 (post PR #314 plan)
+Last Updated: June 2, 2026 (Calendar Slot Picker: month view UX for students, Calendly-style day→time slot selection; Session Notifications COMPLETED: cancel/reschedule/30-min reminder emails via Trigger.dev; Instructor Dashboard Enhanced: past sessions, session actions (reschedule/cancel/notes), student deep dive; Docstrings on session email templates (#390))
 
+### NEW: Student Dashboard Fixes & Discord Role Assignment (May 31, 2026)
+
+**Problem**: Student users visiting `/dashboard` encountered a 500 error on `GET /api/google/calendars` because:
+1. The endpoint requires `instructor` role but was being called by all users (including students)
+2. Error handling caught `ForbiddenError` and returned 500 instead of proper 403
+3. Students were shown "Connect Google Calendar" checklist item (instructor-only feature)
+
+**Fixes Implemented**:
+
+1. **Fixed `/api/google/calendars` error handling** (`apps/platform/app/api/google/calendars/route.ts`):
+   - Added proper distinction between auth errors (401/403) and server errors (500)
+   - `ForbiddenError` → 403, `UnauthorizedError` → 401, other errors → 500
+
+2. **Fixed dashboard Google Calendar check for students** (`apps/platform/app/dashboard/page.tsx`):
+   - Added `userRole` check from Clerk's `publicMetadata.role`
+   - Only calls `/api/google/calendars` for instructors/admins
+   - Students see `googleCalendarConnected = false` without making the API call
+
+3. **Removed "Connect Google Calendar" from student dashboard checklist**:
+   - Checklist item now only appears for instructors/admins (`isInstructorOrAdmin` check)
+   - Students don't connect Google Calendar (only instructors do)
+
+4. **Hidden GoogleCalendarCard on settings page for students** (`apps/platform/app/settings/page.tsx`):
+   - `GoogleCalendarCard` only shown when `user.role === "instructor" || user.role === "admin"`
+
+5. **Implemented Discord role assignment for students** (Option A):
+   - Created `POST /api/user/discord/sync-role` endpoint
+   - Dashboard calls endpoint when student has Discord connected
+   - Endpoint extracts Discord ID from Clerk external accounts
+   - Stores Discord identity in Convex via `api.userIdentities.upsertUserIdentity`
+   - Calls `addGuildMemberRoleByName` to assign student role in Discord guild
+   - Idempotent: safe to call repeatedly (Discord API handles duplicate role adds gracefully)
+
+**New Files Created**:
+- `apps/platform/app/api/user/discord/sync-role/route.ts` - Discord role sync endpoint
+
+**Environment Variables Added** (`.env.local`):
+- `DISCORD_STUDENT_ROLE_NAME=Student` - Discord role name to assign to students
+
+**Existing Environment Variables Used**:
+- `DISCORD_GUILD_ID=1073746392121610302` - Discord server/guild ID
+
+**Flow**:
+1. Student visits `/dashboard`
+2. Dashboard detects Discord connected via `user.externalAccounts`
+3. Dashboard calls `POST /api/user/discord/sync-role`
+4. Endpoint stores Discord identity in Convex
+5. Endpoint adds student role to Discord guild member
+
+**Status**: ✅ COMPLETED - May 31, 2026 (PR #382 with review fixes)
+
+**PR #382 Review Fixes Applied**:
+- Added role guard to Discord sync endpoint (rejects instructors/admins with 403)
+- Replaced `discordRoleSyncing` state with `useRef` for deduplication (fixes state never resetting bug)
+- Fixed "You're all set!" block to show for students without requiring `googleCalendarConnected`
+
+### NEW: Student Booking Flow - Next Phase (June 1, 2026)
+
+**Problem**: While the booking API endpoints (`/api/bookings`, `/api/instructors/[id]/availability`) use Convex correctly, the `/calendar` page uses SQL/Drizzle queries (`@mentorships/db`) for sessions and session packs. This is broken in the Convex-only architecture and will not show correct data.
+
+**Current State**:
+- ✅ `/api/bookings` (POST) - Works with Convex, creates Google Calendar events
+- ✅ `/api/bookings/series` - Works with Convex, creates weekly booking series
+- ✅ `/api/instructors/[id]/availability` - Works with Convex, returns free/busy from Google Calendar
+- ✅ `BookWithGoogle` component - Calls availability API correctly, posts to `/api/bookings`
+- ✅ `/calendar` page - Migrated from SQL to Convex queries (June 1, 2026)
+- ✅ `/sessions` page - Migrated from SQL to Convex query (June 1, 2026)
+- ✅ Availability preview on checkout page - Shows next 3 slots before purchase (June 1, 2026)
+
+**Fixes Implemented**:
+1. **Migrated `/calendar` page from SQL to Convex**:
+   - Converted from Server Component to Client Component (pattern matching dashboard)
+   - Replaced `requireDbUser()` with `useUser()` from Clerk
+   - Replaced SQL queries with `useActiveSessionPacksByUser` and `useUpcomingStudentSessions` hooks
+   - Added loading states for packs and sessions
+   - Fixed session ID reference (`id` → `_id` for Convex documents)
+   - Removed `ProtectedLayout` (client component pattern doesn't use it)
+   - Added Suspense boundary for proper loading states
+
+2. **Migrated `/sessions` page from SQL to Convex**:
+   - Added new Convex query `getAllStudentSessionsWithInstructor` (sessions.ts:184)
+   - Joins sessions → instructor → users for instructorEmail
+   - Joins sessions → sessionPacks for remainingSessions
+   - Added `useAllStudentSessions` hook (use-sessions.ts:29)
+   - Converted page from Server Component to Client Component
+   - Added Suspense boundary and loading states
+
+3. **Added availability preview on checkout page**:
+   - Created `/api/instructors/[id]/availability-preview` endpoint (lightweight, returns next 3 slots)
+   - Created `useInstructorAvailabilityPreview` hook (TanStack Query)
+   - Created `AvailabilityPreview` component (shows loading, "not connected", or slot list)
+   - Integrated into checkout page above product selection
+   - Only shows when single-instructor context (`?instructor=slug`)
+
+**Status**: ✅ COMPLETED - June 1, 2026 (full booking flow with availability preview)
+
+---
+
+### NEW: apps/platform Feature Parity Checklist (June 1, 2026)
+
+**Completed**:
+- ✅ Student dashboard with role-based UI (no Google Calendar for students)
+- ✅ Discord role assignment via `/api/user/discord/sync-role`
+- ✅ Instructor Google Calendar OAuth flow (connect/disconnect/select)
+- ✅ Booking API with Google Calendar integration
+- ✅ Availability API with free/busy checking
+- ✅ Calendar page SQL → Convex migration (June 1, 2026)
+- ✅ Sessions page SQL → Convex migration (June 1, 2026)
+- ✅ Instructor availability preview on checkout page (June 1, 2026)
+
+**In Progress / Not Started**:
+- ❌ Student cannot browse instructors and book directly (only via `/calendar` after purchase)
+- ❌ No per-instructor booking page (students must purchase first)
+
+**Priority Items**:
+1. Consider adding direct booking flow from instructor profile
+
+**Status**: 🟡 IN PROGRESS - June 1, 2026 (availability preview added to checkout)
+
+---
+
+### NEW: Session Notifications via Trigger.dev (June 2, 2026)
+
+**Completed (PRs #387, #388, #389)**:
+
+**Phase 1 - Session Actions (PR #387)**:
+- ✅ Past Sessions query - displays completed/canceled/no_show sessions from last 30 days
+- ✅ Reschedule mutation - instructor can reschedule anytime (no 24hr restriction)
+- ✅ Cancel mutation - instructor can cancel with optional reason, persists `cancelReason` field
+- ✅ Notes mutation - instructor can add/edit session notes
+- ✅ Student Deep Dive - new page showing student info, session pack stats, and session history
+
+**Phase 2 - Notification Wiring (PR #388)**:
+- ✅ Session cancel notification wired to Trigger.dev task `sessionCanceledNotifications`
+- ✅ Session reschedule notification wired to Trigger.dev task `sessionRescheduledNotifications`
+- ✅ Email templates `buildSessionCanceledEmail` and `buildSessionRescheduledEmail` created
+
+**Phase 3 - 30-Minute Reminders (PR #389)**:
+- ✅ `buildSessionReminderEmail` - reminder email for students
+- ✅ `buildInstructorReminderEmail` - reminder email for instructors
+- ✅ `sendSessionReminders` scheduled task - runs every 5 minutes
+- ✅ Queries sessions in 25-35 minute window (±2 min to prevent duplicates)
+- ✅ Sends reminders to both students and instructors
+
+**Files Created/Modified**:
+- `packages/emails/src/session-changes.ts` - new email template functions
+- `src/trigger/session-change-notifications.ts` - new trigger tasks
+
+**Status**: ✅ COMPLETED - June 2, 2026 (PRs #387, #388, #389, #390)
+
+**Phase 4 - Docstrings (PR #390)**:
+- ✅ Added docstrings to all session email template functions in `packages/emails/src/session-changes.ts`
+- ✅ Satisfied CodeRabbit 80% docstring coverage threshold
+
+---
+
+### NEW: Calendar Slot Picker - Month View UX (June 2, 2026)
+
+**Completed (PR #391)**:
+
+**Problem**: The student slot picker (`BookWithGoogle` component) displayed 60+ time slot buttons in a flat grid — no visual calendar, no date grouping. Students had to scroll through a long list with no sense of which days had availability.
+
+**Solution**: Replaced the flat button grid with a `CalendarSlotPicker` component:
+
+- **Month grid view** — navigable prev/next month, shows availability dots on calendar days
+- **Available days highlighted** in emerald green; past/unavailable days grayed out
+- **Click a day** → reveals time slots for that specific day
+- **Confirm booking** via "Confirm Booking" button after slot selection
+- **No external dependencies** — pure Tailwind + React, zero extra packages
+
+**Files Created/Modified**:
+- `apps/platform/components/calendar/calendar-slot-picker.tsx` - NEW calendar slot picker component
+- `apps/platform/components/calendar/book-with-google.tsx` - replaced slot grid with CalendarSlotPicker
+- `apps/platform/app/instructor/dashboard/page.tsx` - renamed "Booked Sessions" → "Calendar Bookings"
+- `apps/platform/app/dashboard/page.tsx` - renamed "Google Booked Sessions" → "Calendar Bookings"
+
+**Bug Fixes**:
+- Fixed zero-padding bug: days 1-9 now correctly highlighted as available (`String(day).padStart(2, "0")`)
+- Fixed last-day-of-month availability (off-by-one boundary error)
+- Fixed stale `selectedSlot` on month navigation
+
+**Consolidation**:
+- Removed legacy `BookSessionForm` (created sessions without Google Calendar events)
+- `BookWithGoogle` is now the only booking path on /calendar
+
+**UX Improvements**:
+- Students see availability patterns at a glance (which days are open)
+- Two-step pick: day → time slot (Calendy-style)
+- Confirmation step before booking (prevents accidental clicks)
+
+**Not Implemented** (per preference):
+- Expose calendar config in instructor dashboard (one-time setup in Settings is adequate)
+
+**Status**: ✅ COMPLETED - June 2, 2026 (PR #391)
+
+---
+
+### NEW: Instructor Dashboard Student Identity & Availability Preview (June 3, 2026)
+
+**Completed (PR #393)**:
+
+**Problem**: 
+1. Active Students list on instructor dashboard showed only student IDs — instructors couldn't distinguish between students without clicking each one
+2. Instructors had no way to preview what students see when booking
+
+**Solution**:
+
+1. **Student name/email in Active Students list**:
+   - Modified `getInstructorActiveSeats` to join with `users` table and return `studentEmail`, `studentFirstName`, `studentLastName`
+   - Dashboard now shows student name (or email fallback) as clickable link to `/instructor/students/[studentId]`
+   - Email only shown as secondary when a name is displayed (prevents duplicate email display)
+
+2. **Availability preview in instructor settings**:
+   - Created `InstructorAvailabilityPreview` wrapper component
+   - Added to instructor settings page below scheduling form
+   - Instructors can now see what students see when booking a session
+
+**Security Fix**:
+- Added ownership check to `getInstructorActiveSeats` — verifies `instructor.userId === user.subject` before returning student PII
+- Only the instructor themselves can view their student list with names/emails
+
+**Files Created/Modified**:
+- `convex/seatReservations.ts` - added user join and ownership check
+- `apps/platform/app/instructor/dashboard/page.tsx` - displays student name/email with links
+- `apps/platform/app/instructor/settings/page.tsx` - added InstructorAvailabilityPreview
+- `apps/platform/components/instructor/instructor-availability-preview.tsx` - NEW wrapper component
+- `apps/platform/components/checkout/availability-preview.tsx` - leveraged existing component
+- `apps/platform/lib/queries/use-availability.ts` - leveraged existing hook
+
+**Status**: ✅ COMPLETED - June 3, 2026 (PR #393)
 
 ---
 
@@ -164,9 +394,9 @@ This has been superseded by the apps/platform decision. The new architecture wil
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: May 10, 2026 (apps/platform Convex Dev Server Running, Phase 4 Event-Driven Sync IMPLEMENTED)
-**PR**: https://github.com/dlitorja/mentorships-infra/pull/240 (Phase 1+2), new PR pending (Phase 4)
-**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
+**Last Updated**: June 3, 2026
+**PRs**: Instructor Dashboard Student Identity + Availability Preview (#393), Calendar Slot Picker (#391), Session Notifications (#389, #390), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
+**Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, **Session Notifications via Trigger.dev: COMPLETE** (PRs #387-389), **Instructor Dashboard Past Sessions & Actions: COMPLETE** (PR #387), **Calendar/Sessions SQL→Convex Migration: COMPLETE** (PR #383), **Instructor Dashboard Stats + Google Calendar: COMPLETE** (PR #385), **Student Dashboard 500 Fix + Discord Role: COMPLETE** (PR #382), **Post-Purchase Email Flow: COMPLETE** (PRs #360, #375-381), **Clerk API + internalMutation Fixes: COMPLETE** (PRs #370-371), **Checkout UX Improvements: COMPLETE** (PRs #373-374), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
 

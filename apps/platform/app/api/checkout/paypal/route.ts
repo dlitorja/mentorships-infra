@@ -7,11 +7,13 @@ import { createPayPalOrder } from "@mentorships/payments";
 import crypto from "node:crypto";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { sendEmailLinkForUser } from "@/lib/clerk-magic-links";
+import { sendEmail } from "@/lib/email";
 
 function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  // Prefer public URL; fall back to server-only CONVEX_URL to avoid hard failures
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_URL;
   if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+    throw new Error("NEXT_PUBLIC_CONVEX_URL or CONVEX_URL must be set");
   }
   return new ConvexHttpClient(convexUrl);
 }
@@ -55,7 +57,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
 
     // Resolve user: if authenticated, use that userId; otherwise upsert by email
-    const { userId: authedUserId } = await auth();
+    let authedUserId: string | null = null;
+    try {
+      const authRes = await auth();
+      authedUserId = authRes?.userId ?? null;
+    } catch (e: any) {
+      const status = e?.status ?? e?.statusCode;
+      const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+      try {
+        console.error("Clerk auth failed; proceeding as guest", { status, code });
+      } catch {}
+      authedUserId = null;
+    }
     let userIdForOrder: string | null = authedUserId ?? null;
 
     let createdNewUser = false;
@@ -68,29 +81,48 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       }
       const client = await clerkClient();
       const normalizedEmail = email.trim().toLowerCase();
-      const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-      if (data.length > 0) {
-        userIdForOrder = data[0].id;
-      } else {
-        const [firstName, ...rest] = fullName.trim().split(" ");
-        const lastName = rest.join(" ");
-        try {
-          const created = await client.users.createUser({
-            emailAddress: [normalizedEmail],
-            firstName: firstName || undefined,
-            lastName: lastName || undefined,
-            publicMetadata: { role: "student" },
-          } as any);
-          userIdForOrder = created.id;
-          createdNewUser = true;
-        } catch (e: any) {
-          const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
-          if (again.data.length > 0) {
-            userIdForOrder = again.data[0].id;
-          } else {
-            throw e;
+      try {
+        const { data } = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+        if (data.length > 0) {
+          userIdForOrder = data[0].id;
+        } else {
+          const [firstName, ...rest] = fullName.trim().split(" ");
+          const lastName = rest.join(" ");
+          try {
+            const created = await client.users.createUser({
+              emailAddress: [normalizedEmail],
+              firstName: firstName || undefined,
+              lastName: lastName || undefined,
+              publicMetadata: { role: "student" },
+              // Allow creation without password in instances that require passwords
+              skipPasswordRequirement: true,
+            } as any);
+            userIdForOrder = created.id;
+            createdNewUser = true;
+          } catch (e: any) {
+            const again = await client.users.getUserList({ emailAddress: [normalizedEmail] } as any);
+            if (again.data.length > 0) {
+              userIdForOrder = again.data[0].id;
+            } else {
+              // Clerk failure or validation -> proceed as guest
+              const status = e?.status ?? e?.statusCode;
+              const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+              try {
+                console.error("Clerk create/find user failed; proceeding as guest", { status, code });
+              } catch {}
+              userIdForOrder = "guest";
+              createdNewUser = false;
+            }
           }
         }
+      } catch (e: any) {
+        const status = e?.status ?? e?.statusCode;
+        const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
+        try {
+          console.error("Clerk user lookup failed; proceeding as guest", { status, code });
+        } catch {}
+        userIdForOrder = "guest";
+        createdNewUser = false;
       }
     }
 
@@ -140,16 +172,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           productId: packId,
           orderId: JSON.stringify({ orderId: orderId, packId }),
         },
-        `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}`,
+        `${baseUrl}/checkout/success?order_id={ORDER_ID}${createdNewUser ? "&new=1" : ""}${userIdForOrder === "guest" ? "&guest=1" : ""}`,
         cancelUrl
       );
 
-      // Fire-and-forget: send email-link sign-in for newly created users
-      if (createdNewUser && userIdForOrder) {
-        void sendEmailLinkForUser(userIdForOrder, `${baseUrl}/auth-redirect`).catch((e) => {
-          console.error("[paypal] Failed to send magic link:", e);
-        });
-      }
+      // Do not send emails from the checkout route; post‑payment emails are handled by Inngest
     } catch (paypalError) {
       if (orderId) {
         try {
