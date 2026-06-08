@@ -17,10 +17,14 @@ export type PublicInstructor = {
   isActive?: boolean;
   isHidden?: boolean;
   deletedAt?: number;
-  // Computed on the server: true if sold out of all mentorship types they currently offer
   isCompletelySoldOut?: boolean;
 };
 
+/**
+ * Fetches public instructors for the marketplace.
+ * Filters out deleted, hidden, and inactive instructors.
+ * Includes computed isCompletelySoldOut flag based on inventory.
+ */
 export function usePublicInstructors() {
   const { data, isLoading, isError, error } = useQuery({
     ...convexQuery(api.instructors.getPublicInstructors, {}),
@@ -29,7 +33,6 @@ export function usePublicInstructors() {
   const filteredData = useMemo<PublicInstructor[]>(() => {
     if (!data) return [];
     const list = (data as unknown as PublicInstructor[]) ?? [];
-    // Treat undefined isActive as active for backward compatibility
     return list.filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt && !(i as any).isHidden);
   }, [data]);
 
@@ -41,6 +44,10 @@ export function usePublicInstructors() {
   };
 }
 
+/**
+ * Fetches a single instructor by ID for public display.
+ * Returns null while loading or if instructor not found.
+ */
 export function useInstructor(id: string) {
   return useQuery({
     ...convexQuery(api.instructors.getInstructorById, { id: id as Id<"instructors"> }),
@@ -48,6 +55,11 @@ export function useInstructor(id: string) {
   });
 }
 
+/**
+ * Fetches all instructors for admin listing.
+ * Filters out deleted and inactive instructors.
+ * Randomizes order for display variety.
+ */
 export function useInstructors(): {
   data: PublicInstructor[];
   isLoading: boolean;
@@ -60,7 +72,6 @@ export function useInstructors(): {
   const data = useMemo<PublicInstructor[]>(() => {
     if (!query.data) return [];
     return query.data
-      // Treat undefined isActive as active for backward compatibility
       .filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
   }, [query.data]);
@@ -68,6 +79,10 @@ export function useInstructors(): {
   return { data, isLoading: query.isLoading, isError: query.isError };
 }
 
+/**
+ * Fetches a single instructor by slug for public profile pages.
+ * Returns null while loading or if instructor not found.
+ */
 export function usePublicInstructorBySlug(slug: string) {
   return useQuery({
     ...convexQuery(api.instructors.getInstructorBySlug, { slug }),
@@ -75,6 +90,10 @@ export function usePublicInstructorBySlug(slug: string) {
   });
 }
 
+/**
+ * Fetches a single instructor by slug.
+ * Used for instructor dashboard and settings pages.
+ */
 export function useInstructorBySlug(slug: string) {
   return useQuery({
     ...convexQuery(api.instructors.getInstructorBySlug, { slug }),
@@ -82,12 +101,20 @@ export function useInstructorBySlug(slug: string) {
   });
 }
 
+/**
+ * Fetches all instructors including inactive/hidden for admin management.
+ * No filtering applied - returns complete instructor list.
+ */
 export function useAllInstructors() {
   return useQuery({
     ...convexQuery(api.instructors.getInstructorsForAdmin, {}),
   });
 }
 
+/**
+ * Fetches testimonials for a specific instructor.
+ * Used on instructor public profile pages.
+ */
 export function useInstructorTestimonials(instructorId: string) {
   return useQuery({
     ...convexQuery(api.instructors.getTestimonialsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
@@ -95,6 +122,10 @@ export function useInstructorTestimonials(instructorId: string) {
   });
 }
 
+/**
+ * Fetches student success stories/results for a specific instructor.
+ * Used on instructor public profile pages.
+ */
 export function useInstructorStudentResults(instructorId: string) {
   return useQuery({
     ...convexQuery(api.instructors.getStudentResultsByInstructorId, { instructorId: instructorId as Id<"instructors"> }),
@@ -102,6 +133,10 @@ export function useInstructorStudentResults(instructorId: string) {
   });
 }
 
+/**
+ * Mutation hook for updating instructor profile information.
+ * Invalidates instructor queries on success to refresh data.
+ */
 export function useUpdateInstructor() {
   const queryClient = useQueryClient();
 
@@ -113,6 +148,10 @@ export function useUpdateInstructor() {
   });
 }
 
+/**
+ * Mutation hook for creating a new instructor.
+ * Invalidates instructor queries on success to refresh list.
+ */
 export function useCreateInstructor() {
   const queryClient = useQueryClient();
 
@@ -124,6 +163,10 @@ export function useCreateInstructor() {
   });
 }
 
+/**
+ * Mutation hook for soft-deleting an instructor.
+ * Sets deletedAt timestamp but preserves data for potential recovery.
+ */
 export function useDeleteInstructor() {
   const queryClient = useQueryClient();
 
@@ -135,6 +178,11 @@ export function useDeleteInstructor() {
   });
 }
 
+/**
+ * Mutation hook for permanently deleting an instructor.
+ * WARNING: This is irreversible and removes all associated data.
+ * Requires admin authentication.
+ */
 export function useHardDeleteInstructor() {
   const queryClient = useQueryClient();
 
@@ -146,6 +194,10 @@ export function useHardDeleteInstructor() {
   });
 }
 
+/**
+ * Mutation hook for creating a testimonial for an instructor.
+ * Invalidates testimonial queries on success.
+ */
 export function useCreateTestimonial() {
   const queryClient = useQueryClient();
 
@@ -157,6 +209,10 @@ export function useCreateTestimonial() {
   });
 }
 
+/**
+ * Mutation hook for deleting a testimonial.
+ * Invalidates testimonial queries on success.
+ */
 export function useDeleteTestimonial() {
   const queryClient = useQueryClient();
 
@@ -168,6 +224,10 @@ export function useDeleteTestimonial() {
   });
 }
 
+/**
+ * Mutation hook for creating a student result/success story.
+ * Invalidates student result queries on success.
+ */
 export function useCreateStudentResult() {
   const queryClient = useQueryClient();
 
@@ -179,6 +239,10 @@ export function useCreateStudentResult() {
   });
 }
 
+/**
+ * Mutation hook for deleting a student result/success story.
+ * Invalidates student result queries on success.
+ */
 export function useDeleteStudentResult() {
   const queryClient = useQueryClient();
 
@@ -190,6 +254,10 @@ export function useDeleteStudentResult() {
   });
 }
 
+/**
+ * Mutation hook for updating instructor inventory (available session slots).
+ * Invalidates instructor queries on success to refresh availability data.
+ */
 export function useUpdateInstructorInventory() {
   const queryClient = useQueryClient();
 
@@ -201,6 +269,10 @@ export function useUpdateInstructorInventory() {
   });
 }
 
+/**
+ * Mutation hook for uploading instructor profile image.
+ * Invalidates instructor queries on success to refresh image URL.
+ */
 export function useUploadInstructorProfileImage() {
   const queryClient = useQueryClient();
 
@@ -212,6 +284,10 @@ export function useUploadInstructorProfileImage() {
   });
 }
 
+/**
+ * Mutation hook for adding a portfolio image to instructor profile.
+ * Invalidates instructor queries on success to refresh portfolio gallery.
+ */
 export function useAddInstructorPortfolioImage() {
   const queryClient = useQueryClient();
 
