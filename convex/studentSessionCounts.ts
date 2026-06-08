@@ -23,6 +23,11 @@ type StudentSessionCountWithDetails = {
   instructorSlug: string | null;
 };
 
+/**
+ * Fetches all session counts for a student across all instructors.
+ * Only accessible by admin users.
+ * Returns session counts with instructor details.
+ */
 export const getSessionCountsForStudent = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -57,6 +62,10 @@ export const getSessionCountsForStudent = query({
   },
 });
 
+/**
+ * Creates or updates a session count for a student with a specific instructor.
+ * Requires admin authentication.
+ */
 export const upsertSessionCount = mutation({
   args: {
     userId: v.string(),
@@ -104,6 +113,10 @@ export const upsertSessionCount = mutation({
   },
 });
 
+/**
+ * Updates the session count and optional notes for an existing record.
+ * Requires admin authentication.
+ */
 export const updateSessionCount = mutation({
   args: {
     id: v.id("studentSessionCounts"),
@@ -133,6 +146,11 @@ export const updateSessionCount = mutation({
   },
 });
 
+/**
+ * Adjusts a session count by a given amount (positive or negative).
+ * Prevents count from going below zero.
+ * Requires admin authentication.
+ */
 export const adjustSessionCount = mutation({
   args: {
     id: v.id("studentSessionCounts"),
@@ -163,6 +181,10 @@ export const adjustSessionCount = mutation({
   },
 });
 
+/**
+ * Deletes a session count record by ID.
+ * Requires admin authentication.
+ */
 export const deleteSessionCount = mutation({
   args: { id: v.id("studentSessionCounts") },
   handler: async (ctx, args) => {
@@ -179,6 +201,10 @@ export const deleteSessionCount = mutation({
   },
 });
 
+/**
+ * Migrates a session count from legacy system.
+ * Updates existing record if found by userId and instructorId, otherwise creates new.
+ */
 export const migrateSessionCount = mutation({
   args: {
     id: v.string(),
