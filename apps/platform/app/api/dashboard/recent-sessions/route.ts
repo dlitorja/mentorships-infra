@@ -5,6 +5,11 @@ import { getConvexClient } from "@/lib/convex";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET /api/dashboard/recent-sessions
+ * Returns the current user's 3 most recent past sessions with instructor info.
+ * Requires authenticated user. Returns completed/canceled sessions.
+ */
 export async function GET() {
   try {
     const user = await requireDbUser();

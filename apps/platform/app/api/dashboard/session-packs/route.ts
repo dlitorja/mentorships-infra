@@ -5,6 +5,11 @@ import { getConvexClient } from "@/lib/convex";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET /api/dashboard/session-packs
+ * Returns the current user's session packs with instructor details.
+ * Requires authenticated user. Returns up to 100 packs with remaining sessions.
+ */
 export async function GET() {
   try {
     const user = await requireDbUser();
