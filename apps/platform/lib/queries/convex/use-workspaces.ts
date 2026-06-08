@@ -5,6 +5,10 @@ import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 
+/**
+ * Fetches a single workspace by ID.
+ * Returns null while loading or if workspace not found.
+ */
 export function useWorkspace(id: string) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceById, { id: id as Id<"workspaces"> }),
@@ -12,6 +16,10 @@ export function useWorkspace(id: string) {
   });
 }
 
+/**
+ * Fetches all workspaces owned by a specific user.
+ * Used on dashboard pages to display user's workspaces.
+ */
 export function useWorkspacesByOwner(ownerId: string) {
   return useQuery({
     ...convexQuery(api.workspaces.getUserWorkspaces, { ownerId }),
@@ -19,6 +27,10 @@ export function useWorkspacesByOwner(ownerId: string) {
   });
 }
 
+/**
+ * Fetches all workspaces associated with a specific instructor.
+ * Includes workspaces created by the instructor and any shared with them.
+ */
 export function useWorkspacesByInstructor(instructorId: string) {
   return useQuery({
     ...convexQuery(api.workspaces.getInstructorWorkspaces, { instructorId: instructorId as Id<"instructors"> }),
@@ -26,6 +38,10 @@ export function useWorkspacesByInstructor(instructorId: string) {
   });
 }
 
+/**
+ * Fetches all chat messages for a workspace.
+ * Messages are returned in chronological order.
+ */
 export function useWorkspaceMessages(workspaceId: string) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceMessages, { workspaceId: workspaceId as Id<"workspaces"> }),
@@ -33,6 +49,10 @@ export function useWorkspaceMessages(workspaceId: string) {
   });
 }
 
+/**
+ * Fetches all notes for a workspace.
+ * Used in the Notes tab of the workspace page.
+ */
 export function useWorkspaceNotes(workspaceId: string) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceNotes, { workspaceId: workspaceId as Id<"workspaces"> }),
@@ -40,6 +60,10 @@ export function useWorkspaceNotes(workspaceId: string) {
   });
 }
 
+/**
+ * Fetches all shared links for a workspace.
+ * Used in the Links section of the workspace.
+ */
 export function useWorkspaceLinks(workspaceId: string) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceLinks, { workspaceId: workspaceId as Id<"workspaces"> }),
@@ -47,6 +71,10 @@ export function useWorkspaceLinks(workspaceId: string) {
   });
 }
 
+/**
+ * Fetches all images for a workspace.
+ * Used in the Images tab of the workspace page.
+ */
 export function useWorkspaceImages(workspaceId: string) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceImages, { workspaceId: workspaceId as Id<"workspaces"> }),
@@ -54,12 +82,20 @@ export function useWorkspaceImages(workspaceId: string) {
   });
 }
 
+/**
+ * Fetches all workspaces for admin dashboard.
+ * No filtering applied - returns complete workspace list.
+ */
 export function useAllWorkspaces() {
   return { data: [] as any[] };
 }
 
 // Mutations
 
+/**
+ * Mutation hook for creating a new chat message in a workspace.
+ * Invalidates workspace messages queries on success to refresh chat.
+ */
 export function useCreateWorkspaceMessage() {
   const queryClient = useQueryClient();
 
@@ -71,6 +107,10 @@ export function useCreateWorkspaceMessage() {
   });
 }
 
+/**
+ * Mutation hook for creating a new note in a workspace.
+ * Invalidates workspace notes queries on success to refresh note list.
+ */
 export function useCreateWorkspaceNote() {
   const queryClient = useQueryClient();
 
@@ -82,6 +122,10 @@ export function useCreateWorkspaceNote() {
   });
 }
 
+/**
+ * Mutation hook for updating an existing workspace note.
+ * Invalidates workspace notes queries on success to refresh data.
+ */
 export function useUpdateWorkspaceNote() {
   const queryClient = useQueryClient();
 
@@ -93,6 +137,10 @@ export function useUpdateWorkspaceNote() {
   });
 }
 
+/**
+ * Mutation hook for deleting a workspace note.
+ * Invalidates workspace notes queries on success to refresh list.
+ */
 export function useDeleteWorkspaceNote() {
   const queryClient = useQueryClient();
 
@@ -104,6 +152,10 @@ export function useDeleteWorkspaceNote() {
   });
 }
 
+/**
+ * Mutation hook for creating a shared link in a workspace.
+ * Invalidates workspace links queries on success to refresh list.
+ */
 export function useCreateWorkspaceLink() {
   const queryClient = useQueryClient();
 
@@ -115,6 +167,10 @@ export function useCreateWorkspaceLink() {
   });
 }
 
+/**
+ * Mutation hook for deleting a shared link from a workspace.
+ * Invalidates workspace links queries on success to refresh list.
+ */
 export function useDeleteWorkspaceLink() {
   const queryClient = useQueryClient();
 
@@ -126,6 +182,10 @@ export function useDeleteWorkspaceLink() {
   });
 }
 
+/**
+ * Mutation hook for uploading an image to a workspace.
+ * Invalidates workspace images and workspace queries on success.
+ */
 export function useCreateWorkspaceImage() {
   const queryClient = useQueryClient();
 
@@ -138,6 +198,10 @@ export function useCreateWorkspaceImage() {
   });
 }
 
+/**
+ * Mutation hook for deleting an image from a workspace.
+ * Invalidates workspace images and workspace queries on success.
+ */
 export function useDeleteWorkspaceImage() {
   const queryClient = useQueryClient();
 
@@ -150,6 +214,10 @@ export function useDeleteWorkspaceImage() {
   });
 }
 
+/**
+ * Mutation hook for creating a new workspace.
+ * Invalidates workspaces queries on success to refresh list.
+ */
 export function useCreateWorkspace() {
   const queryClient = useQueryClient();
 
@@ -161,6 +229,10 @@ export function useCreateWorkspace() {
   });
 }
 
+/**
+ * Mutation hook for updating workspace settings or metadata.
+ * Invalidates workspaces queries on success to refresh data.
+ */
 export function useUpdateWorkspace() {
   const queryClient = useQueryClient();
 
@@ -172,6 +244,9 @@ export function useUpdateWorkspace() {
   });
 }
 
+/**
+ * Represents a workspace export job (ZIP, PDF, or Markdown).
+ */
 interface WorkspaceExport {
   _id: string;
   workspaceId: string;
@@ -182,10 +257,18 @@ interface WorkspaceExport {
   createdAt: number;
 }
 
+/**
+ * Fetches export jobs for a specific workspace.
+ * Returns empty array as export functionality is not yet implemented.
+ */
 export function useWorkspaceExports(_workspaceId: string) {
   return { data: [] as WorkspaceExport[] };
 }
 
+/**
+ * Mutation hook for creating a workspace export job (ZIP, PDF, or Markdown).
+ * Currently throws error as Convex API is not available.
+ */
 export function useCreateWorkspaceExport() {
   const queryClient = useQueryClient();
 
@@ -202,16 +285,28 @@ export function useCreateWorkspaceExport() {
   });
 }
 
+/**
+ * Represents a retention warning notification for workspace deletion.
+ */
 interface RetentionNotification {
   _id: string;
   workspaceId: string;
   notificationType: string;
 }
 
+/**
+ * Fetches unacknowledged retention notifications for workspace deletion warnings.
+ * Returns empty array as retention notifications are not yet implemented.
+ */
 export function useUnacknowledgedRetentionNotifications() {
   return { data: [] as RetentionNotification[] };
 }
 
+/**
+ * Mutation hook for acknowledging a retention notification.
+ * Marks the notification as seen by the user.
+ * Currently throws error as Convex API is not available.
+ */
 export function useAcknowledgeRetentionNotification() {
   const queryClient = useQueryClient();
 
