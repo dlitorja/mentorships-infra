@@ -17,7 +17,6 @@ export type PublicInstructor = {
   isActive?: boolean;
   isHidden?: boolean;
   deletedAt?: number;
-  // Computed on the server: true if sold out of all mentorship types they currently offer
   isCompletelySoldOut?: boolean;
 };
 
@@ -34,7 +33,6 @@ export function usePublicInstructors() {
   const filteredData = useMemo<PublicInstructor[]>(() => {
     if (!data) return [];
     const list = (data as unknown as PublicInstructor[]) ?? [];
-    // Treat undefined isActive as active for backward compatibility
     return list.filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt && !(i as any).isHidden);
   }, [data]);
 
@@ -47,9 +45,8 @@ export function usePublicInstructors() {
 }
 
 /**
- * Fetches a single instructor by ID.
- * Returns the query result object where data is undefined while loading
- * or when the instructor is not found.
+ * Fetches a single instructor by ID for public display.
+ * Returns null while loading or if instructor not found.
  */
 export function useInstructor(id: string) {
   return useQuery({
@@ -59,9 +56,9 @@ export function useInstructor(id: string) {
 }
 
 /**
- * Fetches all instructors for public marketplace listing.
- * Filters out deleted and inactive instructors. Randomizes order for display variety.
- * Use useAllInstructors for admin management (includes inactive/hidden).
+ * Fetches all instructors for admin listing.
+ * Filters out deleted and inactive instructors.
+ * Randomizes order for display variety.
  */
 export function useInstructors(): {
   data: PublicInstructor[];
@@ -75,7 +72,6 @@ export function useInstructors(): {
   const data = useMemo<PublicInstructor[]>(() => {
     if (!query.data) return [];
     return query.data
-      // Treat undefined isActive as active for backward compatibility
       .filter((i: PublicInstructor) => (i.isActive !== false) && !i.deletedAt)
       .sort(() => Math.random() - 0.5);
   }, [query.data]);
@@ -85,8 +81,7 @@ export function useInstructors(): {
 
 /**
  * Fetches a single instructor by slug for public profile pages.
- * Returns the query result object where data is undefined while loading
- * or when the instructor is not found.
+ * Returns null while loading or if instructor not found.
  */
 export function usePublicInstructorBySlug(slug: string) {
   return useQuery({
@@ -96,9 +91,8 @@ export function usePublicInstructorBySlug(slug: string) {
 }
 
 /**
- * Fetches a single instructor by slug for instructor dashboard and settings pages.
- * Returns the query result object where data is undefined while loading
- * or when the instructor is not found.
+ * Fetches a single instructor by slug.
+ * Used for instructor dashboard and settings pages.
  */
 export function useInstructorBySlug(slug: string) {
   return useQuery({
@@ -117,10 +111,6 @@ export function useAllInstructors() {
   });
 }
 
-/**
- * Fetches testimonials for a specific instructor.
- * Used on instructor public profile pages.
- */
 /**
  * Fetches testimonials for a specific instructor.
  * Used on instructor public profile pages.
@@ -182,6 +172,22 @@ export function useDeleteInstructor() {
 
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.deleteInstructor),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+    },
+  });
+}
+
+/**
+ * Mutation hook for permanently deleting an instructor.
+ * WARNING: This is irreversible and removes all associated data.
+ * Requires admin authentication.
+ */
+export function useHardDeleteInstructor() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructors.hardDeleteInstructor),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructors"] });
     },
