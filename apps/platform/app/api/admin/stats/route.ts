@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 
+/**
+ * GET /api/admin/stats
+ * Returns admin dashboard statistics placeholder.
+ * Requires admin role. Currently returns zero values - revenue/mentee
+ * data sourced from SQL/Drizzle (not yet migrated to Convex-only app).
+ */
 export async function GET(): Promise<NextResponse> {
   try {
     await requireRoleForApi("admin");
