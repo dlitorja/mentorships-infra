@@ -53,6 +53,12 @@ const updateSessionSchema = z.object({
   action: z.enum(["increment", "decrement"]),
 });
 
+/**
+ * POST /api/session-counts
+ * Increments or decrements session count for a session pack.
+ * Requires admin or instructor role (instructor can only modify their own packs).
+ * Logs audit trail via Convex mutation. Returns updated remaining/total sessions.
+ */
 export async function POST(request: Request): Promise<Response> {
   try {
     const convex = getConvexClient();
