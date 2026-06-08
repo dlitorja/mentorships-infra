@@ -24,6 +24,13 @@ const checkoutSchema = z.object({
   fullName: z.string().optional(),
 });
 
+/**
+ * POST /api/checkout/paypal
+ * Creates a PayPal order for purchasing a session pack.
+ * Supports both authenticated (Clerk) and guest checkout. Creates pending
+ * order in Convex, then returns PayPal approval URL. On capture, webhook
+ * handles fulfillment. On failure, order is marked failed.
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 
