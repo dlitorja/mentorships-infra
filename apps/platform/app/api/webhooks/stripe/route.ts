@@ -4,6 +4,16 @@ import { inngest } from "@/inngest/client";
 import { stripe } from "@/lib/stripe";
 import { reportError, reportInfo } from "@/lib/observability";
 
+/**
+ * POST /api/webhooks/stripe
+ * Handles Stripe webhook events for payment processing.
+ * Processes checkout.session.completed (creates session pack) and
+ * charge.refunded (triggers refund flow) events. Verifies webhook
+ * signature before processing. Events are dispatched to Inngest
+ * for async processing. Includes test bypass for any deployment
+ * (TEST_WEBHOOK_BYPASS=true + TEST_WEBHOOK_BYPASS_KEY header required;
+ * bypass does NOT check NODE_ENV to support ephemeral/prod testing).
+ */
 export async function POST(req: NextRequest) {
   // Test bypass for CI and integration tests
   // Requires env TEST_WEBHOOK_BYPASS=true and BOTH headers:
