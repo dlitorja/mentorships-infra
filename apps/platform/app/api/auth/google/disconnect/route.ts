@@ -3,6 +3,13 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 
+/**
+ * POST /api/auth/google/disconnect
+ * Disconnects instructor's Google Calendar integration.
+ * Requires instructor role. Attempts to revoke Google token, then clears
+ * googleRefreshToken, googleCalendarId, and googleAvailabilityCalendarIds
+ * in Convex. Errors during revocation are logged but ignored.
+ */
 export async function POST(_req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
