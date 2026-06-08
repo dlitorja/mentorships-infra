@@ -10,6 +10,13 @@ function getAppRedirectUrl(request: NextRequest, path: string): URL {
   return new URL(path, request.url);
 }
 
+/**
+ * GET /api/auth/google/callback
+ * Handles Google OAuth callback after user consents to calendar access.
+ * Requires instructor role. Validates state cookie, exchanges auth code
+ * for tokens, stores refresh token and hardcoded "primary" calendar ID
+ * in Convex. Redirects to dashboard with google_calendar status param.
+ */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");

@@ -4,6 +4,12 @@ import { getConvexClient } from "@/lib/convex";
 import { auth } from "@clerk/nextjs/server";
 import { clerkClient } from "@clerk/nextjs/server";
 
+/**
+ * GET /api/auth/sync
+ * Syncs user profile from Clerk to Convex. Reads Clerk user data (name, role),
+ * updates or creates corresponding Convex user record via syncUser mutation.
+ * Returns synced user info (id, email, role). Used after Clerk auth changes.
+ */
 export async function GET() {
   try {
     const clerkAuth = await auth();
