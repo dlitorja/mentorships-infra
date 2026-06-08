@@ -1,6 +1,10 @@
 import { mutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Migrates a user identity (e.g., Discord) from legacy system.
+ * Handles both userId+provider and providerUserId lookup for conflict resolution.
+ */
 export const migrateUserIdentity = mutation({
   args: {
     userId: v.string(),
@@ -59,6 +63,10 @@ export const migrateUserIdentity = mutation({
   },
 });
 
+/**
+ * Creates or retrieves a user identity for a provider (e.g., Discord).
+ * Returns existing identity if one already exists for the user and provider.
+ */
 export const upsertUserIdentity = mutation({
   args: {
     userId: v.string(),
@@ -88,6 +96,10 @@ export const upsertUserIdentity = mutation({
   },
 });
 
+/**
+ * Internal query to fetch a user identity by userId and provider.
+ * Server-side only - not exposed to public API.
+ */
 export const getByUserIdAndProvider = internalQuery({
   args: {
     userId: v.string(),

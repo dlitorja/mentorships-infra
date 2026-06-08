@@ -1,6 +1,11 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Adds a new contact or returns existing contact if email already exists.
+ * Normalizes email to lowercase and trims whitespace.
+ * Defaults source to "matching_form" if not provided.
+ */
 export const addContact = mutation({
   args: {
     email: v.string(),
@@ -33,6 +38,10 @@ export const addContact = mutation({
   },
 });
 
+/**
+ * Fetches a contact by their email address.
+ * Returns null if not found.
+ */
 export const getContactByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
@@ -44,6 +53,10 @@ export const getContactByEmail = query({
   },
 });
 
+/**
+ * Migrates a contact from legacy system.
+ * Updates existing contact if found by email, otherwise creates new.
+ */
 export const migrateContact = mutation({
   args: {
     email: v.string(),

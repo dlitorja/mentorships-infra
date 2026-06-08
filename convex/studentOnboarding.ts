@@ -1,7 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
-// Get a submission by its legacyId (UUID used by the web app)
+/**
+ * Fetches a student onboarding submission by its legacy ID (UUID used by the web app).
+ * Returns null if not found.
+ */
 export const getByLegacyId = query({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
@@ -13,7 +16,11 @@ export const getByLegacyId = query({
   },
 });
 
-// Create a submission with provided legacyId and imageObjects
+/**
+ * Creates a new student onboarding submission.
+ * Idempotent: if a submission with the same legacyId exists, returns the existing record without creating a new one.
+ * Maps the session pack's legacyId to its Convex ID.
+ */
 export const create = mutation({
   args: {
     legacyId: v.string(),
@@ -55,7 +62,11 @@ export const create = mutation({
   },
 });
 
-// Mark a submission reviewed if it belongs to the given instructor
+/**
+ * Marks a student onboarding submission as reviewed.
+ * Only succeeds if the submission belongs to the specified instructor.
+ * Returns error if submission not found or instructor mismatch.
+ */
 export const markReviewed = mutation({
   args: {
     legacyId: v.string(),
