@@ -2,6 +2,10 @@ import { mutation, internalQuery, internalMutation, internalAction } from "./_ge
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
+/**
+ * Migrates a Discord action queue entry from legacy system.
+ * Updates existing entry if found by subjectUserId, otherwise creates new.
+ */
 export const migrateDiscordAction = mutation({
   args: {
     type: v.union(
@@ -65,6 +69,11 @@ export const migrateDiscordAction = mutation({
   },
 });
 
+/**
+ * Claims pending Discord actions for processing with row-level locking.
+ * Returns up to `limit` pending or stale processing actions.
+ * Internal use only.
+ */
 export const claimDiscordActions = internalMutation({
   args: {
     limit: v.number(),
@@ -126,6 +135,11 @@ export const claimDiscordActions = internalMutation({
   },
 });
 
+/**
+ * Marks a Discord action as successfully completed.
+ * Clears the lock and sets status to done.
+ * Internal use only.
+ */
 export const markDiscordActionDone = internalMutation({
   args: { actionId: v.id("discordActionQueue") },
   handler: async (ctx, args) => {
@@ -137,6 +151,11 @@ export const markDiscordActionDone = internalMutation({
   },
 });
 
+/**
+ * Marks a Discord action as failed with an error message.
+ * Clears the lock, sets status to failed, and stores the error (truncated to 2000 chars).
+ * Internal use only.
+ */
 export const markDiscordActionFailed = internalMutation({
   args: {
     actionId: v.id("discordActionQueue"),
@@ -152,6 +171,11 @@ export const markDiscordActionFailed = internalMutation({
   },
 });
 
+/**
+ * Requeues a Discord action for retry by resetting status to pending.
+ * Optionally stores a new error message.
+ * Internal use only.
+ */
 export const requeueDiscordAction = internalMutation({
   args: {
     actionId: v.id("discordActionQueue"),
@@ -167,6 +191,11 @@ export const requeueDiscordAction = internalMutation({
   },
 });
 
+/**
+ * Fetches a user's Discord identity by their userId.
+ * Returns the Discord providerUserId or null if not found.
+ * Internal use only.
+ */
 export const getDiscordIdentityForUserId = internalQuery({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -304,6 +333,12 @@ function getBaseUrl(): string {
   return "http://localhost:3000";
 }
 
+/**
+ * Processes pending Discord actions (assign_student_role, dm_instructor_new_signup).
+ * Claims actions, executes them, and updates their status.
+ * Handles rate limiting (429) and server errors (>=500) with automatic requeue.
+ * Internal action - called by cron job.
+ */
 export const processDiscordActionQueue = internalAction({
   args: {},
   handler: async (ctx) => {
