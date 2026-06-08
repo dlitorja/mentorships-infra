@@ -318,21 +318,52 @@ Last Updated: June 8, 2026 (Docstring coverage: PR #401 (use-instructors.ts), PR
 - ✅ Fixed `useAllStudentSessions` to call correct Convex query (`getAllStudentSessionsWithInstructor`)
 - ✅ Added `dynamic = 'force-dynamic'` export to `app/calendar/page.tsx` to fix prerendering error
 
-**Files Documented**:
-- `packages/emails/src/session-changes.ts` - PR #390 (email template functions)
+**PR #405** (Merged June 8, 2026):
+- ✅ Added JSDoc docstrings to all 14 mutation hooks in `use-mutations.ts`
+- ✅ Added JSDoc docstrings to all 11 hooks in `use-products.ts`
+- ✅ Added JSDoc docstrings to all 8 hooks in `use-session-packs.ts`
+- ✅ Added JSDoc docstrings to all 5 hooks in `use-users.ts`
+- ✅ Added JSDoc docstrings to all 7 hooks in `use-waitlist.ts`
+- ✅ Added JSDoc docstring to `useInstructorUpcomingSessions` in `use-instructor-dashboard.ts`
+- ✅ Fixed `useAllProducts` docstring (was incorrectly labeled "all products" instead of "active products")
+
+**Docstring Coverage**: 97.96% (exceeds 80% threshold)
+
+**All Hook Files Documented**:
+- `packages/emails/src/session-changes.ts` - PR #390
 - `apps/platform/lib/queries/convex/use-instructors.ts` - PR #401
 - `apps/platform/lib/queries/convex/use-workspaces.ts` - PR #403
 - `apps/platform/lib/queries/convex/use-sessions.ts` - PR #403
+- `apps/platform/lib/queries/convex/use-mutations.ts` - PR #405
+- `apps/platform/lib/queries/convex/use-products.ts` - PR #405
+- `apps/platform/lib/queries/convex/use-session-packs.ts` - PR #405
+- `apps/platform/lib/queries/convex/use-users.ts` - PR #405
+- `apps/platform/lib/queries/convex/use-waitlist.ts` - PR #405
+- `apps/platform/lib/queries/convex/use-instructor-dashboard.ts` - PR #405
 
-**Remaining Hooks to Document** (for 80% coverage goal):
-- ❌ `use-instructor-dashboard.ts` - instructor dashboard queries
-- ❌ `use-mutations.ts` - all CRUD mutations with auto-invalidation
-- ❌ `use-users.ts` - current user, user by ID/email
-- ❌ `use-session-packs.ts` - user session packs, active packs
-- ❌ `use-products.ts` - active products, product by ID
-- ❌ `use-waitlist.ts` - waitlist operations
+**Status**: ✅ COMPLETED - 80% docstring coverage goal achieved (June 8, 2026)
 
-**Status**: 🚧 IN PROGRESS - PRs #401 and #403 merged (June 8, 2026)
+---
+
+### NEW: Next Phase - Broader Docstring Coverage (apps/platform)
+
+**Hook files**: ✅ COMPLETED (97.96% coverage)
+
+**Remaining work for broader 80% coverage** (not hooks):
+- ❌ API routes (`app/api/**/*.ts`) - many endpoints lack docstrings
+- ❌ Convex functions (`convex/*.ts`) - core business logic needs documentation
+- ❌ Components (`components/**/*.tsx`) - UI components with significant logic
+- ❌ Page components (`app/**/page.tsx`) - route-level components
+- ❌ Trigger tasks (`trigger/**/*.ts`) - background job definitions
+
+**Priority order** (if pursuing broader coverage):
+1. `convex/*.ts` - highest impact, core business logic
+2. `trigger/**/*.ts` - Trigger.dev tasks (workflows)
+3. `app/api/**/*.ts` - API route handlers
+4. Components with significant logic
+5. Page components
+
+**Note**: Hook coverage alone may not bring total project to 80%. CodeRabbit analyzes the entire codebase. Full coverage would require systematic documentation across all TypeScript files.
 
 ---
 
