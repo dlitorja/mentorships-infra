@@ -14,12 +14,21 @@ export type CurrentUser = {
   clerkId: string;
 };
 
+/**
+ * Fetches the current authenticated user.
+ * @returns {UseQueryResult<CurrentUser | null, Error>} Query result containing the current user
+ */
 export function useCurrentUser(): UseQueryResult<CurrentUser | null, Error> {
   return useQuery({
     ...convexQuery(api.users.getCurrentUser, {}),
   }) as UseQueryResult<CurrentUser | null, Error>;
 }
 
+/**
+ * Fetches a user by their ID.
+ * @param {Id<"users">} id - The user's ID
+ * @returns {UseQueryResult} Query result containing the user
+ */
 export function useUserById(id: Id<"users">) {
   return useQuery({
     ...convexQuery(api.users.getUserById, { id }),
@@ -27,6 +36,11 @@ export function useUserById(id: Id<"users">) {
   });
 }
 
+/**
+ * Fetches a user by their email address.
+ * @param {string} email - The user's email
+ * @returns {UseQueryResult} Query result containing the user
+ */
 export function useUserByEmail(email: string) {
   return useQuery({
     ...convexQuery(api.users.getUserByEmail, { email }),
@@ -34,12 +48,20 @@ export function useUserByEmail(email: string) {
   });
 }
 
+/**
+ * Fetches all users.
+ * @returns {UseQueryResult} Query result containing all users
+ */
 export function useListUsers() {
   return useQuery({
     ...convexQuery(api.users.listUsers, {}),
   });
 }
 
+/**
+ * Mutation hook for updating a user.
+ * Invalidates user queries on success.
+ */
 export function useUpdateUser() {
   const queryClient = useQueryClient();
 
