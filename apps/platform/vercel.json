@@ -1,7 +1,7 @@
 {
   "framework": "nextjs",
-  "installCommand": "pnpm install --frozen-lockfile --ignore-scripts",
-  "buildCommand": "pnpm --filter @mentorships/platform build",
+  "installCommand": "cd ../.. && pnpm install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "cd ../.. && pnpm --filter @mentorships/platform build",
   "outputDirectory": ".next",
   "git": {
     "deploymentEnabled": {
