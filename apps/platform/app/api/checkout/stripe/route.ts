@@ -26,6 +26,14 @@ const checkoutSchema = z.object({
   promotionCode: z.string().optional(),
 });
 
+/**
+ * POST /api/checkout/stripe
+ * Creates a Stripe checkout session for purchasing a session pack.
+ * Supports both authenticated (Clerk) and guest checkout. Creates pending
+ * order in Convex, then returns Stripe checkout URL as JSON ({ url }).
+ * Client redirects user to Stripe for payment. On success, webhook handles
+ * fulfillment. On failure, order is marked failed. Promotion codes supported.
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   let orderId: string | null = null;
 
