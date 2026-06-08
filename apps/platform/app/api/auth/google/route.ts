@@ -7,6 +7,12 @@ import { getGoogleCalendarAuthUrl } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
+/**
+ * GET /api/auth/google
+ * Initiates Google OAuth flow for connecting instructor's Google Calendar.
+ * Requires instructor role. Generates CSRF state token, builds Google auth URL,
+ * and redirects user to Google consent screen. State cookie set for 10 minutes.
+ */
 export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
