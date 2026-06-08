@@ -13,6 +13,11 @@ export type UpcomingSession = {
   remainingSessions: number | null;
 };
 
+/**
+ * Fetches upcoming sessions for the instructor dashboard.
+ * @param {Id<"instructors"> | undefined} instructorId - The instructor's ID
+ * @returns {UseQueryResult<UpcomingSession[], Error>} Query result with upcoming sessions
+ */
 export function useInstructorUpcomingSessions(instructorId: Id<"instructors"> | undefined): UseQueryResult<UpcomingSession[], Error> {
   return useQuery({
     ...convexQuery(api.sessions.getInstructorUpcomingSessions, {
