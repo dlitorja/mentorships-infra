@@ -1,6 +1,7 @@
 import { SignUp } from "@clerk/nextjs";
+import type { JSX } from "react";
 
-export default function SignUpPage() {
+export default function SignUpPage(): JSX.Element {
   return (
     <div className="flex min-h-screen items-center justify-center">
       <SignUp
@@ -13,8 +14,7 @@ export default function SignUpPage() {
         routing="path"
         path="/sign-up"
         signInUrl="/sign-in"
-        // Redirect generically after sign-up; instructor invite flow will guide to onboarding separately
-        fallbackRedirectUrl="/dashboard"
+        fallbackRedirectUrl="/sign-up-redirect"
       />
     </div>
   );
