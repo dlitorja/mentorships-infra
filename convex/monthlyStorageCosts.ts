@@ -1,6 +1,10 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Migrates monthly storage cost data from billing system.
+ * Updates existing record if month exists, otherwise creates new.
+ */
 export const migrateMonthlyStorageCost = mutation({
   args: {
     month: v.string(),
