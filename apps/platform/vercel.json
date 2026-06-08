@@ -2,5 +2,10 @@
   "framework": "nextjs",
   "installCommand": "pnpm install --ignore-scripts",
   "buildCommand": "pnpm --filter @mentorships/platform build",
-  "outputDirectory": "apps/platform/.next"
+  "outputDirectory": ".next",
+  "git": {
+    "deploymentEnabled": {
+      "main": false
+    }
+  }
 }
