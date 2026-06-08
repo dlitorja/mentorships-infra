@@ -1,6 +1,10 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+/**
+ * Migrates an instructor upload record from legacy system.
+ * Matches by instructorId and createdAt, updates existing record or creates new.
+ */
 export const migrateInstructorUpload = mutation({
   args: {
     instructorId: v.id("instructors"),

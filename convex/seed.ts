@@ -380,6 +380,12 @@ const instructorData: InstructorSeedData[] = [
   },
 ];
 
+/**
+ * Seeds instructor profiles from static data.
+ * Updates existing profiles if they exist, otherwise creates new ones.
+ * Also seeds testimonials and student results for each instructor.
+ * For development/demo purposes only.
+ */
 export const seedInstructorProfiles = mutation({
   args: {},
   handler: async (ctx) => {
@@ -480,6 +486,12 @@ export const seedInstructorProfiles = mutation({
   },
 });
 
+/**
+ * Seeds instructors and their products from static data.
+ * Creates instructor records and associated products with Stripe/PayPal IDs.
+ * Skips instructors that already exist by slug.
+ * For development/demo purposes only.
+ */
 export const seedInstructorsWithProducts = mutation({
   args: {},
   handler: async (ctx) => {
@@ -586,6 +598,11 @@ export const seedInstructorsWithProducts = mutation({
   },
 });
 
+/**
+ * Backfills instructorProfile records with mentor IDs matching their instructor slugs.
+ * For migrating legacy data where mentor IDs were stored separately.
+ * For development/demo purposes only.
+ */
 export const backfillInstructorProfileMentorIds = mutation({
   args: {},
   handler: async (ctx) => {
@@ -616,6 +633,11 @@ export const backfillInstructorProfileMentorIds = mutation({
   },
 });
 
+/**
+ * Clears all instructors, instructorProfiles, and products.
+ * Used to reset demo environment before reseeding.
+ * For development/demo purposes only.
+ */
 export const clearInstructorsAndProducts = mutation({
   args: { confirm: v.boolean() },
   handler: async (ctx, args) => {
@@ -649,6 +671,10 @@ export const clearInstructorsAndProducts = mutation({
   },
 });
 
+/**
+ * Clears all instructor data including profiles, testimonials, and student results.
+ * For development/demo purposes only.
+ */
 export const clearInstructorData = mutation({
   args: { confirm: v.boolean() },
   handler: async (ctx, args) => {

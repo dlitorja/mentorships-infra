@@ -285,6 +285,11 @@ type NotificationPayload = {
 };
 
 
+/**
+ * Sends notifications (email and Discord DM) for session pack events.
+ * Handles renewal reminders, final renewal reminders, and grace period warnings.
+ * Internal action - called by cron jobs and other Convex functions.
+ */
 export const handleNotificationSend = internalAction({
   args: {
     payload: v.object({
