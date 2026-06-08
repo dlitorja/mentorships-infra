@@ -20,6 +20,13 @@ const listStudentsQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+/**
+ * GET /api/admin/students
+ * Lists students with optional filtering by search, instructor, status, dates.
+ * Requires admin role. Supports pagination (page, pageSize) and various
+ * filters (expiresAfter/Before, purchasedAfter/Before, remainingMin/Max).
+ * Returns paginated student list with session pack info.
+ */
 export async function GET(req: NextRequest) {
   try {
     await requireRoleForApi("admin");
