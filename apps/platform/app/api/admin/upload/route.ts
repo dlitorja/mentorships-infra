@@ -36,7 +36,7 @@ const storageIdSchema = z.object({
  * Handles image file uploads to Convex storage.
  * Requires admin role. Accepts JPEG, PNG, WebP, GIF up to 10MB.
  * Validates file type, size, and extension before upload.
- * Returns storageId on success.
+ * Returns { success, storageId, url, path } on success.
  */
 export async function POST(req: NextRequest) {
   console.log("[upload] Starting upload request");

@@ -7,7 +7,8 @@ import { getConvexClient } from "@/lib/convex";
  * POST /api/contacts
  * Subscribes an email to the contact list via matching form.
  * Public endpoint (no auth). Validates email format, sanitizes art goals,
- * stores contact in Convex with source="matching_form". Returns 201 if new contact.
+ * stores contact in Convex with source="matching_form".
+ * Returns 201 if new contact created, 200 if email already exists.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   try {

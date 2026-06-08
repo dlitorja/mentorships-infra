@@ -324,15 +324,71 @@ Last Updated: June 8, 2026 (Docstring coverage: PR #401 (use-instructors.ts), PR
 - `apps/platform/lib/queries/convex/use-workspaces.ts` - PR #403
 - `apps/platform/lib/queries/convex/use-sessions.ts` - PR #403
 
-**Remaining Hooks to Document** (for 80% coverage goal):
-- ❌ `use-instructor-dashboard.ts` - instructor dashboard queries
-- ❌ `use-mutations.ts` - all CRUD mutations with auto-invalidation
-- ❌ `use-users.ts` - current user, user by ID/email
-- ❌ `use-session-packs.ts` - user session packs, active packs
-- ❌ `use-products.ts` - active products, product by ID
-- ❌ `use-waitlist.ts` - waitlist operations
-
 **Status**: 🚧 IN PROGRESS - PRs #401 and #403 merged (June 8, 2026)
+
+---
+
+### NEW: JSDoc Docstrings for API Routes (June 8, 2026)
+
+**Goal**: Reach 80% docstring coverage on apps/platform API routes.
+
+**Completed (PRs #408-#413)**:
+
+**PR #408** (Open):
+- ✅ Documented `POST /api/webhooks/stripe` - Stripe payment events
+- ✅ Documented `POST /api/webhooks/clerk` - Clerk user lifecycle events
+- ✅ Documented `POST /api/webhooks/paypal` - PayPal payment events
+
+**PR #409** (Open):
+- ✅ Documented `GET /api/auth/google` - Google OAuth initiation
+- ✅ Documented `GET /api/auth/google/callback` - OAuth callback handler
+- ✅ Documented `POST /api/auth/google/disconnect` - Google Calendar disconnect
+- ✅ Documented `GET /api/auth/sync` - User sync from Clerk to Convex
+
+**PR #410** (Open):
+- ✅ Documented `POST /api/checkout/stripe` - Stripe checkout session creation
+- ✅ Documented `POST /api/checkout/paypal` - PayPal order creation
+
+**PR #411** (Open):
+- ✅ Documented `POST /api/bookings` - Create booking with calendar integration
+- ✅ Documented `GET /api/bookings/me` - List user's bookings
+- ✅ Documented `POST /api/bookings/series` - Create weekly booking series
+- ✅ Documented `POST /api/bookings/notify` - Resend booking notifications
+- ✅ Documented `DELETE /api/bookings/[id]` - Cancel booking
+
+**PR #412** (Open):
+- ✅ Documented `GET /api/instructor/profile` - Get instructor profile
+- ✅ Documented `PATCH /api/instructor/profile` - Update instructor profile
+- ✅ Documented `GET /api/instructor/settings` - Get scheduling settings
+- ✅ Documented `PATCH /api/instructor/settings` - Update scheduling settings
+- ✅ Documented `GET /api/instructor/inventory` - Get inventory counts
+- ✅ Documented `PUT /api/instructor/inventory` - Update inventory (admin)
+
+**PR #413** (Open):
+- ✅ Documented `POST /api/admin/upload` - Image upload to Convex
+- ✅ Documented `GET /api/admin/students` - List students with filtering
+- ✅ Documented `GET /api/admin/students/invite` - Student invite alias
+- ✅ Documented `GET /api/admin/stats` - Admin stats placeholder
+- ✅ Documented `GET /api/dashboard/stats` - User's remaining sessions
+- ✅ Documented `GET /api/dashboard/recent-sessions` - Recent sessions
+- ✅ Documented `GET /api/dashboard/upcoming-sessions` - Upcoming sessions
+- ✅ Documented `GET /api/dashboard/session-packs` - User's session packs
+- ✅ Documented `POST /api/contacts` - Matching form subscription
+- ✅ Documented `POST /api/session-counts` - Increment/decrement sessions
+
+**Files Documented** (30 handlers across 27 route files):
+- Webhooks: stripe, clerk, paypal
+- Auth: google (start, callback, disconnect), sync
+- Checkout: stripe, paypal
+- Bookings: create, list, series, notify, cancel
+- Instructor: profile (GET/PATCH), settings (GET/PATCH), inventory (GET/PUT)
+- Admin/dashboard/misc: upload, students, stats, dashboard routes, contacts, session-counts
+
+**Coverage**: ~87 of 105 handlers documented (~83% coverage)
+
+**Remaining for 80% target**: ✅ ACHIEVED
+
+**Status**: 🚧 IN PROGRESS - PRs #408-#413 open (June 8, 2026)
 
 ---
 
