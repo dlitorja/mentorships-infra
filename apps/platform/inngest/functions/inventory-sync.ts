@@ -39,6 +39,16 @@ async function postInventoryToConvex(data: z.infer<typeof inventorySyncPayload>)
   return { success: true, ...(await res.json()) };
 }
 
+/**
+ * Syncs instructor inventory data from external source to Convex.
+ *
+ * Triggered by: `instructor/created`, `instructor/updated`
+ *
+ * Posts instructor inventory data (oneOnOneInventory, groupInventory, maxActiveStudents)
+ * to the Convex admin sync endpoint for inventory management.
+ *
+ * @returns Object with success status and any returned data from Convex
+ */
 export const syncInstructorInventoryToConvex = inngest.createFunction(
   {
     id: "sync-instructor-inventory-to-convex",
