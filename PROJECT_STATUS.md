@@ -146,7 +146,7 @@ Owner
 - Platform app ownership for OAuth, picker UX, and availability logic.
 - Convex ownership for schema field addition and update mutation.
 
-Last Updated: June 2, 2026 (Calendar Slot Picker: month view UX for students, Calendly-style day→time slot selection; Session Notifications COMPLETED: cancel/reschedule/30-min reminder emails via Trigger.dev; Instructor Dashboard Enhanced: past sessions, session actions (reschedule/cancel/notes), student deep dive; Docstrings on session email templates (#390))
+Last Updated: June 8, 2026 (Docstring coverage: PR #401 (use-instructors.ts), PR #403 (use-workspaces.ts, use-sessions.ts) merged. Next: use-instructor-dashboard, use-mutations, use-users, use-session-packs, use-products, use-waitlist)
 
 ### NEW: Student Dashboard Fixes & Discord Role Assignment (May 31, 2026)
 
@@ -304,6 +304,38 @@ Last Updated: June 2, 2026 (Calendar Slot Picker: month view UX for students, Ca
 
 ---
 
+### NEW: JSDoc Docstrings for use-* Hooks (June 8, 2026)
+
+**Completed**:
+
+**PR #401** (Merged June 8, 2026):
+- ✅ Added JSDoc docstrings to all 18 functions in `apps/platform/lib/queries/convex/use-instructors.ts`
+- ✅ Each docstring includes @description, @param, and @returns where applicable
+
+**PR #403** (Merged June 8, 2026):
+- ✅ Added JSDoc docstrings to all 22 functions in `apps/platform/lib/queries/convex/use-workspaces.ts`
+- ✅ Added JSDoc docstrings to all 9 functions in `apps/platform/lib/queries/convex/use-sessions.ts`
+- ✅ Fixed `useAllStudentSessions` to call correct Convex query (`getAllStudentSessionsWithInstructor`)
+- ✅ Added `dynamic = 'force-dynamic'` export to `app/calendar/page.tsx` to fix prerendering error
+
+**Files Documented**:
+- `packages/emails/src/session-changes.ts` - PR #390 (email template functions)
+- `apps/platform/lib/queries/convex/use-instructors.ts` - PR #401
+- `apps/platform/lib/queries/convex/use-workspaces.ts` - PR #403
+- `apps/platform/lib/queries/convex/use-sessions.ts` - PR #403
+
+**Remaining Hooks to Document** (for 80% coverage goal):
+- ❌ `use-instructor-dashboard.ts` - instructor dashboard queries
+- ❌ `use-mutations.ts` - all CRUD mutations with auto-invalidation
+- ❌ `use-users.ts` - current user, user by ID/email
+- ❌ `use-session-packs.ts` - user session packs, active packs
+- ❌ `use-products.ts` - active products, product by ID
+- ❌ `use-waitlist.ts` - waitlist operations
+
+**Status**: 🚧 IN PROGRESS - PRs #401 and #403 merged (June 8, 2026)
+
+---
+
 ### NEW: Calendar Slot Picker - Month View UX (June 2, 2026)
 
 **Completed (PR #391)**:
@@ -394,8 +426,8 @@ This has been superseded by the apps/platform decision. The new architecture wil
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: June 3, 2026
-**PRs**: Instructor Dashboard Student Identity + Availability Preview (#393), Calendar Slot Picker (#391), Session Notifications (#389, #390), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
+**Last Updated**: June 8, 2026
+**PRs**: Docstring Coverage (#401, #403), Instructor Dashboard Student Identity + Availability Preview (#393), Calendar Slot Picker (#391), Session Notifications (#389, #390), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, **Session Notifications via Trigger.dev: COMPLETE** (PRs #387-389), **Instructor Dashboard Past Sessions & Actions: COMPLETE** (PR #387), **Calendar/Sessions SQL→Convex Migration: COMPLETE** (PR #383), **Instructor Dashboard Stats + Google Calendar: COMPLETE** (PR #385), **Student Dashboard 500 Fix + Discord Role: COMPLETE** (PR #382), **Post-Purchase Email Flow: COMPLETE** (PRs #360, #375-381), **Clerk API + internalMutation Fixes: COMPLETE** (PRs #370-371), **Checkout UX Improvements: COMPLETE** (PRs #373-374), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
 ---
@@ -2365,7 +2397,7 @@ ls apps/web/app/api
 
 | Feature | Status | Notes |
 |--------|--------|-------|
-| **Docstring Coverage** | Low priority | 28.57% → 80% threshold |
+| **Docstring Coverage** | 🚧 IN PROGRESS | 4/9 use-* hooks documented (use-instructors, use-workspaces, use-sessions, session-emails). 5 remaining. |
 | **Type Safety in Create Page** | Low priority | Replace `any` with discriminated unions |
 
 ---
@@ -2856,9 +2888,11 @@ The following enhancements were suggested during code review. Status updated Apr
    - The `enrichWorkspaces` function in `convex/adminWorkspaces.ts` already batches owner/mentor lookups using `Promise.all()` - only 2 queries regardless of workspace count (one for all owners, one for all mentors)
    - No action needed - this was already optimized
 
-### Not Yet Implemented (Lower Priority)
+### In Progress (June 8, 2026)
 4. **Docstring Coverage**
-   - CodeRabbit reports 28.57% docstring coverage (threshold: 80%)
+   - ✅ PR #401: use-instructors.ts (18 functions)
+   - ✅ PR #403: use-workspaces.ts (22 functions) + use-sessions.ts (9 functions)
+   - ❌ Remaining: use-instructor-dashboard, use-mutations, use-users, use-session-packs, use-products, use-waitlist
 5. **Type Safety in Create Page**
    - Replace `any` types with discriminated unions
    - File: `apps/web/app/admin/workspaces/create/page.tsx`
