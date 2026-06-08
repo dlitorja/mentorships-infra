@@ -156,17 +156,19 @@ function formatPrice(amount: string | null, currency: string): string {
  * Triggered by: `stripe/checkout.session.completed`
  *
  * Steps:
- * 1. Fetches and validates the order from Convex
+ * 1. Fetches and validates the order from Convex (with retry loop)
  * 2. Retrieves the full Stripe session with discount details
- * 3. Marks the order as paid and syncs the update
- * 4. Creates a payment record in Convex
- * 5. Creates a session pack for the student with expiration
- * 6. Creates a seat reservation for the instructor
- * 7. Ensures an admin-student workspace exists
- * 8. Syncs all data changes to PostgreSQL via Inngest events
- * 9. Decrements instructor inventory
- * 10. Sends a purchase confirmation email (with Clerk magic link for existing users)
- * 11. Triggers the onboarding flow
+ * 3. Extracts discount code from promotion/coupon if present
+ * 4. Marks the order as paid in Convex, then emits data.sync/order.updated
+ * 5. Creates a payment record in Convex, then emits data.sync/payment.created
+ * 6. Fetches the product to get instructorId and session count
+ * 7. Resolves userId (supports guest checkout with email-based placeholder)
+ * 8. Creates a session pack in Convex, then emits data.sync/sessionPack.created
+ * 9. Creates a seat reservation in Convex, then emits data.sync/seatReservation.created
+ * 10. Ensures an admin-student workspace exists for post-purchase access
+ * 11. Decrements instructor inventory (oneOnOne or group)
+ * 12. Sends a purchase confirmation email with Clerk magic link for returning users
+ * 13. Triggers the onboarding flow via purchase/mentorship event
  *
  * @returns Object with success status, orderId, sessionPackId, and paymentId
  */
@@ -708,17 +710,21 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
  *
  * Triggered by: `paypal/payment.capture.completed`
  *
+ * Note: Unlike the Stripe flow, this does NOT emit data.sync/order.updated or
+ * data.sync/payment.created events. Order and payment records are created in Convex
+ * but are not replicated to the PostgreSQL replica. This is a pre-existing gap.
+ *
  * Steps:
- * 1. Fetches and validates the order from Convex
- * 2. Marks the order as paid and syncs the update
- * 3. Creates a payment record in Convex with PayPal capture ID
- * 4. Creates a session pack for the student with expiration
- * 5. Creates a seat reservation for the instructor
- * 6. Ensures an admin-student workspace exists
- * 7. Syncs session pack and seat reservation to PostgreSQL
- * 8. Decrements instructor inventory
- * 9. Sends a purchase confirmation email (with Clerk magic link for existing users)
- * 10. Triggers the onboarding flow
+ * 1. Fetches and validates the order from Convex (with retry loop)
+ * 2. Marks the order as paid in Convex (no sync event emitted)
+ * 3. Creates a payment record in Convex with PayPal capture ID (no sync event emitted)
+ * 4. Fetches the product to get instructorId and session count
+ * 5. Creates a session pack in Convex, then emits data.sync/sessionPack.created
+ * 6. Creates a seat reservation in Convex, then emits data.sync/seatReservation.created
+ * 7. Ensures an admin-student workspace exists for post-purchase access
+ * 8. Decrements instructor inventory (oneOnOne or group)
+ * 9. Sends a purchase confirmation email with Clerk magic link for returning users
+ * 10. Triggers the onboarding flow via purchase/mentorship event
  *
  * @returns Object with success status, orderId, sessionPackId, and paymentId
  */
