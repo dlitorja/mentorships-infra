@@ -670,10 +670,6 @@ export const listStudentResultsInternal = query({
 });
 
 /** Returns the instructor matching the given userId, or null if not authenticated. */
-/**
- * Fetches an instructor by their userId.
- * Only accessible by the instructor themselves.
- */
 export const getInstructorByUserId = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
@@ -692,9 +688,6 @@ export const getInstructorByUserId = query({
 });
 
 /** Returns the instructor document by id, or null if not authenticated. */
-/**
- * Fetches an instructor by their document ID.
- */
 export const getInstructorById = query({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -723,9 +716,6 @@ export const getInstructorNameById = query({
 });
 
 /** Returns non-deleted instructors matching the given ids. */
-/**
- * Fetches multiple instructors by their IDs in a single query.
- */
 export const getInstructorsByIds = query({
   args: { ids: v.array(v.id("instructors")) },
   handler: async (ctx, args) => {
@@ -749,10 +739,6 @@ export const getInstructorsByIds = query({
 });
 
 /** Returns the instructor profile matching the given slug. */
-/**
- * Fetches an instructor by their URL slug.
- * Used for public instructor profile pages.
- */
 export const getInstructorBySlug = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
@@ -807,10 +793,6 @@ export const getInstructorBySlug = query({
 });
 
 /** Returns all non-deleted instructors. Requires authentication. */
-/**
- * Lists all active instructors for admin dashboard.
- * Requires admin authentication.
- */
 export const listInstructors = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -831,10 +813,6 @@ export const listInstructors = query({
 });
 
 /** Returns active instructors with inventory, excluding sensitive fields. Requires authentication. */
-/**
- * Fetches all active instructors for public listing.
- * Filters out deleted, hidden, and inactive instructors.
- */
 export const getActiveInstructors = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
@@ -857,10 +835,6 @@ export const getActiveInstructors = query({
 });
 
 /** Returns publicly available instructors (non-deleted), with a computed sold-out flag per their active offerings. */
-/**
- * Fetches public instructors with computed availability flags.
- * Includes isCompletelySoldOut based on inventory check.
- */
 export const getPublicInstructors = query({
   handler: async (ctx) => {
     // Fetch non-deleted instructors; then filter to public-visible ones only
@@ -916,11 +890,6 @@ export const getPublicInstructors = query({
 });
 
 /** Returns all non-deleted instructors for admin with inventory data, excluding sensitive fields. */
-/**
- * Fetches instructors for admin listing with optional slug filter.
- * Returns instructor details including profile image URLs.
- * Requires admin authentication.
- */
 export const getInstructorsForAdmin = query({
   handler: async (ctx) => {
     const instructors = await ctx.db
@@ -938,11 +907,6 @@ export const getInstructorsForAdmin = query({
 });
 
 /** Returns an instructor by slug from the instructors table (not instructorProfiles). */
-/**
- * Fetches a single instructor by slug for admin editing.
- * Includes all profile data and testimonials.
- * Requires admin authentication.
- */
 export const getInstructorBySlugForAdmin = query({
   args: { slug: v.string() },
   handler: async (ctx, args) => {
@@ -967,10 +931,6 @@ export const getInstructorBySlugForAdmin = query({
 });
 
 /** Creates a new instructor or returns the existing instructor id if one already exists. */
-/**
- * Creates a new instructor record.
- * Used during instructor onboarding flow.
- */
 export const createInstructor = mutation({
   args: {
     userId: v.string(),
@@ -1147,10 +1107,6 @@ export const migrateInstructor = mutation({
 });
 
 /** Updates the specified instructor fields and returns the updated document. */
-/**
- * Updates an existing instructor's fields.
- * Only the instructor themselves or an admin can update.
- */
 export const updateInstructor = mutation({
   args: {
     id: v.id("instructors"),
@@ -1208,10 +1164,6 @@ export const updateInstructor = mutation({
 });
 
 /** Soft-deletes an instructor by setting deletedAt to the current timestamp. Requires admin role. */
-/**
- * Soft-deletes an instructor by setting deletedAt timestamp.
- * Only the instructor themselves or an admin can delete.
- */
 export const deleteInstructor = mutation({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
@@ -1227,10 +1179,6 @@ export const deleteInstructor = mutation({
 });
 
 /** Permanently hard-deletes an instructor. Use with caution - this is irreversible. Requires admin role. */
-/**
- * Permanently deletes an instructor and all associated data.
- * WARNING: This is irreversible. Requires admin authentication.
- */
 export const hardDeleteInstructor = mutation({
   args: { id: v.id("instructors") },
   handler: async (ctx, args) => {
