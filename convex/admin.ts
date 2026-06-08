@@ -35,6 +35,11 @@ type InstructorForAdmin = {
   totalCompletedSessions: number;
 };
 
+/**
+ * Fetches all instructors with their email addresses for admin listing.
+ * Requires admin authentication.
+ * Returns instructors sorted by creation time.
+ */
 export const getAllInstructors = query({
   args: {},
   handler: async (ctx) => {
@@ -71,6 +76,11 @@ export const getAllInstructors = query({
   },
 });
 
+/**
+ * Fetches instructors for admin listing with search and pagination.
+ * Includes active student count and total completed sessions per instructor.
+ * Requires admin authentication.
+ */
 export const getInstructorsForAdmin = query({
   args: {
     search: v.optional(v.string()),
@@ -154,6 +164,11 @@ function getStartOfYear(date: Date): number {
   return new Date(date.getFullYear(), 0, 1).getTime();
 }
 
+/**
+ * Fetches admin dashboard statistics including active students, revenue metrics.
+ * Returns current month, last month, and year-to-date revenue with change percentage.
+ * Requires admin authentication.
+ */
 export const getStats = query({
   args: {},
   handler: async (ctx) => {
@@ -254,7 +269,11 @@ type StudentWithSessionInfo = {
 
 // Removed legacy mentee-named endpoint to enforce naming consistency
 
-// New naming-compliant alias for admin UI: students instead of mentees
+/**
+ * Fetches students (session pack holders) for admin listing with search and filters.
+ * Returns paginated results with instructor details and session pack info.
+ * Requires admin authentication.
+ */
 export const getStudentsForAdmin = query({
   args: {
     search: v.optional(v.string()),
