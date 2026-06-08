@@ -13,14 +13,22 @@ import type { bookingSeriesNotifications } from "../../../../../../src/trigger/b
 
 const createSeriesSchema = z.object({
   instructorId: z.string().min(1),
-  start: z.string().datetime(), // ISO of the initially booked slot
+  start: z.string().datetime(),
   timezone: z.string().min(1),
-  weeks: z.coerce.number().int().min(1).max(3), // create N weekly follow-ups
+  weeks: z.coerce.number().int().min(1).max(3),
   studentName: z.string().min(1),
 });
 
 type ResultItem = { weekOffset: number; status: "created" | "skipped"; reason?: string; bookingId?: string };
 
+/**
+ * POST /api/bookings/series
+ * Creates weekly follow-up bookings for N weeks (1-3) after initial booking.
+ * Requires authenticated user. Checks free/busy for each slot, creates Google
+ * Calendar events, confirms bookings. Skipped slots reported in response.
+ * Triggers consolidated booking-series-notifications task with all times.
+ * Note: All sessions are hardcoded to 60-minute duration.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const userId = await requireAuth();
