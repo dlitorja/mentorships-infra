@@ -18,6 +18,7 @@ export const getByLegacyId = query({
 
 /**
  * Creates a new student onboarding submission.
+ * No auth check - intended to be called from server-side migration scripts only.
  * Idempotent: if a submission with the same legacyId exists, returns the existing record without creating a new one.
  * Maps the session pack's legacyId to its Convex ID.
  */

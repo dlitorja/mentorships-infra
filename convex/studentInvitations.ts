@@ -98,7 +98,7 @@ export const createStudentInvitation = mutation({
 
 /**
  * Updates the status of a student invitation (pending, accepted, expired, cancelled).
- * Requires admin authentication.
+ * Requires authentication.
  */
 export const updateStudentInvitationStatus = mutation({
   args: {
