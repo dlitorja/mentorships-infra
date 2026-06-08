@@ -7,7 +7,8 @@ import { Id } from "@/convex/_generated/dataModel";
 
 /**
  * Fetches a single workspace by ID.
- * Returns null while loading or if workspace not found.
+ * Returns the query result object where data is undefined while loading
+ * or when the workspace is not found.
  */
 export function useWorkspace(id: string) {
   return useQuery({
@@ -83,8 +84,8 @@ export function useWorkspaceImages(workspaceId: string) {
 }
 
 /**
- * Fetches all workspaces for admin dashboard.
- * No filtering applied - returns complete workspace list.
+ * Stub: returns empty array as workspace fetching is not yet implemented.
+ * When real fetching is added, this will fetch all workspaces for admin dashboard.
  */
 export function useAllWorkspaces() {
   return { data: [] as any[] };

@@ -81,7 +81,8 @@ export function useInstructors(): {
 
 /**
  * Fetches a single instructor by slug for public profile pages.
- * Returns null while loading or if instructor not found.
+ * Returns the query result object where data is undefined while loading
+ * or when the instructor is not found.
  */
 export function usePublicInstructorBySlug(slug: string) {
   return useQuery({
@@ -91,8 +92,9 @@ export function usePublicInstructorBySlug(slug: string) {
 }
 
 /**
- * Fetches a single instructor by slug.
- * Used for instructor dashboard and settings pages.
+ * Fetches a single instructor by slug for instructor dashboard and settings pages.
+ * Returns the query result object where data is undefined while loading
+ * or when the instructor is not found.
  */
 export function useInstructorBySlug(slug: string) {
   return useQuery({
