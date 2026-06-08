@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -9,6 +10,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar, X, FileText } from "lucide-react";
+import { EmailPreviewTab } from "./email-preview-tab";
 
 type Session = {
   id: Id<"sessions">;
@@ -76,34 +78,47 @@ export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess
     });
   }
 
+  const newScheduledAtMs = new Date(newDateTime).getTime();
+
+  const actionContent = (
+    <>
+      <div className="space-y-4">
+        <div className="text-sm text-muted-foreground">
+          <p><strong>Student:</strong> {session.studentEmail ?? "Unknown"}</p>
+          <p><strong>Current time:</strong> {formatDateTime(session.scheduledAt)}</p>
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="new-datetime" className="text-sm font-medium">New date and time</label>
+          <input
+            id="new-datetime"
+            type="datetime-local"
+            value={newDateTime}
+            onChange={(e) => setNewDateTime(e.target.value)}
+            className="w-full px-3 py-2 border rounded-md text-sm"
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+        <Button onClick={handleReschedule} disabled={isPending}>
+          {isPending ? "Rescheduling..." : "Reschedule"}
+        </Button>
+      </DialogFooter>
+    </>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Reschedule Session</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="text-sm text-muted-foreground">
-            <p><strong>Student:</strong> {session.studentEmail ?? "Unknown"}</p>
-            <p><strong>Current time:</strong> {formatDateTime(session.scheduledAt)}</p>
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="new-datetime" className="text-sm font-medium">New date and time</label>
-            <input
-              id="new-datetime"
-              type="datetime-local"
-              value={newDateTime}
-              onChange={(e) => setNewDateTime(e.target.value)}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleReschedule} disabled={isPending}>
-            {isPending ? "Rescheduling..." : "Reschedule"}
-          </Button>
-        </DialogFooter>
+        <EmailPreviewTab
+          sessionId={session.id}
+          previewType="reschedule"
+          newScheduledAt={!isNaN(newScheduledAtMs) ? newScheduledAtMs : undefined}
+          actionContent={actionContent}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -120,6 +135,7 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
   const [reason, setReason] = useState("");
   const [isPending, startTransition] = useTransition();
   const cancel = useMutation(api.sessions.cancelSession);
+  const debouncedReason = useDebouncedValue(reason, 300);
 
   useEffect(() => {
     if (open) {
@@ -144,35 +160,46 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
     });
   }
 
+  const actionContent = (
+    <>
+      <div className="space-y-4">
+        <div className="text-sm text-muted-foreground">
+          <p><strong>Student:</strong> {session.studentEmail ?? "Unknown"}</p>
+          <p><strong>Scheduled time:</strong> {formatDateTime(session.scheduledAt)}</p>
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="cancel-reason" className="text-sm font-medium">Reason (optional)</label>
+          <Textarea
+            id="cancel-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value.slice(0, 500))}
+            placeholder="Let the student know why the session is being canceled..."
+            rows={3}
+            maxLength={500}
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>Keep Session</Button>
+        <Button variant="destructive" onClick={handleCancel} disabled={isPending}>
+          {isPending ? "Canceling..." : "Cancel Session"}
+        </Button>
+      </DialogFooter>
+    </>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Cancel Session</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="text-sm text-muted-foreground">
-            <p><strong>Student:</strong> {session.studentEmail ?? "Unknown"}</p>
-            <p><strong>Scheduled time:</strong> {formatDateTime(session.scheduledAt)}</p>
-          </div>
-          <div className="space-y-2">
-            <label htmlFor="cancel-reason" className="text-sm font-medium">Reason (optional)</label>
-            <Textarea
-              id="cancel-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value.slice(0, 500))}
-              placeholder="Let the student know why the session is being canceled..."
-              rows={3}
-              maxLength={500}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Keep Session</Button>
-          <Button variant="destructive" onClick={handleCancel} disabled={isPending}>
-            {isPending ? "Canceling..." : "Cancel Session"}
-          </Button>
-        </DialogFooter>
+        <EmailPreviewTab
+          sessionId={session.id}
+          previewType="cancel"
+          reason={debouncedReason}
+          actionContent={actionContent}
+        />
       </DialogContent>
     </Dialog>
   );

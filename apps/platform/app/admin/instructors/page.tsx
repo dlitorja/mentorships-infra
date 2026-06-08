@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import Link from "next/link";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,7 +13,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Pencil, Trash2, Search, ExternalLink } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Loader2, Plus, Pencil, Search, ExternalLink, AlertTriangle } from "lucide-react";
 import { useAllInstructors } from "@/lib/queries/convex/use-instructors";
 import { Id } from "@/convex/_generated/dataModel";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
@@ -43,7 +51,43 @@ export default function InstructorsPage() {
   const [showInactive, setShowInactive] = useState(false);
   const debouncedSearch = useDebouncedValue(search, 300);
 
+  const [purgeInstructor, setPurgeInstructor] = useState<Instructor | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+
   const { data: allInstructors, isLoading, refetch } = useAllInstructors();
+
+  const hardDeleteInstructorMutation = useMutation({
+    mutationFn: async (id: Id<"instructors">) => {
+      const res = await fetch(`/api/admin/instructors/${id}?hard=true`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to permanently delete instructor");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      setIsPurging(false);
+      setPurgeInstructor(null);
+      setPurgeError(null);
+      refetch();
+    },
+    onError: (error: Error) => {
+      setPurgeError(error.message);
+      setIsPurging(false);
+    },
+  });
+
+  async function handlePurge(instructor: Instructor) {
+    if (!instructor._id) return;
+    setIsPurging(true);
+    setPurgeError(null);
+    try {
+      await hardDeleteInstructorMutation.mutateAsync(instructor._id);
+    } catch {
+      // Error is handled in onError
+    }
+  }
 
   const instructors = useMemo(() => {
     if (!allInstructors) return [];
@@ -184,6 +228,15 @@ export default function InstructorsPage() {
                               <ExternalLink className="h-4 w-4" />
                             </Button>
                           </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setPurgeInstructor(instructor)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            aria-label="Permanently delete instructor"
+                          >
+                            <AlertTriangle className="h-4 w-4" />
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -194,6 +247,40 @@ export default function InstructorsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!purgeInstructor} onOpenChange={(open) => !open && (setPurgeInstructor(null), setPurgeError(null))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Permanently Delete Instructor
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The instructor &quot;{purgeInstructor?.name}&quot; will be
+              permanently removed from the database. Related records (sessions, bookings, etc.)
+              will remain but lose their instructor reference.
+            </DialogDescription>
+          </DialogHeader>
+          {purgeError && (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              {purgeError}
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setPurgeInstructor(null); setPurgeError(null); }} disabled={isPurging}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => purgeInstructor && handlePurge(purgeInstructor)}
+              disabled={isPurging}
+            >
+              {isPurging ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Permanently Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
