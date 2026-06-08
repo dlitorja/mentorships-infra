@@ -42,6 +42,18 @@ export function useUpcomingStudentSessions(studentId: string) {
 }
 
 /**
+ * Retrieves recent sessions for a specific student with instructor details.
+ * @param {string} studentId - The unique identifier of the student
+ * @returns {UseQueryResult<Session[]>} A query result containing recent student sessions with instructor info
+ */
+export function useAllStudentSessions(studentId: string) {
+  return useQuery({
+    ...convexQuery(api.sessions.getRecentSessionsWithInstructor, { studentId }),
+    enabled: !!studentId,
+  });
+}
+
+/**
  * Retrieves all sessions for a specific instructor.
  * @param {string} instructorId - The unique identifier of the instructor
  * @returns {UseQueryResult<Session[]>} A query result containing the instructor's sessions
