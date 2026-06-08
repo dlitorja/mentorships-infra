@@ -38,6 +38,11 @@ const patchSchema = z.object({
   workingHours: workingHoursSchema.nullable().optional(),
 });
 
+/**
+ * GET /api/instructor/settings
+ * Returns the authenticated instructor's scheduling settings (timezone, working hours).
+ * Requires instructor role. Returns timeZone and workingHours from Convex.
+ */
 export async function GET(): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
@@ -70,6 +75,13 @@ export async function GET(): Promise<NextResponse> {
   }
 }
 
+/**
+ * PATCH /api/instructor/settings
+ * Updates the authenticated instructor's scheduling settings.
+ * Requires instructor role. Updates workingHours and (if non-null) timeZone.
+ * Note: null timeZone values are silently dropped; the field cannot be cleared
+ * via this endpoint. Working hours must be valid HH:MM format per day (0=Sunday-6=Saturday).
+ */
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
