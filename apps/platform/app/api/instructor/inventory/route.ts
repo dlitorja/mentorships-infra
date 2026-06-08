@@ -28,6 +28,12 @@ const inventoryUpdateSchema = z.object({
   groupInventory: z.number().int().min(0).optional(),
 });
 
+/**
+ * GET /api/instructor/inventory?userId=...
+ * Returns inventory counts (one-on-one and group) for a given instructor userId.
+ * Public endpoint (no auth required). Any caller with a valid userId can access.
+ * Intended for admin UI but not restricted to admin callers.
+ */
 async function handleGet(
   request: Request
 ): Promise<NextResponse<InventoryResponse>> {
@@ -70,6 +76,12 @@ async function handleGet(
   }
 }
 
+/**
+ * PUT /api/instructor/inventory
+ * Updates inventory counts (one-on-one and group) for an instructor.
+ * Requires admin role (checked via ADMIN_EMAILS). Triggers inventory/available
+ * Inngest event if either inventory transitions from 0 to >0.
+ */
 async function handlePut(
   request: Request
 ): Promise<NextResponse<InventoryUpdateResponse>> {
