@@ -6,6 +6,10 @@ import { v } from "convex/values";
  * These expose sensitive data mappings so must only be called from trusted Convex functions
  */
 
+/**
+ * Fetches a user by their legacy ID.
+ * Internal use only.
+ */
 export const getUsersByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
@@ -17,6 +21,11 @@ export const getUsersByLegacyId = internalQuery({
   },
 });
 
+/**
+ * Fetches an instructor by their legacy ID.
+ * Uses legacyInstructorRef field (not legacyId) for the lookup.
+ * Internal use only.
+ */
 export const getInstructorsByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
@@ -29,6 +38,10 @@ export const getInstructorsByLegacyId = internalQuery({
   },
 });
 
+/**
+ * Fetches an instructor by their legacy instructor reference.
+ * Internal use only.
+ */
 export const getInstructorsByLegacyRef = internalQuery({
   args: { legacyInstructorRef: v.string() },
   handler: async (ctx, args) => {
@@ -40,6 +53,10 @@ export const getInstructorsByLegacyRef = internalQuery({
   },
 });
 
+/**
+ * Fetches an order by its legacy ID.
+ * Internal use only.
+ */
 export const getOrdersByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
@@ -51,6 +68,10 @@ export const getOrdersByLegacyId = internalQuery({
   },
 });
 
+/**
+ * Fetches a payment by its legacy ID.
+ * Internal use only.
+ */
 export const getPaymentsByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
@@ -62,6 +83,11 @@ export const getPaymentsByLegacyId = internalQuery({
   },
 });
 
+/**
+ * Fetches session packs by their legacy ID.
+ * Returns all matches (typically one, but may be multiple).
+ * Internal use only.
+ */
 export const getSessionPacksByLegacyId = internalQuery({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
@@ -73,6 +99,10 @@ export const getSessionPacksByLegacyId = internalQuery({
   },
 });
 
+/**
+ * Fetches a user by their Clerk ID.
+ * Internal use only.
+ */
 export const getUsersByClerkId = internalQuery({
   args: { clerkId: v.string() },
   handler: async (ctx, args) => {
@@ -84,6 +114,10 @@ export const getUsersByClerkId = internalQuery({
   },
 });
 
+/**
+ * Returns all user ID mappings (legacyId, clerkId, convexId) for migration reference.
+ * Internal use only.
+ */
 export const getAllUsersMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -96,6 +130,10 @@ export const getAllUsersMappings = internalQuery({
   },
 });
 
+/**
+ * Returns all instructor ID mappings (legacyId, userId, convexId) for migration reference.
+ * Internal use only.
+ */
 export const getAllInstructorsMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -108,6 +146,10 @@ export const getAllInstructorsMappings = internalQuery({
   },
 });
 
+/**
+ * Returns all order ID mappings (legacyId, userId, convexId) for migration reference.
+ * Internal use only.
+ */
 export const getAllOrdersMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -120,6 +162,10 @@ export const getAllOrdersMappings = internalQuery({
   },
 });
 
+/**
+ * Returns all payment ID mappings (legacyId, orderId, convexId) for migration reference.
+ * Internal use only.
+ */
 export const getAllPaymentsMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
@@ -132,6 +178,10 @@ export const getAllPaymentsMappings = internalQuery({
   },
 });
 
+/**
+ * Returns all session pack ID mappings (legacyId, userId, instructorId, paymentId, convexId) for migration reference.
+ * Internal use only.
+ */
 export const getAllSessionPacksMappings = internalQuery({
   args: {},
   handler: async (ctx) => {
