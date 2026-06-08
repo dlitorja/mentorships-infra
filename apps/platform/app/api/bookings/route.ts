@@ -15,12 +15,20 @@ const createSchema = z.object({
   start: z.string().datetime(),
   end: z.string().datetime(),
   timezone: z.string().min(1),
-  // studentEmail is derived from session; accept optional input for legacy callers but ignore
   studentEmail: z.string().email().optional(),
   studentName: z.string().min(1),
   suppressNotifications: z.boolean().optional(),
 });
 
+/**
+ * POST /api/bookings
+ * Creates a new booking for a session slot.
+ * Requires authenticated user. Checks Google Calendar free/busy for conflicts,
+ * creates pending booking lock, inserts Google Calendar event, then confirms.
+ * Triggers booking-notifications task unless suppressed. Rollback on failure.
+ * Note: studentEmail body param is accepted but ignored; email is derived
+ * from the authenticated Clerk session for security.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const userId = await requireAuth();

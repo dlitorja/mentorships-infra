@@ -11,6 +11,12 @@ const schema = z.object({
   bookingId: z.string().min(1),
 });
 
+/**
+ * POST /api/bookings/notify
+ * Resends booking confirmation emails to student and instructor.
+ * Requires authenticated user (student who booked, instructor, or admin).
+ * Sends confirmation email to student and notification email to instructor.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const userId = await requireAuth();
