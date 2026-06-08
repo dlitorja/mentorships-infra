@@ -61,6 +61,11 @@ function validateProfileRequirements(
   return { valid: errors.length === 0, errors };
 }
 
+/**
+ * GET /api/instructor/profile
+ * Returns the authenticated instructor's profile (name, bio, images, socials).
+ * Requires instructor role. Returns profile fields from Convex instructor record.
+ */
 export async function GET(): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
@@ -105,6 +110,12 @@ export async function GET(): Promise<NextResponse> {
   }
 }
 
+/**
+ * PATCH /api/instructor/profile
+ * Updates the authenticated instructor's profile fields.
+ * Requires instructor role. Validates profile requirements (image + 4 portfolio
+ * images). Updates name, tagline, bio, specialties, background, images, socials.
+ */
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
