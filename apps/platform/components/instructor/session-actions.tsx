@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -134,6 +135,7 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
   const [reason, setReason] = useState("");
   const [isPending, startTransition] = useTransition();
   const cancel = useMutation(api.sessions.cancelSession);
+  const debouncedReason = useDebouncedValue(reason, 300);
 
   useEffect(() => {
     if (open) {
@@ -195,7 +197,7 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
         <EmailPreviewTab
           sessionId={session.id}
           previewType="cancel"
-          reason={reason}
+          reason={debouncedReason}
           actionContent={actionContent}
         />
       </DialogContent>

@@ -1,6 +1,7 @@
 import { SignUp } from "@clerk/nextjs";
+import type { JSX } from "react";
 
-export default function SignUpPage() {
+export default function SignUpPage(): JSX.Element {
   return (
     <div className="flex min-h-screen items-center justify-center">
       <SignUp

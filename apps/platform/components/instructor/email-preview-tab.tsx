@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Mail } from "lucide-react";
 
@@ -32,19 +32,7 @@ export function EmailPreviewTab({
   const [error, setError] = useState<string | null>(null);
   const previewRequestId = useRef(0);
 
-  useEffect(() => {
-    if (activeTab === "preview" && !preview) {
-      loadPreview();
-    }
-  }, [activeTab, preview]);
-
-  useEffect(() => {
-    setActiveTab("action");
-    setPreview(null);
-    setError(null);
-  }, [sessionId, previewType, newScheduledAt, reason]);
-
-  async function loadPreview() {
+  const loadPreview = useCallback(async () => {
     const requestId = ++previewRequestId.current;
     setIsLoading(true);
     setError(null);
@@ -79,8 +67,14 @@ export function EmailPreviewTab({
       }
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to load preview");
+        let errorMessage = "Failed to load preview";
+        try {
+          const data = await response.json();
+          errorMessage = data.error || errorMessage;
+        } catch {
+          errorMessage = `${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
@@ -96,7 +90,19 @@ export function EmailPreviewTab({
         setIsLoading(false);
       }
     }
-  }
+  }, [sessionId, previewType, newScheduledAt, reason]);
+
+  useEffect(() => {
+    if (activeTab === "preview" && !preview) {
+      loadPreview();
+    }
+  }, [activeTab, preview, loadPreview]);
+
+  useEffect(() => {
+    setActiveTab("action");
+    setPreview(null);
+    setError(null);
+  }, [sessionId, previewType, newScheduledAt, reason]);
 
   return (
     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "action" | "preview")}>
