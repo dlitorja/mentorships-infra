@@ -3,6 +3,10 @@ import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 
+/**
+ * Mutation hook for adding a user to a waitlist.
+ * Invalidates waitlist queries on success.
+ */
 export function useAddToWaitlist() {
   const queryClient = useQueryClient();
 
@@ -15,6 +19,10 @@ export function useAddToWaitlist() {
   });
 }
 
+/**
+ * Mutation hook for removing a user from a waitlist.
+ * Invalidates waitlist queries on success.
+ */
 export function useRemoveFromWaitlist() {
   const queryClient = useQueryClient();
 
@@ -27,6 +35,10 @@ export function useRemoveFromWaitlist() {
   });
 }
 
+/**
+ * Mutation hook for removing multiple users from a waitlist.
+ * Invalidates waitlist queries on success.
+ */
 export function useRemoveMultipleFromWaitlist() {
   const queryClient = useQueryClient();
 
@@ -39,6 +51,10 @@ export function useRemoveMultipleFromWaitlist() {
   });
 }
 
+/**
+ * Mutation hook for removing a user from waitlist by email.
+ * Invalidates waitlist queries on success.
+ */
 export function useRemoveByEmail() {
   const queryClient = useQueryClient();
 
@@ -51,6 +67,10 @@ export function useRemoveByEmail() {
   });
 }
 
+/**
+ * Mutation hook for marking a waitlist entry as notified.
+ * Invalidates waitlist queries on success.
+ */
 export function useMarkNotified() {
   const queryClient = useQueryClient();
 
@@ -63,6 +83,10 @@ export function useMarkNotified() {
   });
 }
 
+/**
+ * Mutation hook for marking waitlist entries as notified for a specific instructor.
+ * Invalidates waitlist queries on success.
+ */
 export function useMarkNotifiedByInstructor() {
   const queryClient = useQueryClient();
 
@@ -75,6 +99,12 @@ export function useMarkNotifiedByInstructor() {
   });
 }
 
+/**
+ * Fetches waitlist entries for a specific instructor.
+ * @param {string} instructorSlug - The instructor's slug
+ * @param {"oneOnOne" | "group" | undefined} mentorshipType - Optional mentorship type filter
+ * @returns {UseQueryResult} Query result containing waitlist entries
+ */
 export function useWaitlistForInstructor(
   instructorSlug: string,
   mentorshipType?: "oneOnOne" | "group"
