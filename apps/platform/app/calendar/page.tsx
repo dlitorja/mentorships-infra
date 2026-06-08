@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import { Suspense } from "react";
 import { useUser } from "@clerk/nextjs";
 import Link from "next/link";
@@ -24,6 +26,15 @@ function formatDateTime(date: number): string {
 
 function CalendarContent() {
   const { user, isLoaded } = useUser();
+
+  if (!isLoaded) {
+    return (
+      <div className="container mx-auto p-4 md:p-8 flex justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
   const userId = user?.id;
   const userTimeZone = user?.publicMetadata?.timeZone as string | undefined;
 
