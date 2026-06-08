@@ -5,6 +5,11 @@ import { getConvexClient } from "@/lib/convex";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * GET /api/dashboard/stats
+ * Returns the current user's total remaining sessions across all session packs.
+ * Requires authenticated user. Uses requireDbUser for session lookup.
+ */
 export async function GET() {
   try {
     const user = await requireDbUser();
