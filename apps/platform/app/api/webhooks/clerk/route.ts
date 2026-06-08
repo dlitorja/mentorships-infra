@@ -12,7 +12,15 @@ interface ClerkUserCreatedEvent {
   };
 }
 
-/** Handle incoming Clerk webhook events for user lifecycle */
+/**
+ * POST /api/webhooks/clerk
+ * Handles Clerk webhook events for user lifecycle management.
+ * Verifies webhook signature using CLERK_WEBHOOK_SIGNING_SECRET.
+ * Dispatches user.created and user.deleted events to Inngest for
+ * async processing (e.g., creating/deleting corresponding user records).
+ * Note: Emits diagnostic console.log on every request (svix headers,
+ * body info) - see TODO re: gating behind CLERK_WEBHOOK_DEBUG.
+ */
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
 

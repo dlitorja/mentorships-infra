@@ -27,6 +27,16 @@ const paypalWebhookEnvelopeSchema = z.object({
   resource: z.record(z.string(), z.unknown()),
 });
 
+/**
+ * POST /api/webhooks/paypal
+ * Handles PayPal webhook events for payment processing.
+ * Processes PAYMENT.CAPTURE.COMPLETED (creates session pack) and
+ * PAYMENT.CAPTURE.REFUNDED (triggers refund flow) events. Verifies
+ * webhook signature before processing. Events are dispatched to
+ * Inngest for async processing. Includes test bypass for development
+ * only (TEST_WEBHOOK_BYPASS=true + NODE_ENV=development required;
+ * unlike Stripe, no shared key check - only guards on env vars).
+ */
 export async function POST(req: NextRequest) {
   // Test bypass for CI and local integration tests (development only)
   // Requires env TEST_WEBHOOK_BYPASS=true and header x-test-bypass: 1
