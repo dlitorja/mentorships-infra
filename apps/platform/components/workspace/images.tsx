@@ -30,6 +30,15 @@ interface WorkspaceImagesProps {
   role: 'student' | 'instructor';
 }
 
+/**
+ * Image gallery component for a workspace with upload, delete, and ZIP export.
+ * Enforces per-role image caps (75 for students, 150 for instructors).
+ * Supports drag-and-drop uploads and a lightbox viewer.
+ *
+ * @param workspaceId - Convex workspace ID
+ * @param currentUserId - Current authenticated user's ID
+ * @param role - Either "student" or "instructor" (determines image cap)
+ */
 export default function WorkspaceImages({ workspaceId, currentUserId, role }: WorkspaceImagesProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);

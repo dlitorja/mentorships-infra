@@ -19,6 +19,17 @@ type EmailPreviewTabProps = {
   actionContent: React.ReactNode;
 };
 
+/**
+ * Tabbed component showing an action form and an email preview for session changes.
+ * Used inside reschedule and cancel dialogs to let instructors preview the email
+ * that will be sent to the student before confirming.
+ *
+ * @param sessionId - ID of the session to preview
+ * @param previewType - Either "reschedule" or "cancel"
+ * @param newScheduledAt - New scheduled time (required for reschedule preview)
+ * @param reason - Cancellation reason (optional, for cancel preview)
+ * @param actionContent - React node for the action tab content
+ */
 export function EmailPreviewTab({
   sessionId,
   previewType,

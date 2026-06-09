@@ -20,6 +20,12 @@ function formatDateTime(ms: number): string {
 
 type InitialBooking = { id: string; startUtc: number; endUtc: number; studentEmail: string; status: string };
 
+/**
+ * Instructor-facing list of session bookings with cancel and complete actions.
+ * Allows instructors to view, cancel, or mark sessions as completed.
+ *
+ * @param initial - Initial list of bookings with id, startUtc, endUtc, studentEmail, and status
+ */
 export function InstructorBookingsList({ initial }: { initial: InitialBooking[] }) {
   const coerceStatus = (s: string): BookingStatus => {
     return s === "pending" || s === "confirmed" || s === "canceled" || s === "completed" ? (s as BookingStatus) : "confirmed";

@@ -24,6 +24,13 @@ const onboardingSchema = z.object({
   goals: z.string().min(10, "Please describe your goals (at least 10 characters)"),
 });
 
+/**
+ * Multi-step onboarding form for students after purchase.
+ * Collects: mentorship pack selection, goals description (min 10 chars),
+ * and 2-4 work images uploaded before submission.
+ *
+ * @param packs - Available session pack options with sessionPackId and instructorLabel
+ */
 export function StudentOnboardingForm({ packs }: { packs: PackOption[] }) {
   const form = useForm({
     defaultValues: {
