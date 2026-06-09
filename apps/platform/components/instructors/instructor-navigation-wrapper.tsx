@@ -10,6 +10,13 @@ interface InstructorNavigationWrapperProps {
   currentSlug: string
 }
 
+/**
+ * Navigation wrapper for instructor detail pages with prev/next navigation and keyboard support.
+ * Reads custom instructor order from sessionStorage and enables arrow key navigation
+ * between instructor pages. Displays View All, Previous, and Next buttons.
+ *
+ * @param currentSlug - Current instructor's URL slug
+ */
 export function InstructorNavigationWrapper({
   currentSlug,
 }: InstructorNavigationWrapperProps) {
