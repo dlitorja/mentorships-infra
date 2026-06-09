@@ -44,6 +44,15 @@ type RescheduleDialogProps = {
   onSuccess?: () => void;
 };
 
+/**
+ * Dialog for rescheduling a session to a new date/time.
+ * Shows an email preview of the reschedule notification before confirming.
+ *
+ * @param session - Session object with id, scheduledAt, studentEmail
+ * @param open - Dialog open state
+ * @param onOpenChange - Callback to update dialog open state
+ * @param onSuccess - Optional callback fired after successful reschedule
+ */
 export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess }: RescheduleDialogProps) {
   const [newDateTime, setNewDateTime] = useState(() => formatDateForInput(session.scheduledAt));
   const [isPending, startTransition] = useTransition();
@@ -130,6 +139,15 @@ type CancelDialogProps = {
   onSuccess?: () => void;
 };
 
+/**
+ * Dialog for canceling a session with an optional reason.
+ * Shows an email preview of the cancellation notification before confirming.
+ *
+ * @param session - Session object with id, scheduledAt, studentEmail
+ * @param open - Dialog open state
+ * @param onOpenChange - Callback to update dialog open state
+ * @param onSuccess - Optional callback fired after successful cancellation
+ */
 export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: CancelDialogProps) {
   const [reason, setReason] = useState("");
   const [isPending, startTransition] = useTransition();
@@ -210,6 +228,15 @@ type NotesDialogProps = {
   onSuccess?: () => void;
 };
 
+/**
+ * Dialog for adding or editing notes on a session.
+ * Notes are only visible to the instructor.
+ *
+ * @param session - Session object with id, scheduledAt, studentEmail, and existing notes
+ * @param open - Dialog open state
+ * @param onOpenChange - Callback to update dialog open state
+ * @param onSuccess - Optional callback fired after successful save
+ */
 export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: NotesDialogProps) {
   const [notes, setNotes] = useState(session.notes ?? "");
   const [isPending, startTransition] = useTransition();
@@ -277,6 +304,14 @@ type SessionActionsProps = {
   allowedActions?: Array<"reschedule" | "cancel" | "notes">;
 };
 
+/**
+ * Action menu for a session with reschedule, cancel, and notes dialogs.
+ * Renders icon buttons that open the appropriate dialogs.
+ *
+ * @param session - Session object with id, scheduledAt, studentEmail, notes
+ * @param onSessionUpdated - Optional callback fired after any action modifies the session
+ * @param allowedActions - Optional list of permitted actions (defaults to all)
+ */
 export function SessionActions({ session, onSessionUpdated, allowedActions }: SessionActionsProps) {
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);

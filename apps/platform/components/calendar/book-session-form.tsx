@@ -27,6 +27,14 @@ const bookSessionSchema = z.object({
   selectedPackId: z.string().min(1, "Please select a pack"),
 });
 
+/**
+ * Instructor session booking form for students.
+ * Displays available session packs and fetches real-time Google Calendar availability
+ * to let students book a 60-minute session slot.
+ *
+ * @param packs - Array of session pack options with remaining sessions and expiration dates
+ * @param userId - Current authenticated user's ID
+ */
 export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId: string }) {
   const form = useForm({
     defaultValues: {
