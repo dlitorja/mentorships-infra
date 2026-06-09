@@ -35,6 +35,9 @@ lerna-debug.log*
 .env.test.local
 .env.production.local
 
+# Local deploy configs (contain secrets)
+deploy-prod.env
+
 # Vercel
 .vercel
 
