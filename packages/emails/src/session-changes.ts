@@ -16,6 +16,18 @@ export type SessionEmailPayload = {
   headers: Record<string, string>;
 };
 
+/**
+ * Builds a session cancellation notification email for the student.
+ * Sent when an instructor cancels a scheduled session.
+ *
+ * @param args.studentEmail - The student's email address
+ * @param args.studentName - The student's name
+ * @param args.instructorName - The instructor's name
+ * @param args.scheduledAt - The session's original scheduled date/time
+ * @param args.reason - Optional cancellation reason provided by the instructor
+ * @param args.studentTimeZone - Optional timezone for display formatting
+ * @returns Email payload with subject, text, HTML, and headers
+ */
 export function buildSessionCanceledEmail(args: {
   studentEmail: string;
   studentName: string;
@@ -70,6 +82,19 @@ export function buildSessionCanceledEmail(args: {
   return { subject, text, html, headers: { "X-Email-Type": "session_canceled_student" } };
 }
 
+/**
+ * Builds a session reschedule notification email for the student.
+ * Sent when an instructor reschedules a session to a new time.
+ * Shows both the old and new session times.
+ *
+ * @param args.studentEmail - The student's email address
+ * @param args.studentName - The student's name
+ * @param args.instructorName - The instructor's name
+ * @param args.oldScheduledAt - The session's previous scheduled date/time
+ * @param args.newScheduledAt - The session's new scheduled date/time
+ * @param args.studentTimeZone - Optional timezone for display formatting
+ * @returns Email payload with subject, text, HTML, and headers
+ */
 export function buildSessionRescheduledEmail(args: {
   studentEmail: string;
   studentName: string;

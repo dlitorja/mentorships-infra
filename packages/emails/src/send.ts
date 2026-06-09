@@ -33,6 +33,18 @@ function getFromAddress(): string | null {
   return process.env.EMAIL_FROM || null;
 }
 
+/**
+ * Sends an email using Resend.
+ * In production, returns the email ID on success. In development without API key, returns a skipped result.
+ *
+ * @param args.to - Recipient email address
+ * @param args.subject - Email subject line
+ * @param args.html - HTML body content
+ * @param args.text - Plain text body content
+ * @param args.replyTo - Optional reply-to address
+ * @param args.headers - Optional custom headers
+ * @returns Result object with ok flag, email ID on success, or error/skipped reason
+ */
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   const resend = getResendClient();
   const from = getFromAddress();
@@ -65,6 +77,17 @@ export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   }
 }
 
+/**
+ * Sends an email using a Resend template.
+ * In production, returns the email ID on success. In development without API key, returns a skipped result.
+ *
+ * @param args.to - Recipient email address
+ * @param args.subject - Optional email subject line (uses template default if omitted)
+ * @param args.templateId - Resend template identifier
+ * @param args.templateData - Key-value pairs for template variables
+ * @param args.headers - Optional custom headers
+ * @returns Result object with ok flag, email ID on success, or error/skipped reason
+ */
 export async function sendTemplateEmail(args: {
   to: string;
   subject?: string;
@@ -95,6 +118,14 @@ export async function sendTemplateEmail(args: {
   }
 }
 
+/**
+ * Formats a date/time for display in email templates.
+ * Formats as a human-readable string with weekday, full month, day, year, and time with timezone abbreviation.
+ *
+ * @param date - The Date object to format
+ * @param timeZone - Optional IANA timezone (e.g., "America/New_York"). Defaults to UTC.
+ * @returns Formatted string like "Monday, January 15, 2026 at 2:30 PM EST"
+ */
 export function formatSessionDateTime(date: Date, timeZone?: string): string {
   const tz = timeZone || "UTC";
   try {

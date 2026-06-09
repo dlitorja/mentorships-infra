@@ -11,6 +11,16 @@ function escapeHtml(value: string): string {
 
 // Base URL is provided by send.ts
 
+/**
+ * Builds a booking confirmation email for the student.
+ * Sent when a session booking is successfully created.
+ *
+ * @param scheduledAt - Session date and time
+ * @param studentName - Student's display name
+ * @param instructorName - Instructor's display name
+ * @param studentTimeZone - Optional timezone for date formatting
+ * @returns Email payload with subject, text, HTML, and X-Email-Type header
+ */
 export function buildBookingConfirmationEmail(
   scheduledAt: Date,
   studentName: string,
@@ -68,6 +78,17 @@ export function buildBookingConfirmationEmail(
   return { subject, text, html, headers: { "X-Email-Type": "booking_confirmation_student" } };
 }
 
+/**
+ * Builds an instructor notification email for a new session booking.
+ * Sent when a student books a session with this instructor.
+ *
+ * @param scheduledAt - Session date and time
+ * @param instructorName - Instructor's display name
+ * @param studentName - Student's display name
+ * @param studentEmail - Student's email address
+ * @param instructorTimeZone - Optional timezone for date formatting
+ * @returns Email payload with subject, text, HTML, and X-Email-Type header
+ */
 export function buildInstructorNotificationEmail(
   scheduledAt: Date,
   instructorName: string,
@@ -109,6 +130,20 @@ export function buildInstructorNotificationEmail(
   return { subject, text, html, headers: { "X-Email-Type": "booking_notification_instructor" } };
 }
 
+/**
+ * Builds summary emails for a series booking (initial session plus future recurring sessions).
+ * Returns separate email payloads for the student and the instructor.
+ *
+ * @param args.studentName - Student's display name
+ * @param args.studentEmail - Student's email address
+ * @param args.instructorName - Instructor's display name (nullable if instructor not yet assigned)
+ * @param args.instructorEmail - Instructor's email address (nullable if instructor not yet assigned)
+ * @param args.timesUtc - Array of session times in milliseconds since epoch (initial plus future)
+ * @param args.studentTimeZone - Optional timezone for student's date formatting
+ * @param args.instructorTimeZone - Optional timezone for instructor's date formatting
+ * @param args.skippedCount - Number of weeks skipped due to unavailability
+ * @returns Object with student and instructor email payloads (each with subject, text, headers)
+ */
 export function buildSeriesSummaryEmails(args: {
   studentName: string;
   studentEmail: string;
