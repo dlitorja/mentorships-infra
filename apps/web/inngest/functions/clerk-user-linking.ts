@@ -3,6 +3,21 @@ import { db, instructors, eq, ilike } from "@mentorships/db";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 
+/**
+ * Links a newly created Clerk user to an instructor or accepts a student invitation.
+ *
+ * Triggered by: `clerk/user.created`
+ *
+ * When a new Clerk user is created:
+ * 1. Looks up instructors by email and updates userId if found
+ * 2. Checks for pending student invitations and accepts if email matches
+ *
+ * Skips if no email is provided. Instructor linking is idempotent (won't
+ * overwrite a different Clerk user's link). Student invitation linking is
+ * one-time (first Clerk user to match accepts the invitation).
+ *
+ * @returns Object with instructorLinking and studentLinking results
+ */
 export const linkClerkUserToInstructor = inngest.createFunction(
   {
     id: "link-clerk-user-to-instructor",
