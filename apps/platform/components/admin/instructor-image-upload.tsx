@@ -23,6 +23,18 @@ const ACCEPTED_TYPES = {
   "image/gif": [".gif"],
 };
 
+/**
+ * Image upload component for instructors uploading student result images.
+ * Supports URL input and drag-and-drop upload to the instructor results endpoint.
+ * Calls optional onUploadComplete callback with both URL and storage path.
+ *
+ * @param label - Label text for the upload field
+ * @param value - Current image URL value
+ * @param onChange - Callback fired when image URL changes
+ * @param onUploadComplete - Optional callback fired with URL and storage path after upload
+ * @param uploadEndpoint - API endpoint (defaults to /api/instructor/student-results/upload)
+ * @param placeholder - Placeholder text for URL input
+ */
 export function InstructorImageUpload({
   label,
   value,
