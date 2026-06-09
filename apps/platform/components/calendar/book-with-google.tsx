@@ -17,6 +17,13 @@ function addHours(dateIso: string, hours: number): string {
 
 type Pack = { id: string; instructorId: string };
 
+/**
+ * Student-facing booking component that fetches live Google Calendar availability
+ * and creates a booking with optional weekly series for recurring sessions.
+ *
+ * @param instructorId - Pre-selected instructor ID (optional)
+ * @param packs - Array of session pack options with instructor IDs for a multi-instructor selector (optional)
+ */
 export function BookWithGoogle({ instructorId, packs }: { instructorId?: string; packs?: Pack[] }) {
   const [selectedInstructorId, setSelectedInstructorId] = React.useState<string | null>(
     instructorId || packs?.[0]?.instructorId || null

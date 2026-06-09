@@ -8,6 +8,13 @@ interface InstructorAvailabilityPreviewProps {
   instructorName?: string;
 }
 
+/**
+ * Instructor-facing wrapper around AvailabilityPreview.
+ * Shows what availability a student would see when booking with this instructor.
+ *
+ * @param instructorId - Instructor's Convex ID
+ * @param instructorName - Optional instructor name for display
+ */
 export function InstructorAvailabilityPreview({
   instructorId,
   instructorName,

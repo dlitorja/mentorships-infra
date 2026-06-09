@@ -28,6 +28,13 @@ interface AvailabilityPreviewProps {
   instructorName?: string;
 }
 
+/**
+ * Displays a preview of an instructor's next available session slots.
+ * Shows a loading state, "not connected" message, or lists the next 5 available times.
+ *
+ * @param instructorId - Instructor's Convex ID
+ * @param instructorName - Optional instructor name for display
+ */
 export function AvailabilityPreview({ instructorId, instructorName }: AvailabilityPreviewProps) {
   const { data, isLoading, isError } = useInstructorAvailabilityPreview(instructorId as string);
 
