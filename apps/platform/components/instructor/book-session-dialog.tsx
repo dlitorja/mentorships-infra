@@ -36,6 +36,17 @@ function formatDateTimeForInput(): string {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
+/**
+ * Dialog for instructors to manually book a session for a specific student.
+ * Provides a datetime picker and optional notes field.
+ *
+ * @param studentId - Target student's ID
+ * @param studentEmail - Target student's email (display only)
+ * @param sessionPackId - Session pack ID to associate with the booking
+ * @param open - Dialog open state
+ * @param onOpenChange - Callback to update dialog open state
+ * @param onSuccess - Optional callback fired after successful booking
+ */
 export function BookSessionDialog({ 
   studentId, 
   studentEmail, 
