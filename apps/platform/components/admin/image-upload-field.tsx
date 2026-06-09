@@ -24,6 +24,19 @@ const ACCEPTED_TYPES = {
   "image/gif": [".gif"],
 };
 
+/**
+ * Image upload field for instructor profiles (profile images, portfolio, results).
+ * Requires instructorId and supports type selection (profile/portfolio/result)
+ * to route uploads to the correct backend handler.
+ *
+ * @param label - Label text for the upload field
+ * @param value - Current image URL value
+ * @param onChange - Callback fired when image URL changes
+ * @param instructorId - Instructor's database ID (required for uploads)
+ * @param type - Upload type: "profile", "portfolio", or "result"
+ * @param uploadEndpoint - API endpoint (defaults to /api/admin/instructors/upload)
+ * @param placeholder - Placeholder text for URL input
+ */
 export function ImageUploadField({
   label,
   value,

@@ -18,6 +18,17 @@ interface PortfolioLightboxProps {
   instructorName: string;
 }
 
+/**
+ * Full-screen lightbox dialog for viewing portfolio images in detail.
+ * Supports keyboard navigation (arrow keys, Escape to close),
+ * previous/next navigation buttons, and an image counter.
+ *
+ * @param images - Array of portfolio image URLs
+ * @param initialIndex - Index of the image to show when opening
+ * @param open - Dialog open state
+ * @param onOpenChange - Callback to update dialog open state
+ * @param instructorName - Instructor's name for accessibility label
+ */
 export function PortfolioLightbox({
   images,
   initialIndex,

@@ -42,6 +42,14 @@ function GalleryImage({ src, alt, onError }: { src: string; alt: string; onError
   );
 }
 
+/**
+ * Grid gallery of instructor portfolio images with click-to-lightbox functionality.
+ * Shows a 3-column responsive grid of images with hover effects.
+ * Failed images display a placeholder and are not clickable.
+ *
+ * @param images - Array of portfolio image URLs
+ * @param instructorName - Instructor's name for alt text
+ */
 export function PortfolioGallery({
   images,
   instructorName,
