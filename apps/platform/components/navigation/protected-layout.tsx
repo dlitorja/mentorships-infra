@@ -16,6 +16,15 @@ interface ProtectedLayoutProps {
   currentPath?: string;
 }
 
+/**
+ * Server component providing a fixed sidebar navigation for authenticated users.
+ * Shows Workspace for all users, plus role-specific navigation items:
+ * - Instructors: dashboard, sessions, onboarding, settings
+ * - Students: dashboard, sessions, calendar, settings
+ *
+ * @param children - Page content to render in the main area
+ * @param currentPath - Current URL path for highlighting the active nav item
+ */
 export async function ProtectedLayout({ children, currentPath }: ProtectedLayoutProps) {
   const user = await requireDbUser();
   const instructorRecord = await getInstructorByUserId(user.id);

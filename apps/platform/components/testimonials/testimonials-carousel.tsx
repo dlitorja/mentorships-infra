@@ -50,6 +50,11 @@ function buildTestimonials(): TestimonialWithInstructor[] {
   return allTestimonials;
 }
 
+/**
+ * Auto-scrolling testimonials carousel for the landing page.
+ * Builds testimonial list from mock instructor data with shuffle and fallback.
+ * Pauses on hover/focus and respects reduced-motion preference.
+ */
 export function TestimonialsCarousel(): React.JSX.Element {
   const testimonials = useMemo(() => buildTestimonials(), []);
   const [api, setApi] = useState<CarouselApi>();

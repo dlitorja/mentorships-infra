@@ -70,6 +70,11 @@ function formatTimeZone(tz: string): string {
   }
 }
 
+/**
+ * Timezone selector card for students to set their local timezone.
+ * Auto-detects browser timezone and displays formatted timezone options
+ * with UTC offset for clarity. Saves selection to the user's Convex record.
+ */
 export function TimeZoneSelector() {
   const timeZones = useMemo(() => getTimeZones(), []);
   const browserTz = useMemo(() => getBrowserTimeZone(), []);
