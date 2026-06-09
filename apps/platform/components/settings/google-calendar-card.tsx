@@ -21,6 +21,12 @@ type CalendarsResponse = {
   };
 };
 
+/**
+ * Card component for connecting and configuring Google Calendar integration.
+ * Allows instructors to select which calendar to use for events
+ * and which calendars to consider for availability (busy times).
+ * Provides connect, disconnect, save, and reconnect actions.
+ */
 export function GoogleCalendarCard(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);

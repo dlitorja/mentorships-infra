@@ -41,6 +41,12 @@ function mapPublicToInstructor(inst: PublicInstructor): Instructor {
   };
 }
 
+/**
+ * Auto-scrolling instructor carousel for the landing page.
+ * Fetches public instructors from Convex, shuffles them, and displays
+ * profile cards with image, name, tagline, and View Bio button.
+ * Pauses on hover/focus and respects reduced-motion preference.
+ */
 export function InstructorCarousel(): React.JSX.Element {
   const { data: instructorsData, isLoading } = usePublicInstructors();
   const [api, setApi] = useState<CarouselApi>();
