@@ -24,6 +24,19 @@ const ACCEPTED_TYPES = {
   "image/gif": [".gif"],
 };
 
+/**
+ * Reusable image upload component for admin interfaces.
+ * Supports both URL input and drag-and-drop file upload.
+ * Displays a preview of the uploaded image with clear button.
+ *
+ * @param label - Label text for the upload field
+ * @param value - Current image URL value
+ * @param onChange - Callback fired when image URL changes
+ * @param uploadEndpoint - API endpoint for file upload (defaults to /api/admin/upload)
+ * @param placeholder - Placeholder text for URL input
+ * @param maxFiles - Maximum number of files (1 for single, >1 for multiple)
+ * @param onMultipleUpload - Callback fired with array of URLs for multiple uploads
+ */
 export function AdminImageUpload({
   label,
   value,
