@@ -14,6 +14,28 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+/**
+ * Processes a completed Stripe checkout session to fulfill a mentorship purchase.
+ *
+ * Triggered by: `stripe/checkout.session.completed`
+ *
+ * Steps:
+ * 1. Fetches and validates the order from Convex (with retry loop)
+ * 2. Retrieves the full Stripe session with discount details
+ * 3. Extracts discount code from promotion/coupon if present
+ * 4. Marks the order as paid in Convex, then emits data.sync/order.updated
+ * 5. Creates a payment record in Convex, then emits data.sync/payment.created
+ * 6. Fetches the product to get instructorId and session count
+ * 7. Resolves userId (supports guest checkout with email-based placeholder)
+ * 8. Creates a session pack in Convex, then emits data.sync/sessionPack.created
+ * 9. Creates a seat reservation in Convex, then emits data.sync/seatReservation.created
+ * 10. Ensures an admin-student workspace exists for post-purchase access
+ * 11. Decrements instructor inventory (oneOnOne or group)
+ * 12. Sends a purchase confirmation email (dashboard link for returning users, sign-up CTA for guests)
+ * 13. Triggers the onboarding flow via purchase/mentorship event
+ *
+ * @returns Object with success status, orderId, sessionPackId, and paymentId
+ */
 export const processStripeCheckout = inngest.createFunction(
   { id: "process-stripe-checkout", name: "Process Stripe Checkout", retries: 3 },
   { event: "stripe/checkout.session.completed" },
@@ -25,7 +47,7 @@ export const processStripeCheckout = inngest.createFunction(
       packId: string;
       studentEmail?: string;
     };
-  const convex = getConvexClient();
+    const convex = getConvexClient();
 
     const order = await step.run("get-order", async () => {
       let attempts = 0;
@@ -339,6 +361,25 @@ const completedOrder = await step.run("update-order", async () => {
   }
 );
 
+/**
+ * Processes a Stripe refund for a mentorship purchase.
+ *
+ * Triggered by: `stripe/charge.refunded`
+ *
+ * Steps:
+ * 1. Looks up the payment by Stripe payment intent ID
+ * 2. Finds the associated session pack via payment ID
+ * 3. Determines the inventory type (oneOnOne or group) from instructor products
+ * 4. Refunds the session pack in Convex
+ * 5. Syncs session pack status change to PostgreSQL via data.sync/sessionPack.updated
+ * 6. Increments instructor inventory to restore availability
+ * 7. Updates payment status to refunded in Convex
+ * 8. Syncs payment status change to PostgreSQL via data.sync/payment.updated
+ * 9. Refunds the associated order in Convex
+ * 10. Syncs order status change to PostgreSQL via data.sync/order.updated
+ *
+ * @returns Object with success status, sessionPackId, and paymentId
+ */
 export const processStripeRefund = inngest.createFunction(
   { id: "process-stripe-refund", name: "Process Stripe Refund", retries: 3 },
   { event: "stripe/charge.refunded" },
@@ -457,6 +498,30 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
   }
 );
 
+/**
+ * Processes a completed PayPal payment capture to fulfill a mentorship purchase.
+ *
+ * Triggered by: `paypal/payment.capture.completed`
+ *
+ * Note: Unlike the Stripe flow, this does NOT emit data.sync/order.updated or
+ * data.sync/payment.created events. Order and payment records are created in Convex
+ * but are not replicated to the PostgreSQL replica. This is a pre-existing gap.
+ *
+ * Steps:
+ * 1. Fetches and validates the order from Convex (with retry loop)
+ * 2. Marks the order as paid in Convex (no sync event emitted)
+ * 3. Creates a payment record in Convex with PayPal capture ID (no sync event emitted)
+ * 4. Fetches the product to get instructorId and session count
+ * 5. Resolves userId (supports guest checkout with email-based placeholder)
+ * 6. Creates a session pack in Convex, then emits data.sync/sessionPack.created
+ * 7. Creates a seat reservation in Convex, then emits data.sync/seatReservation.created
+ * 8. Ensures an admin-student workspace exists for post-purchase access
+ * 9. Decrements instructor inventory (oneOnOne or group)
+ * 10. Sends a purchase confirmation email (dashboard link for returning users, sign-up CTA for guests)
+ * 11. Triggers the onboarding flow via purchase/mentorship event
+ *
+ * @returns Object with success status, orderId, sessionPackId, and paymentId
+ */
 export const processPayPalCheckout = inngest.createFunction(
   { id: "process-paypal-checkout", name: "Process PayPal Checkout", retries: 3 },
   { event: "paypal/payment.capture.completed" },
@@ -716,6 +781,26 @@ export const processPayPalCheckout = inngest.createFunction(
   }
 );
 
+/**
+ * Processes a PayPal refund for a mentorship purchase.
+ *
+ * Triggered by: `paypal/payment.capture.refunded`
+ *
+ * Steps:
+ * 1. Looks up the payment by PayPal capture ID
+ * 2. Returns early if payment is already refunded (idempotency check)
+ * 3. Finds the associated session pack via payment ID
+ * 4. Determines the inventory type (oneOnOne or group) from instructor products
+ * 5. Refunds the session pack in Convex
+ * 6. Syncs session pack status change to PostgreSQL via data.sync/sessionPack.updated
+ * 7. Increments instructor inventory to restore availability
+ * 8. Updates payment status to refunded in Convex
+ * 9. Syncs payment status change to PostgreSQL via data.sync/payment.updated
+ * 10. Refunds the associated order in Convex
+ * 11. Syncs order status change to PostgreSQL via data.sync/order.updated
+ *
+ * @returns Object with success status, sessionPackId, and paymentId
+ */
 export const processPayPalRefund = inngest.createFunction(
   { id: "process-paypal-refund", name: "Process PayPal Refund", retries: 3 },
   { event: "paypal/payment.capture.refunded" },
