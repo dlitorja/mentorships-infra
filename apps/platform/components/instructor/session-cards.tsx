@@ -28,6 +28,11 @@ type UpcomingSessionCardProps = {
   session: SessionCardData;
 };
 
+/**
+ * Card component displaying an upcoming session with actions menu.
+ *
+ * @param session - Session data including id, scheduledAt, status, studentEmail, notes
+ */
 export function UpcomingSessionCard({ session }: UpcomingSessionCardProps) {
   const router = useRouter();
 
@@ -62,6 +67,12 @@ type PastSessionCardProps = {
   };
 };
 
+/**
+ * Card component displaying a past session with completion/cancellation status.
+ * Shows completedAt, canceledAt, or no_show status with optional notes.
+ *
+ * @param session - Session data including id, scheduledAt, status, studentEmail, notes, completedAt, canceledAt
+ */
 export function PastSessionCard({ session }: PastSessionCardProps) {
   const router = useRouter();
 
