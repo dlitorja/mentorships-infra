@@ -129,6 +129,13 @@ function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactEle
   );
 }
 
+/**
+ * Site-wide header component with logo, navigation links, and Clerk authentication.
+ * Shows dashboard button and user menu for signed-in users, sign-in/sign-up buttons for guests.
+ * Includes a mobile sheet navigation with the same links.
+ *
+ * @param hasClerk - Whether Clerk authentication is available (defaults to true)
+ */
 export function Header({ hasClerk = true }: HeaderProps): ReactElement {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background">

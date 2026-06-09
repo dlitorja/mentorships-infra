@@ -10,6 +10,11 @@ interface State {
   hasError: boolean;
 }
 
+/**
+ * Error boundary for the Header component.
+ * Catches errors during render and displays a minimal fallback header
+ * (logo + site name) so the page remains navigable even if Clerk components fail.
+ */
 export class HeaderErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
