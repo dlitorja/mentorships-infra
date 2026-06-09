@@ -1,6 +1,10 @@
 import Link from "next/link";
 import Image from "next/image";
 
+/**
+ * Site-wide footer with logo, platform links, community links, and legal links.
+ * Displays the Huckleberry Art mission statement and copyright notice.
+ */
 export function Footer() {
   return (
     <footer className="border-t border-border bg-background">
