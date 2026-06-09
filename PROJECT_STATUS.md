@@ -146,7 +146,7 @@ Owner
 - Platform app ownership for OAuth, picker UX, and availability logic.
 - Convex ownership for schema field addition and update mutation.
 
-Last Updated: June 9, 2026 (Docstring coverage: PRs #401, #403, #405 (hooks) merged. PR #407 (15 Convex files) merged. PRs #408-#414, #416, #418, #419, #421 merged - ~91% coverage achieved. Remaining: navigation, admin, settings, instructors, testimonials components)
+Last Updated: June 9, 2026 (Docstring coverage: PRs #401, #403, #405 (hooks) merged. PR #407 (15 Convex files) merged. PRs #408-#414, #416, #418, #419, #421, #423 merged - ~95% coverage achieved. Target of >90% exceeded.)
 
 ### NEW: Student Dashboard Fixes & Discord Role Assignment (May 31, 2026)
 
@@ -423,7 +423,14 @@ Last Updated: June 9, 2026 (Docstring coverage: PRs #401, #403, #405 (hooks) mer
 - ✅ Documented workspace (4): WorkspaceChat, WorkspaceNotes, WorkspaceImages, RetentionWarningBanner
 - ✅ Documented dashboard: StudentOnboardingForm
 
-**Files Documented** (30 API handlers + 27 Inngest functions + 8 email template functions + 21 platform components across both apps):
+**PR #423** (Merged June 9, 2026):
+- ✅ Documented navigation (4): Header, Footer, ProtectedLayout, HeaderErrorBoundary
+- ✅ Documented admin (3): AdminImageUpload, InstructorImageUpload, ImageUploadField
+- ✅ Documented settings (2): GoogleCalendarCard, TimeZoneSelector
+- ✅ Documented instructors (5): InstructorCarousel, InstructorNavigation, InstructorNavigationWrapper, PortfolioGallery, PortfolioLightbox
+- ✅ Documented testimonials (1): TestimonialsCarousel
+
+**Files Documented** (30 API handlers + 27 Inngest functions + 8 email template functions + 36 platform components across both apps):
 - Webhooks: stripe, clerk, paypal
 - Auth: google (start, callback, disconnect), sync
 - Checkout: stripe, paypal
@@ -433,14 +440,11 @@ Last Updated: June 9, 2026 (Docstring coverage: PRs #401, #403, #405 (hooks) mer
 - Platform Inngest: 6 payment/onboarding/inventory functions
 - Web Inngest: 21 sync/email/discord/onboarding functions
 - Email templates: booking confirmations, instructor notifications, series summaries, session cancellations/reschedules
-- Platform components: calendar, instructor, checkout, workspace, dashboard (21 functions)
+- Platform components: calendar, instructor, checkout, workspace, dashboard, navigation, admin, settings, instructors, testimonials (36 functions)
 
-**Coverage**: ~149 documented items across API routes + Inngest tasks + email templates + platform components (~91% overall)
+**Coverage**: ~164 documented items across API routes + Inngest tasks + email templates + platform components (~95% overall)
 
-**In Progress for >90% Coverage**:
-- 🔄 `apps/platform/components/**` - ~24 remaining React components (navigation, admin, settings, instructors, testimonials)
-
-**Status**: 🔄 IN PROGRESS - PRs #408-#414, #416, #418, #419, #421 merged (June 9, 2026). ~91% coverage achieved. Remaining: navigation, admin, settings, instructors, testimonials components.
+**Status**: ✅ COMPLETED - PRs #408-#414, #416, #418, #419, #421, #423 merged (June 9, 2026). ~95% coverage achieved. Target of >90% exceeded.
 
 ---
 
@@ -534,7 +538,7 @@ This has been superseded by the apps/platform decision. The new architecture wil
     - Storage IDs now populated in `instructors`, `instructorProfiles`, and `menteeResults` tables
     - Supabase Storage images retained as backup (dual-write during transition)
 
-**Last Updated**: June 9, 2026 (Docstring coverage: PRs #401, #403, #405, #407, #408-#414, #416, #418, #419, #421 merged. ~91% coverage. Remaining: navigation, admin, settings, instructors, testimonials components)
+**Last Updated**: June 9, 2026 (Docstring coverage: PRs #401, #403, #405, #407, #408-#414, #416, #418, #419, #421, #423 merged. ~95% coverage. Target of >90% exceeded.)
 **PRs**: Docstring Coverage (#401, #403), Instructor Dashboard Student Identity + Availability Preview (#393), Calendar Slot Picker (#391), Session Notifications (#389, #390), Instructor Dashboard (#387), Dashboard Stats/Calendar (#385), Calendar/Sessions Migration (#383), Student Dashboard Fix (#382), Post-Purchase Email (#360, #375-381), Clerk Fixes (#370-371), Checkout UX (#373-374)
 **Status**: AI Crawl Control Implemented, Convex Migration Complete - Convex Schema + Query/Mutation Functions Complete, Payments + Booking + Google Calendar Scheduling Implemented, Security (Upstash/Redis) + Observability (Axiom/Better Stack) Implemented, Onboarding (Email + Form) Implemented, Notifications (Email + Discord) Implemented, Discord Automation (Queue Worker) Implemented, Instructor Management (Admin + Dashboard) Implemented, Manual Session Count Tracking (Kajabi Mentees) Implemented, **Workspace UI (Chat + Notes + Images) Implemented**, **ZIP Export for Workspace Images + Notes Implemented**, **Admin Workspace Access (Dual Workspaces + Audit Logging) COMPLETED**, **Inventory Management COMPLETE**, **Waitlist System COMPLETE**, **Mentor → Instructor Terminology Migration (Frontend User-Facing Strings COMPLETE)**, **Workspace Retention Warning Banner COMPLETE**, **Phase 2 Data Migration: COMPLETE**, **Mentor → Instructor Convex Function Naming Cleanup (Option B): COMPLETE**, **Convex Payment Processing Migration: COMPLETE** (PR #198), **Instructor Image Storage to Convex Storage Migration: COMPLETE**, **Phase 4B (Instructor/Public Routes) Migration: COMPLETE** (PR #205), **Phase 4D (User Settings + Type Fixes): COMPLETE** (PR #205), **Phase 4E-1 (Admin Low-Risk Routes): COMPLETE** (PR #206), **Phase 4E-2 (Admin Medium-Risk Routes): DEFERRED**, **Phase 4E-3 (Admin Instructor Sub-Routes): COMPLETE** (PR #209), **Workspace Pairing After Purchase: COMPLETE** (PR #213), **Admin Purchase Email Notifications: COMPLETE** (PR #213), **Grace Period Extended to 7 Days** (PR #213), **Phase 4E-4 (Admin Stats + Lists): COMPLETE** (PR #232), **Admin Products GET SQL Migration: COMPLETE**, **SQL Pagination Bugfix** (PR #233), **Convex ID Resolution Migration: COMPLETE** (PR #234), **Phase 3A (Inngest → Convex Simple Functions): COMPLETE** (PR #236), **Phase 3B (Inngest → Convex Medium Functions): COMPLETE**, **Session Notifications via Trigger.dev: COMPLETE** (PRs #387-389), **Instructor Dashboard Past Sessions & Actions: COMPLETE** (PR #387), **Calendar/Sessions SQL→Convex Migration: COMPLETE** (PR #383), **Instructor Dashboard Stats + Google Calendar: COMPLETE** (PR #385), **Student Dashboard 500 Fix + Discord Role: COMPLETE** (PR #382), **Post-Purchase Email Flow: COMPLETE** (PRs #360, #375-381), **Clerk API + internalMutation Fixes: COMPLETE** (PRs #370-371), **Checkout UX Improvements: COMPLETE** (PRs #373-374), Discord Bot Slash Commands NOT_STARTED, Video Access Control NOT_STARTED
 
