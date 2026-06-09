@@ -16,6 +16,15 @@ function getSeverity(days: number) {
   return { className: "border-blue-500 bg-blue-50 text-blue-800", icon: Clock };
 }
 
+/**
+ * Displays a warning banner when a workspace is approaching deletion.
+ * Shows days remaining until permanent deletion with severity-based coloring
+ * (red under 7 days, yellow under 30 days, blue otherwise).
+ * Includes a dismiss button that acknowledges the notification.
+ *
+ * @param workspaceId - Workspace ID to check for retention notifications
+ * @param endedAt - Timestamp when the workspace ended (subscription cancellation)
+ */
 export function RetentionWarningBanner({ workspaceId, endedAt }: { workspaceId: string; endedAt: number }) {
   const { data: notifications } = useUnacknowledgedRetentionNotifications();
   const acknowledge = useAcknowledgeRetentionNotification();
