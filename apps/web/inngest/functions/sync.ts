@@ -12,13 +12,16 @@ import type {
   SeatReservationUpdatedEvent,
 } from "../types";
 
-function getIdempotencyKey(event: { name: string; data: { id?: string; provider?: string; providerPaymentId?: string } }): string {
-  if (event.data.provider && event.data.providerPaymentId) {
-    return `${event.data.provider}_${event.data.providerPaymentId}`;
-  }
-  return event.data.id || event.name;
-}
-
+/**
+ * Syncs a newly created payment from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/payment.created`
+ *
+ * Uses upsert logic: updates existing record if found by providerPaymentId,
+ * otherwise inserts a new record. This ensures idempotency on retries.
+ *
+ * @returns Object with success status and paymentId
+ */
 export const syncPaymentCreated = inngest.createFunction(
   {
     id: "sync-payment-created",
@@ -69,6 +72,16 @@ export const syncPaymentCreated = inngest.createFunction(
   }
 );
 
+/**
+ * Syncs payment status updates from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/payment.updated`
+ *
+ * Updates only the status, refundedAmount, and updatedAt fields.
+ * Called when a payment is refunded or status changes.
+ *
+ * @returns Object with success status and paymentId
+ */
 export const syncPaymentUpdated = inngest.createFunction(
   {
     id: "sync-payment-updated",
@@ -94,6 +107,16 @@ export const syncPaymentUpdated = inngest.createFunction(
   }
 );
 
+/**
+ * Syncs a newly created order from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/order.created`
+ *
+ * Uses upsert logic: updates existing record if found by id,
+ * otherwise inserts a new record. This ensures idempotency on retries.
+ *
+ * @returns Object with success status and orderId
+ */
 export const syncOrderCreated = inngest.createFunction(
   {
     id: "sync-order-created",
@@ -141,6 +164,16 @@ export const syncOrderCreated = inngest.createFunction(
   }
 );
 
+/**
+ * Syncs order status updates from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/order.updated`
+ *
+ * Updates only the status and updatedAt fields.
+ * Called when an order is completed, refunded, or status changes.
+ *
+ * @returns Object with success status and orderId
+ */
 export const syncOrderUpdated = inngest.createFunction(
   {
     id: "sync-order-updated",
@@ -165,6 +198,17 @@ export const syncOrderUpdated = inngest.createFunction(
   }
 );
 
+/**
+ * Syncs a newly created session pack from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/sessionPack.created`
+ *
+ * Uses upsert logic: updates existing record if found by id,
+ * otherwise inserts a new record. Includes all fields including
+ * purchasedAt and expiresAt timestamps.
+ *
+ * @returns Object with success status and sessionPackId
+ */
 export const syncSessionPackCreated = inngest.createFunction(
   {
     id: "sync-session-pack-created",
@@ -217,6 +261,16 @@ export const syncSessionPackCreated = inngest.createFunction(
   }
 );
 
+/**
+ * Syncs session pack updates from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/sessionPack.updated`
+ *
+ * Updates only the fields present in the event: remainingSessions and/or status.
+ * Used when sessions are consumed or pack status changes (e.g., refunded).
+ *
+ * @returns Object with success status and sessionPackId
+ */
 export const syncSessionPackUpdated = inngest.createFunction(
   {
     id: "sync-session-pack-updated",
@@ -248,6 +302,17 @@ export const syncSessionPackUpdated = inngest.createFunction(
   }
 );
 
+/**
+ * Syncs a newly created seat reservation from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/seatReservation.created`
+ *
+ * Uses upsert logic: updates existing record if found by id,
+ * otherwise inserts a new record. Requires seatExpiresAt to be present.
+ * gracePeriodEndsAt is optional.
+ *
+ * @returns Object with success status and seatReservationId
+ */
 export const syncSeatReservationCreated = inngest.createFunction(
   {
     id: "sync-seat-reservation-created",
@@ -305,6 +370,16 @@ export const syncSeatReservationCreated = inngest.createFunction(
   }
 );
 
+/**
+ * Syncs seat reservation updates from Convex to PostgreSQL.
+ *
+ * Triggered by: `data.sync/seatReservation.updated`
+ *
+ * Updates status, seatExpiresAt, and/or gracePeriodEndsAt fields
+ * when provided in the event. Used when seat expires or grace period changes.
+ *
+ * @returns Object with success status and seatReservationId
+ */
 export const syncSeatReservationUpdated = inngest.createFunction(
   {
     id: "sync-seat-reservation-updated",

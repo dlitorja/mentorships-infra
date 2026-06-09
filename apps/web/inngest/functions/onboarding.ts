@@ -56,6 +56,28 @@ function getBaseUrl(): string {
   return "http://localhost:3000";
 }
 
+/**
+ * Handles post-purchase onboarding for students and instructors.
+ *
+ * Triggered by: `purchase/mentorship`
+ *
+ * Skips guest purchases (no Clerk user to look up).
+ *
+ * Steps:
+ * 1. Fetches order, payment, and session pack from Convex
+ * 2. Looks up the instructor linked to the session pack
+ * 3. Retrieves the student from Clerk by clerkId
+ * 4. Persists Discord identity if student has connected Discord
+ * 5. Looks up the instructor's Clerk user to get their email
+ * 6. Checks if this is a returning student for the same instructor
+ * 7. Sends a purchase onboarding email to the student (with Resend template or HTML fallback)
+ * 8. Sends an instructor notification email about the new student
+ * 9. Sends an admin notification email with purchase details
+ * 10. Queues a Discord action to notify the instructor of the new signup
+ *
+ * @returns Object with success status, orderId, clerkId, sessionPackId, instructorId,
+ *          discordConnected flag, and emailSent status
+ */
 export const onboardingFlow = inngest.createFunction(
   {
     id: "onboarding-flow",
