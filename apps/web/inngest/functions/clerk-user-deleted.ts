@@ -1,6 +1,17 @@
 import { inngest } from "../client";
 import { db, instructors, eq } from "@mentorships/db";
 
+/**
+ * Unlinks a deleted Clerk user from their instructor record.
+ *
+ * Triggered by: `clerk/user.deleted`
+ *
+ * Sets the instructor's userId to null when the linked Clerk user is deleted.
+ * This maintains referential integrity since Convex uses userId to link to Clerk.
+ * Returns early with unlinked: false if no instructor has this userId.
+ *
+ * @returns Object with unlinked status, instructorId, and instructorName
+ */
 export const unlinkClerkUserFromInstructor = inngest.createFunction(
   {
     id: "unlink-clerk-user-from-instructor",

@@ -34,6 +34,20 @@ async function getUserEmail(clerkId: string): Promise<string | null> {
   return user?.email ?? null;
 }
 
+/**
+ * Handles booking confirmation and notification emails when a session is booked.
+ *
+ * Triggered by: `session/booking-email`
+ *
+ * Sends emails based on the `type` field in the event data:
+ * - `booking_confirmation_student`: Confirmation email to the student
+ * - `booking_notification_instructor`: Notification email to the instructor
+ *
+ * Requires instructor.userId to be set for instructor notifications.
+ * Falls back gracefully if student timeZone is not available.
+ *
+ * @returns Object with success status, sessionId, and type
+ */
 export const handleSessionBookingEmails = inngest.createFunction(
   {
     id: "handle-session-booking-emails",
@@ -159,6 +173,17 @@ export const handleSessionBookingEmails = inngest.createFunction(
   }
 );
 
+/**
+ * Handles session reminder emails sent to students before scheduled sessions.
+ *
+ * Triggered by: `session/reminder-email`
+ *
+ * Checks that the session is still in "scheduled" status before sending.
+ * Skips silently if session is cancelled or completed.
+ * Sends reminder email to the student with session details.
+ *
+ * @returns Object with success status, sessionId, type, and skipped flag if applicable
+ */
 export const handleSessionReminderEmails = inngest.createFunction(
   {
     id: "handle-session-reminder-emails",
@@ -239,6 +264,17 @@ export const handleSessionReminderEmails = inngest.createFunction(
   }
 );
 
+/**
+ * Handles session cancellation emails sent to both student and instructor.
+ *
+ * Triggered by: `session/cancelled-email`
+ *
+ * Sends cancellation notification to the student and (if instructor.userId exists)
+ * to the instructor. Uses separate email templates for each recipient.
+ * Gracefully handles missing instructor userId by reporting and skipping.
+ *
+ * @returns Object with success status and sessionId
+ */
 export const handleSessionCancellationEmails = inngest.createFunction(
   {
     id: "handle-session-cancellation-emails",
@@ -348,6 +384,20 @@ export const handleSessionCancellationEmails = inngest.createFunction(
   }
 );
 
+/**
+ * Schedules session reminder emails when a session is scheduled.
+ *
+ * Triggered by: `session/scheduled`
+ *
+ * Uses Inngest's step.sleep to wait until the appropriate times:
+ * - 24 hours before session: sends session/reminder-email with type "24h_before"
+ * - 1 hour before session: sends session/reminder-email with type "1h_before"
+ *
+ * Each reminder is only sent if the session is still in "scheduled" status
+ * at the time (idempotent check).
+ *
+ * @returns Object with success status and sessionId
+ */
 export const scheduleSessionReminders = inngest.createFunction(
   {
     id: "schedule-session-reminders",
