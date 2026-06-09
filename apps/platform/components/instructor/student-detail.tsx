@@ -56,6 +56,12 @@ function formatDate(ms: number): string {
   });
 }
 
+/**
+ * Instructor view of a student's details including session pack info and session history.
+ * Provides a "Book Session" button and lists all past sessions with status badges.
+ *
+ * @param studentId - ID of the student to display
+ */
 export function StudentDetail({ studentId }: StudentDetailProps) {
   const [bookDialogOpen, setBookDialogOpen] = useState(false);
 

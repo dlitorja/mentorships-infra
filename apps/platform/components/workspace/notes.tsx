@@ -31,6 +31,14 @@ interface WorkspaceNotesProps {
   currentUserId: string;
 }
 
+/**
+ * Rich text note-taking component for a workspace.
+ * Uses TipTap editor with auto-save on content changes.
+ * Supports creating, editing titles, and deleting notes.
+ *
+ * @param workspaceId - Convex workspace ID
+ * @param currentUserId - Current authenticated user's ID
+ */
 export default function WorkspaceNotes({ workspaceId, currentUserId }: WorkspaceNotesProps) {
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'workspaceNotes'> | null>(null);
   const [isCreating, setIsCreating] = useState(false);

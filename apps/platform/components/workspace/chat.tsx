@@ -59,6 +59,14 @@ interface WorkspaceChatProps {
   currentUserId: string;
 }
 
+/**
+ * Real-time chat component for a workspace.
+ * Supports text messages and image uploads with drag-and-drop.
+ * Messages appear in a scrollable list with the current user's messages aligned right.
+ *
+ * @param workspaceId - Convex workspace ID
+ * @param currentUserId - Current authenticated user's ID
+ */
 export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceChatProps) {
   const [message, setMessage] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);

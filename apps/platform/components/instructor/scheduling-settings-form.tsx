@@ -57,6 +57,13 @@ const settingsSchema = z.object({
 
 type SettingsValues = z.infer<typeof settingsSchema>;
 
+/**
+ * Form for instructors to configure their timezone and weekly working hours.
+ * Working hours define when students can book sessions, filtered against Google Calendar availability.
+ *
+ * @param initialTimeZone - Current timezone setting (IANA format, nullable)
+ * @param initialWorkingHours - Current working hours per day of week
+ */
 export function SchedulingSettingsForm({
   initialTimeZone,
   initialWorkingHours,

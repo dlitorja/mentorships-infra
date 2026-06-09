@@ -27,6 +27,16 @@ type CalendarSlotPickerProps = {
   onNavigate?: () => void;
 };
 
+/**
+ * Monthly calendar slot picker component.
+ * Displays available days with time slots grouped by day.
+ * Users select a day to see available times, then select a specific slot.
+ *
+ * @param slots - Array of ISO datetime strings representing available booking slots
+ * @param selectedSlot - Currently selected slot ISO string (or null)
+ * @param onSelectSlot - Callback fired when a time slot is selected
+ * @param onNavigate - Optional callback fired when user navigates between months
+ */
 export function CalendarSlotPicker({ slots, selectedSlot, onSelectSlot, onNavigate }: CalendarSlotPickerProps) {
   const today = useMemo(() => {
     const d = new Date();
