@@ -38,6 +38,22 @@ function getDiscordIdentityForUserId(userId: string): Promise<string | null> {
     .then((rows: typeof userIdentities.$inferSelect[]) => rows[0]?.providerUserId ?? null);
 }
 
+/**
+ * Processes the Discord action queue every minute via cron trigger.
+ *
+ * Claims up to 25 pending actions with a 10-minute lock TTL to prevent
+ * duplicate processing across concurrent runs.
+ *
+ * Supported action types:
+ * - assign_student_role: Adds Discord role to a user by roleId or roleName
+ * - dm_instructor_new_signup: Sends a DM to the instructor with purchase details
+ *
+ * Error handling:
+ * - Discord API rate limits (HTTP 429) and server errors (HTTP 5xx) trigger requeue
+ * - Other errors mark the action as failed
+ *
+ * @returns Object with processed, done, failed, and requeued counts
+ */
 export const processDiscordActionQueue = inngest.createFunction(
   {
     id: "process-discord-action-queue",
@@ -76,7 +92,7 @@ export const processDiscordActionQueue = inngest.createFunction(
               });
             } else {
               // Resolve role name with a neutral fallback env var. We do not use legacy "mentee" naming in code.
-              // Operators can set DISCORD_DEFAULT_ROLE_NAME for backward compatibility if needed.
+              // Operators can set DISCORD_STUDENT_ROLE_NAME for backward compatibility if needed.
               const roleName =
                 payload.roleName ??
                 process.env.DISCORD_STUDENT_ROLE_NAME ??
