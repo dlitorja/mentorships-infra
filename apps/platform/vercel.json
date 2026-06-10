@@ -7,5 +7,6 @@
     "deploymentEnabled": {
       "main": true
     }
-  }
+  },
+  "publicFields": []
 }
