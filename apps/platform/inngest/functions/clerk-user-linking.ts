@@ -1,30 +1,7 @@
 import { inngest } from "../client";
 import { reportInfo } from "@/lib/observability";
-
-/**
- * Fetches from a URL with a timeout using AbortController.
- * @param url - The URL to fetch
- * @param options - Fetch options including optional timeoutms
- * @param timeoutMs - Timeout in milliseconds (default 10000)
- */
-async function fetchWithTimeout(
-  url: string,
-  options: RequestInit & { timeoutMs?: number } = {}
-): Promise<Response> {
-  const { timeoutMs = 10000, ...fetchOptions } = options;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      ...fetchOptions,
-      signal: controller.signal,
-    });
-    return response;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
 
 /**
  * Gets the Convex URL from environment.
@@ -39,15 +16,20 @@ function getConvexUrl(): string {
 }
 
 /**
- * Gets the Convex HTTP key from environment.
- * @throws Error if CONVEX_HTTP_KEY is not set
+ * Gets the Convex server shared secret from environment.
+ * @throws Error if CONVEX_SERVER_SHARED_SECRET is not set
  */
-function getConvexHttpKey(): string {
-  const key = process.env.CONVEX_HTTP_KEY;
-  if (!key) {
-    throw new Error("CONVEX_HTTP_KEY is not set");
+function getConvexSecret(): string {
+  const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+  if (!secret) {
+    throw new Error("CONVEX_SERVER_SHARED_SECRET is not set");
   }
-  return key;
+  return secret;
+}
+
+function getConvexClient() {
+  const url = getConvexUrl();
+  return new ConvexHttpClient(url);
 }
 
 /**
@@ -90,75 +72,63 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
     const normalizedEmail = email.toLowerCase().trim();
     const emailDomain = normalizedEmail.split("@")[1] ?? "unknown";
-    const convexUrl = getConvexUrl();
-    const convexHttpKey = getConvexHttpKey();
+    const convex = getConvexClient();
+    const secret = getConvexSecret();
 
     let sessionPacksLinked = 0;
     let seatReservationsLinked = 0;
 
     const sessionPackResult = await step.run("link-session-packs", async () => {
-      const res = await fetchWithTimeout(`${convexUrl}/internal/link-session-packs`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${convexHttpKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ clerkUserId: userId, email: normalizedEmail }),
-        timeoutMs: 10000,
-      });
+      try {
+        const result = await convex.mutation(api.sessionPacks.linkSessionPacksByEmailAction, {
+          clerkUserId: userId,
+          email: normalizedEmail,
+          secret,
+        });
 
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "unknown");
-        throw new Error(`Failed to link session packs: ${res.status} ${errText}`);
+        await reportInfo({
+          source: "inngest:clerk-user-linking",
+          message: `Linked ${result?.linked ?? 0} session packs for user`,
+          level: "info",
+          context: {
+            userId,
+            emailDomain,
+            linkedCount: result?.linked ?? 0,
+          },
+        });
+
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to link session packs: ${message}`);
       }
-
-      const result = await res.json();
-
-      await reportInfo({
-        source: "inngest:clerk-user-linking",
-        message: `Linked ${result.linked} session packs for user`,
-        level: "info",
-        context: {
-          userId,
-          emailDomain,
-          linkedCount: result.linked,
-        },
-      });
-
-      return result;
     });
     sessionPacksLinked = sessionPackResult?.linked ?? 0;
 
     const seatReservationResult = await step.run("link-seat-reservations", async () => {
-      const res = await fetchWithTimeout(`${convexUrl}/internal/link-seat-reservations`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${convexHttpKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ clerkUserId: userId, email: normalizedEmail }),
-        timeoutMs: 10000,
-      });
+      try {
+        const result = await convex.mutation(api.seatReservations.linkSeatReservationsByEmailAction, {
+          clerkUserId: userId,
+          email: normalizedEmail,
+          secret,
+        });
 
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "unknown");
-        throw new Error(`Failed to link seat reservations: ${res.status} ${errText}`);
+        await reportInfo({
+          source: "inngest:clerk-user-linking",
+          message: `Linked ${result?.linked ?? 0} seat reservations for user`,
+          level: "info",
+          context: {
+            userId,
+            emailDomain,
+            linkedCount: result?.linked ?? 0,
+          },
+        });
+
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to link seat reservations: ${message}`);
       }
-
-      const result = await res.json();
-
-      await reportInfo({
-        source: "inngest:clerk-user-linking",
-        message: `Linked ${result.linked} seat reservations for user`,
-        level: "info",
-        context: {
-          userId,
-          emailDomain,
-          linkedCount: result.linked,
-        },
-      });
-
-      return result;
     });
     seatReservationsLinked = seatReservationResult?.linked ?? 0;
 
