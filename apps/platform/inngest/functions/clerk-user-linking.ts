@@ -80,7 +80,7 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
     const sessionPackResult = await step.run("link-session-packs", async () => {
       try {
-        const result = await convex.mutation(api.sessionPacks.linkSessionPacksByEmailAction, {
+        const result = await convex.action(api.sessionPacks.linkSessionPacksByEmailAction, {
           clerkUserId: userId,
           email: normalizedEmail,
           secret,
@@ -107,7 +107,7 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
     const seatReservationResult = await step.run("link-seat-reservations", async () => {
       try {
-        const result = await convex.mutation(api.seatReservations.linkSeatReservationsByEmailAction, {
+        const result = await convex.action(api.seatReservations.linkSeatReservationsByEmailAction, {
           clerkUserId: userId,
           email: normalizedEmail,
           secret,

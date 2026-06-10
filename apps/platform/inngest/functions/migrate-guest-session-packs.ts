@@ -95,7 +95,7 @@ export const migrateGuestSessionPacks = inngest.createFunction(
 
     const guestSessionPacks = await step.run("find-guest-session-packs", async () => {
       try {
-        const result = await convex.query(api.migrationQueries.getGuestSessionPacksForMigration, {});
+        const result = await convex.query(api.migrationQueries.getGuestSessionPacks, {});
 
         return result.map((pack: { _id: string; userId: string }) => ({
           id: pack._id,
@@ -161,7 +161,7 @@ export const migrateGuestSessionPacks = inngest.createFunction(
           }
 
           try {
-            await convex.mutation(api.sessionPacks.linkSessionPacksByEmailAction, {
+            await convex.action(api.sessionPacks.linkSessionPacksByEmailAction, {
               clerkUserId,
               email,
               secret,
@@ -172,7 +172,7 @@ export const migrateGuestSessionPacks = inngest.createFunction(
           }
 
           try {
-            await convex.mutation(api.seatReservations.linkSeatReservationsByEmailAction, {
+            await convex.action(api.seatReservations.linkSeatReservationsByEmailAction, {
               clerkUserId,
               email,
               secret,
