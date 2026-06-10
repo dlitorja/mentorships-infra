@@ -1,31 +1,8 @@
 import { inngest } from "../client";
 import { reportInfo, reportError } from "@/lib/observability";
 import { z } from "zod";
-
-/**
- * Fetches from a URL with a timeout using AbortController.
- * @param url - The URL to fetch
- * @param options - Fetch options including optional timeoutms
- * @param timeoutMs - Timeout in milliseconds (default 10000)
- */
-async function fetchWithTimeout(
-  url: string,
-  options: RequestInit & { timeoutMs?: number } = {}
-): Promise<Response> {
-  const { timeoutMs = 10000, ...fetchOptions } = options;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      ...fetchOptions,
-      signal: controller.signal,
-    });
-    return response;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
 
 function getConvexHttpKey(): string {
   const key = process.env.CONVEX_HTTP_KEY;
@@ -43,14 +20,21 @@ function getConvexUrl(): string {
   return url;
 }
 
+function getConvexSecret(): string {
+  const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+  if (!secret) {
+    throw new Error("CONVEX_SERVER_SHARED_SECRET is not set");
+  }
+  return secret;
+}
+
+function getConvexClient() {
+  const url = getConvexUrl();
+  return new ConvexHttpClient(url);
+}
+
 const clerkUsersResponseSchema = z.array(z.object({ id: z.string() }));
 
-/**
- * Looks up a Clerk user ID by email address.
- * Uses a 10 second timeout to prevent hanging.
- * @param email - The email to search for
- * @returns The Clerk user ID or null if not found
- */
 async function getClerkUserIdByEmail(email: string): Promise<string | null> {
   const clerkSecretKey = process.env.CLERK_SECRET_KEY;
   if (!clerkSecretKey) {
@@ -106,35 +90,22 @@ export const migrateGuestSessionPacks = inngest.createFunction(
   },
   { event: "migration/migrate-guest-session-packs" },
   async ({ step }) => {
-    const convexHttpKey = getConvexHttpKey();
-    const convexUrl = getConvexUrl();
+    const convex = getConvexClient();
+    const secret = getConvexSecret();
 
     const guestSessionPacks = await step.run("find-guest-session-packs", async () => {
-      const res = await fetchWithTimeout(`${convexUrl}/internal/guest-session-packs`, {
-        headers: {
-          Authorization: `Bearer ${convexHttpKey}`,
-        },
-        timeoutMs: 10000,
-      });
+      try {
+        const result = await convex.query(api.migrationQueries.getGuestSessionPacksForMigration, {});
 
-      if (!res.ok) {
-        throw new Error(`Failed to fetch guest session packs: ${res.status}`);
+        return result.map((pack: { _id: string; userId: string }) => ({
+          id: pack._id,
+          userId: pack.userId,
+          email: pack.userId.replace("email:", ""),
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to fetch guest session packs: ${message}`);
       }
-
-      const rawData = await res.json();
-      const parsed = z
-        .object({ packs: z.array(z.object({ _id: z.string(), userId: z.string() })) })
-        .safeParse(rawData);
-
-      if (!parsed.success) {
-        throw new Error(`Invalid Convex response: ${parsed.error.message}`);
-      }
-
-      return parsed.data.packs.map((pack) => ({
-        id: pack._id,
-        userId: pack.userId,
-        email: pack.userId.replace("email:", ""),
-      }));
     });
 
     if (guestSessionPacks.length === 0) {
@@ -158,7 +129,6 @@ export const migrateGuestSessionPacks = inngest.createFunction(
       });
     });
 
-    // Deduplicate by email to avoid redundant Clerk API calls
     const packsByEmail = new Map<string, typeof guestSessionPacks>();
     for (const pack of guestSessionPacks) {
       const existing = packsByEmail.get(pack.email);
@@ -169,8 +139,6 @@ export const migrateGuestSessionPacks = inngest.createFunction(
       }
     }
 
-    // Track counts outside step.run callbacks so they persist across retries
-    // Step results are memoized, so we track based on return value
     let migrated = 0;
     let skipped = 0;
     let failed = 0;
@@ -192,41 +160,26 @@ export const migrateGuestSessionPacks = inngest.createFunction(
             return { status: "skipped", packIds };
           }
 
-          // Link all packs for this email with a single call per endpoint
-          const sessionPackRes = await fetchWithTimeout(
-            `${convexUrl}/internal/link-session-packs`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${convexHttpKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ clerkUserId, email }),
-              timeoutMs: 10000,
-            }
-          );
-
-          if (!sessionPackRes.ok) {
-            const errText = await sessionPackRes.text().catch(() => "unknown");
-            throw new Error(`Failed to link session packs: ${sessionPackRes.status} ${errText}`);
+          try {
+            await convex.mutation(api.sessionPacks.linkSessionPacksByEmailAction, {
+              clerkUserId,
+              email,
+              secret,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to link session packs: ${message}`);
           }
 
-          const seatResRes = await fetchWithTimeout(
-            `${convexUrl}/internal/link-seat-reservations`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${convexHttpKey}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ clerkUserId, email }),
-              timeoutMs: 10000,
-            }
-          );
-
-          if (!seatResRes.ok) {
-            const errText = await seatResRes.text().catch(() => "unknown");
-            throw new Error(`Failed to link seat reservations: ${seatResRes.status} ${errText}`);
+          try {
+            await convex.mutation(api.seatReservations.linkSeatReservationsByEmailAction, {
+              clerkUserId,
+              email,
+              secret,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to link seat reservations: ${message}`);
           }
 
           await reportInfo({
@@ -239,7 +192,6 @@ export const migrateGuestSessionPacks = inngest.createFunction(
           return { status: "migrated", packIds };
         });
 
-        // Track based on step result status
         const status = stepResult.status;
         if (status === "migrated") {
           migrated += packs.length;
@@ -247,7 +199,6 @@ export const migrateGuestSessionPacks = inngest.createFunction(
           skipped += packs.length;
         }
       } catch (err) {
-        // Error in step.run - report it and mark as failed
         const errorPackId = packIds[0];
         await step.run(`report-error-${errorPackId}`, async () => {
           await reportError({
@@ -262,7 +213,6 @@ export const migrateGuestSessionPacks = inngest.createFunction(
       }
     }
 
-    // Final report
     await step.run("report-final-status", async () => {
       await reportInfo({
         source: "inngest:migrate-guest-session-packs",

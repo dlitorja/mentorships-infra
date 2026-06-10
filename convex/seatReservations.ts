@@ -1,6 +1,8 @@
-import { query, mutation, internalMutation, internalAction, internalQuery } from "./_generated/server";
+import { query, mutation, internalMutation, internalAction, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+
+const SERVER_SHARED_SECRET = process.env.CONVEX_SERVER_SHARED_SECRET;
 
 
 
@@ -453,5 +455,32 @@ export const linkSeatReservationsByEmail = internalMutation({
     }
 
     return { linked: seatsToLink.length };
+  },
+});
+
+export const linkSeatReservationsByEmailAction = action({
+  args: {
+    clerkUserId: v.string(),
+    email: v.string(),
+    secret: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ linked: number }> => {
+    if (args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: Invalid secret");
+    }
+
+    if (!args.clerkUserId || typeof args.clerkUserId !== "string" || !args.clerkUserId.trim()) {
+      throw new Error("Missing or empty clerkUserId");
+    }
+    if (!args.email || typeof args.email !== "string" || !args.email.trim()) {
+      throw new Error("Missing or empty email");
+    }
+
+    const result = await ctx.runMutation(internal.seatReservations.linkSeatReservationsByEmail, {
+      clerkUserId: args.clerkUserId.trim(),
+      email: args.email.trim().toLowerCase(),
+    });
+
+    return result;
   },
 });
