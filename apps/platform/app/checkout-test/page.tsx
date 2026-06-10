@@ -9,9 +9,11 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { createCheckoutSession } from "@/lib/queries/api-client";
 
+export const dynamic = "force-dynamic";
+
 /**
  * Test page for Stripe checkout flow
- * 
+ *
  * This page allows you to test the checkout flow by clicking a button
  * that will create a checkout session and redirect to Stripe.
  */

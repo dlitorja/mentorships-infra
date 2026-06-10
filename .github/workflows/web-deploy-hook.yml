@@ -17,7 +17,7 @@ jobs:
           fi
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_WEB_DEPLOY_HOOK_URL")
           echo "HTTP Status: $code"
-          if [ "$code" != "200" ] && [ "$code" != "202" ]; then
+          if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
             echo "Deploy hook call failed" >&2
             exit 1
           fi
