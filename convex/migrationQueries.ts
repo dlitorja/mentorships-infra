@@ -1,4 +1,4 @@
-import { internalQuery } from "./_generated/server";
+import { internalQuery, query } from "./_generated/server";
 
 /**
  * Internal queries for migration - server-side only, no auth required
@@ -66,6 +66,14 @@ export const getAllSeatReservationsForMigration = internalQuery({
  * Internal use only.
  */
 export const getGuestSessionPacksForMigration = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const allPacks = await ctx.db.query("sessionPacks").collect();
+    return allPacks.filter((pack) => pack.userId && pack.userId.startsWith("email:"));
+  },
+});
+
+export const getGuestSessionPacks = query({
   args: {},
   handler: async (ctx) => {
     const allPacks = await ctx.db.query("sessionPacks").collect();
