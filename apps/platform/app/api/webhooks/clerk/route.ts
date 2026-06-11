@@ -2,14 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
 import { inngest } from "@/inngest/client";
 
+interface ClerkUserEventData {
+  id: string;
+  email_addresses: Array<{
+    email_address: string;
+  }>;
+  public_metadata?: {
+    role?: string;
+  };
+  first_name?: string;
+  last_name?: string;
+  previous_public_metadata?: {
+    role?: string;
+  };
+}
+
 interface ClerkUserCreatedEvent {
   type: "user.created";
-  data: {
-    id: string;
-    email_addresses: Array<{
-      email_address: string;
-    }>;
-  };
+  data: ClerkUserEventData;
+}
+
+interface ClerkUserUpdatedEvent {
+  type: "user.updated";
+  data: ClerkUserEventData;
 }
 
 /**
@@ -72,6 +87,9 @@ export async function POST(req: NextRequest) {
       const eventData = evt.data as ClerkUserCreatedEvent["data"];
       const userId = eventData.id;
       const email = eventData.email_addresses?.[0]?.email_address;
+      const role = eventData.public_metadata?.role as string | undefined;
+      const firstName = eventData.first_name;
+      const lastName = eventData.last_name;
 
       if (!email) {
         console.warn("User created event missing email:", userId);
@@ -86,6 +104,41 @@ export async function POST(req: NextRequest) {
         data: {
           userId,
           email,
+          role,
+          firstName,
+          lastName,
+        },
+      });
+
+      return NextResponse.json({ success: true, message: "Event queued" });
+    }
+
+    if (eventType === "user.updated") {
+      const eventData = evt.data as ClerkUserUpdatedEvent["data"];
+      const userId = eventData.id;
+      const email = eventData.email_addresses?.[0]?.email_address;
+      const role = eventData.public_metadata?.role as string | undefined;
+      const firstName = eventData.first_name;
+      const lastName = eventData.last_name;
+      const previousRole = eventData.previous_public_metadata?.role as string | undefined;
+
+      if (!email) {
+        console.warn("User updated event missing email:", userId);
+        return NextResponse.json(
+          { error: "Missing email in user.updated event" },
+          { status: 400 }
+        );
+      }
+
+      await inngest.send({
+        name: "clerk/user.updated",
+        data: {
+          userId,
+          email,
+          role,
+          firstName,
+          lastName,
+          previousRole,
         },
       });
 
