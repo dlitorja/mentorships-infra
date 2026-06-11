@@ -84,16 +84,21 @@ export function TimeZoneSelector() {
 
   const handleTimeZoneChange = async (timeZone: string) => {
     if (!user) return;
+    console.log("[DEBUG TimeZoneSelector] handleTimeZoneChange called with:", JSON.stringify(timeZone), "user._id:", user._id);
     try {
       await updateUser.mutateAsync({ id: user._id, timeZone });
+      console.log("[DEBUG TimeZoneSelector] mutation completed, current user timeZone:", JSON.stringify(user.timeZone));
       toast.success("Timezone saved");
     } catch (error) {
+      console.error("[DEBUG TimeZoneSelector] mutation error:", error);
       toast.error(error instanceof Error ? error.message : "Failed to save timezone");
     }
   };
 
   const currentTimeZone = user?.timeZone;
   const isSaving = updateUser.isPending;
+  
+  console.log("[DEBUG TimeZoneSelector] render - currentTimeZone:", JSON.stringify(currentTimeZone), "isSaving:", isSaving);
 
   return (
     <Card>
