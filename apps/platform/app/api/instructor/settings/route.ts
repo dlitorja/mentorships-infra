@@ -38,6 +38,12 @@ const patchSchema = z.object({
   workingHours: workingHoursSchema.nullable().optional(),
 });
 
+function logDebug(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(...args);
+  }
+}
+
 /**
  * GET /api/instructor/settings
  * Returns the authenticated instructor's scheduling settings (timezone, working hours).
@@ -94,12 +100,6 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     if (!instructor) {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
-
-    function logDebug(...args: unknown[]): void {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(...args);
-    }
-  }
 
     const body = await req.json();
     logDebug("[DEBUG PATCH /api/instructor/settings] body keys:", Object.keys(body).join(","));

@@ -34,7 +34,7 @@ import { GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY } from "@/lib/constants/storage
 function isOAuthCallback(): boolean {
   if (typeof window === "undefined") return false;
   const params = new URLSearchParams(window.location.search);
-  return params.get("oauth_success") === "true" || params.get("connected") === "true";
+  return params.get("google_calendar") === "connected";
 }
 
 interface SessionPackData {
