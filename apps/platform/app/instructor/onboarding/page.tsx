@@ -7,15 +7,7 @@ import { SchedulingSettingsForm } from "@/components/instructor/scheduling-setti
 import { EnsureInstructorRole } from "@/components/instructor/ensure-instructor-role";
 import { GoogleCalendarStatus } from "@/components/instructor/google-calendar-status";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
-import {
-  db,
-  desc,
-  eq,
-  getInstructorByUserId,
-  studentOnboardingSubmissions,
-  users,
-} from "@mentorships/db";
+import { fetchQuery } from "convex/nextjs";
 import { createSupabaseAdminClient, ONBOARDING_BUCKET } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +23,9 @@ type PageProps = {
  */
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
-  const instructorRecord = await getInstructorByUserId(user.id);
-  const convex = getConvexClient();
-  const convexInstructor = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
+  const convexInstructor = await fetchQuery(api.instructors.getInstructorByUserId, { userId: user.id });
 
-  if (!instructorRecord) {
+  if (!convexInstructor) {
     return (
       <ProtectedLayout currentPath="/instructor/onboarding">
         {/* Silent role sync for Convex */}
@@ -54,43 +44,35 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   const { submissionId } = await searchParams;
 
   const submissions: {
-    id: string;
+    _id: string;
+    legacyId: string | undefined;
     goals: string;
-    imageObjects: { path: string }[];
-    createdAt: Date;
-    reviewedAt: Date | null;
-    studentId: string;
+    imageObjects: any;
+    createdAt: number | undefined;
+    reviewedAt: number | undefined;
+    userId: string;
     studentEmail: string;
-  }[] = await db
-    .select({
-      id: studentOnboardingSubmissions.id,
-      goals: studentOnboardingSubmissions.goals,
-      imageObjects: studentOnboardingSubmissions.imageObjects,
-      createdAt: studentOnboardingSubmissions.createdAt,
-      reviewedAt: studentOnboardingSubmissions.reviewedAt,
-      studentId: studentOnboardingSubmissions.userId,
-      studentEmail: users.email,
-    })
-    .from(studentOnboardingSubmissions)
-    .innerJoin(users, eq(users.id, studentOnboardingSubmissions.userId))
-    .where(eq(studentOnboardingSubmissions.instructorId, instructorRecord.id))
-    .orderBy(desc(studentOnboardingSubmissions.createdAt));
+  }[] = await fetchQuery(api.studentOnboarding.listByInstructor, {
+    instructorId: convexInstructor._id,
+  });
 
   const selected =
-    (submissionId ? submissions.find((s) => s.id === submissionId) : null) ?? submissions[0] ?? null;
+    (submissionId ? submissions.find((s) => s.legacyId === submissionId) : null) ?? submissions[0] ?? null;
 
+  const imageObjects = selected?.imageObjects;
   const signedUrls =
-    selected && selected.imageObjects.length > 0
+    selected && imageObjects && Array.isArray(imageObjects) && imageObjects.length > 0
       ? await (async () => {
           const supabase = createSupabaseAdminClient();
           const out: Array<{ path: string; signedUrl: string }> = [];
 
-          for (const img of selected.imageObjects) {
+          for (const img of imageObjects) {
+            const path = typeof img === "object" && img !== null && "path" in img ? (img as { path: string }).path : String(img);
             const { data, error } = await supabase.storage
               .from(ONBOARDING_BUCKET)
-              .createSignedUrl(img.path, 60 * 60);
+              .createSignedUrl(path, 60 * 60);
             if (error || !data?.signedUrl) continue;
-            out.push({ path: img.path, signedUrl: data.signedUrl });
+            out.push({ path, signedUrl: data.signedUrl });
           }
 
           return out;
@@ -158,21 +140,24 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                 <CardDescription>Most recent first</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                {submissions.map((s) => (
+                {submissions.map((s) => {
+                  const submissionIdVal = s.legacyId ?? s._id;
+                  return (
                   <Link
-                    key={s.id}
-                    href={`/instructor/onboarding?submissionId=${encodeURIComponent(s.id)}`}
+                    key={s._id}
+                    href={`/instructor/onboarding?submissionId=${encodeURIComponent(submissionIdVal)}`}
                     className={`block rounded-md border p-3 hover:bg-muted ${
-                      selected?.id === s.id ? "bg-muted" : ""
+                      (selected?.legacyId ?? selected?._id) === submissionIdVal ? "bg-muted" : ""
                     }`}
                   >
                     <div className="text-sm font-medium">{s.studentEmail}</div>
                     <div className="text-xs text-muted-foreground">
-                      {new Date(s.createdAt).toLocaleString()}
+                      {s.createdAt != null ? new Date(s.createdAt).toLocaleString() : "N/A"}
                       {s.reviewedAt ? " · reviewed" : ""}
                     </div>
                   </Link>
-                ))}
+                );
+                })}
               </CardContent>
             </Card>
 
@@ -215,7 +200,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                     </div>
 
                     <form action={`/api/instructor/onboarding/review`} method="post">
-                      <input type="hidden" name="submissionId" value={selected.id} />
+                      <input type="hidden" name="submissionId" value={selected.legacyId ?? selected._id} />
                       <Button type="submit" disabled={Boolean(selected.reviewedAt)}>
                         {selected.reviewedAt ? "Reviewed" : "Mark reviewed"}
                       </Button>
