@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { requireDbUser } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getInstructorByUserId } from "@mentorships/db";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
 import { MessageSquare, type LucideIcon } from "lucide-react";
 
 interface NavItem {
@@ -26,8 +27,8 @@ interface ProtectedLayoutProps {
  * @param currentPath - Current URL path for highlighting the active nav item
  */
 export async function ProtectedLayout({ children, currentPath }: ProtectedLayoutProps) {
-  const user = await requireDbUser();
-  const instructorRecord = await getInstructorByUserId(user.id);
+  const userId = await requireAuth();
+  const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId });
 
   // Common navigation items
   const commonItems: NavItem[] = [
