@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, User, BookOpen, CheckCircle2, Loader2 } from "lucide-react";
 import { useActiveSessionPacksByUser, useUserTotalRemainingSessions } from "@/lib/queries/convex/use-session-packs";
 import { useUpcomingStudentSessions } from "@/lib/queries/convex/use-sessions";
-import { useInstructor } from "@/lib/queries/convex/use-instructors";
-import { useMemo, Suspense, useEffect, useState, useRef } from "react";
+import { useInstructor, useInstructorByUserId } from "@/lib/queries/convex/use-instructors";
+import { useMemo, useEffect, useState, useRef } from "react";
+import { Id } from "@/convex/_generated/dataModel";
 
 function formatDate(date: number): string {
   return new Date(date).toLocaleDateString("en-US", {
@@ -28,6 +29,24 @@ function formatDateTime(date: number): string {
   });
 }
 
+interface SessionPackData {
+  _id: Id<"sessionPacks">;
+  instructorId: string;
+  totalSessions: number;
+  remainingSessions: number;
+  expiresAt?: number;
+  purchasedAt: number;
+  mentorshipType?: string;
+}
+
+interface SessionData {
+  _id: Id<"sessions">;
+  instructorId: string;
+  sessionPackId: string;
+  scheduledAt: number;
+  status: string;
+}
+
 function InstructorBadge({ instructorId }: { instructorId: string }) {
   const { data: instructor, isLoading } = useInstructor(instructorId);
   if (isLoading || !instructor) return null;
@@ -43,7 +62,7 @@ function InstructorBadge({ instructorId }: { instructorId: string }) {
   );
 }
 
-function SessionPackCard({ pack }: { pack: any }) {
+function SessionPackCard({ pack }: { pack: SessionPackData }) {
   return (
     <div className="border rounded-lg p-4 space-y-2">
       <div className="flex items-start justify-between">
@@ -85,7 +104,7 @@ function SessionPackCard({ pack }: { pack: any }) {
   );
 }
 
-function UpcomingSessionCard({ session }: { session: any }) {
+function UpcomingSessionCard({ session }: { session: SessionData }) {
   return (
     <div className="border rounded-lg p-4 space-y-2">
       <div className="flex items-start justify-between">
@@ -112,6 +131,10 @@ function UpcomingSessionCard({ session }: { session: any }) {
 export function DashboardContent() {
   const { user, isLoaded } = useUser();
   const userId = user?.id;
+
+  const { data: instructorRecord } = useInstructorByUserId(userId || "");
+  const isInstructorOrAdmin = Boolean(instructorRecord);
+
   type GoogleBookingStatus = "pending" | "confirmed" | "canceled" | "completed";
   type GoogleBooking = { id: string; startUtc: number; endUtc: number; status: GoogleBookingStatus };
   const [googleBookings, setGoogleBookings] = useState<GoogleBooking[]>([]);
@@ -122,9 +145,6 @@ export function DashboardContent() {
   const discordConnected = Boolean(
     user?.externalAccounts?.some((a) => a.provider?.toLowerCase?.().includes("discord"))
   );
-
-  const userRole = (user?.publicMetadata?.role as string | undefined) ?? "student";
-  const isInstructorOrAdmin = userRole === "instructor" || userRole === "admin";
 
   const { data: sessionPacks, isLoading: packsLoading } = useActiveSessionPacksByUser(userId || "");
   const { data: totalSessions } = useUserTotalRemainingSessions(userId || "");
@@ -209,7 +229,7 @@ export function DashboardContent() {
 
   const uniqueInstructorCount = useMemo(() => {
     if (!sessionPacks) return 0;
-    const uniqueIds = new Set((sessionPacks as Array<{instructorId: string}>).map(p => p.instructorId));
+    const uniqueIds = new Set(sessionPacks.map((p) => p.instructorId));
     return uniqueIds.size;
   }, [sessionPacks]);
 
@@ -235,7 +255,7 @@ export function DashboardContent() {
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            Welcome back, {user.emailAddresses[0]?.emailAddress}
+            Welcome back, {user.primaryEmailAddress?.emailAddress}
           </p>
         </div>
       </div>
@@ -400,7 +420,7 @@ export function DashboardContent() {
             ) : (
               <div className="space-y-4">
                 {sortedPacks.map((pack) => (
-                  <SessionPackCard key={pack._id} pack={pack} />
+                  <SessionPackCard key={pack._id} pack={pack as SessionPackData} />
                 ))}
               </div>
             )}
@@ -440,8 +460,8 @@ export function DashboardContent() {
               </div>
             ) : (
               <div className="space-y-4">
-                {(upcomingSessions as any[]).map((session: any) => (
-                  <UpcomingSessionCard key={session._id} session={session} />
+                {upcomingSessions.map((session) => (
+                  <UpcomingSessionCard key={session._id} session={session as SessionData} />
                 ))}
               </div>
             )}
