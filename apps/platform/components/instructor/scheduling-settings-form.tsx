@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,13 +89,29 @@ export function SchedulingSettingsForm({
   const timeZone = form.getFieldValue("timeZone") as string;
   const workingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
 
-  console.log("[DEBUG SchedulingSettingsForm] render - timeZone:", JSON.stringify(timeZone), "workingHours:", JSON.stringify(workingHours));
+  function logDebug(...args: unknown[]): void {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(...args);
+    }
+  }
+
+  logDebug(
+    "[DEBUG SchedulingSettingsForm] render - timeZone:",
+    timeZone ? `(set: ${timeZone.length} chars)` : "(empty)",
+    "workingHours:",
+    workingHours ? `keys=${Object.keys(workingHours).join(",") || "none"}` : "(empty)"
+  );
 
   const saveMutation = useMutation({
     mutationFn: () => {
       const currentTimeZone = form.getFieldValue("timeZone") as string;
       const currentWorkingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
-      console.log("[DEBUG SchedulingSettingsForm] saveMutation.mutationFn - currentTimeZone:", JSON.stringify(currentTimeZone), "currentWorkingHours:", JSON.stringify(currentWorkingHours));
+      logDebug(
+        "[DEBUG SchedulingSettingsForm] saveMutation.mutationFn - timeZone:",
+        currentTimeZone ? `(set: ${currentTimeZone.length} chars)` : "(empty)",
+        "workingHours:",
+        currentWorkingHours ? `keys=${Object.keys(currentWorkingHours).join(",") || "none"}` : "(empty)"
+      );
       return updateInstructorSettings({
         timeZone: currentTimeZone || null,
         workingHours: currentWorkingHours || {},
@@ -106,7 +122,7 @@ export function SchedulingSettingsForm({
       toast.success("Settings saved successfully");
     },
     onError: (error) => {
-      console.error("[DEBUG SchedulingSettingsForm] saveMutation.onError - error:", error);
+      logDebug("[DEBUG SchedulingSettingsForm] saveMutation.onError - error:", error instanceof Error ? error.message : String(error));
       toast.error(error instanceof Error ? error.message : "Failed to save settings");
     },
   });
@@ -146,9 +162,8 @@ export function SchedulingSettingsForm({
   }
 
   function save() {
-    console.log("[DEBUG SchedulingSettingsForm] save() called");
     const tzAtSave = form.getFieldValue("timeZone") as string;
-    console.log("[DEBUG SchedulingSettingsForm] save() - timeZone at save moment:", JSON.stringify(tzAtSave));
+    logDebug("[DEBUG SchedulingSettingsForm] save() - timeZone at save moment:", tzAtSave ? `(set: ${tzAtSave.length} chars)` : "(empty)");
     saveMutation.mutate();
   }
 
