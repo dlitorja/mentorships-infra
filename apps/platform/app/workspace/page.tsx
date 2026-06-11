@@ -4,7 +4,6 @@ export const dynamic = "force-dynamic";
 
 import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { useWorkspacesByOwner } from "@/lib/queries/convex/use-workspaces";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -13,6 +12,7 @@ import { MessageSquare, FileText, Image as ImageIcon, Loader2, Info, X } from "l
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
+import { ProtectedLayout } from "@/components/navigation/protected-layout";
 
 type UserWorkspace = {
   _id: Id<"workspaces">;
@@ -160,27 +160,6 @@ function WorkspaceContent({
   );
 }
 
-function AuthenticatedWorkspace() {
-  const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (clerkLoaded && !clerkUser) {
-      router.push("/sign-in");
-    }
-  }, [clerkLoaded, clerkUser, router]);
-
-  if (!clerkLoaded || !clerkUser) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  return <WorkspaceContent clerkUserId={clerkUser.id} />;
-}
-
 function WorkspacePolicyBanner() {
   const [visible, setVisible] = useState(true);
   if (!visible) return null;
@@ -202,6 +181,20 @@ function WorkspacePolicyBanner() {
   );
 }
 
+function WorkspaceClientPage() {
+  const { user: clerkUser, isLoaded: clerkLoaded } = useUser();
+
+  if (!clerkLoaded || !clerkUser) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <WorkspaceContent clerkUserId={clerkUser.id} />;
+}
+
 export default function WorkspacePage() {
   const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
   const isBuildTime = !clerkKey || clerkKey.includes("placeholder");
@@ -214,5 +207,9 @@ export default function WorkspacePage() {
     );
   }
 
-  return <AuthenticatedWorkspace />;
+  return (
+    <ProtectedLayout currentPath="/workspace">
+      <WorkspaceClientPage />
+    </ProtectedLayout>
+  );
 }
