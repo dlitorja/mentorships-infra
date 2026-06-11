@@ -1,6 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
 import { getServerUserRole } from "@/lib/auth-helpers";
-import "server-only";
 
 export class UnauthorizedError extends Error {
   constructor(message = "Unauthorized") {
