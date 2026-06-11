@@ -261,3 +261,93 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 }
+
+/**
+ * PATCH /api/admin/instructors
+ * Updates an instructor's userId to link to a Clerk user.
+ * This fixes instructors created without a proper Clerk userId linkage.
+ */
+const updateInstructorUserIdSchema = z.object({
+  instructorId: z.string().min(1, "Instructor ID is required"),
+  userId: z.string().trim().min(1, "User ID is required"),
+});
+
+export async function PATCH(req: NextRequest): Promise<NextResponse> {
+  try {
+    await requireRoleForApi("admin");
+
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Malformed JSON" }, { status: 400 });
+    }
+
+    const parsed = updateInstructorUserIdSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request", details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const { instructorId, userId } = parsed.data;
+    const convex = getConvexClient();
+
+    try {
+      await convex.mutation(api.instructors.updateInstructor, {
+        id: instructorId as Id<"instructors">,
+        userId: userId,
+      });
+    } catch (err: any) {
+      const msg: string = err?.message || String(err);
+      const requestId = (() => {
+        const m = msg.match(/\[Request ID: ([^\]]+)\]/);
+        return m ? m[1] : null;
+      })();
+      console.error("[platform:updateInstructor] Error:", { requestId, message: msg, instructorId });
+
+      const looksLikeArgValidation = /ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(msg);
+      if (looksLikeArgValidation) {
+        return NextResponse.json(
+          {
+            error: "Invalid Convex mutation arguments",
+            requestId,
+            details: "Update payload failed Convex validator",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (/Server Error/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error: "Upstream Convex server error",
+            requestId,
+            details: "Convex returned a server error while updating instructor",
+          },
+          { status: 502 }
+        );
+      }
+
+      throw err;
+    }
+
+    return NextResponse.json(
+      { success: true, message: "Instructor userId updated successfully" },
+      { status: 200 }
+    );
+  } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
+    }
+    console.error("[platform:updateInstructor] Error:", error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to update instructor" },
+      { status: 500 }
+    );
+  }
+}
