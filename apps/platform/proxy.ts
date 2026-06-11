@@ -355,6 +355,27 @@ async function middlewareHandler(auth: ClerkMiddlewareAuth, req: NextRequest) {
       dashboardUrl.searchParams.set("error", "unauthorized");
       return NextResponse.redirect(dashboardUrl);
     }
+
+    // Redirect instructors from /dashboard to /instructor/dashboard
+    if (pathname === "/dashboard" && userId) {
+      let role: string | undefined;
+      const claimsRole = (authResult.sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+      if (typeof claimsRole === "string" && ["admin", "instructor", "student"].includes(claimsRole)) {
+        role = claimsRole;
+      } else {
+        try {
+          const clerk = await clerkClient();
+          const clerkUser = await clerk.users.getUser(userId);
+          const roleMeta = clerkUser.publicMetadata?.role;
+          role = typeof roleMeta === "string" ? roleMeta : undefined;
+        } catch {
+          // Default to undefined, will allow access to /dashboard
+        }
+      }
+      if (role === "instructor") {
+        return NextResponse.redirect(new URL("/instructor/dashboard", req.url));
+      }
+    }
   }
 
   return NextResponse.next();
