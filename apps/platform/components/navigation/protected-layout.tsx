@@ -31,23 +31,23 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId });
 
   // Common navigation items
-  const commonItems: NavItem[] = [
-    { href: "/workspace", label: "Workspace", icon: MessageSquare },
-  ];
+  const commonItems: NavItem[] = [];
 
   // Determine navigation items based on user role
   const roleSpecificItems: NavItem[] = instructorRecord
     ? [
-        // Instructor navigation
-        { href: "/instructor/dashboard", label: "Instructor Dashboard" },
+        // Instructor navigation - Dashboard first, then Workspace, then instructor-specific items
+        { href: "/instructor/dashboard", label: "Dashboard" },
+        { href: "/workspace", label: "Workspace", icon: MessageSquare },
         { href: "/instructor/sessions", label: "My Sessions" },
         { href: "/instructor/onboarding", label: "Onboarding" },
         { href: "/instructor/settings", label: "Instructor Settings" },
         { href: "/settings", label: "Settings" },
       ]
     : [
-        // Student navigation
+        // Student navigation - Dashboard first, then Workspace, then student-specific items
         { href: "/dashboard", label: "Dashboard" },
+        { href: "/workspace", label: "Workspace", icon: MessageSquare },
         { href: "/sessions", label: "Sessions" },
         { href: "/calendar", label: "Calendar" },
         { href: "/settings", label: "Settings" },
