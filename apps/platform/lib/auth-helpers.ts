@@ -1,7 +1,6 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { reportError } from "@/lib/observability";
 import { UnauthorizedError, ForbiddenError } from "@/lib/errors";
-import "server-only";
 
 export type UserRole = "admin" | "instructor" | "student";
 
