@@ -1086,6 +1086,7 @@ export const migrateInstructor = mutation({
 export const updateInstructor = mutation({
   args: {
     id: v.id("instructors"),
+    userId: v.optional(v.string()),
     name: v.optional(v.string()),
     slug: v.optional(v.string()),
     // Allow clearing via null from API layer
