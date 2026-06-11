@@ -68,7 +68,12 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: useConvexMutation(api.users.updateUser),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => 
+          query.queryKey[0] === "convex" && 
+          typeof query.queryKey[1] === "string" && 
+          query.queryKey[1].startsWith("users")
+      });
     },
   });
 }
