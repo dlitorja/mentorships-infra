@@ -76,6 +76,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ...(calendarTimezone && { timeZone: calendarTimezone }),
     });
 
+    if (calendarTimezone) {
+      const userRecord = await convex.query(api.users.getCurrentUser, {});
+      if (userRecord) {
+        await convex.mutation(api.users.updateUser, {
+          id: userRecord._id,
+          timeZone: calendarTimezone,
+        });
+        console.log("[platform] Also updated users.timeZone to:", calendarTimezone);
+      }
+    }
+
     const res = NextResponse.redirect(
       getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=connected")
     );
