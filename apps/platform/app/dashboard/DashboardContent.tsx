@@ -29,6 +29,8 @@ function formatDateTime(date: number): string {
   });
 }
 
+const GOOGLE_CALENDAR_CONFIRMED_KEY = "googleCalendarConfirmedNotConnected";
+
 interface SessionPackData {
   _id: Id<"sessionPacks">;
   instructorId: string;
@@ -191,13 +193,28 @@ export function DashboardContent() {
       setLoadingGoogleCalendar(false);
       return;
     }
+    if (typeof window !== "undefined" && sessionStorage.getItem(GOOGLE_CALENDAR_CONFIRMED_KEY) === "true") {
+      setGoogleCalendarConnected(false);
+      setLoadingGoogleCalendar(false);
+      return;
+    }
     let cancelled = false;
     async function loadGoogleStatus(): Promise<void> {
       setLoadingGoogleCalendar(true);
       try {
         const res = await fetch("/api/google/calendars");
         if (!cancelled) {
-          setGoogleCalendarConnected(res.ok);
+          if (res.status === 409) {
+            setGoogleCalendarConnected(false);
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem(GOOGLE_CALENDAR_CONFIRMED_KEY, "true");
+            }
+          } else {
+            setGoogleCalendarConnected(res.ok);
+            if (res.ok && typeof window !== "undefined") {
+              sessionStorage.removeItem(GOOGLE_CALENDAR_CONFIRMED_KEY);
+            }
+          }
         }
       } catch {
         if (!cancelled) setGoogleCalendarConnected(false);

@@ -21,6 +21,8 @@ type CalendarsResponse = {
   };
 };
 
+const GOOGLE_CALENDAR_CONFIRMED_KEY = "googleCalendarConfirmedNotConnected";
+
 /**
  * Card component for connecting and configuring Google Calendar integration.
  * Allows instructors to select which calendar to use for events
@@ -36,14 +38,25 @@ export function GoogleCalendarCard(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== "undefined" && sessionStorage.getItem(GOOGLE_CALENDAR_CONFIRMED_KEY) === "true") {
+      setConnected(false);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
         const res = await fetch("/api/google/calendars");
         if (res.status === 409) {
-          setConnected(false);
-          setCalendars([]);
+          if (!cancelled) {
+            setConnected(false);
+            setCalendars([]);
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem(GOOGLE_CALENDAR_CONFIRMED_KEY, "true");
+            }
+          }
           return;
         }
         if (!res.ok) throw new Error("Failed to load calendars");
@@ -53,10 +66,15 @@ export function GoogleCalendarCard(): React.JSX.Element {
           setCalendars(data.calendars);
           setEventCalendarId(data.selected.eventCalendarId);
           setAvailabilityCalendarIds(data.selected.availabilityCalendarIds);
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(GOOGLE_CALENDAR_CONFIRMED_KEY);
+          }
         }
       } catch (e) {
         console.error(e);
-        toast.error(e instanceof Error ? e.message : "Failed to load calendars");
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : "Failed to load calendars");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -106,6 +124,9 @@ export function GoogleCalendarCard(): React.JSX.Element {
       if (!res.ok) throw new Error("Failed to disconnect");
       setConnected(false);
       setCalendars([]);
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(GOOGLE_CALENDAR_CONFIRMED_KEY, "true");
+      }
       toast.success("Disconnected Google Calendar");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to disconnect");

@@ -96,19 +96,24 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     }
 
     const body = await req.json();
+    console.log("[DEBUG PATCH /api/instructor/settings] body:", JSON.stringify(body));
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
+      console.log("[DEBUG PATCH /api/instructor/settings] parse failed:", JSON.stringify(parsed.error.issues));
       return NextResponse.json(
         { error: "Invalid request", details: parsed.error.issues },
         { status: 400 }
       );
     }
 
+    console.log("[DEBUG PATCH /api/instructor/settings] parsed.data:", JSON.stringify(parsed.data));
+
     const updated = await convex.mutation(api.instructors.updateInstructorSchedulingSettings, {
       id: instructor._id,
       ...(parsed.data.timeZone !== undefined && parsed.data.timeZone !== null && { timeZone: parsed.data.timeZone }),
       ...(parsed.data.workingHours !== undefined && { workingHours: parsed.data.workingHours }),
     });
+    console.log("[DEBUG PATCH /api/instructor/settings] updated:", JSON.stringify(updated));
 
     return NextResponse.json({
       success: true,
