@@ -21,7 +21,9 @@ export default function SignUpRedirectPage() {
 
     const roleValue = user.publicMetadata?.role;
     const role = typeof roleValue === "string" ? roleValue.toLowerCase() : "";
-    if (role === "instructor" || role === "admin") {
+    if (role === "admin") {
+      router.push("/admin");
+    } else if (role === "instructor") {
       router.push("/instructor/dashboard");
     } else {
       router.push("/dashboard");
