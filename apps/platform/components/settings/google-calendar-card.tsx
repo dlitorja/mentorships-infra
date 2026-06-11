@@ -25,7 +25,7 @@ type CalendarsResponse = {
 function isOAuthCallback(): boolean {
   if (typeof window === "undefined") return false;
   const params = new URLSearchParams(window.location.search);
-  return params.get("oauth_success") === "true" || params.get("connected") === "true";
+  return params.get("google_calendar") === "connected";
 }
 
 /**

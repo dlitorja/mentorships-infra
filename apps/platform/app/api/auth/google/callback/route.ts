@@ -67,23 +67,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);
-    console.log("[platform] Google Calendar connected, timezone:", calendarTimezone);
+    console.log("[platform] Google Calendar connected, calendar timezone:", calendarTimezone);
+
+    const instructorUpdates: Record<string, unknown> = {
+      googleRefreshToken: tokens.refresh_token,
+      googleCalendarId: "primary",
+    };
+
+    if (calendarTimezone && !instructor.timeZone) {
+      instructorUpdates.timeZone = calendarTimezone;
+      console.log("[platform] Auto-setting instructor timezone from Google Calendar");
+    }
 
     await convex.mutation(api.instructors.updateInstructor, {
       id: instructor._id,
-      googleRefreshToken: tokens.refresh_token,
-      googleCalendarId: "primary",
-      ...(calendarTimezone && { timeZone: calendarTimezone }),
+      ...instructorUpdates,
     });
 
     if (calendarTimezone) {
       const userRecord = await convex.query(api.users.getCurrentUser, {});
-      if (userRecord) {
+      if (userRecord && !userRecord.timeZone) {
         await convex.mutation(api.users.updateUser, {
           id: userRecord._id,
           timeZone: calendarTimezone,
         });
-        console.log("[platform] Also updated users.timeZone to:", calendarTimezone);
+        console.log("[platform] Auto-setting users.timeZone from Google Calendar");
       }
     }
 
