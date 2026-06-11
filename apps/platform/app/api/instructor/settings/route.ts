@@ -95,20 +95,31 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
+    function logDebug(...args: unknown[]): void {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(...args);
+    }
+  }
+
     const body = await req.json();
+    logDebug("[DEBUG PATCH /api/instructor/settings] body keys:", Object.keys(body).join(","));
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) {
+      logDebug("[DEBUG PATCH /api/instructor/settings] parse failed, issues:", parsed.error.issues.length);
       return NextResponse.json(
         { error: "Invalid request", details: parsed.error.issues },
         { status: 400 }
       );
     }
 
+    logDebug("[DEBUG PATCH /api/instructor/settings] timeZone:", parsed.data.timeZone ? `(set: ${parsed.data.timeZone.length} chars)` : "(empty)", "workingHours keys:", parsed.data.workingHours ? Object.keys(parsed.data.workingHours).join(",") || "none" : "(not set)");
+
     const updated = await convex.mutation(api.instructors.updateInstructorSchedulingSettings, {
       id: instructor._id,
       ...(parsed.data.timeZone !== undefined && parsed.data.timeZone !== null && { timeZone: parsed.data.timeZone }),
       ...(parsed.data.workingHours !== undefined && { workingHours: parsed.data.workingHours }),
     });
+    logDebug("[DEBUG PATCH /api/instructor/settings] updated timeZone:", updated?.timeZone ? `(set: ${updated.timeZone.length} chars)` : "(empty)");
 
     return NextResponse.json({
       success: true,
