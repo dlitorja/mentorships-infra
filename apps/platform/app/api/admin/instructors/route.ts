@@ -269,7 +269,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
  */
 const updateInstructorUserIdSchema = z.object({
   instructorId: z.string().min(1, "Instructor ID is required"),
-  userId: z.string().min(1, "User ID is required"),
+  userId: z.string().trim().min(1, "User ID is required"),
 });
 
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
@@ -292,24 +292,45 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
     }
 
     const { instructorId, userId } = parsed.data;
-    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-    if (!convexUrl) {
-      return NextResponse.json({ error: "Server misconfigured: NEXT_PUBLIC_CONVEX_URL" }, { status: 500 });
-    }
-
-    const convex = new ConvexHttpClient(convexUrl);
+    const convex = getConvexClient();
 
     try {
       await convex.mutation(api.instructors.updateInstructor, {
-        id: instructorId as any,
+        id: instructorId as Id<"instructors">,
         userId: userId,
       });
     } catch (err: any) {
-      console.error("[platform:updateInstructor] Error:", err);
-      return NextResponse.json(
-        { error: err?.message || "Failed to update instructor" },
-        { status: 500 }
-      );
+      const msg: string = err?.message || String(err);
+      const requestId = (() => {
+        const m = msg.match(/\[Request ID: ([^\]]+)\]/);
+        return m ? m[1] : null;
+      })();
+      console.error("[platform:updateInstructor] Error:", { requestId, message: msg, instructorId });
+
+      const looksLikeArgValidation = /ArgumentValidationError|Value does not match validator|Invalid arguments|Invalid value for/i.test(msg);
+      if (looksLikeArgValidation) {
+        return NextResponse.json(
+          {
+            error: "Invalid Convex mutation arguments",
+            requestId,
+            details: "Update payload failed Convex validator",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (/Server Error/i.test(msg)) {
+        return NextResponse.json(
+          {
+            error: "Upstream Convex server error",
+            requestId,
+            details: "Convex returned a server error while updating instructor",
+          },
+          { status: 502 }
+        );
+      }
+
+      throw err;
     }
 
     return NextResponse.json(
