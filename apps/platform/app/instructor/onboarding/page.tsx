@@ -57,7 +57,7 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
   });
 
   const selected =
-    (submissionId ? submissions.find((s) => s.legacyId === submissionId) : null) ?? submissions[0] ?? null;
+    (submissionId ? submissions.find((s) => s.legacyId === submissionId || s._id === submissionId) : null) ?? submissions[0] ?? null;
 
   const imageObjects = selected?.imageObjects;
   const signedUrls =
@@ -102,8 +102,8 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
             </CardHeader>
             <CardContent>
               <SchedulingSettingsForm
-                initialTimeZone={(convexInstructor as any)?.timeZone ?? null}
-                initialWorkingHours={(convexInstructor as any)?.workingHours ?? null}
+                initialTimeZone={convexInstructor?.timeZone ?? null}
+                initialWorkingHours={convexInstructor?.workingHours ?? null}
               />
             </CardContent>
           </Card>
@@ -200,10 +200,16 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
                     </div>
 
                     <form action={`/api/instructor/onboarding/review`} method="post">
-                      <input type="hidden" name="submissionId" value={selected.legacyId ?? selected._id} />
-                      <Button type="submit" disabled={Boolean(selected.reviewedAt)}>
-                        {selected.reviewedAt ? "Reviewed" : "Mark reviewed"}
-                      </Button>
+                      {selected.legacyId ? (
+                        <>
+                          <input type="hidden" name="submissionId" value={selected.legacyId} />
+                          <Button type="submit" disabled={Boolean(selected.reviewedAt)}>
+                            {selected.reviewedAt ? "Reviewed" : "Mark reviewed"}
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Legacy ID not available for this submission.</p>
+                      )}
                     </form>
                   </>
                 ) : (

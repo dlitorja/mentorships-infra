@@ -95,6 +95,19 @@ export const markReviewed = mutation({
 export const listByInstructor = query({
   args: { instructorId: v.id("instructors") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      throw new Error("Instructor not found");
+    }
+    if (instructor.userId !== user.subject) {
+      throw new Error("Forbidden");
+    }
+
     const submissions = await ctx.db
       .query("studentOnboardingSubmissions")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
