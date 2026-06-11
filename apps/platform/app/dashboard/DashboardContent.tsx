@@ -29,7 +29,13 @@ function formatDateTime(date: number): string {
   });
 }
 
-const GOOGLE_CALENDAR_CONFIRMED_KEY = "googleCalendarConfirmedNotConnected";
+import { GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY } from "@/lib/constants/storage-keys";
+
+function isOAuthCallback(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("oauth_success") === "true" || params.get("connected") === "true";
+}
 
 interface SessionPackData {
   _id: Id<"sessionPacks">;
@@ -193,10 +199,18 @@ export function DashboardContent() {
       setLoadingGoogleCalendar(false);
       return;
     }
-    if (typeof window !== "undefined" && sessionStorage.getItem(GOOGLE_CALENDAR_CONFIRMED_KEY) === "true") {
-      setGoogleCalendarConnected(false);
-      setLoadingGoogleCalendar(false);
-      return;
+    if (typeof window !== "undefined") {
+      if (isOAuthCallback()) {
+        sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
+        const url = new URL(window.location.href);
+        url.search = "";
+        window.history.replaceState({}, "", url.toString());
+      }
+      if (sessionStorage.getItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY) === "true") {
+        setGoogleCalendarConnected(false);
+        setLoadingGoogleCalendar(false);
+        return;
+      }
     }
     let cancelled = false;
     async function loadGoogleStatus(): Promise<void> {
@@ -206,13 +220,11 @@ export function DashboardContent() {
         if (!cancelled) {
           if (res.status === 409) {
             setGoogleCalendarConnected(false);
-            if (typeof window !== "undefined") {
-              sessionStorage.setItem(GOOGLE_CALENDAR_CONFIRMED_KEY, "true");
-            }
+            sessionStorage.setItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY, "true");
           } else {
             setGoogleCalendarConnected(res.ok);
-            if (res.ok && typeof window !== "undefined") {
-              sessionStorage.removeItem(GOOGLE_CALENDAR_CONFIRMED_KEY);
+            if (res.ok) {
+              sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
             }
           }
         }
