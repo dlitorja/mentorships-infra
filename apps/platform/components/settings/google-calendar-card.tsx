@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY } from "@/lib/constants/storage-keys";
 
 type Calendar = {
   id: string;
@@ -21,6 +22,12 @@ type CalendarsResponse = {
   };
 };
 
+function isOAuthCallback(): boolean {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("oauth_success") === "true" || params.get("connected") === "true";
+}
+
 /**
  * Card component for connecting and configuring Google Calendar integration.
  * Allows instructors to select which calendar to use for events
@@ -36,14 +43,34 @@ export function GoogleCalendarCard(): React.JSX.Element {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (isOAuthCallback()) {
+      sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
+      if (window.location.search) {
+        const url = new URL(window.location.href);
+        url.search = "";
+        window.history.replaceState({}, "", url.toString());
+      }
+    }
+
+    if (sessionStorage.getItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY) === "true") {
+      setConnected(false);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     async function load() {
       setLoading(true);
       try {
         const res = await fetch("/api/google/calendars");
         if (res.status === 409) {
-          setConnected(false);
-          setCalendars([]);
+          if (!cancelled) {
+            setConnected(false);
+            setCalendars([]);
+            sessionStorage.setItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY, "true");
+          }
           return;
         }
         if (!res.ok) throw new Error("Failed to load calendars");
@@ -53,10 +80,13 @@ export function GoogleCalendarCard(): React.JSX.Element {
           setCalendars(data.calendars);
           setEventCalendarId(data.selected.eventCalendarId);
           setAvailabilityCalendarIds(data.selected.availabilityCalendarIds);
+          sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
         }
       } catch (e) {
         console.error(e);
-        toast.error(e instanceof Error ? e.message : "Failed to load calendars");
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : "Failed to load calendars");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -106,6 +136,7 @@ export function GoogleCalendarCard(): React.JSX.Element {
       if (!res.ok) throw new Error("Failed to disconnect");
       setConnected(false);
       setCalendars([]);
+      sessionStorage.removeItem(GOOGLE_CALENDAR_NOT_CONNECTED_CACHE_KEY);
       toast.success("Disconnected Google Calendar");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to disconnect");
