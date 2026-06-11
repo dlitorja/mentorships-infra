@@ -33,6 +33,9 @@ export default async function AuthRedirectPage(): Promise<never> {
   if (role === "admin") {
     redirect("/admin");
   }
+  if (role === "instructor") {
+    redirect("/instructor/dashboard");
+  }
 
   redirect("/dashboard");
 }
