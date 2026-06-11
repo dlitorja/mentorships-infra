@@ -89,17 +89,24 @@ export function SchedulingSettingsForm({
   const timeZone = form.getFieldValue("timeZone") as string;
   const workingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
 
+  console.log("[DEBUG SchedulingSettingsForm] render - timeZone:", JSON.stringify(timeZone), "workingHours:", JSON.stringify(workingHours));
+
   const saveMutation = useMutation({
-    mutationFn: () =>
-      updateInstructorSettings({
-        timeZone: timeZone || null,
-        workingHours: workingHours || {},
-      }),
+    mutationFn: () => {
+      const currentTimeZone = form.getFieldValue("timeZone") as string;
+      const currentWorkingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
+      console.log("[DEBUG SchedulingSettingsForm] saveMutation.mutationFn - currentTimeZone:", JSON.stringify(currentTimeZone), "currentWorkingHours:", JSON.stringify(currentWorkingHours));
+      return updateInstructorSettings({
+        timeZone: currentTimeZone || null,
+        workingHours: currentWorkingHours || {},
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructorSettings"] });
       toast.success("Settings saved successfully");
     },
     onError: (error) => {
+      console.error("[DEBUG SchedulingSettingsForm] saveMutation.onError - error:", error);
       toast.error(error instanceof Error ? error.message : "Failed to save settings");
     },
   });
@@ -139,6 +146,9 @@ export function SchedulingSettingsForm({
   }
 
   function save() {
+    console.log("[DEBUG SchedulingSettingsForm] save() called");
+    const tzAtSave = form.getFieldValue("timeZone") as string;
+    console.log("[DEBUG SchedulingSettingsForm] save() - timeZone at save moment:", JSON.stringify(tzAtSave));
     saveMutation.mutate();
   }
 
