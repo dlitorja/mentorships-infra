@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 /**
  * Fetches a student onboarding submission by its legacy ID (UUID used by the web app).
@@ -88,5 +89,59 @@ export const markReviewed = mutation({
       updatedAt: Date.now(),
     });
     return { ok: true as const };
+  },
+});
+
+export const listByInstructor = query({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      throw new Error("Instructor not found");
+    }
+    if (instructor.userId !== user.subject) {
+      throw new Error("Forbidden");
+    }
+
+    const submissions = await ctx.db
+      .query("studentOnboardingSubmissions")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    const out: Array<{
+      _id: Id<"studentOnboardingSubmissions">;
+      legacyId: string | undefined;
+      userId: string;
+      goals: string;
+      imageObjects: any;
+      createdAt: number | undefined;
+      reviewedAt: number | undefined;
+      studentEmail: string;
+    }> = [];
+
+    for (const sub of submissions) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", sub.userId))
+        .first();
+      out.push({
+        _id: sub._id,
+        legacyId: sub.legacyId,
+        userId: sub.userId,
+        goals: sub.goals,
+        imageObjects: sub.imageObjects,
+        createdAt: sub.createdAt,
+        reviewedAt: sub.reviewedAt,
+        studentEmail: user?.email ?? "unknown",
+      });
+    }
+
+    out.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    return out;
   },
 });
