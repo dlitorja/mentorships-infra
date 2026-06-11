@@ -82,12 +82,21 @@ export function TimeZoneSelector() {
   const { data: user, isLoading } = useCurrentUser();
   const updateUser = useUpdateUser();
 
-  const handleTimeZoneChange = async (timeZone: string) => {
+  function logDebug(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(...args);
+  }
+}
+
+const handleTimeZoneChange = async (timeZone: string) => {
     if (!user) return;
+    logDebug("[DEBUG TimeZoneSelector] handleTimeZoneChange called, user._id:", user._id);
     try {
       await updateUser.mutateAsync({ id: user._id, timeZone });
+      logDebug("[DEBUG TimeZoneSelector] mutation completed, timeZone set:", timeZone ? `(set: ${timeZone.length} chars)` : "(empty)");
       toast.success("Timezone saved");
     } catch (error) {
+      logDebug("[DEBUG TimeZoneSelector] mutation error:", error instanceof Error ? error.message : String(error));
       toast.error(error instanceof Error ? error.message : "Failed to save timezone");
     }
   };

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
-import { exchangeGoogleCodeForTokens } from "@/lib/google";
+import { exchangeGoogleCodeForTokens, getGoogleCalendarClient } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
@@ -10,12 +10,24 @@ function getAppRedirectUrl(request: NextRequest, path: string): URL {
   return new URL(path, request.url);
 }
 
+async function getCalendarTimezone(refreshToken: string): Promise<string | null> {
+  try {
+    const calendar = await getGoogleCalendarClient(refreshToken);
+    const response = await calendar.calendars.get({ calendarId: "primary" });
+    return response.data.timeZone || null;
+  } catch (error) {
+    console.error("[platform] Failed to get calendar timezone:", error);
+    return null;
+  }
+}
+
 /**
  * GET /api/auth/google/callback
  * Handles Google OAuth callback after user consents to calendar access.
  * Requires instructor role. Validates state cookie, exchanges auth code
  * for tokens, stores refresh token and hardcoded "primary" calendar ID
- * in Convex. Redirects to dashboard with google_calendar status param.
+ * in Convex. Automatically sets instructor timezone from Google Calendar.
+ * Redirects to dashboard with google_calendar status param.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -54,11 +66,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
 
-    await convex.mutation(api.instructors.updateInstructor, {
-      id: instructor._id,
+    const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);
+    console.log("[platform] Google Calendar connected, calendar timezone:", calendarTimezone);
+
+    const instructorUpdates: Record<string, unknown> = {
       googleRefreshToken: tokens.refresh_token,
       googleCalendarId: "primary",
+    };
+
+    if (calendarTimezone && !instructor.timeZone) {
+      instructorUpdates.timeZone = calendarTimezone;
+      console.log("[platform] Auto-setting instructor timezone from Google Calendar");
+    }
+
+    await convex.mutation(api.instructors.updateInstructor, {
+      id: instructor._id,
+      ...instructorUpdates,
     });
+
+    if (calendarTimezone) {
+      const userRecord = await convex.query(api.users.getCurrentUser, {});
+      if (userRecord && !userRecord.timeZone) {
+        await convex.mutation(api.users.updateUser, {
+          id: userRecord._id,
+          timeZone: calendarTimezone,
+        });
+        console.log("[platform] Auto-setting users.timeZone from Google Calendar");
+      }
+    }
 
     const res = NextResponse.redirect(
       getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=connected")
