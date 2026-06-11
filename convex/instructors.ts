@@ -1086,6 +1086,7 @@ export const migrateInstructor = mutation({
 export const updateInstructor = mutation({
   args: {
     id: v.id("instructors"),
+    userId: v.optional(v.string()),
     name: v.optional(v.string()),
     slug: v.optional(v.string()),
     // Allow clearing via null from API layer
@@ -1114,6 +1115,14 @@ export const updateInstructor = mutation({
     legacyInstructorRef: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden");
+
     const { id, ...updates } = args;
     // Translate nulls from API layer into undefined to clear fields in Convex
     const nullableKeys: (keyof typeof updates)[] = [
