@@ -20,11 +20,6 @@ import { queryKeys } from "@/lib/queries/query-keys";
 import { verifyCheckoutSession } from "@/lib/queries/api-client";
 import { useUser } from "@clerk/nextjs";
 
-// Force dynamic rendering to prevent static generation issues with useSearchParams
-export const dynamic = "force-dynamic";
-
-// No test-only flags; CTA is determined solely by auth state.
-
 function CheckoutSuccessContent(): React.JSX.Element {
   const searchParams = useSearchParams();
   const sessionId = searchParams?.get("session_id") || null;
