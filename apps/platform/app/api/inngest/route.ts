@@ -9,6 +9,7 @@ import {
 import { onboardingFlow } from "@/inngest/functions/onboarding";
 import { syncInstructorInventoryToConvex } from "@/inngest/functions/inventory-sync";
 import { linkClerkUserToSessionPacks } from "@/inngest/functions/clerk-user-linking";
+import { handleClerkUserCreated, handleClerkUserUpdated } from "@/inngest/functions/clerk-user-instructor-lifecycle";
 import { migrateGuestSessionPacks } from "@/inngest/functions/migrate-guest-session-packs";
 
 // Export all functions for Inngest to serve
@@ -26,6 +27,9 @@ export const { GET, POST, PUT } = serve({
     syncInstructorInventoryToConvex,
     // Clerk user linking - links guest purchases to Clerk user after signup
     linkClerkUserToSessionPacks,
+    // Clerk instructor lifecycle - creates/deactivates instructor records based on Clerk role
+    handleClerkUserCreated,
+    handleClerkUserUpdated,
     // Migration - one-time migration of existing guest session packs
     migrateGuestSessionPacks,
   ],
