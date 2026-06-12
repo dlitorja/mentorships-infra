@@ -84,7 +84,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ...instructorUpdates,
     });
 
-    if (calendarTimezone && instructor.timeZone === undefined) {
+    if (calendarTimezone && !instructor.timeZone) {
       console.log("[platform] Instructor timezone set from Google Calendar");
     }
 
