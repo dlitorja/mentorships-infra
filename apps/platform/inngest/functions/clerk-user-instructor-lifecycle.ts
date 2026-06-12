@@ -3,27 +3,6 @@ import { reportInfo, reportError } from "@/lib/observability";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 
-function getConvexUrl(): string {
-  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return url;
-}
-
-function getConvexSecret(): string {
-  const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-  if (!secret) {
-    throw new Error("CONVEX_SERVER_SHARED_SECRET is not set");
-  }
-  return secret;
-}
-
-function getConvexClient() {
-  const url = getConvexUrl();
-  return new ConvexHttpClient(url);
-}
-
 type ClerkUserCreatedEventData = {
   userId: string;
   email?: string;
@@ -65,8 +44,6 @@ export const handleClerkUserCreated = inngest.createFunction(
       return { processed: true, action: "no-op", reason: "Not instructor role" };
     }
 
-    const convex = getConvexClient();
-    const secret = getConvexSecret();
     const normalizedEmail = email.toLowerCase().trim();
     const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
@@ -81,20 +58,43 @@ export const handleClerkUserCreated = inngest.createFunction(
         return { processed: true, action: "skipped", reason: "Feature flag disabled" };
       }
 
+      const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+      if (!url || !secret) {
+        return { processed: false, action: "error", reason: "Convex env not configured" };
+      }
+
+      const convex = new ConvexHttpClient(url);
+
       try {
         const result = await convex.action(
           api.instructors.createInstructorForClerkUser,
           { userId, email: normalizedEmail, name, secret }
         );
 
+        if (!result.success) {
+          await reportError({
+            source: "inngest:clerk-user-instructor-lifecycle",
+            error: new Error(result.reason ?? "createInstructorForClerkUser failed"),
+            level: "error",
+            message: "Instructor auto-create returned unsuccessful result",
+            context: { userId, email, reason: result.reason },
+          });
+          return {
+            processed: false,
+            action: "error",
+            reason: result.reason ?? "Unknown failure",
+          };
+        }
+
         await reportInfo({
           source: "inngest:clerk-user-instructor-lifecycle",
           message: `Instructor auto-created via Clerk webhook`,
           level: "info",
-          context: { userId, email, instructorId: result?.instructorId },
+          context: { userId, email, instructorId: result.instructorId },
         });
 
-        return { processed: true, action: "created", instructorId: result?.instructorId };
+        return { processed: true, action: "created", instructorId: result.instructorId };
       } catch (error) {
         await reportError({
           source: "inngest:clerk-user-instructor-lifecycle",
@@ -150,8 +150,6 @@ export const handleClerkUserUpdated = inngest.createFunction(
       return { processed: true, action: "no-op", reason: "No instructor role change" };
     }
 
-    const convex = getConvexClient();
-    const secret = getConvexSecret();
     const normalizedEmail = email.toLowerCase().trim();
     const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
@@ -167,11 +165,34 @@ export const handleClerkUserUpdated = inngest.createFunction(
           return { processed: true, action: "skipped", reason: "Feature flag disabled" };
         }
 
+        const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+        const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+        if (!url || !secret) {
+          return { processed: false, action: "error", reason: "Convex env not configured" };
+        }
+
+        const convex = new ConvexHttpClient(url);
+
         try {
           const result = await convex.action(
             api.instructors.createInstructorForClerkUser,
             { userId, email: normalizedEmail, name, secret }
           );
+
+          if (!result.success) {
+            await reportError({
+              source: "inngest:clerk-user-instructor-lifecycle",
+              error: new Error(result.reason ?? "createInstructorForClerkUser failed"),
+              level: "error",
+              message: "Instructor auto-create returned unsuccessful result",
+              context: { userId, email, reason: result.reason },
+            });
+            return {
+              processed: false,
+              action: "error",
+              reason: result.reason ?? "Unknown failure",
+            };
+          }
 
           await reportInfo({
             source: "inngest:clerk-user-instructor-lifecycle",
@@ -180,7 +201,7 @@ export const handleClerkUserUpdated = inngest.createFunction(
             context: { userId, email },
           });
 
-          return { processed: true, action: "created", instructorId: result?.instructorId };
+          return { processed: true, action: "created", instructorId: result.instructorId };
         } catch (error) {
           await reportError({
             source: "inngest:clerk-user-instructor-lifecycle",
@@ -200,11 +221,34 @@ export const handleClerkUserUpdated = inngest.createFunction(
           return { processed: true, action: "skipped", reason: "Feature flag disabled" };
         }
 
+        const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+        const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+        if (!url || !secret) {
+          return { processed: false, action: "error", reason: "Convex env not configured" };
+        }
+
+        const convex = new ConvexHttpClient(url);
+
         try {
           const result = await convex.action(
             api.instructors.deactivateInstructorByUserId,
             { userId, secret }
           );
+
+          if (!result.success) {
+            await reportError({
+              source: "inngest:clerk-user-instructor-lifecycle",
+              error: new Error(result.reason ?? "deactivateInstructorByUserId failed"),
+              level: "error",
+              message: "Instructor deactivation returned unsuccessful result",
+              context: { userId, reason: result.reason },
+            });
+            return {
+              processed: false,
+              action: "error",
+              reason: result.reason ?? "Unknown failure",
+            };
+          }
 
           await reportInfo({
             source: "inngest:clerk-user-instructor-lifecycle",
@@ -213,7 +257,7 @@ export const handleClerkUserUpdated = inngest.createFunction(
             context: { userId, previousRole, newRole: role },
           });
 
-          return { processed: true, action: "deactivated", instructorId: result?.instructorId };
+          return { processed: true, action: "deactivated", instructorId: result.instructorId };
         } catch (error) {
           await reportError({
             source: "inngest:clerk-user-instructor-lifecycle",

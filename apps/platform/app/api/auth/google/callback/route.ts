@@ -84,15 +84,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ...instructorUpdates,
     });
 
-    if (calendarTimezone) {
-      const userRecord = await convex.query(api.users.getCurrentUser, {});
-      if (userRecord && !userRecord.timeZone) {
-        await convex.mutation(api.users.updateUser, {
-          id: userRecord._id,
-          timeZone: calendarTimezone,
-        });
-        console.log("[platform] Auto-setting users.timeZone from Google Calendar");
-      }
+    if (calendarTimezone && instructor.timeZone === undefined) {
+      console.log("[platform] Instructor timezone set from Google Calendar");
     }
 
     const res = NextResponse.redirect(
