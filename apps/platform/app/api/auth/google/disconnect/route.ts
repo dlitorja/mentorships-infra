@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import { requireRoleForApi } from "@/lib/auth-helpers";
+import { requireRoleForApi, getConvexAuthToken } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
-
-async function getConvexAuthToken() {
-  const clerkAuth = await auth();
-  return clerkAuth.getToken({ template: "convex" });
-}
 
 /**
  * POST /api/auth/google/disconnect
@@ -39,15 +33,18 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
       if (tokenToRevoke) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
-        const params = new URLSearchParams();
-        params.set("token", tokenToRevoke);
-        await fetch("https://oauth2.googleapis.com/revoke", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: params.toString(),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
+        try {
+          const params = new URLSearchParams();
+          params.set("token", tokenToRevoke);
+          await fetch("https://oauth2.googleapis.com/revoke", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: params.toString(),
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
     } catch (revErr) {
       console.warn("[platform] Google token revocation failed (ignored):", revErr);

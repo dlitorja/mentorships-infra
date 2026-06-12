@@ -88,13 +88,7 @@ export function TimeZoneSelector() {
   const { data: user, isLoading } = useCurrentUser();
   const updateUser = useUpdateUser();
 
-  function logDebug(...args: unknown[]): void {
-  if (process.env.NODE_ENV !== "production") {
-    console.log(...args);
-  }
-}
-
-const handleTimeZoneChange = async (timeZone: string) => {
+  const handleTimeZoneChange = async (timeZone: string) => {
     if (!user) return;
     logDebug("[DEBUG TimeZoneSelector] handleTimeZoneChange called, user._id:", user._id);
     try {
