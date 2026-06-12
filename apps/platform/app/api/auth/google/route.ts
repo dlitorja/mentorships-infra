@@ -8,11 +8,6 @@ import { getGoogleCalendarAuthUrl } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
-async function getConvexAuthToken() {
-  const clerkAuth = await auth();
-  return clerkAuth.getToken({ template: "convex" });
-}
-
 /**
  * GET /api/auth/google
  * Initiates Google OAuth flow for connecting instructor's Google Calendar.
