@@ -2330,24 +2330,48 @@ export const linkClerkUserToInstructor = internalAction({
         };
       }
     } else if (process.env.CLERK_AUTO_CREATE_INSTRUCTOR === "true") {
-      // Auto-create instructor if none found and feature flag is enabled
-      const nameFromEmail = normalizedEmail.split("@")[0].replace(/[^a-z0-9]/gi, " ").trim().split(/\s+/).map((part, i) => i === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part).join(" ") || normalizedEmail;
+      // Check if instructor already exists by userId (could have been created by handleClerkUserCreated)
+      const existingByUserId = await ctx.runQuery(
+        internal.instructors.getInstructorByUserIdInternal,
+        { userId }
+      );
 
-      const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
-        userId,
-        name: nameFromEmail || undefined,
-        email: normalizedEmail,
-        isActive: true,
-        isNew: true,
-      });
+      if (existingByUserId) {
+        // Already created by handleClerkUserCreated, just link
+        await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
+          instructorId: existingByUserId._id,
+          legacyInstructorRef: (existingByUserId as any).legacyInstructorRef ?? (existingByUserId as any).legacyId,
+          userId,
+        });
 
-      instructorResult = {
-        linked: true,
-        instructorId: instructorId as Id<"instructors">,
-        instructorName: nameFromEmail || null,
-        userId,
-        email: normalizedEmail,
-      };
+        instructorResult = {
+          linked: true,
+          instructorId: existingByUserId._id,
+          instructorName: existingByUserId.name ?? null,
+          userId,
+          legacyInstructorRef: ((existingByUserId as any).legacyInstructorRef ?? (existingByUserId as any).legacyId) ?? undefined,
+          email: normalizedEmail,
+        };
+      } else {
+        // Auto-create instructor if none found and feature flag is enabled
+        const nameFromEmail = normalizedEmail.split("@")[0].replace(/[^a-z0-9]/gi, " ").trim().split(/\s+/).map((part, i) => i === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part).join(" ") || normalizedEmail;
+
+        const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
+          userId,
+          name: nameFromEmail || undefined,
+          email: normalizedEmail,
+          isActive: true,
+          isNew: true,
+        });
+
+        instructorResult = {
+          linked: true,
+          instructorId: instructorId as Id<"instructors">,
+          instructorName: nameFromEmail || null,
+          userId,
+          email: normalizedEmail,
+        };
+      }
     }
 
     const pendingInvitations = await ctx.runQuery(
