@@ -2358,6 +2358,118 @@ export const linkClerkUserToInstructor = internalAction({
     };
   },
 });
+
+export const getInstructorByUserIdInternal = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+  },
+});
+
+export const createInstructorInternal = internalMutation({
+  args: {
+    userId: v.string(),
+    name: v.optional(v.string()),
+    email: v.optional(v.string()),
+    isActive: v.boolean(),
+    isNew: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("instructors", {
+      userId: args.userId,
+      name: args.name ?? undefined,
+      email: args.email ?? undefined,
+      isActive: args.isActive,
+      isNew: args.isNew,
+      maxActiveStudents: 10,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+    });
+  },
+});
+
+export const deactivateInstructorInternal = internalMutation({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.instructorId, {
+      isActive: false,
+      updatedAt: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+export const createInstructorForClerkUser = action({
+  args: {
+    userId: v.string(),
+    email: v.optional(v.string()),
+    name: v.optional(v.string()),
+    secret: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
+    if (args.secret !== process.env.CONVEX_SERVER_SHARED_SECRET) {
+      console.error("createInstructorForClerkUser: Invalid secret");
+      return { success: false, reason: "Invalid secret" };
+    }
+
+    const existing = await ctx.runQuery(
+      internal.instructors.getInstructorByUserIdInternal,
+      { userId: args.userId }
+    );
+
+    if (existing) {
+      console.log("createInstructorForClerkUser: Instructor already exists", args.userId);
+      return { success: true, instructorId: existing._id, reason: "Already exists" };
+    }
+
+    const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
+      userId: args.userId,
+      name: args.name,
+      email: args.email,
+      isActive: true,
+      isNew: true,
+    });
+
+    console.log("createInstructorForClerkUser: Created instructor", args.userId, instructorId);
+
+    return { success: true, instructorId };
+  },
+});
+
+export const deactivateInstructorByUserId = action({
+  args: {
+    userId: v.string(),
+    secret: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
+    if (args.secret !== process.env.CONVEX_SERVER_SHARED_SECRET) {
+      console.error("deactivateInstructorByUserId: Invalid secret");
+      return { success: false, reason: "Invalid secret" };
+    }
+
+    const instructor = await ctx.runQuery(
+      internal.instructors.getInstructorByUserIdInternal,
+      { userId: args.userId }
+    );
+
+    if (!instructor) {
+      console.log("deactivateInstructorByUserId: No instructor found", args.userId);
+      return { success: false, reason: "No instructor found" };
+    }
+
+    await ctx.runMutation(internal.instructors.deactivateInstructorInternal, {
+      instructorId: instructor._id,
+    });
+
+    console.log("deactivateInstructorByUserId: Deactivated instructor", args.userId, instructor._id);
+
+    return { success: true, instructorId: instructor._id };
+  },
+});
+
 // Structural type for studentInvitations to avoid reliance on TableNames when
 // generated types are stale in certain build environments.
 type StudentInvitationDoc = {
