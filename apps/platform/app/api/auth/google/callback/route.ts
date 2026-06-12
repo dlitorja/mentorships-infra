@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import { requireRoleForApi } from "@/lib/auth-helpers";
+import { requireRoleForApi, getConvexAuthToken } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { exchangeGoogleCodeForTokens, getGoogleCalendarClient } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
-
-async function getConvexAuthToken() {
-  const clerkAuth = await auth();
-  return clerkAuth.getToken({ template: "convex" });
-}
 
 function getAppRedirectUrl(request: NextRequest, path: string): URL {
   return new URL(path, request.url);
@@ -99,7 +93,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ...instructorUpdates,
     });
 
-    if (calendarTimezone && !instructor.timeZone) {
+if (calendarTimezone && !instructor.timeZone) {
       console.log("[platform] Instructor timezone set from Google Calendar");
     }
 
