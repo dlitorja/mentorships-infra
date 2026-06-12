@@ -93,6 +93,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ...instructorUpdates,
     });
 
+
     const res = NextResponse.redirect(
       getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=connected")
     );
