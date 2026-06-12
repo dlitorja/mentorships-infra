@@ -948,6 +948,10 @@ export const createInstructor = mutation({
       return existing._id;
     }
 
+    if (!args.name && !args.email && !args.slug) {
+      throw new Error("At least one of name, email, or slug is required");
+    }
+
     if (args.slug) {
       const existingBySlug = await ctx.db
         .query("instructors")
@@ -1044,6 +1048,10 @@ export const migrateInstructor = mutation({
         await ctx.db.patch(existingByUserId._id, updates);
       }
       return { action: "updated", id: existingByUserId._id };
+    }
+
+    if (!args.name && !args.email && !args.slug) {
+      throw new Error("At least one of name, email, or slug is required");
     }
 
     const id = await ctx.db.insert("instructors", {
@@ -2381,21 +2389,26 @@ export const linkClerkUserToInstructor = internalAction({
         // Auto-create instructor if none found and feature flag is enabled
         const nameFromEmail = normalizedEmail.split("@")[0].replace(/[^a-z0-9]/gi, " ").trim().split(/\s+/).map((part, i) => i === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part).join(" ") || normalizedEmail;
 
-        const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
-          userId,
-          name: nameFromEmail || undefined,
-          email: normalizedEmail,
-          isActive: true,
-          isNew: true,
-        });
+        // Don't create instructor if we don't have at least name or email
+        if (!nameFromEmail && !normalizedEmail) {
+          instructorResult = { linked: false, reason: "Cannot create instructor: no name or email available", email: normalizedEmail };
+        } else {
+          const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
+            userId,
+            name: nameFromEmail || undefined,
+            email: normalizedEmail,
+            isActive: true,
+            isNew: true,
+          });
 
-        instructorResult = {
-          linked: true,
-          instructorId: instructorId as Id<"instructors">,
-          instructorName: nameFromEmail || null,
-          userId,
-          email: normalizedEmail,
-        };
+          instructorResult = {
+            linked: true,
+            instructorId: instructorId as Id<"instructors">,
+            instructorName: nameFromEmail || null,
+            userId,
+            email: normalizedEmail,
+          };
+        }
       }
     }
 
@@ -2448,6 +2461,9 @@ export const createInstructorInternal = internalMutation({
     isNew: v.boolean(),
   },
   handler: async (ctx, args) => {
+    if (!args.name && !args.email) {
+      throw new Error("At least one of name or email is required");
+    }
     return await ctx.db.insert("instructors", {
       userId: args.userId,
       name: args.name ?? undefined,
