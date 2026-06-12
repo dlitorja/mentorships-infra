@@ -217,10 +217,6 @@ export const handleClerkUserUpdated = inngest.createFunction(
 
     if (wasInstructor && !isNowInstructor) {
       return await step.run("deactivate-instructor-on-role-removal", async () => {
-        if (!shouldAutoCreateInstructor()) {
-          return { processed: true, action: "skipped", reason: "Feature flag disabled" };
-        }
-
         const url = process.env.NEXT_PUBLIC_CONVEX_URL;
         const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
         if (!url || !secret) {
