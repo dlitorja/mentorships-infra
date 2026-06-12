@@ -29,7 +29,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
 
     if (!instructor) {
       const claims = (sessionClaims ?? {}) as Record<string, unknown>;
-      const email = claims.email_address as string | undefined;
+      const email = claims.email as string | undefined;
       const firstName = claims.first_name as string | undefined;
       const lastName = claims.last_name as string | undefined;
       const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
