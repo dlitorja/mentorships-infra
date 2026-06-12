@@ -4,6 +4,11 @@ import { UnauthorizedError, ForbiddenError } from "@/lib/errors";
 
 export type UserRole = "admin" | "instructor" | "student";
 
+export async function getConvexAuthToken(): Promise<string | null> {
+  const clerkAuth = await auth();
+  return clerkAuth.getToken({ template: "convex" });
+}
+
 export async function getServerUserRole(userId: string): Promise<UserRole> {
   try {
     const client = await clerkClient();
