@@ -30,6 +30,7 @@ type Instructor = {
   _id: Id<"instructors">;
   name?: string;
   slug?: string;
+  email?: string;
   tagline?: string;
   specialties?: string[];
   isActive?: boolean;
@@ -69,6 +70,7 @@ export default function InstructorsPage() {
     onSuccess: () => {
       setPurgeInstructor(null);
       setPurgeError(null);
+      setIsPurging(false);
       refetch();
     },
     onError: (error: Error) => {
@@ -91,10 +93,13 @@ export default function InstructorsPage() {
   const instructors = useMemo(() => {
     if (!allInstructors) return [];
 
+    const hasIdentifyingData = (i: Instructor): boolean => !!(i.name || i.email || i.slug);
+
     let filtered = showInactive
       ? allInstructors
       // Treat undefined isActive as active for backward compatibility
-      : allInstructors.filter((i: Instructor) => (i.isActive !== false) && !i.deletedAt);
+      // Also filter out instructors with no identifying data (defensive measure)
+      : allInstructors.filter((i: Instructor) => (i.isActive !== false) && !i.deletedAt && hasIdentifyingData(i));
 
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
@@ -246,7 +251,7 @@ export default function InstructorsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!purgeInstructor} onOpenChange={(open) => !open && (setPurgeInstructor(null), setPurgeError(null))}>
+      <Dialog open={!!purgeInstructor} onOpenChange={(open) => !open && (setPurgeInstructor(null), setPurgeError(null), setIsPurging(false))}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-red-600">
@@ -265,7 +270,7 @@ export default function InstructorsPage() {
             </div>
           )}
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => { setPurgeInstructor(null); setPurgeError(null); }} disabled={isPurging}>
+            <Button variant="outline" onClick={() => { setPurgeInstructor(null); setPurgeError(null); setIsPurging(false); }} disabled={isPurging}>
               Cancel
             </Button>
             <Button
