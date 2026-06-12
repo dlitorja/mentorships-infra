@@ -8,11 +8,6 @@ import { getGoogleCalendarAuthUrl } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
-async function getConvexAuthToken() {
-  const clerkAuth = await auth();
-  return clerkAuth.getToken({ template: "convex" });
-}
-
 /**
  * GET /api/auth/google
  * Initiates Google OAuth flow for connecting instructor's Google Calendar.
@@ -23,12 +18,13 @@ async function getConvexAuthToken() {
  */
 export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
-    const { sessionClaims } = await auth();
+    const clerkAuth = await auth();
+    const { sessionClaims } = clerkAuth;
 
     const user = await requireRoleForApi("instructor");
 
     const convex = getConvexClient();
-    const token = await getConvexAuthToken();
+    const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -39,9 +35,9 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
 
     if (!instructor) {
       const claims = (sessionClaims ?? {}) as Record<string, unknown>;
-      const email = claims.email as string | undefined;
-      const firstName = claims.first_name as string | undefined;
-      const lastName = claims.last_name as string | undefined;
+      const email = typeof claims.email === "string" ? claims.email : undefined;
+      const firstName = typeof claims.first_name === "string" ? claims.first_name : undefined;
+      const lastName = typeof claims.last_name === "string" ? claims.last_name : undefined;
       const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
       try {

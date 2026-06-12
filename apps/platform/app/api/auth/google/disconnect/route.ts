@@ -37,13 +37,17 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
     try {
       const tokenToRevoke = instructor.googleRefreshToken;
       if (tokenToRevoke) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
         const params = new URLSearchParams();
         params.set("token", tokenToRevoke);
         await fetch("https://oauth2.googleapis.com/revoke", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: params.toString(),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
       }
     } catch (revErr) {
       console.warn("[platform] Google token revocation failed (ignored):", revErr);

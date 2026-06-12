@@ -76,7 +76,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       userId: user.id,
     });
     if (!instructor) {
-      return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
+      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
+      res.cookies.delete(OAUTH_STATE_COOKIE);
+      return res;
     }
 
     const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);
