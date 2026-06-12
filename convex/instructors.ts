@@ -1121,10 +1121,36 @@ export const updateInstructor = mutation({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
       .first();
-    if (user?.role !== "admin") throw new Error("Forbidden");
+
+    if (user?.role !== "admin") {
+      const instructor = await ctx.db.get(args.id);
+      if (!instructor || instructor.userId !== identity.subject) {
+        throw new Error("Forbidden");
+      }
+      const { id, ...updates } = args;
+      const allowedFields: (keyof typeof updates)[] = [
+        "googleRefreshToken",
+        "googleCalendarId",
+        "googleAvailabilityCalendarIds",
+        "timeZone",
+      ];
+      const filteredUpdates: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (key in updates) {
+          filteredUpdates[key] = (updates as any)[key];
+        }
+      }
+      const nullableCalendarKeys: (keyof typeof updates)[] = ["googleCalendarId", "googleRefreshToken"];
+      for (const key of nullableCalendarKeys) {
+        if (filteredUpdates[key] === null) {
+          filteredUpdates[key] = undefined;
+        }
+      }
+      await ctx.db.patch(id, { ...filteredUpdates, updatedAt: Date.now() });
+      return await ctx.db.get(id);
+    }
 
     const { id, ...updates } = args;
-    // Translate nulls from API layer into undefined to clear fields in Convex
     const nullableKeys: (keyof typeof updates)[] = [
       "email",
       "bio",
@@ -1142,7 +1168,6 @@ export const updateInstructor = mutation({
         (updates as any)[key] = undefined;
       }
     }
-    // Cast to any to satisfy Convex PatchValue typing after runtime null->undefined normalization
     await ctx.db.patch(id, { ...(updates as any), updatedAt: Date.now() });
     return await ctx.db.get(id);
   },
