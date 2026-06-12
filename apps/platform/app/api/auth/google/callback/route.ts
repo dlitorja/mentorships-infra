@@ -93,10 +93,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ...instructorUpdates,
     });
 
-if (calendarTimezone && !instructor.timeZone) {
-      console.log("[platform] Instructor timezone set from Google Calendar");
-    }
-
     const res = NextResponse.redirect(
       getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=connected")
     );
