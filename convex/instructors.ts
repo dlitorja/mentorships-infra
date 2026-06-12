@@ -2309,9 +2309,11 @@ export const linkClerkUserToInstructor = internalAction({
     if (instructorsWithEmail.length > 0) {
       const instructor = instructorsWithEmail[0];
 
-      if (instructor.userId && instructor.userId !== userId) {
+      // If userId is set and different, check if it's a placeholder (admin-*) that should be updated
+      if (instructor.userId && instructor.userId !== userId && !instructor.userId.startsWith("admin-")) {
         instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
       } else {
+        // Update with the Clerk userId (handles placeholder userIds like "admin-slug")
         await ctx.runMutation(internal.instructors.linkInstructorToLegacyMentor, {
           instructorId: instructor._id,
           legacyInstructorRef: (instructor as any).legacyInstructorRef ?? (instructor as any).legacyId,
@@ -2327,6 +2329,25 @@ export const linkClerkUserToInstructor = internalAction({
           email,
         };
       }
+    } else if (process.env.CLERK_AUTO_CREATE_INSTRUCTOR === "true") {
+      // Auto-create instructor if none found and feature flag is enabled
+      const nameFromEmail = normalizedEmail.split("@")[0].replace(/[^a-z0-9]/gi, " ").trim().split(/\s+/).map((part, i) => i === 0 ? part.charAt(0).toUpperCase() + part.slice(1) : part).join(" ") || normalizedEmail;
+
+      const instructorId = await ctx.runMutation(internal.instructors.createInstructorInternal, {
+        userId,
+        name: nameFromEmail || undefined,
+        email: normalizedEmail,
+        isActive: true,
+        isNew: true,
+      });
+
+      instructorResult = {
+        linked: true,
+        instructorId: instructorId as Id<"instructors">,
+        instructorName: nameFromEmail || null,
+        userId,
+        email: normalizedEmail,
+      };
     }
 
     const pendingInvitations = await ctx.runQuery(
