@@ -19,7 +19,7 @@ export function LegalLayout({ title, lastUpdated, children }: LegalLayoutProps) 
               Back to Home
             </Link>
           </Button>
-          <h1 className="text-4xl font-bold text-white mb-2">{title}</h1>
+          <h1 className="text-4xl font-bold text-foreground mb-2">{title}</h1>
           <p className="text-sm text-muted-foreground">Last updated: {lastUpdated}</p>
         </div>
         <div className="prose prose-invert prose-sm max-w-none space-y-8">
