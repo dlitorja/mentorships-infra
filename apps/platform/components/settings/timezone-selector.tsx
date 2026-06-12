@@ -5,6 +5,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { useCurrentUser, useUpdateUser } from "@/lib/queries/convex";
 
+function logDebug(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== "production") {
+    console.log(...args);
+  }
+}
+
 function getTimeZones(): string[] {
   const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
     .supportedValuesOf;
