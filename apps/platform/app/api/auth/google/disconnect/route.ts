@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
+
+async function getConvexAuthToken() {
+  const clerkAuth = await auth();
+  return clerkAuth.getToken({ template: "convex" });
+}
 
 /**
  * POST /api/auth/google/disconnect
@@ -14,6 +20,11 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
+    const token = await getConvexAuthToken();
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,

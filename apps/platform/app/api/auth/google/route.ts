@@ -8,6 +8,11 @@ import { getGoogleCalendarAuthUrl } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
+async function getConvexAuthToken() {
+  const clerkAuth = await auth();
+  return clerkAuth.getToken({ template: "convex" });
+}
+
 /**
  * GET /api/auth/google
  * Initiates Google OAuth flow for connecting instructor's Google Calendar.
@@ -23,6 +28,11 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
     const user = await requireRoleForApi("instructor");
 
     const convex = getConvexClient();
+    const token = await getConvexAuthToken();
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
     let instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });

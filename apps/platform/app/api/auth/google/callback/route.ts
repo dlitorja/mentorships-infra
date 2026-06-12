@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { exchangeGoogleCodeForTokens, getGoogleCalendarClient } from "@/lib/google";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
+
+async function getConvexAuthToken() {
+  const clerkAuth = await auth();
+  return clerkAuth.getToken({ template: "convex" });
+}
 
 function getAppRedirectUrl(request: NextRequest, path: string): URL {
   return new URL(path, request.url);
@@ -59,6 +65,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const convex = getConvexClient();
+    const token = await getConvexAuthToken();
+    if (!token) {
+      const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error"));
+      res.cookies.delete(OAUTH_STATE_COOKIE);
+      return res;
+    }
+    convex.setAuth(token);
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
