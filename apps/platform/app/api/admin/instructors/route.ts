@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { createClerkInvitation } from "@/lib/clerk-invitations";
+import { createClerkInvitation, getClerkUserByEmail } from "@/lib/clerk-invitations";
 import type { Id } from "@/convex/_generated/dataModel";
 
 /**
@@ -167,9 +167,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const convex = new ConvexHttpClient(convexUrl);
 
-    // Convex createInstructor requires userId. If not provided, fall back to an admin-scoped placeholder.
-    // This follows the existing pattern used in httpAdminSyncInventory (`admin-${slug}`).
-    const userId: string = data.userId ?? `admin-${data.slug}`;
+    // Convex createInstructor requires userId. If not explicitly provided, try to look up
+    // Clerk user by email to enable proper OAuth linking. Falls back to admin-scoped placeholder
+    // if no Clerk user found (e.g., invitation will be sent to create one).
+    let userId: string = data.userId ?? `admin-${data.slug}`;
+    if (!data.userId && data.email) {
+      const clerkUserId = await getClerkUserByEmail(data.email.toLowerCase());
+      if (clerkUserId) {
+        userId = clerkUserId;
+      }
+    }
 
     let instructorId: Id<"instructors">;
     try {
