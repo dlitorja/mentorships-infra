@@ -32,6 +32,7 @@ async function getCalendarTimezone(refreshToken: string): Promise<string | null>
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
+    console.log("[platform] OAuth callback: user.id =", user.id, "role =", user.role);
 
     const { searchParams } = new URL(request.url);
     const code = searchParams.get("code");
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const convex = getConvexClient();
     const token = await getConvexAuthToken();
     if (!token) {
+      console.error("[platform] OAuth callback: no Convex auth token");
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
@@ -69,6 +71,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
+    console.log("[platform] OAuth callback: instructor =", instructor ? instructor._id : "null");
     if (!instructor) {
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
