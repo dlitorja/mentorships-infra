@@ -22,6 +22,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
     const { sessionClaims } = clerkAuth;
 
     const user = await requireRoleForApi("instructor");
+    console.log("[platform] OAuth start: user.id =", user.id, "role =", user.role);
 
     const convex = getConvexClient();
     const token = await clerkAuth.getToken({ template: "convex" });
@@ -32,6 +33,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
     let instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
+    console.log("[platform] OAuth start: initial instructor query =", instructor ? instructor._id : "NOT FOUND");
 
     if (!instructor) {
       const hasNonEmptyString = (val: unknown): val is string => typeof val === "string" && val !== "";
@@ -60,6 +62,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
       const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
       try {
+        console.log("[platform] OAuth start: Creating instructor for userId", user.id, "with name:", name, "email:", email);
         await convex.mutation(api.instructors.createInstructor, {
           userId: user.id,
           email: email?.toLowerCase(),
@@ -67,10 +70,12 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
           isActive: true,
           isNew: true,
         });
+        console.log("[platform] OAuth start: createInstructor mutation completed");
 
         instructor = await convex.query(api.instructors.getInstructorByUserId, {
           userId: user.id,
         });
+        console.log("[platform] OAuth start: re-fetched instructor =", instructor ? instructor._id : "NOT FOUND");
       } catch (error) {
         console.error("[platform] Failed to create instructor on-demand:", error);
       }
