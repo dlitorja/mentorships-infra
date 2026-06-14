@@ -61,19 +61,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const convex = getConvexClient();
     const token = await getConvexAuthToken();
     if (!token) {
+      console.error("[platform] Google OAuth callback: No Convex auth token for user", user.id);
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
     convex.setAuth(token);
+    console.log("[platform] Google OAuth callback: Looking up instructor for userId", user.id);
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
+    console.log("[platform] Google OAuth callback: Instructor query result:", instructor ? `found (id: ${instructor._id})` : "NOT FOUND");
     if (!instructor) {
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
+    console.log("[platform] Google OAuth callback: Current instructor state - hasRefreshToken:", !!instructor.googleRefreshToken, "calendarId:", instructor.googleCalendarId);
 
     const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);
     console.log("[platform] Google Calendar connected, calendar timezone:", calendarTimezone);
@@ -92,6 +96,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       id: instructor._id,
       ...instructorUpdates,
     });
+    console.log("[platform] Google OAuth callback: Mutation complete, googleRefreshToken set:", !!instructorUpdates.googleRefreshToken);
 
     const res = NextResponse.redirect(
       getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=connected")
