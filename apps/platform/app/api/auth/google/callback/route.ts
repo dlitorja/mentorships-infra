@@ -70,6 +70,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       userId: user.id,
     });
     if (!instructor) {
+      console.error("[platform] OAuth callback: instructor not found for user", user.id);
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
@@ -90,6 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       id: instructor._id,
       ...instructorUpdates,
     });
+    console.log("[platform] OAuth callback: successfully updated instructor", instructor._id);
 
 
     const res = NextResponse.redirect(
