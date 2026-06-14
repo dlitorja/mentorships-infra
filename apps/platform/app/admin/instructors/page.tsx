@@ -105,6 +105,7 @@ export default function InstructorsPage() {
       const searchLower = debouncedSearch.toLowerCase();
       filtered = filtered.filter((i: Instructor) =>
         i.name?.toLowerCase().includes(searchLower) ||
+        i.email?.toLowerCase().includes(searchLower) ||
         i.slug?.toLowerCase().includes(searchLower) ||
         i.specialties?.some(s => s.toLowerCase().includes(searchLower))
       );
