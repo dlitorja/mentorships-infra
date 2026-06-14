@@ -9,13 +9,11 @@ import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
-    console.log("[platform] /api/google/calendars: user.id =", user.id, "role =", user.role);
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
-    console.log("[platform] /api/google/calendars: instructor =", instructor ? instructor._id : "NOT FOUND");
     if (!instructor) {
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
