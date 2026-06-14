@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
@@ -35,9 +35,22 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
 
     if (!instructor) {
       const claims = (sessionClaims ?? {}) as Record<string, unknown>;
-      const email = typeof claims.email === "string" ? claims.email : undefined;
-      const firstName = typeof claims.first_name === "string" ? claims.first_name : undefined;
-      const lastName = typeof claims.last_name === "string" ? claims.last_name : undefined;
+      let email = typeof claims.email === "string" ? claims.email : undefined;
+      let firstName = typeof claims.first_name === "string" ? claims.first_name : undefined;
+      let lastName = typeof claims.last_name === "string" ? claims.last_name : undefined;
+
+      if (!email || (!firstName && !lastName)) {
+        try {
+          const clerk = await clerkClient();
+          const clerkUser = await clerk.users.getUser(user.id);
+          email = email ?? clerkUser.emailAddresses.find(e => e.id === clerkUser.primaryEmailAddressId)?.emailAddress ?? undefined;
+          firstName = firstName ?? clerkUser.firstName ?? undefined;
+          lastName = lastName ?? clerkUser.lastName ?? undefined;
+        } catch (clerkError) {
+          console.error("[platform] Failed to fetch Clerk user details:", clerkError);
+        }
+      }
+
       const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
 
       try {
