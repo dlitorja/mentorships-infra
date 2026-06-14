@@ -76,7 +76,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);
-    console.log("[platform] Google Calendar connected, calendar timezone:", calendarTimezone);
 
     const instructorUpdates: Record<string, unknown> = {
       googleRefreshToken: tokens.refresh_token,
@@ -85,7 +84,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     if (calendarTimezone && !instructor.timeZone) {
       instructorUpdates.timeZone = calendarTimezone;
-      console.log("[platform] Auto-setting instructor timezone from Google Calendar");
     }
 
     await convex.mutation(api.instructors.updateInstructor, {
