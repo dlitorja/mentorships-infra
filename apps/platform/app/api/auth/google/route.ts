@@ -39,10 +39,14 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
       let firstName = hasNonEmptyString(sessionClaims?.first_name) ? sessionClaims.first_name : undefined;
       let lastName = hasNonEmptyString(sessionClaims?.last_name) ? sessionClaims.last_name : undefined;
 
+      console.log("[platform] OAuth start: sessionClaims missing data, email:", email, "firstName:", firstName, "lastName:", lastName);
+
       if (!email || (!firstName && !lastName)) {
         try {
           const clerk = await clerkClient();
+          console.log("[platform] OAuth start: Fetching Clerk user for userId:", user.id);
           const clerkUser = await clerk.users.getUser(user.id);
+          console.log("[platform] OAuth start: Clerk user fetched, email:", clerkUser.emailAddresses[0]?.emailAddress, "firstName:", clerkUser.firstName, "lastName:", clerkUser.lastName);
           if (!email) {
             email = clerkUser.emailAddresses.find(e => e.id === clerkUser.primaryEmailAddressId)?.emailAddress;
           }
@@ -53,11 +57,12 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
             lastName = clerkUser.lastName ?? undefined;
           }
         } catch (clerkError) {
-          console.error("[platform] Failed to fetch Clerk user details:", clerkError);
+          console.error("[platform] OAuth start: Failed to fetch Clerk user details:", clerkError);
         }
       }
 
       const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
+      console.log("[platform] OAuth start: Creating instructor with email:", email, "name:", name);
 
       try {
         await convex.mutation(api.instructors.createInstructor, {
@@ -67,12 +72,14 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
           isActive: true,
           isNew: true,
         });
+        console.log("[platform] OAuth start: createInstructor mutation completed");
 
         instructor = await convex.query(api.instructors.getInstructorByUserId, {
           userId: user.id,
         });
+        console.log("[platform] OAuth start: Re-fetched instructor:", instructor ? "found" : "NOT FOUND");
       } catch (error) {
-        console.error("[platform] Failed to create instructor on-demand:", error);
+        console.error("[platform] OAuth start: Failed to create instructor on-demand:", error);
       }
     }
 
