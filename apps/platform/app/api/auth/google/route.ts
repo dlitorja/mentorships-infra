@@ -17,25 +17,21 @@ const OAUTH_STATE_COOKIE = "gcal_oauth_state";
  * screen. State cookie set for 10 minutes.
  */
 export async function GET(_request: NextRequest): Promise<NextResponse> {
-  console.log("[platform] OAuth start: START");
   try {
     const clerkAuth = await auth();
     const { sessionClaims } = clerkAuth;
 
     const user = await requireRoleForApi("instructor");
-    console.log("[platform] OAuth start: user.id =", user.id, "role =", user.role);
 
     const convex = getConvexClient();
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
-      console.log("[platform] OAuth start: no convex token, returning 401");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     convex.setAuth(token);
     let instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
-    console.log("[platform] OAuth start: initial instructor =", instructor ? instructor._id : "null");
 
     if (!instructor) {
       const hasNonEmptyString = (val: unknown): val is string => typeof val === "string" && val !== "";
@@ -62,7 +58,6 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
       }
 
       const name = [firstName, lastName].filter(Boolean).join(" ") || undefined;
-      console.log("[platform] OAuth start: Creating instructor with name:", name, "email:", email);
 
       try {
         await convex.mutation(api.instructors.createInstructor, {
@@ -72,26 +67,22 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
           isActive: true,
           isNew: true,
         });
-        console.log("[platform] OAuth start: createInstructor mutation completed");
 
         instructor = await convex.query(api.instructors.getInstructorByUserId, {
           userId: user.id,
         });
-        console.log("[platform] OAuth start: re-fetched instructor =", instructor ? instructor._id : "null");
       } catch (error) {
         console.error("[platform] OAuth start: Failed to create instructor on-demand:", error);
       }
     }
 
     if (!instructor) {
-      console.log("[platform] OAuth start: returning 404 - no instructor found or created");
       return NextResponse.json(
         { error: "Instructor not found. Please contact support." },
         { status: 404 }
       );
     }
 
-    console.log("[platform] OAuth start: SUCCESS - redirecting to Google");
     const state = randomUUID();
     const url = getGoogleCalendarAuthUrl(state);
 
