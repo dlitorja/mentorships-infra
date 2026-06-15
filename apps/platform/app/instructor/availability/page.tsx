@@ -3,15 +3,14 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import { AvailabilitySettingsForm } from "@/components/instructor/availability-settings-form";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { fetchQuery } from "convex/nextjs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 export default async function InstructorAvailabilityPage() {
   const user = await requireRole("instructor");
-  const convex = getConvexClient();
-  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
+  const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructorRecord) {
     return (
