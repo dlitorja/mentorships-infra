@@ -7,16 +7,21 @@ import { getGoogleCalendarClient } from "@/lib/google";
 import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 
 export async function GET(_req: NextRequest): Promise<NextResponse> {
+  console.log("[platform] /api/google/calendars: START");
   try {
     const user = await requireRoleForApi("instructor");
+    console.log("[platform] /api/google/calendars: user.id =", user.id, "role =", user.role);
     const convex = getConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
+    console.log("[platform] /api/google/calendars: instructor =", instructor ? instructor._id : "null", "hasRefreshToken =", !!instructor?.googleRefreshToken);
     if (!instructor) {
+      console.log("[platform] /api/google/calendars: returning 404 - instructor not found");
       return NextResponse.json({ error: "Instructor not found" }, { status: 404 });
     }
+    console.log("[platform] /api/google/calendars: instructor found, proceeding");
 
     const refreshToken = decryptInstructorRefreshToken(instructor);
     if (!refreshToken) {
