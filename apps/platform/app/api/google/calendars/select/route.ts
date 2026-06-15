@@ -46,7 +46,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     try {
       const { decryptInstructorRefreshToken } = await import("@/lib/crypto");
       const { getGoogleCalendarClient } = await import("@/lib/google");
-      const rt = decryptInstructorRefreshToken(instructor as any);
+      const rt = decryptInstructorRefreshToken({ googleRefreshToken: instructor.googleRefreshToken });
       if (!rt) {
         return NextResponse.json(
           { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
@@ -79,14 +79,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         return NextResponse.json({ error: `Unknown availability calendar(s): ${invalidAvail.join(", ")}` }, { status: 400 });
       }
 
-      await convex.mutation(api.instructors.updateInstructor, {
-        id: instructor._id,
-        googleCalendarId: resolvedEventCalendarId,
-        googleAvailabilityCalendarIds: resolvedAvailabilityCalendarIds,
-      });
+      try {
+        await convex.mutation(api.instructors.updateInstructor, {
+          id: instructor._id,
+          googleCalendarId: resolvedEventCalendarId,
+          googleAvailabilityCalendarIds: resolvedAvailabilityCalendarIds,
+        });
+      } catch (e) {
+        console.error("[platform] Failed to save calendar selection:", e);
+        return NextResponse.json({ error: "Failed to save calendar selection" }, { status: 500 });
+      }
     } catch (e) {
-      console.error("[platform] Calendar validation/mutation error:", e);
-      return NextResponse.json({ error: "Failed to validate or save calendar selection" }, { status: 500 });
+      console.error("[platform] Calendar validation error:", e);
+      return NextResponse.json({ error: "Failed to validate calendars" }, { status: 502 });
     }
 
     return NextResponse.json({ success: true });
