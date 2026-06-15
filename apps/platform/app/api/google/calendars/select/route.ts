@@ -42,45 +42,51 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const { eventCalendarId, availabilityCalendarIds } = parsed.data;
 
-    // Validate the calendars exist and access rights (event calendar must be writable)
-    try {
-      const { decryptInstructorRefreshToken } = await import("@/lib/crypto");
-      const { getGoogleCalendarClient } = await import("@/lib/google");
-      const rt = decryptInstructorRefreshToken(instructor as any);
-      if (!rt) {
-        return NextResponse.json(
-          { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
-          { status: 409 }
-        );
-      }
-      const cal = await getGoogleCalendarClient(rt);
-      const resp = await cal.calendarList.list({});
-      const items = (resp.data.items || []).filter((c) => Boolean(c.id));
-      const byId = new Map(items.map((c) => [String(c.id), c]));
-
-      const eventCal = byId.get(eventCalendarId);
-      if (!eventCal) {
-        return NextResponse.json({ error: `Unknown event calendar: ${eventCalendarId}` }, { status: 400 });
-      }
-      const role = eventCal.accessRole || "reader";
-      const writable = role === "owner" || role === "writer";
-      if (!writable) {
-        return NextResponse.json({ error: `Event calendar not writable: ${eventCalendarId}` }, { status: 400 });
-      }
-
-      const invalidAvail = availabilityCalendarIds.filter((id) => !byId.has(id));
-      if (invalidAvail.length > 0) {
-        return NextResponse.json({ error: `Unknown availability calendar(s): ${invalidAvail.join(", ")}` }, { status: 400 });
-      }
-    } catch (e) {
-      console.error("[platform] Calendar validation error:", e);
-      return NextResponse.json({ error: "Failed to validate calendars" }, { status: 502 });
+    const { decryptInstructorRefreshToken } = await import("@/lib/crypto");
+    const { getGoogleCalendarClient } = await import("@/lib/google");
+    const rt = decryptInstructorRefreshToken(instructor as any);
+    if (!rt) {
+      return NextResponse.json(
+        { error: "Instructor has not connected Google Calendar", code: "GOOGLE_CALENDAR_NOT_CONNECTED" },
+        { status: 409 }
+      );
     }
-    await convex.mutation(api.instructors.updateInstructor, {
-      id: instructor._id,
-      googleCalendarId: eventCalendarId,
-      googleAvailabilityCalendarIds: availabilityCalendarIds,
-    });
+    const cal = await getGoogleCalendarClient(rt);
+    const resp = await cal.calendarList.list({});
+    const items = (resp.data.items || []).filter((c) => Boolean(c.id));
+    const byId = new Map(items.map((c) => [String(c.id), c]));
+
+    const primaryCal = items.find((c) => c.primary);
+    const primaryId = primaryCal ? String(primaryCal.id) : undefined;
+
+    const resolvedEventCalendarId = eventCalendarId === "primary" && primaryId ? primaryId : eventCalendarId;
+    const resolvedAvailabilityCalendarIds = availabilityCalendarIds.map((id) => id === "primary" && primaryId ? primaryId : id);
+
+    const eventCal = byId.get(resolvedEventCalendarId);
+    if (!eventCal) {
+      return NextResponse.json({ error: `Unknown event calendar: ${resolvedEventCalendarId}` }, { status: 400 });
+    }
+    const role = eventCal.accessRole || "reader";
+    const writable = role === "owner" || role === "writer";
+    if (!writable) {
+      return NextResponse.json({ error: `Event calendar not writable: ${resolvedEventCalendarId}` }, { status: 400 });
+    }
+
+    const invalidAvail = resolvedAvailabilityCalendarIds.filter((id) => !byId.has(id));
+    if (invalidAvail.length > 0) {
+      return NextResponse.json({ error: `Unknown availability calendar(s): ${invalidAvail.join(", ")}` }, { status: 400 });
+    }
+
+    try {
+      await convex.mutation(api.instructors.updateInstructor, {
+        id: instructor._id,
+        googleCalendarId: resolvedEventCalendarId,
+        googleAvailabilityCalendarIds: resolvedAvailabilityCalendarIds,
+      });
+    } catch (e) {
+      console.error("[platform] Failed to save calendar selection:", e);
+      return NextResponse.json({ error: "Failed to save calendar selection" }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
