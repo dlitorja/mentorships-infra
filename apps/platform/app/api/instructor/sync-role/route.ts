@@ -45,10 +45,27 @@ export async function POST() {
     const convex = getConvexClient();
     convex.setAuth(token);
 
-    // Additional guard: ensure an instructor record exists for this user in Convex
-    const existingInstructor = await convex.query(api.instructors.getInstructorByUserId, { userId });
+    let existingInstructor = await convex.query(api.instructors.getInstructorByUserId, { userId });
     if (!existingInstructor) {
-      return NextResponse.json({ error: "Forbidden: No instructor profile found" }, { status: 403 });
+      const client = await clerkClient();
+      const clerkUser = await client.users.getUser(userId);
+      const email = clerkUser.emailAddresses[0]?.emailAddress;
+      const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined;
+      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+      if (!secret) {
+        return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+      }
+      const result = await convex.action(api.instructors.createInstructorForClerkUser, {
+        userId,
+        email,
+        name,
+        secret,
+      });
+      if (!result.success) {
+        console.error("sync-role: failed to create instructor:", result.reason);
+        return NextResponse.json({ error: "Failed to create instructor profile" }, { status: 500 });
+      }
+      existingInstructor = await convex.query(api.instructors.getInstructorByUserId, { userId });
     }
 
     // Idempotent: syncUser sets role; if already set, no change

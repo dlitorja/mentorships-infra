@@ -1,6 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { requireDbUser } from "@/lib/auth";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 import { db, sessions, sessionPacks, eq, and, gte } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,8 +13,11 @@ import { BookWithGoogle } from "@/components/calendar/book-with-google";
 
 export default async function CalendarPage() {
   const user = await requireDbUser();
+  const convex = getConvexClient();
+  const convexUser = await convex.query(api.users.getCurrentUser, {});
+  const userTimeZone = convexUser?.timeZone;
 
-  if (!user.timeZone) {
+  if (!userTimeZone) {
     return (
       <ProtectedLayout currentPath="/calendar">
         <div className="container mx-auto p-4 md:p-8">
