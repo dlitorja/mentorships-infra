@@ -205,6 +205,10 @@ export async function bookSession(data: { sessionPackId: string; scheduledAt: st
 export async function updateInstructorSettings(data: {
   timeZone: string | null;
   workingHours: Record<string, Array<{ start: string; end: string }>>;
+  bufferMinutesBetweenSessions?: number | null;
+  minBookingLeadMinutes?: number | null;
+  maxBookingAdvanceDays?: number | null;
+  blockedDateRanges?: Array<{ start: string; end: string; label?: string }> | null;
 }) {
   return apiFetch<{ success: boolean }>("/api/instructor/settings", {
     method: "PATCH",

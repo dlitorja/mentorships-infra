@@ -103,8 +103,8 @@ export function SchedulingSettingsForm({
   );
 
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const currentTimeZone = form.getFieldValue("timeZone") as string;
+    mutationFn: (capturedTimeZone: string | null) => {
+      const currentTimeZone = capturedTimeZone;
       const currentWorkingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
       logDebug(
         "[DEBUG SchedulingSettingsForm] saveMutation.mutationFn - timeZone:",
@@ -162,9 +162,9 @@ export function SchedulingSettingsForm({
   }
 
   function save() {
-    const tzAtSave = form.getFieldValue("timeZone") as string;
+    const tzAtSave = form.getFieldValue("timeZone") as string | null;
     logDebug("[DEBUG SchedulingSettingsForm] save() - timeZone at save moment:", tzAtSave ? `(set: ${tzAtSave.length} chars)` : "(empty)");
-    saveMutation.mutate();
+    saveMutation.mutate(tzAtSave);
   }
 
   return (

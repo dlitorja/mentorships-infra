@@ -33,9 +33,19 @@ const workingHoursSchema = z
     return out;
   });
 
+const blockedDateRangeSchema = z.object({
+  start: z.string(),
+  end: z.string(),
+  label: z.string().optional(),
+});
+
 const patchSchema = z.object({
   timeZone: z.string().min(1).nullable().optional(),
   workingHours: workingHoursSchema.nullable().optional(),
+  bufferMinutesBetweenSessions: z.number().int().min(0).max(60).nullable().optional(),
+  minBookingLeadMinutes: z.number().int().min(0).max(10080).nullable().optional(),
+  maxBookingAdvanceDays: z.number().int().min(1).max(365).nullable().optional(),
+  blockedDateRanges: z.array(blockedDateRangeSchema).nullable().optional(),
 });
 
 function logDebug(...args: unknown[]): void {
@@ -67,6 +77,10 @@ export async function GET(): Promise<NextResponse> {
       settings: {
         timeZone: instructor.timeZone ?? null,
         workingHours: instructor.workingHours ?? null,
+        bufferMinutesBetweenSessions: instructor.bufferMinutesBetweenSessions ?? null,
+        minBookingLeadMinutes: instructor.minBookingLeadMinutes ?? null,
+        maxBookingAdvanceDays: instructor.maxBookingAdvanceDays ?? null,
+        blockedDateRanges: instructor.blockedDateRanges ?? null,
       },
     });
   } catch (error) {
@@ -112,12 +126,16 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    logDebug("[DEBUG PATCH /api/instructor/settings] timeZone:", parsed.data.timeZone ? `(set: ${parsed.data.timeZone.length} chars)` : "(empty)", "workingHours keys:", parsed.data.workingHours ? Object.keys(parsed.data.workingHours).join(",") || "none" : "(not set)");
+    logDebug("[DEBUG PATCH /api/instructor/settings] timeZone:", parsed.data.timeZone ? `(set: ${parsed.data.timeZone.length} chars)` : "(empty)", "workingHours keys:", parsed.data.workingHours ? Object.keys(parsed.data.workingHours).join(",") || "none" : "(not set)", "buffer:", parsed.data.bufferMinutesBetweenSessions, "minLead:", parsed.data.minBookingLeadMinutes, "maxAdvance:", parsed.data.maxBookingAdvanceDays);
 
     const updated = await convex.mutation(api.instructors.updateInstructorSchedulingSettings, {
       id: instructor._id,
       ...(parsed.data.timeZone !== undefined && parsed.data.timeZone !== null && { timeZone: parsed.data.timeZone }),
       ...(parsed.data.workingHours !== undefined && { workingHours: parsed.data.workingHours }),
+      ...(parsed.data.bufferMinutesBetweenSessions !== undefined && { bufferMinutesBetweenSessions: parsed.data.bufferMinutesBetweenSessions }),
+      ...(parsed.data.minBookingLeadMinutes !== undefined && { minBookingLeadMinutes: parsed.data.minBookingLeadMinutes }),
+      ...(parsed.data.maxBookingAdvanceDays !== undefined && { maxBookingAdvanceDays: parsed.data.maxBookingAdvanceDays }),
+      ...(parsed.data.blockedDateRanges !== undefined && { blockedDateRanges: parsed.data.blockedDateRanges }),
     });
     logDebug("[DEBUG PATCH /api/instructor/settings] updated timeZone:", updated?.timeZone ? `(set: ${updated.timeZone.length} chars)` : "(empty)");
 
@@ -126,6 +144,10 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       settings: {
         timeZone: updated?.timeZone ?? null,
         workingHours: updated?.workingHours ?? null,
+        bufferMinutesBetweenSessions: updated?.bufferMinutesBetweenSessions ?? null,
+        minBookingLeadMinutes: updated?.minBookingLeadMinutes ?? null,
+        maxBookingAdvanceDays: updated?.maxBookingAdvanceDays ?? null,
+        blockedDateRanges: updated?.blockedDateRanges ?? null,
       },
     });
   } catch (error) {
