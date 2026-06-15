@@ -130,12 +130,12 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
 
     const updated = await convex.mutation(api.instructors.updateInstructorSchedulingSettings, {
       id: instructor._id,
-      ...(parsed.data.timeZone !== undefined && parsed.data.timeZone !== null && { timeZone: parsed.data.timeZone }),
-      ...(parsed.data.workingHours !== undefined && { workingHours: parsed.data.workingHours }),
-      ...(parsed.data.bufferMinutesBetweenSessions !== undefined && { bufferMinutesBetweenSessions: parsed.data.bufferMinutesBetweenSessions }),
-      ...(parsed.data.minBookingLeadMinutes !== undefined && { minBookingLeadMinutes: parsed.data.minBookingLeadMinutes }),
-      ...(parsed.data.maxBookingAdvanceDays !== undefined && { maxBookingAdvanceDays: parsed.data.maxBookingAdvanceDays }),
-      ...(parsed.data.blockedDateRanges !== undefined && { blockedDateRanges: parsed.data.blockedDateRanges }),
+      ...(parsed.data.timeZone != null && { timeZone: parsed.data.timeZone }),
+      ...(parsed.data.workingHours != null && { workingHours: parsed.data.workingHours }),
+      ...(parsed.data.bufferMinutesBetweenSessions != null && { bufferMinutesBetweenSessions: parsed.data.bufferMinutesBetweenSessions }),
+      ...(parsed.data.minBookingLeadMinutes != null && { minBookingLeadMinutes: parsed.data.minBookingLeadMinutes }),
+      ...(parsed.data.maxBookingAdvanceDays != null && { maxBookingAdvanceDays: parsed.data.maxBookingAdvanceDays }),
+      ...(parsed.data.blockedDateRanges != null && { blockedDateRanges: parsed.data.blockedDateRanges }),
     });
     logDebug("[DEBUG PATCH /api/instructor/settings] updated timeZone:", updated?.timeZone ? `(set: ${updated.timeZone.length} chars)` : "(empty)");
 

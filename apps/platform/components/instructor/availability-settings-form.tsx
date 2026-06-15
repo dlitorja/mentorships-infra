@@ -107,8 +107,13 @@ export function AvailabilitySettingsForm({
   }
 
   function save() {
-    const values = form.getState().values;
-    saveMutation.mutate(values as AvailabilityValues);
+    const values: AvailabilityValues = {
+      bufferMinutesBetweenSessions: form.getFieldValue("bufferMinutesBetweenSessions"),
+      minBookingLeadMinutes: form.getFieldValue("minBookingLeadMinutes"),
+      maxBookingAdvanceDays: form.getFieldValue("maxBookingAdvanceDays"),
+      blockedDateRanges: form.getFieldValue("blockedDateRanges"),
+    };
+    saveMutation.mutate(values);
   }
 
   return (
