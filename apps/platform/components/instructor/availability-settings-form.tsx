@@ -72,13 +72,11 @@ export function AvailabilitySettingsForm({
         "blocked:", capturedData.blockedDateRanges?.length ?? 0
       );
       return updateInstructorSettings({
-        timeZone: null,
-        workingHours: {},
         bufferMinutesBetweenSessions: capturedData.bufferMinutesBetweenSessions ?? null,
         minBookingLeadMinutes: capturedData.minBookingLeadMinutes ?? null,
         maxBookingAdvanceDays: capturedData.maxBookingAdvanceDays ?? null,
         blockedDateRanges: capturedData.blockedDateRanges?.length ? capturedData.blockedDateRanges : null,
-      });
+      } as Parameters<typeof updateInstructorSettings>[0]);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructorSettings"] });
