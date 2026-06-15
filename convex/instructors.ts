@@ -1833,12 +1833,20 @@ export const getStudentResultById = query({
   },
 });
 
-/** Updates instructor scheduling settings (timeZone and workingHours). Requires admin role or self. */
+/** Updates instructor scheduling settings (timeZone, workingHours, and availability options). Requires admin role or self. */
 export const updateInstructorSchedulingSettings = mutation({
   args: {
     id: v.id("instructors"),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
+    bufferMinutesBetweenSessions: v.optional(v.number()),
+    minBookingLeadMinutes: v.optional(v.number()),
+    maxBookingAdvanceDays: v.optional(v.number()),
+    blockedDateRanges: v.optional(v.array(v.object({
+      start: v.string(),
+      end: v.string(),
+      label: v.optional(v.string()),
+    }))),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
