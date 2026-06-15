@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { requireDbUser } from "@/lib/auth";
-import { getConvexClient } from "@/lib/convex";
+import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { db, sessions, sessionPacks, eq, and, gte } from "@mentorships/db";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
@@ -13,8 +13,7 @@ import { BookWithGoogle } from "@/components/calendar/book-with-google";
 
 export default async function CalendarPage() {
   const user = await requireDbUser();
-  const convex = getConvexClient();
-  const convexUser = await convex.query(api.users.getCurrentUser, {});
+  const convexUser = await fetchQuery(api.users.getCurrentUser, {});
   const userTimeZone = convexUser?.timeZone;
 
   if (!userTimeZone) {
