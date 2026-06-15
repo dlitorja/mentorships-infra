@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { MessageSquare, type LucideIcon } from "lucide-react";
+import { MessageSquare, CalendarClock, type LucideIcon } from "lucide-react";
 
 interface NavItem {
   href: string;
@@ -40,6 +40,7 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
         { href: "/instructor/dashboard", label: "Dashboard" },
         { href: "/workspace", label: "Workspace", icon: MessageSquare },
         { href: "/instructor/sessions", label: "My Sessions" },
+        { href: "/instructor/availability", label: "Availability", icon: CalendarClock },
         { href: "/instructor/onboarding", label: "Onboarding" },
         { href: "/instructor/settings", label: "Instructor Settings" },
         { href: "/settings", label: "Settings" },

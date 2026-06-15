@@ -1833,12 +1833,20 @@ export const getStudentResultById = query({
   },
 });
 
-/** Updates instructor scheduling settings (timeZone and workingHours). Requires admin role or self. */
+/** Updates instructor scheduling settings (timeZone, workingHours, and availability options). Requires admin role or self. */
 export const updateInstructorSchedulingSettings = mutation({
   args: {
     id: v.id("instructors"),
     timeZone: v.optional(v.string()),
     workingHours: v.optional(v.any()),
+    bufferMinutesBetweenSessions: v.optional(v.number()),
+    minBookingLeadMinutes: v.optional(v.number()),
+    maxBookingAdvanceDays: v.optional(v.number()),
+    blockedDateRanges: v.optional(v.array(v.object({
+      start: v.string(),
+      end: v.string(),
+      label: v.optional(v.string()),
+    }))),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -2553,6 +2561,198 @@ export const deactivateInstructorByUserId = action({
     console.log("deactivateInstructorByUserId: Deactivated instructor", args.userId, instructor._id);
 
     return { success: true, instructorId: instructor._id };
+  },
+});
+
+/**
+ * TEMPORARY TEST DATA: Insert test data for instructor dashboard verification.
+ * Requires admin role.
+ *
+ * Usage:
+ *   npx convex run instructors:insertDashboardTestData --arg '{"userId":"<clerk-user-id>"}'
+ *
+ * After verification, DELETE this mutation.
+ */
+export const insertDashboardTestData = mutation({
+  args: {
+    userId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (user?.role !== "admin") throw new Error("Forbidden: Admin role required");
+
+    // Find instructor by userId
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!instructor) {
+      return { success: false, reason: `No instructor found for userId: ${args.userId}` };
+    }
+
+    const instructorId = instructor._id;
+    const now = Date.now();
+
+    // Update instructor inventory
+    await ctx.db.patch(instructorId, {
+      oneOnOneInventory: 5,
+      groupInventory: 10,
+    });
+
+    // Create session pack
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: args.userId,
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: now,
+      expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+      status: "active",
+      paymentId: "jx773dpvnhvqresp19qwz6939187r3r8" as Id<"payments">,
+    });
+
+    // Create seat reservation
+    await ctx.db.insert("seatReservations", {
+      instructorId,
+      userId: args.userId,
+      sessionPackId,
+      seatExpiresAt: now + 30 * 24 * 60 * 60 * 1000,
+      gracePeriodEndsAt: now + 37 * 24 * 60 * 60 * 1000,
+      status: "active",
+    });
+
+    // Create upcoming session (2 days from now)
+    await ctx.db.insert("sessions", {
+      instructorId,
+      studentId: args.userId,
+      sessionPackId,
+      scheduledAt: now + 2 * 24 * 60 * 60 * 1000,
+      status: "scheduled",
+      recordingConsent: false,
+    });
+
+    // Create past session (5 days ago) and mark as completed
+    const pastTime = now - 5 * 24 * 60 * 60 * 1000;
+    await ctx.db.insert("sessions", {
+      instructorId,
+      studentId: args.userId,
+      sessionPackId,
+      scheduledAt: pastTime,
+      completedAt: pastTime + 60 * 60 * 1000,
+      status: "completed",
+      recordingConsent: false,
+    });
+
+    console.log(`insertDashboardTestData: Created test data for instructor ${instructorId} (userId: ${args.userId})`);
+
+    return { success: true, instructorId };
+  },
+});
+
+/**
+ * INTERNAL: Insert dashboard test data without auth check.
+ * For testing only. Called by admin wrapper.
+ */
+export const insertDashboardTestDataInternal = internalMutation({
+  args: {
+    userId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!instructor) {
+      return { success: false, reason: `No instructor found for userId: ${args.userId}` };
+    }
+
+    const instructorId = instructor._id;
+    const now = Date.now();
+
+    await ctx.db.patch(instructorId, {
+      oneOnOneInventory: 5,
+      groupInventory: 10,
+    });
+
+    const sessionPackId = await ctx.db.insert("sessionPacks", {
+      userId: args.userId,
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+      purchasedAt: now,
+      expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+      status: "active",
+      paymentId: "jx773dpvnhvqresp19qwz6939187r3r8" as Id<"payments">,
+    });
+
+    await ctx.db.insert("seatReservations", {
+      instructorId,
+      userId: args.userId,
+      sessionPackId,
+      seatExpiresAt: now + 30 * 24 * 60 * 60 * 1000,
+      gracePeriodEndsAt: now + 37 * 24 * 60 * 60 * 1000,
+      status: "active",
+    });
+
+    await ctx.db.insert("sessions", {
+      instructorId,
+      studentId: args.userId,
+      sessionPackId,
+      scheduledAt: now + 2 * 24 * 60 * 60 * 1000,
+      status: "scheduled",
+      recordingConsent: false,
+    });
+
+    const pastTime = now - 5 * 24 * 60 * 60 * 1000;
+    await ctx.db.insert("sessions", {
+      instructorId,
+      studentId: args.userId,
+      sessionPackId,
+      scheduledAt: pastTime,
+      completedAt: pastTime + 60 * 60 * 1000,
+      status: "completed",
+      recordingConsent: false,
+    });
+
+    console.log(`insertDashboardTestDataInternal: Created test data for instructor ${instructorId} (userId: ${args.userId})`);
+
+    return { success: true, instructorId };
+  },
+});
+
+// TEMPORARY: Admin wrapper using secret key for CLI access
+export const insertDashboardTestDataAdmin = mutation({
+  args: {
+    userId: v.string(),
+    secret: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
+    // Check secret for CLI access
+    const expectedSecret = process.env.CONVEX_SERVER_SHARED_SECRET;
+    if (args.secret !== expectedSecret) {
+      // Fall back to auth check for other access
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) throw new Error("Unauthorized");
+
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+
+      if (!user || user.role !== "admin") throw new Error("Forbidden: Admin role required");
+    }
+
+    return await ctx.runMutation(internal.instructors.insertDashboardTestDataInternal, {
+      userId: args.userId,
+    });
   },
 });
 
