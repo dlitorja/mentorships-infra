@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
@@ -9,9 +10,17 @@ import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   console.log("[platform] /api/google/calendars: START");
   try {
+    const clerkAuth = await auth();
     const user = await requireRoleForApi("instructor");
     console.log("[platform] /api/google/calendars: user.id =", user.id, "role =", user.role);
     const convex = getConvexClient();
+
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      console.log("[platform] /api/google/calendars: no convex token, returning 401");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,

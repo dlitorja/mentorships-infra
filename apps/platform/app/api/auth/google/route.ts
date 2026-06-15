@@ -93,15 +93,6 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
 
     console.log("[platform] OAuth start: SUCCESS - redirecting to Google");
     const state = randomUUID();
-
-    if (!instructor) {
-      return NextResponse.json(
-        { error: "Instructor not found. Please contact support." },
-        { status: 404 }
-      );
-    }
-
-    const state = randomUUID();
     const url = getGoogleCalendarAuthUrl(state);
 
     const res = NextResponse.redirect(url);
