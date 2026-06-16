@@ -958,7 +958,7 @@ export const createInstructor = mutation({
         .withIndex("by_slug", (q) => q.eq("slug", args.slug!))
         .first();
       
-      if (existingBySlug && existingBySlug.userId !== args.userId) {
+      if (existingBySlug) {
         throw new Error("Slug already exists");
       }
     }

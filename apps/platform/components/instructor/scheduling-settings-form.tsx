@@ -119,6 +119,7 @@ export function SchedulingSettingsForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["instructorSettings"] });
+      form.reset(form.getValues());
       toast.success("Settings saved successfully");
     },
     onError: (error) => {
