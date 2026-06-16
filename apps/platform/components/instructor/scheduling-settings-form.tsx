@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -55,8 +55,6 @@ const settingsSchema = z.object({
   }))).optional(),
 });
 
-type SettingsValues = z.infer<typeof settingsSchema>;
-
 interface SchedulingSettingsFormProps {
   initialTimeZone: string | null;
   initialWorkingHours: WorkingHours | null;
@@ -73,17 +71,20 @@ export function SchedulingSettingsForm({
     initialWorkingHours ? normalizeWorkingHours(initialWorkingHours) : {}
   );
 
-  useEffect(() => {
-    setSavedTimeZone(initialTimeZone || "");
-    setSavedWorkingHours(initialWorkingHours ? normalizeWorkingHours(initialWorkingHours) : {});
-  }, [initialTimeZone, initialWorkingHours]);
-
   const form = useForm({
     defaultValues: {
       timeZone: savedTimeZone,
       workingHours: savedWorkingHours,
     },
   });
+
+  useEffect(() => {
+    const newTimeZone = initialTimeZone || "";
+    const newWorkingHours = initialWorkingHours ? normalizeWorkingHours(initialWorkingHours) : {};
+    setSavedTimeZone(newTimeZone);
+    setSavedWorkingHours(newWorkingHours);
+    form.reset({ timeZone: newTimeZone, workingHours: newWorkingHours });
+  }, [initialTimeZone, initialWorkingHours]);
 
   const timeZone = form.getFieldValue("timeZone") as string;
   const workingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
