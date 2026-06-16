@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,8 +64,6 @@ export function SchedulingSettingsForm({
     },
   });
 
-  const workingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
-
   function logDebug(...args: unknown[]): void {
     if (process.env.NODE_ENV !== "production") {
       console.log(...args);
@@ -76,7 +74,7 @@ export function SchedulingSettingsForm({
     "[DEBUG SchedulingSettingsForm] render - timeZone via form:",
     form.getFieldValue("timeZone") ? `(set: ${(form.getFieldValue("timeZone") as string).length} chars)` : "(empty)",
     "workingHours:",
-    workingHours ? `keys=${Object.keys(workingHours).join(",") || "none"}` : "(empty)"
+    form.getFieldValue("workingHours") ? `keys=${Object.keys(form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>).join(",") || "none"}` : "(empty)"
   );
 
   const saveMutation = useMutation({
@@ -110,7 +108,7 @@ export function SchedulingSettingsForm({
 
   function handleDayToggle(day: number, enabled: boolean) {
     const dayKey = String(day);
-    const current = (workingHours || {})[dayKey] || [];
+    const current = (form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>)?.[dayKey] || [];
 
     if (enabled && current.length === 0) {
       form.setFieldValue(`workingHours.${dayKey}`, [{ start: "09:00", end: "17:00" }]);
@@ -121,20 +119,20 @@ export function SchedulingSettingsForm({
 
   function addInterval(day: number) {
     const dayKey = String(day);
-    const current = (workingHours || {})[dayKey] || [];
+    const current = (form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>)?.[dayKey] || [];
     form.setFieldValue(`workingHours.${dayKey}`, [...current, { start: "09:00", end: "17:00" }]);
   }
 
   function removeInterval(day: number, index: number) {
     const dayKey = String(day);
-    const current = (workingHours || {})[dayKey] || [];
+    const current = (form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>)?.[dayKey] || [];
     const updated = current.filter((_, i) => i !== index);
     form.setFieldValue(`workingHours.${dayKey}`, updated);
   }
 
   function handleTimeChange(day: number, index: number, field: 'start' | 'end', value: string) {
     const dayKey = String(day);
-    const current = (workingHours || {})[dayKey] || [];
+    const current = (form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>)?.[dayKey] || [];
     const updated = [...current];
     updated[index] = { ...updated[index], [field]: value };
     form.setFieldValue(`workingHours.${dayKey}`, updated);
@@ -158,8 +156,8 @@ export function SchedulingSettingsForm({
       </CardHeader>
       <CardContent className="space-y-4">
         <form.Subscribe
-          selector={(state) => state.values.timeZone}
-          children={([timeZone]) => (
+          selector={(state) => [state.values.timeZone, state.values.workingHours] as const}
+          children={([timeZone, workingHours]) => (
             <div className="space-y-2">
               <label className="text-sm font-medium">Time zone</label>
               <select
@@ -185,7 +183,7 @@ export function SchedulingSettingsForm({
           <div className="text-sm font-medium">Working hours</div>
           <div className="grid gap-3">
             {([0, 1, 2, 3, 4, 5, 6] as const).map((day) => {
-              const intervals = (workingHours || {})[String(day)] || [];
+              const intervals = (form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>)?.[String(day)] || [];
               const enabled = intervals.length > 0;
 
               return (
