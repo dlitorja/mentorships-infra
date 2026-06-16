@@ -44,13 +44,26 @@ function centerAspectCrop(
 async function getImageFromSource(source: File | string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
+    let objectUrl: string | null = null;
+
+    img.onload = () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      resolve(img);
+    };
+    img.onerror = () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+      reject(new Error("Failed to load image"));
+    };
 
     if (typeof source === "string") {
       img.src = source;
     } else {
-      img.src = URL.createObjectURL(source);
+      objectUrl = URL.createObjectURL(source);
+      img.src = objectUrl;
     }
   });
 }
@@ -58,7 +71,8 @@ async function getImageFromSource(source: File | string): Promise<HTMLImageEleme
 async function applyCropToCanvas(
   image: HTMLImageElement,
   crop: PixelCrop,
-  filename: string
+  filename: string,
+  sourceMimeType?: string
 ): Promise<File> {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -91,6 +105,8 @@ async function applyCropToCanvas(
     crop.height * scaleY
   );
 
+  const outputMimeType = getOutputMimeType(sourceMimeType);
+
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -98,13 +114,31 @@ async function applyCropToCanvas(
           reject(new Error("Failed to create blob"));
           return;
         }
-        const file = new File([blob], filename, { type: blob.type });
+        const outputFilename = changeExtension(filename, outputMimeType);
+        const file = new File([blob], outputFilename, { type: outputMimeType });
         resolve(file);
       },
-      "image/jpeg",
+      outputMimeType,
       0.95
     );
   });
+}
+
+function getOutputMimeType(sourceMimeType?: string): string {
+  if (sourceMimeType === "image/png") return "image/png";
+  if (sourceMimeType === "image/webp") return "image/webp";
+  return "image/jpeg";
+}
+
+function changeExtension(filename: string, mimeType: string): string {
+  const extensions: Record<string, string> = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+  };
+  const ext = extensions[mimeType] || ".jpg";
+  const nameWithoutExt = filename.replace(/\.[^/.]+$/, "");
+  return nameWithoutExt + ext;
 }
 
 export function CropDialog({
@@ -122,6 +156,34 @@ export function CropDialog({
   const [isConfirming, setIsConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const [retryKey, setRetryKey] = useState(0);
+
+  const loadImage = React.useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const img = await getImageFromSource(image);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setImgSrc(reader.result as string);
+        setIsLoading(false);
+      };
+      reader.onerror = () => {
+        setError("Failed to load image");
+        setIsLoading(false);
+      };
+
+      if (typeof image === "string") {
+        reader.readAsDataURL(await fetch(image).then((r) => r.blob()));
+      } else {
+        reader.readAsDataURL(image);
+      }
+    } catch (err) {
+      setError("Failed to load image");
+      setIsLoading(false);
+    }
+  }, [image]);
 
   React.useEffect(() => {
     if (!open) {
@@ -129,38 +191,12 @@ export function CropDialog({
       setCrop(undefined);
       setCompletedCrop(undefined);
       setError(null);
+      setRetryKey(0);
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
-
-    const loadImage = async () => {
-      try {
-        const img = await getImageFromSource(image);
-        const reader = new FileReader();
-        reader.onload = () => {
-          setImgSrc(reader.result as string);
-          setIsLoading(false);
-        };
-        reader.onerror = () => {
-          setError("Failed to load image");
-          setIsLoading(false);
-        };
-
-        if (typeof image === "string") {
-          reader.readAsDataURL(await fetch(image).then((r) => r.blob()));
-        } else {
-          reader.readAsDataURL(image);
-        }
-      } catch (err) {
-        setError("Failed to load image");
-        setIsLoading(false);
-      }
-    };
-
     loadImage();
-  }, [open, image]);
+  }, [open, image, retryKey, loadImage]);
 
   function onImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
     if (!imgRef.current) return;
@@ -174,6 +210,7 @@ export function CropDialog({
 
     setIsConfirming(true);
     try {
+      const sourceMimeType = typeof image === "string" ? undefined : image.type;
       const filename =
         typeof image === "string"
           ? "cropped-image.jpg"
@@ -181,7 +218,8 @@ export function CropDialog({
       const croppedFile = await applyCropToCanvas(
         imgRef.current,
         completedCrop,
-        filename
+        filename,
+        sourceMimeType
       );
       onConfirm(croppedFile);
       onOpenChange(false);
@@ -215,7 +253,11 @@ export function CropDialog({
           {error && (
             <div className="text-red-500">
               <p>{error}</p>
-              <Button variant="outline" onClick={() => setError(null)} className="mt-2">
+              <Button
+                variant="outline"
+                onClick={() => setRetryKey((k) => k + 1)}
+                className="mt-2"
+              >
                 Try Again
               </Button>
             </div>
