@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner";
 import { updateInstructorSettings } from "@/lib/queries/api-client";
 import { useForm } from "@tanstack/react-form";
-import { z } from "zod";
 import { Plus, Trash2 } from "lucide-react";
 
 type WorkingHoursInterval = { start: string; end: string };
@@ -46,14 +45,6 @@ function normalizeWorkingHours(input: WorkingHours): Record<string, WorkingHours
   }
   return out;
 }
-
-const settingsSchema = z.object({
-  timeZone: z.string().optional(),
-  workingHours: z.record(z.string(), z.array(z.object({
-    start: z.string(),
-    end: z.string(),
-  }))).optional(),
-});
 
 interface SchedulingSettingsFormProps {
   initialTimeZone: string | null;
