@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,32 +57,31 @@ const settingsSchema = z.object({
 
 type SettingsValues = z.infer<typeof settingsSchema>;
 
-/**
- * Form for instructors to configure their timezone and weekly working hours.
- * Working hours define when students can book sessions, filtered against Google Calendar availability.
- *
- * @param initialTimeZone - Current timezone setting (IANA format, nullable)
- * @param initialWorkingHours - Current working hours per day of week
- */
+interface SchedulingSettingsFormProps {
+  initialTimeZone: string | null;
+  initialWorkingHours: WorkingHours | null;
+}
+
 export function SchedulingSettingsForm({
   initialTimeZone,
   initialWorkingHours,
-}: {
-  initialTimeZone: string | null;
-  initialWorkingHours: WorkingHours | null;
-}) {
+}: SchedulingSettingsFormProps) {
   const timeZones = useMemo(() => getTimeZones(), []);
-  const queryClient = useQueryClient();
 
-  const defaultValues: SettingsValues = {
-    timeZone: initialTimeZone || "",
-    workingHours: initialWorkingHours ? normalizeWorkingHours(initialWorkingHours) : {},
-  };
+  const [savedTimeZone, setSavedTimeZone] = useState<string>(initialTimeZone || "");
+  const [savedWorkingHours, setSavedWorkingHours] = useState<Record<string, WorkingHoursInterval[]>>(
+    initialWorkingHours ? normalizeWorkingHours(initialWorkingHours) : {}
+  );
+
+  useEffect(() => {
+    setSavedTimeZone(initialTimeZone || "");
+    setSavedWorkingHours(initialWorkingHours ? normalizeWorkingHours(initialWorkingHours) : {});
+  }, [initialTimeZone, initialWorkingHours]);
 
   const form = useForm({
-    defaultValues,
-    validators: {
-      onChange: settingsSchema,
+    defaultValues: {
+      timeZone: savedTimeZone,
+      workingHours: savedWorkingHours,
     },
   });
 
@@ -98,28 +97,33 @@ export function SchedulingSettingsForm({
   logDebug(
     "[DEBUG SchedulingSettingsForm] render - timeZone:",
     timeZone ? `(set: ${timeZone.length} chars)` : "(empty)",
+    "savedTimeZone:",
+    savedTimeZone ? `(set: ${savedTimeZone.length} chars)` : "(empty)",
     "workingHours:",
     workingHours ? `keys=${Object.keys(workingHours).join(",") || "none"}` : "(empty)"
   );
 
   const saveMutation = useMutation({
-    mutationFn: (capturedTimeZone: string | null) => {
-      const currentTimeZone = capturedTimeZone;
-      const currentWorkingHours = form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>;
+    mutationFn: (data: { timeZone: string | null; workingHours: Record<string, WorkingHoursInterval[]> }) => {
       logDebug(
         "[DEBUG SchedulingSettingsForm] saveMutation.mutationFn - timeZone:",
-        currentTimeZone ? `(set: ${currentTimeZone.length} chars)` : "(empty)",
+        data.timeZone ? `(set: ${data.timeZone.length} chars)` : "(empty)",
         "workingHours:",
-        currentWorkingHours ? `keys=${Object.keys(currentWorkingHours).join(",") || "none"}` : "(empty)"
+        data.workingHours ? `keys=${Object.keys(data.workingHours).join(",") || "none"}` : "(empty)"
       );
       return updateInstructorSettings({
-        timeZone: currentTimeZone || null,
-        workingHours: currentWorkingHours || {},
+        timeZone: data.timeZone,
+        workingHours: data.workingHours,
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructorSettings"] });
-      form.reset(form.state.values);
+    onSuccess: (_, variables) => {
+      logDebug("[DEBUG SchedulingSettingsForm] onSuccess - resetting to saved values:", variables.timeZone || "(empty)");
+      setSavedTimeZone(variables.timeZone || "");
+      setSavedWorkingHours(variables.workingHours);
+      form.reset({
+        timeZone: variables.timeZone || "",
+        workingHours: variables.workingHours,
+      });
       toast.success("Settings saved successfully");
     },
     onError: (error) => {
@@ -133,7 +137,7 @@ export function SchedulingSettingsForm({
   function handleDayToggle(day: number, enabled: boolean) {
     const dayKey = String(day);
     const current = (workingHours || {})[dayKey] || [];
-    
+
     if (enabled && current.length === 0) {
       form.setFieldValue(`workingHours.${dayKey}`, [{ start: "09:00", end: "17:00" }]);
     } else if (!enabled) {
@@ -163,9 +167,10 @@ export function SchedulingSettingsForm({
   }
 
   function save() {
-    const tzAtSave = form.getFieldValue("timeZone") as string | null;
+    const tzAtSave = (form.getFieldValue("timeZone") as string) || null;
+    const whAtSave = (form.getFieldValue("workingHours") as Record<string, WorkingHoursInterval[]>) || {};
     logDebug("[DEBUG SchedulingSettingsForm] save() - timeZone at save moment:", tzAtSave ? `(set: ${tzAtSave.length} chars)` : "(empty)");
-    saveMutation.mutate(tzAtSave);
+    saveMutation.mutate({ timeZone: tzAtSave, workingHours: whAtSave });
   }
 
   return (
