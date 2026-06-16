@@ -5,7 +5,8 @@ import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Upload, X, ImageIcon } from "lucide-react";
+import { Loader2, Upload, X, ImageIcon, Crop } from "lucide-react";
+import { CropDialog } from "./crop-dialog";
 
 interface ImageUploadFieldProps {
   label: string;
@@ -49,6 +50,9 @@ export function ImageUploadField({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [urlInput, setUrlInput] = useState(value || "");
+  const [cropDialogOpen, setCropDialogOpen] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [reCropUrl, setReCropUrl] = useState<string | null>(null);
 
   // Sync urlInput with value prop changes
   useEffect(() => {
@@ -93,13 +97,52 @@ export function ImageUploadField({
     [instructorId, type, uploadEndpoint, onChange]
   );
 
+  const openCropDialog = useCallback((file: File) => {
+    setPendingFile(file);
+    setCropDialogOpen(true);
+  }, []);
+
+  const handleCropConfirm = useCallback(
+    async (croppedFile: File) => {
+      setCropDialogOpen(false);
+      setPendingFile(null);
+      await uploadFile(croppedFile);
+    },
+    [uploadFile]
+  );
+
+  const handleCropCancel = useCallback(() => {
+    setCropDialogOpen(false);
+    setPendingFile(null);
+  }, []);
+
+  const handleReCrop = useCallback(() => {
+    if (!urlInput) return;
+    setReCropUrl(urlInput);
+    setCropDialogOpen(true);
+  }, [urlInput]);
+
+  const handleReCropConfirm = useCallback(
+    async (croppedFile: File) => {
+      setCropDialogOpen(false);
+      setReCropUrl(null);
+      await uploadFile(croppedFile);
+    },
+    [uploadFile]
+  );
+
+  const handleReCropCancel = useCallback(() => {
+    setCropDialogOpen(false);
+    setReCropUrl(null);
+  }, []);
+
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (acceptedFiles.length > 0) {
-        uploadFile(acceptedFiles[0]);
+        openCropDialog(acceptedFiles[0]);
       }
     },
-    [uploadFile]
+    [openCropDialog]
   );
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
@@ -193,16 +236,29 @@ export function ImageUploadField({
 
       {/* Preview */}
       {urlInput && (
-        <div className="mt-2 relative w-32 h-32 rounded-lg overflow-hidden border">
-          <img
-            src={urlInput}
-            alt="Preview"
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.style.display = "none";
-            }}
-          />
+        <div className="mt-2 relative group">
+          <div className="relative w-32 h-32 rounded-lg overflow-hidden border">
+            <img
+              src={urlInput}
+              alt="Preview"
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleReCrop}
+                className="text-white hover:text-white hover:bg-white/20"
+              >
+                <Crop className="h-4 w-4 mr-1" />
+                Re-crop
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -213,6 +269,36 @@ export function ImageUploadField({
             <p className="text-xs">No image</p>
           </div>
         </div>
+      )}
+
+      {/* Crop Dialog for new uploads */}
+      {pendingFile && (
+        <CropDialog
+          open={cropDialogOpen}
+          onOpenChange={(open) => {
+            setCropDialogOpen(open);
+            if (!open) setPendingFile(null);
+          }}
+          image={pendingFile}
+          onConfirm={handleCropConfirm}
+          onCancel={handleCropCancel}
+          aspectRatio={1}
+        />
+      )}
+
+      {/* Crop Dialog for re-cropping existing images */}
+      {reCropUrl && (
+        <CropDialog
+          open={cropDialogOpen}
+          onOpenChange={(open) => {
+            setCropDialogOpen(open);
+            if (!open) setReCropUrl(null);
+          }}
+          image={reCropUrl}
+          onConfirm={handleReCropConfirm}
+          onCancel={handleReCropCancel}
+          aspectRatio={1}
+        />
       )}
     </div>
   );
