@@ -116,6 +116,16 @@ function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactEle
             </Show>
             <Show when="signed-in">
               <MobileDashboardButton />
+              <SheetClose asChild>
+                <a
+                  href="https://drive.huckleberry.art"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-base font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-white"
+                >
+                  My Files
+                </a>
+              </SheetClose>
               <div className="flex items-center justify-start">
                 <UserButton />
               </div>
@@ -178,6 +188,9 @@ export function Header({ hasClerk = true }: HeaderProps): ReactElement {
               </Show>
               <Show when="signed-in">
                 <DashboardButton />
+                <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
+                  <Link href="https://drive.huckleberry.art" target="_blank" rel="noopener noreferrer">My Files</Link>
+                </Button>
                 <UserButton />
               </Show>
             </>
