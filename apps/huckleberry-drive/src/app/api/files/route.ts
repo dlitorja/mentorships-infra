@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 
 interface Upload {
   _id: string;
+  legacyId?: string;
   instructorId: string;
   filename: string;
   originalName: string;
@@ -14,7 +15,7 @@ interface Upload {
   transferStatus?: string;
   s3Key?: string;
   s3Url?: string;
-  createdAt: number;
+  createdAt?: number;
   archivedAt?: number;
   errorMessage?: string;
 }
@@ -39,13 +40,13 @@ interface FileResponse {
 
 function formatFileResponse(upload: Upload): FileResponse {
   return {
-    id: upload._id,
+    id: upload.legacyId ?? upload._id,
     originalName: upload.originalName,
     contentType: upload.contentType,
     size: upload.size,
     status: upload.status,
     transferStatus: upload.transferStatus ?? null,
-    createdAt: new Date(upload.createdAt),
+    createdAt: new Date(upload.createdAt ?? 0),
     archivedAt: upload.archivedAt ? new Date(upload.archivedAt) : null,
     errorMessage: upload.errorMessage ?? null,
   };

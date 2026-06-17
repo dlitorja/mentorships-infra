@@ -6,14 +6,20 @@ import { api } from "@/convex/_generated/api";
 
 interface Upload {
   _id: string;
+  legacyId?: string;
   instructorId: string;
   filename: string;
   originalName: string;
   contentType: string;
   size: number;
   status: string;
+  transferStatus?: string;
+  s3Key?: string;
+  s3Url?: string;
   b2FileId?: string;
   b2UploadId?: string;
+  createdAt?: number;
+  archivedAt?: number;
   errorMessage?: string;
 }
 

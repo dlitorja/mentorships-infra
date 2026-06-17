@@ -244,7 +244,7 @@ export const deleteUpload = mutation({
       return { success: true, status: "deleted" };
     }
 
-    ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
+    await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
       uploadId: args.id,
       filename: args.filename ?? undefined,
       s3Key: args.s3Key ?? undefined,
@@ -320,7 +320,7 @@ export const deleteUploadFromStorage = internalAction({
           id: args.uploadId,
         });
       } else {
-        ctx.scheduler.runAfter(3600_000, internal.instructorUploads.deleteUploadFromStorage, {
+        await ctx.scheduler.runAfter(3600_000, internal.instructorUploads.deleteUploadFromStorage, {
           uploadId: args.uploadId,
           filename: args.filename ?? undefined,
           s3Key: args.s3Key ?? undefined,

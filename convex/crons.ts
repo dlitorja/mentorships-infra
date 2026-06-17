@@ -57,7 +57,7 @@ export const retryStuckDeletions = internalAction({
 
     for (const upload of stuckUploads) {
       if ((upload.deleteAttemptCount ?? 0) < 3) {
-        ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
+        await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
           uploadId: upload.legacyId ?? upload._id,
           filename: upload.filename || undefined,
           s3Key: upload.s3Key || undefined,

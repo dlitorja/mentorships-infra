@@ -5,6 +5,7 @@ import { api } from "@/convex/_generated/api";
 
 interface Upload {
   _id: string;
+  legacyId?: string;
   instructorId: string;
   filename: string;
   originalName: string;
@@ -14,7 +15,7 @@ interface Upload {
   transferStatus?: string;
   s3Key?: string;
   s3Url?: string;
-  createdAt: number;
+  createdAt?: number;
   archivedAt?: number;
   errorMessage?: string;
 }
@@ -46,7 +47,7 @@ interface FileResponse {
 
 function formatFileResponse(upload: Upload): FileResponse {
   return {
-    id: upload._id,
+    id: upload.legacyId ?? upload._id,
     instructorId: upload.instructorId,
     originalName: upload.originalName,
     contentType: upload.contentType,
@@ -131,7 +132,7 @@ export async function DELETE(
       s3Key: upload.s3Key || undefined,
     });
 
-    if (result.error === "not_found") {
+    if (result.error === "not_found" || result.error === "already_deleted") {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
