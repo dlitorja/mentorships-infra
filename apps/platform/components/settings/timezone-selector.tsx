@@ -1,28 +1,9 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useCurrentUser, useUpdateUser } from "@/lib/queries/convex";
-
-function logDebug(...args: unknown[]): void {
-  if (process.env.NODE_ENV !== "production") {
-    console.log(...args);
-  }
-}
-
-function getTimeZones(): string[] {
-  const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
-    .supportedValuesOf;
-  if (typeof fn === "function") {
-    try {
-      return fn("timeZone");
-    } catch {
-      return fallbackTimeZones;
-    }
-  }
-  return fallbackTimeZones;
-}
 
 const fallbackTimeZones = [
   "UTC",
@@ -53,12 +34,17 @@ const fallbackTimeZones = [
   "Pacific/Honolulu",
 ];
 
-function getBrowserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone;
-  } catch {
-    return "UTC";
+function getTimeZones(): string[] {
+  const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
+    .supportedValuesOf;
+  if (typeof fn === "function") {
+    try {
+      return fn("timeZone");
+    } catch {
+      return fallbackTimeZones;
+    }
   }
+  return fallbackTimeZones;
 }
 
 function formatTimeZone(tz: string): string {
@@ -78,25 +64,30 @@ function formatTimeZone(tz: string): string {
 
 /**
  * Timezone selector card for students to set their local timezone.
- * Auto-detects browser timezone and displays formatted timezone options
- * with UTC offset for clarity. Saves selection to the user's Convex record.
+ * Saves selection to the user's Convex record.
  */
 export function TimeZoneSelector() {
   const timeZones = useMemo(() => getTimeZones(), []);
-  const browserTz = useMemo(() => getBrowserTimeZone(), []);
 
   const { data: user, isLoading } = useCurrentUser();
   const updateUser = useUpdateUser();
 
+  const [browserTz, setBrowserTz] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      setBrowserTz(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    } catch {
+      setBrowserTz(null);
+    }
+  }, []);
+
   const handleTimeZoneChange = async (timeZone: string) => {
     if (!user) return;
-    logDebug("[DEBUG TimeZoneSelector] handleTimeZoneChange called, user._id:", user._id);
     try {
       await updateUser.mutateAsync({ id: user._id, timeZone });
-      logDebug("[DEBUG TimeZoneSelector] mutation completed, timeZone set:", timeZone ? `(set: ${timeZone.length} chars)` : "(empty)");
       toast.success("Timezone saved");
     } catch (error) {
-      logDebug("[DEBUG TimeZoneSelector] mutation error:", error instanceof Error ? error.message : String(error));
       toast.error(error instanceof Error ? error.message : "Failed to save timezone");
     }
   };
@@ -109,8 +100,8 @@ export function TimeZoneSelector() {
       <CardHeader>
         <CardTitle>Timezone</CardTitle>
         <CardDescription>
-          Your local timezone for displaying session times. We detected your timezone as{" "}
-          <span className="font-medium">{browserTz}</span>.
+          Your local timezone for displaying session times.
+          {browserTz && <> We detected your timezone as <span className="font-medium">{browserTz}</span>.</>}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -120,7 +111,7 @@ export function TimeZoneSelector() {
           <>
             <select
               className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-              value={currentTimeZone || ""}
+              value={currentTimeZone ?? ""}
               onChange={(e) => handleTimeZoneChange(e.target.value)}
               disabled={isSaving}
             >
