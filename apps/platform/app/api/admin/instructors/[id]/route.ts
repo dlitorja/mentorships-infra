@@ -445,7 +445,7 @@ export async function DELETE(
             try {
               await convex.mutation(api.clerkDeletion.addPendingClerkDeletion, {
                 clerkUserId: userId,
-                instructorId: resolvedId,
+                instructorId: resolvedId as unknown as string & { __tableName: "instructors" },
                 error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
               });
               console.log(`[admin] Recorded pending Clerk deletion for ${userId}`);
