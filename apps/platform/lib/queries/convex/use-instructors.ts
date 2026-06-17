@@ -62,6 +62,12 @@ export function useInstructorByUserId(userId: string) {
   });
 }
 
+export function useCurrentInstructor() {
+  return useQuery({
+    ...convexQuery(api.instructors.getCurrentInstructor, {}),
+  });
+}
+
 /**
  * Fetches all instructors for admin listing.
  * Filters out deleted and inactive instructors.

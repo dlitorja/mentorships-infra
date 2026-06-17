@@ -671,6 +671,23 @@ export const getInstructorByUserId = query({
   },
 });
 
+export const getCurrentInstructor = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (!instructor) return null;
+    const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
+    return { ...instructor, profileImageUrl };
+  },
+});
+
 /** Returns the instructor document by id, or null if not authenticated. */
 export const getInstructorById = query({
   args: { id: v.id("instructors") },
