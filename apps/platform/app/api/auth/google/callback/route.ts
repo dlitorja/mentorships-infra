@@ -100,7 +100,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         try {
           const clerk = await clerkClient();
           const clerkUser = await clerk.users.getUser(user.id);
-          const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined;
+          let name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined;
+
+          if (!name) {
+            name = userEmail.split("@")[0];
+            console.log("[platform] OAuth callback: no name from Clerk, derived from email:", name);
+          }
 
           const newInstructorId = await convex.mutation(api.instructors.createInstructor, {
             userId: user.id,
