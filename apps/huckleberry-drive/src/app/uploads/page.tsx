@@ -1,5 +1,6 @@
 import React from "react";
 import { auth } from "@clerk/nextjs/server";
+
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { UploadsClient } from "./uploads-client";
@@ -17,19 +18,6 @@ interface Assignment {
   instructorId: string;
 }
 
-export default async function UploadsPage(): Promise<React.ReactElement> {
-  const { userId } = await auth();
-
-  if (!userId) {
-    return (
-      <div className="space-y-8 max-w-3xl">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-100">Upload Files</h1>
-          <p className="text-slate-400 mt-1">Please sign in to upload files</p>
-        </div>
-      </div>
-    );
-  }
 
   const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId }) as User | null;
   let instructors: Array<{ id: string; name: string | null; email: string }> = [];
@@ -43,16 +31,3 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
 
       instructors = instructorUsers.map((u) => ({
         id: u.userId,
-        name: null,
-        email: u.email || "",
-      }));
-    }
-  }
-
-  return (
-    <UploadsClient
-      userRole={dbUser?.role || null}
-      instructors={instructors}
-    />
-  );
-}
