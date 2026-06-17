@@ -2,9 +2,12 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
-import { getUserById } from "@mentorships/db";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "@/convex/_generated/api";
 import { LayoutClient } from "@/components/layout-client";
 import "./globals.css";
+
+const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,9 +34,9 @@ export default async function RootLayout({
   let userName: string | undefined;
 
   if (userId) {
-    const dbUser = await getUserById(userId);
+    const dbUser = await convex.query(api.users.getUserByClerkIdPublic, { userId });
     if (dbUser) {
-      userRole = dbUser.role;
+      userRole = dbUser.role as typeof userRole;
       userName = dbUser.email;
     }
   }

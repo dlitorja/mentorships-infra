@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireInstructor } from "@/lib/auth";
 import { initiateMultipartUpload } from "@mentorships/storage";
-import { createUpload, updateUploadStarted } from "@mentorships/db";
+import { fetchMutation } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
+
+interface User {
+  userId: string;
+  role: string;
+}
 
 const initiateSchema = z.object({
   filename: z.string().min(1).max(255),
@@ -22,9 +28,9 @@ const ALLOWED_CONTENT_TYPES = [
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const dbUser = await requireInstructor();
+    const dbUser = await requireInstructor() as User;
     const body = await request.json();
-    
+
     const parsed = initiateSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -32,45 +38,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
-    
+
     const { filename, contentType, size } = parsed.data;
-    
+
     if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
       return NextResponse.json(
         { error: "Invalid file type. Allowed: video/mp4, video/quicktime, video/x-msvideo, video/webm, video/x-matroska, video/mpeg" },
         { status: 400 }
       );
     }
-    
+
     if (size > MAX_UPLOAD_SIZE) {
       return NextResponse.json(
         { error: "File too large. Maximum size is 20GB" },
         { status: 400 }
       );
     }
-    
+
     const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const fileId = crypto.randomUUID();
-    
+
     const upload = await initiateMultipartUpload({
       fileId,
       filename: sanitizedFilename,
       contentType,
       size,
-      instructorId: dbUser.id,
+      instructorId: dbUser.userId,
     });
-    
-    await createUpload({
+
+    await fetchMutation(api.instructorUploads.createUpload, {
       id: fileId,
-      instructorId: dbUser.id,
+      instructorId: dbUser.userId,
       filename: upload.key,
       originalName: filename,
       contentType,
       size,
     });
-    
-    await updateUploadStarted(fileId, upload.uploadId);
-    
+
+    await fetchMutation(api.instructorUploads.updateUploadStarted, {
+      id: fileId,
+      b2UploadId: upload.uploadId,
+    });
+
     return NextResponse.json({
       fileId,
       uploadId: upload.uploadId,
@@ -81,11 +90,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("Upload initiate error:", error);
-    
+
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    
+
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

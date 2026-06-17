@@ -62,7 +62,7 @@ export const getUsersByUserIds = query({
     if (!user) {
       return [];
     }
-    
+
     const users = await Promise.all(
       args.userIds.map((userId) =>
         ctx.db
@@ -71,7 +71,23 @@ export const getUsersByUserIds = query({
           .first()
       )
     );
-    
+
+    return users.filter((u): u is Doc<"users"> => u !== null);
+  },
+});
+
+export const getUsersByClerkIds = query({
+  args: { userIds: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const users = await Promise.all(
+      args.userIds.map((userId) =>
+        ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", userId))
+          .first()
+      )
+    );
+
     return users.filter((u): u is Doc<"users"> => u !== null);
   },
 });
@@ -348,6 +364,16 @@ export const getAllUsersForMigration = query({
 });
 
 export const getUserByClerkId = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+  },
+});
+
+export const getUserByClerkIdPublic = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
