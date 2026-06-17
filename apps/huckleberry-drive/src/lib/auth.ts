@@ -2,6 +2,12 @@ import { auth } from "@clerk/nextjs/server";
 import { fetchAction, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
+async function getConvexToken(): Promise<string | undefined> {
+  const { getToken } = await auth();
+  const token = await getToken({ template: "convex" });
+  return token ?? undefined;
+}
+
 export class UnauthorizedError extends Error {
   constructor(message: string = "Unauthorized") {
     super(message);
@@ -28,10 +34,10 @@ interface User {
 }
 
 export async function requireInstructor(): Promise<User> {
-  const { userId, getToken } = await auth();
+  const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
+  const token = await getConvexToken();
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   if (!dbUser || (dbUser.role !== "instructor" && dbUser.role !== "admin" && dbUser.role !== "video_editor")) {
     throw new ForbiddenError("Must be an instructor, admin, or video editor");
@@ -40,10 +46,10 @@ export async function requireInstructor(): Promise<User> {
 }
 
 export async function requireAdmin(): Promise<User> {
-  const { userId, getToken } = await auth();
+  const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
+  const token = await getConvexToken();
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   if (!dbUser || dbUser.role !== "admin") {
     throw new ForbiddenError("Must be an admin");
@@ -52,10 +58,10 @@ export async function requireAdmin(): Promise<User> {
 }
 
 export async function requireVideoEditor(): Promise<User> {
-  const { userId, getToken } = await auth();
+  const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
+  const token = await getConvexToken();
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   if (!dbUser || dbUser.role !== "video_editor") {
     throw new ForbiddenError("Must be a video editor");
@@ -64,10 +70,10 @@ export async function requireVideoEditor(): Promise<User> {
 }
 
 export async function canAccessFile(fileInstructorId: string): Promise<boolean> {
-  const { userId, getToken } = await auth();
+  const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
+  const token = await getConvexToken();
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   if (!dbUser) throw new UnauthorizedError("User not found");
 
@@ -84,10 +90,10 @@ export async function canAccessFile(fileInstructorId: string): Promise<boolean> 
 }
 
 export async function getAccessibleInstructorIds(): Promise<string[] | null> {
-  const { userId, getToken } = await auth();
+  const { userId } = await auth();
   if (!userId) return [];
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
+  const token = await getConvexToken();
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   if (!dbUser) return [];
 
@@ -107,10 +113,10 @@ export async function getAccessibleInstructorIds(): Promise<string[] | null> {
 }
 
 export async function getCurrentUser(): Promise<User | null> {
-  const { userId, getToken } = await auth();
+  const { userId } = await auth();
   if (!userId) return null;
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
+  const token = await getConvexToken();
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   return dbUser as User | null;
 }
