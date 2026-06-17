@@ -1,5 +1,56 @@
-import { mutation } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+
+export const getAssignedInstructors = query({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    if (identity.subject !== args.videoEditorId) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      if (user?.role !== "admin") throw new Error("Forbidden");
+    }
+
+    const assignments = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+
+    return assignments.map((a) => a.instructorId);
+  },
+});
+
+export const canVideoEditorAccessInstructor = query({
+  args: {
+    videoEditorId: v.string(),
+    instructorId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return false;
+
+    if (identity.subject !== args.videoEditorId) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
+      if (user?.role !== "admin") return false;
+    }
+
+    const assignment = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId)
+      )
+      .first();
+
+    return assignment !== null;
+  },
+});
 
 /**
  * Migrates a video editor assignment from legacy system.

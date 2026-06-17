@@ -1,5 +1,235 @@
-import { mutation } from "./_generated/server";
+import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { QueryCtx, MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
+
+async function getUserRole(ctx: QueryCtx, userId: string): Promise<string | null> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first();
+  return user?.role ?? null;
+}
+
+async function getAssignedInstructorIds(ctx: QueryCtx, videoEditorId: string): Promise<string[]> {
+  const assignments = await ctx.db
+    .query("videoEditorAssignments")
+    .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", videoEditorId))
+    .collect();
+  return assignments.map((a) => a.instructorId);
+}
+
+export const getUploadById = query({
+  args: { id: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    // Find upload by clientId (UUID used as external file ID)
+    // TODO: add index on clientId for production scale
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    const upload = allUploads.find((u) => (u as any).clientId === args.id);
+    if (!upload) return null;
+
+    const userRole = await getUserRole(ctx, identity.subject);
+    if (!userRole) return null;
+
+    if (userRole === "admin") return upload;
+    if (userRole === "instructor" && upload.instructorId === identity.subject) return upload;
+    if (userRole === "video_editor") {
+      const assigned = await getAssignedInstructorIds(ctx, identity.subject);
+      if (assigned.includes(upload.instructorId)) return upload;
+    }
+    // Don't throw - return null so caller can distinguish forbidden from not found
+    return null;
+  },
+});
+
+export const listUploads = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return [];
+
+    const userRole = await getUserRole(ctx, identity.subject);
+    if (!userRole) return [];
+
+    if (userRole === "admin") {
+      const uploads = await ctx.db.query("instructorUploads").collect();
+      return uploads.filter((u) => u.status !== "deleted").slice(0, 100);
+    }
+
+    if (userRole === "instructor") {
+      const uploads = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_instructorId", (q) => q.eq("instructorId", identity.subject))
+        .collect();
+      return uploads.filter((u) => u.status !== "deleted").slice(0, 100);
+    }
+
+    if (userRole === "video_editor") {
+      const assignedIds = await getAssignedInstructorIds(ctx, identity.subject);
+      if (assignedIds.length === 0) return [];
+
+      const allUploads = await ctx.db.query("instructorUploads").collect();
+      return allUploads
+        .filter((u) => u.status !== "deleted" && assignedIds.includes(u.instructorId))
+        .slice(0, 100);
+    }
+
+    return [];
+  },
+});
+
+export const createUpload = mutation({
+  args: {
+    clientId: v.string(),
+    instructorId: v.string(),
+    filename: v.string(),
+    originalName: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const userRole = await getUserRole(ctx, identity.subject);
+    if (!userRole || (userRole !== "admin" && userRole !== "instructor" && userRole !== "video_editor")) {
+      throw new Error("Forbidden");
+    }
+
+    if (userRole !== "admin" && args.instructorId !== identity.subject) {
+      if (userRole === "instructor") throw new Error("Forbidden");
+      if (userRole === "video_editor") {
+        const assigned = await getAssignedInstructorIds(ctx, identity.subject);
+        if (!assigned.includes(args.instructorId)) throw new Error("Forbidden");
+      }
+    }
+
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    const existing = allUploads.find((u) => (u as any).clientId === args.clientId);
+    if (existing) return { id: existing._id, clientId: (existing as any).clientId, alreadyExists: true };
+
+    const id = await ctx.db.insert("instructorUploads", {
+      instructorId: args.instructorId,
+      filename: args.filename,
+      originalName: args.originalName,
+      contentType: args.contentType,
+      size: args.size,
+      status: "pending",
+      clientId: args.clientId,
+      transferRetryCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return { id, clientId: args.clientId, alreadyExists: false };
+  },
+});
+
+export const updateUploadStarted = mutation({
+  args: {
+    clientId: v.string(),
+    b2UploadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const userRole = await getUserRole(ctx, identity.subject);
+    if (!userRole || (userRole !== "admin" && userRole !== "instructor" && userRole !== "video_editor")) {
+      throw new Error("Forbidden");
+    }
+
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    const upload = allUploads.find((u) => (u as any).clientId === args.clientId);
+    if (!upload) throw new Error("Upload not found");
+
+    if (userRole !== "admin" && upload.instructorId !== identity.subject) {
+      if (userRole === "video_editor") {
+        const assigned = await getAssignedInstructorIds(ctx, identity.subject);
+        if (!assigned.includes(upload.instructorId)) throw new Error("Forbidden");
+      } else {
+        throw new Error("Forbidden");
+      }
+    }
+
+    await ctx.db.patch(upload._id, {
+      b2UploadId: args.b2UploadId,
+      status: "uploading",
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+export const completeUpload = mutation({
+  args: {
+    clientId: v.string(),
+    b2FileId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const userRole = await getUserRole(ctx, identity.subject);
+    if (!userRole || (userRole !== "admin" && userRole !== "instructor" && userRole !== "video_editor")) {
+      throw new Error("Forbidden");
+    }
+
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    const upload = allUploads.find((u) => (u as any).clientId === args.clientId);
+    if (!upload) throw new Error("Upload not found");
+
+    if (userRole !== "admin" && upload.instructorId !== identity.subject) {
+      if (userRole === "video_editor") {
+        const assigned = await getAssignedInstructorIds(ctx, identity.subject);
+        if (!assigned.includes(upload.instructorId)) throw new Error("Forbidden");
+      } else {
+        throw new Error("Forbidden");
+      }
+    }
+
+    await ctx.db.patch(upload._id, {
+      b2FileId: args.b2FileId,
+      status: "completed",
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+export const softDeleteUpload = mutation({
+  args: { clientId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const userRole = await getUserRole(ctx, identity.subject);
+    if (!userRole || (userRole !== "admin" && userRole !== "instructor" && userRole !== "video_editor")) {
+      throw new Error("Forbidden");
+    }
+
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    const upload = allUploads.find((u) => (u as any).clientId === args.clientId);
+    if (!upload) throw new Error("Upload not found");
+
+    if (userRole !== "admin" && upload.instructorId !== identity.subject) {
+      throw new Error("Forbidden");
+    }
+
+    await ctx.db.patch(upload._id, {
+      status: "deleted",
+      deletedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
 
 /**
  * Migrates an instructor upload record from legacy system.

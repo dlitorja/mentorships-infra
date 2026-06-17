@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
+import { TimezoneSettingsForm } from "@/components/instructor/timezone-settings-form";
 import { InstructorAvailabilityPreview } from "@/components/instructor/instructor-availability-preview";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
@@ -30,9 +30,8 @@ export default async function InstructorSettingsPage() {
           </p>
         </div>
 
-        <SchedulingSettingsForm
+        <TimezoneSettingsForm
           initialTimeZone={instructorRecord.timeZone ?? null}
-          initialWorkingHours={instructorRecord.workingHours ?? null}
         />
 
         <InstructorAvailabilityPreview

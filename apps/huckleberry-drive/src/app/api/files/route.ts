@@ -1,13 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireInstructor, getAccessibleInstructorIds } from "@/lib/auth";
-import {
-  getInstructorUploads,
-  getUploadsForInstructors,
-  getAllInstructorUploads,
-  type InstructorUpload,
-  UnauthorizedError,
-  ForbiddenError,
-} from "@mentorships/db";
+import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { getConvexClient } from "@/lib/convex";
+import { api } from "@/convex/_generated/api";
 
 interface FileResponse {
   id: string;
@@ -16,44 +10,32 @@ interface FileResponse {
   size: number;
   status: string;
   transferStatus: string | null;
-  createdAt: Date;
-  archivedAt: Date | null;
+  createdAt: number | null;
+  archivedAt: number | null;
   errorMessage: string | null;
-}
-
-function formatFileResponse(upload: InstructorUpload): FileResponse {
-  return {
-    id: upload.id,
-    originalName: upload.originalName,
-    contentType: upload.contentType,
-    size: upload.size,
-    status: upload.status,
-    transferStatus: upload.transferStatus,
-    createdAt: upload.createdAt,
-    archivedAt: upload.archivedAt,
-    errorMessage: upload.errorMessage,
-  };
 }
 
 export async function GET(): Promise<NextResponse> {
   try {
     const dbUser = await requireInstructor();
-    const accessibleIds = await getAccessibleInstructorIds();
-    
-    let uploads: InstructorUpload[];
-    
-    if (dbUser.role === "admin") {
-      uploads = await getAllInstructorUploads();
-    } else if (accessibleIds === null || accessibleIds.length === 0) {
-      uploads = await getInstructorUploads(dbUser.id);
-    } else {
-      uploads = await getUploadsForInstructors(accessibleIds);
-    }
-    
-    const files = uploads
+
+    const convex = getConvexClient();
+    const uploads = await convex.query(api.instructorUploads.listUploads, {});
+
+    const files: FileResponse[] = uploads
       .filter((u) => u.status !== "deleted")
-      .map(formatFileResponse);
-    
+      .map((upload) => ({
+        id: (upload as any).clientId ?? upload._id,
+        originalName: upload.originalName,
+        contentType: upload.contentType,
+        size: upload.size,
+        status: upload.status,
+        transferStatus: upload.transferStatus ?? null,
+        createdAt: upload.createdAt ?? null,
+        archivedAt: upload.archivedAt ?? null,
+        errorMessage: upload.errorMessage ?? null,
+      }));
+
     return NextResponse.json({
       files,
       pagination: {
@@ -63,18 +45,18 @@ export async function GET(): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("List files error:", error);
-    
+
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
     }
-    
+
     if (error instanceof Error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    
+
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

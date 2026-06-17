@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { updateInstructorSettings } from "@/lib/queries/api-client";
 import { Plus, Trash2 } from "lucide-react";
 
 type WorkingHoursInterval = { start: string; end: string };
@@ -21,18 +20,19 @@ const dayLabels: Record<0 | 1 | 2 | 3 | 4 | 5 | 6, string> = {
   6: "Saturday",
 };
 
-function getTimeZones(): string[] {
-  const fn = (Intl as unknown as { supportedValuesOf?: (key: "timeZone") => string[] })
-    .supportedValuesOf;
-  if (typeof fn === "function") {
-    try {
-      return fn("timeZone");
-    } catch {
-      // ignore
-    }
-  }
-  return ["UTC", "America/Los_Angeles", "America/New_York", "Europe/London", "Europe/Berlin"];
-}
+const commonTimezones = [
+  "UTC",
+  "America/Los_Angeles",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Asia/Tokyo",
+  "Asia/Shanghai",
+  "Australia/Sydney",
+];
 
 interface SchedulingSettingsFormProps {
   initialTimeZone: string | null;
@@ -43,61 +43,32 @@ export function SchedulingSettingsForm({
   initialTimeZone,
   initialWorkingHours,
 }: SchedulingSettingsFormProps) {
-  const timeZones = useMemo(() => getTimeZones(), []);
-
-  const [timeZone, setTimeZone] = useState<string>(initialTimeZone ?? "");
+  const [timeZone, setTimeZone] = useState(initialTimeZone ?? "");
   const [workingHours, setWorkingHours] = useState<WorkingHours>(initialWorkingHours ?? {});
 
-  function logDebug(...args: unknown[]): void {
-    if (process.env.NODE_ENV !== "production") {
-      console.log(...args);
-    }
-  }
-
-  logDebug(
-    "[DEBUG SchedulingSettingsForm] render - timeZone:",
-    timeZone ? `(set: ${timeZone.length} chars)` : "(empty)",
-    "workingHours keys:",
-    Object.keys(workingHours).join(",") || "none"
-  );
-
   const saveMutation = useMutation({
-    mutationFn: (data: { timeZone: string | null; workingHours: WorkingHours }) => {
-      logDebug(
-        "[DEBUG SchedulingSettingsForm] saveMutation.mutationFn - timeZone:",
-        data.timeZone ? `(set: ${data.timeZone.length} chars)` : "(empty)"
-      );
-      return updateInstructorSettings({
-        timeZone: data.timeZone,
-        workingHours: data.workingHours,
+    mutationFn: async (data: { timeZone: string | null; workingHours: WorkingHours }) => {
+      const response = await fetch("/api/instructor/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
       });
+      if (!response.ok) throw new Error("Failed to save");
+      return response.json();
     },
-    onSuccess: (_, variables) => {
-      logDebug("[DEBUG SchedulingSettingsForm] onSuccess - resetting to:", variables.timeZone || "(empty)");
-      setTimeZone(variables.timeZone ?? "");
-      setWorkingHours(variables.workingHours);
-      toast.success("Settings saved successfully");
-    },
-    onError: (error) => {
-      logDebug("[DEBUG SchedulingSettingsForm] saveMutation.onError - error:", error instanceof Error ? error.message : String(error));
-      toast.error(error instanceof Error ? error.message : "Failed to save settings");
-    },
+    onSuccess: () => toast.success("Settings saved!"),
+    onError: () => toast.error("Failed to save settings"),
   });
 
-  const saving = saveMutation.isPending;
-
-  function handleTimeZoneChange(value: string) {
-    logDebug("[DEBUG SchedulingSettingsForm] handleTimeZoneChange - new value:", value);
-    setTimeZone(value);
+  function handleTimeZoneChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    setTimeZone(e.target.value);
   }
 
   function handleDayToggle(day: number, enabled: boolean) {
     const dayKey = String(day);
-    const current = workingHours[dayKey] || [];
-
-    if (enabled && current.length === 0) {
+    if (enabled) {
       setWorkingHours({ ...workingHours, [dayKey]: [{ start: "09:00", end: "17:00" }] });
-    } else if (!enabled) {
+    } else {
       const { [dayKey]: _, ...rest } = workingHours;
       setWorkingHours(rest);
     }
@@ -124,9 +95,7 @@ export function SchedulingSettingsForm({
   }
 
   function save() {
-    const tzToSave = timeZone || null;
-    logDebug("[DEBUG SchedulingSettingsForm] save() - timeZone:", tzToSave ? `(set: ${tzToSave.length} chars)` : "(empty)");
-    saveMutation.mutate({ timeZone: tzToSave, workingHours });
+    saveMutation.mutate({ timeZone: timeZone || null, workingHours });
   }
 
   return (
@@ -134,8 +103,7 @@ export function SchedulingSettingsForm({
       <CardHeader>
         <CardTitle>Scheduling Settings</CardTitle>
         <CardDescription>
-          Set your timezone and working hours. Student-visible slots will be filtered by these rules
-          and your Google Calendar availability.
+          Set your timezone and working hours.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -144,97 +112,71 @@ export function SchedulingSettingsForm({
           <select
             className="w-full rounded-md border bg-background px-3 py-2 text-sm"
             value={timeZone}
-            onChange={(e) => handleTimeZoneChange(e.target.value)}
+            onChange={handleTimeZoneChange}
           >
             <option value="">(not set)</option>
-            {timeZones.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
-              </option>
+            {commonTimezones.map((tz) => (
+              <option key={tz} value={tz}>{tz}</option>
             ))}
           </select>
-          <p className="text-xs text-muted-foreground">
-            Use an IANA timezone (e.g. <code>America/Los_Angeles</code>).
-          </p>
         </div>
 
         <div className="space-y-3">
           <div className="text-sm font-medium">Working hours</div>
-          <div className="grid gap-3">
-            {([0, 1, 2, 3, 4, 5, 6] as const).map((day) => {
-              const intervals = workingHours[String(day)] || [];
-              const enabled = intervals.length > 0;
-
-              return (
-                <div key={day} className="rounded-md border p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        onChange={(e) => handleDayToggle(day, e.target.checked)}
-                      />
-                      <span className="text-sm font-medium">{dayLabels[day]}</span>
-                    </label>
-                    {enabled && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => addInterval(day)}
-                        className="h-8 px-2"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-
+          {([0, 1, 2, 3, 4, 5, 6] as const).map((day) => {
+            const intervals = workingHours[String(day)] || [];
+            const enabled = intervals.length > 0;
+            return (
+              <div key={day} className="rounded-md border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(e) => handleDayToggle(day, e.target.checked)}
+                    />
+                    <span className="text-sm font-medium">{dayLabels[day]}</span>
+                  </label>
                   {enabled && (
-                    <div className="space-y-2 ml-6">
-                      {intervals.map((interval, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                          <input
-                            type="time"
-                            value={interval.start}
-                            onChange={(e) => handleTimeChange(day, index, 'start', e.target.value)}
-                            className="rounded-md border bg-background px-2 py-1 text-sm"
-                          />
-                          <span className="text-sm text-muted-foreground">to</span>
-                          <input
-                            type="time"
-                            value={interval.end}
-                            onChange={(e) => handleTimeChange(day, index, 'end', e.target.value)}
-                            className="rounded-md border bg-background px-2 py-1 text-sm"
-                          />
-                          {intervals.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeInterval(day, index)}
-                              className="h-8 px-2 text-red-500 hover:text-red-600"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => addInterval(day)} className="h-8 px-2">
+                      <Plus className="h-4 w-4" />
+                    </Button>
                   )}
                 </div>
-              );
-            })}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Add multiple intervals per day if you have breaks (e.g., 9am-12pm and 2pm-5pm).
-          </p>
+                {enabled && (
+                  <div className="space-y-2 ml-6">
+                    {intervals.map((interval, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          type="time"
+                          value={interval.start}
+                          onChange={(e) => handleTimeChange(day, index, 'start', e.target.value)}
+                          className="rounded-md border bg-background px-2 py-1 text-sm"
+                        />
+                        <span className="text-sm text-muted-foreground">to</span>
+                        <input
+                          type="time"
+                          value={interval.end}
+                          onChange={(e) => handleTimeChange(day, index, 'end', e.target.value)}
+                          className="rounded-md border bg-background px-2 py-1 text-sm"
+                        />
+                        {intervals.length > 1 && (
+                          <Button type="button" variant="ghost" size="sm" onClick={() => removeInterval(day, index)} className="h-8 px-2 text-red-500">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        <div className="flex items-center gap-3">
-          <Button type="button" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save settings"}
-          </Button>
-        </div>
+        <Button onClick={save} disabled={saveMutation.isPending}>
+          {saveMutation.isPending ? "Saving…" : "Save settings"}
+        </Button>
       </CardContent>
     </Card>
   );

@@ -443,11 +443,13 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
   }).index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
     .index("by_transferStatus", ["transferStatus"])
     .index("by_createdAt", ["createdAt"])
-    .index("by_status_createdAt", ["status", "createdAt"]),
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_clientId", ["clientId"]),
 
   studentOnboardingSubmissions: defineTable({
     userId: v.string(),
