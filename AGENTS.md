@@ -66,12 +66,45 @@ Note: After pushing, Greptile will also automatically review the PR via GitHub A
 
 Always prefer sound, durable engineering solutions over band-aids or temporary fixes.
 
-- Do not disable type-checking, linting, or build checks to “get it green.” Fix the root cause.
+- Do not disable type-checking, linting, or build checks to "get it green." Fix the root cause.
 - Avoid temporary casts like `any`, ignoring errors, or selectively excluding files from builds. Use correct typings and update codegen when schemas change.
 - Follow widen–migrate–narrow for schema changes; backfill first, then remove legacy paths only after verification.
 - Keep CI deterministic: refresh codegen for Convex or other generated types whenever schemas change, and fail fast if generated artifacts are outdated.
 - Prefer server-side filtering and validation to avoid leaking hidden/sensitive data to clients.
 - Keep changes minimal but correct; do not introduce partial fixes that increase technical debt.
+
+## Secret Protection Policy (CRITICAL)
+
+**NEVER expose secrets in PR bodies, commit messages, comments, or documentation.**
+
+When documenting environment variables or configuration that includes secrets:
+- ALWAYS use placeholders like `<VALUE>` or `<COPY_FROM_APP_X>`
+- NEVER copy actual secret values from `.env.local`, `.env.production`, or similar files
+- NEVER include real API keys, tokens, or passwords in any text output
+
+### What is a secret:
+- API keys (Clerk, Convex, Stripe, Resend, Backblaze B2, etc.)
+- Database connection strings
+- JWT tokens or session secrets
+- OAuth credentials
+- Any string that starts with `sk_`, `pk_`, `key_`, `token_`, `secret_`, or resembles a UUID/base64 key
+
+### If you accidentally expose a secret:
+1. Immediately inform the user with the exact secret value
+2. Recommend revocation/rotation steps
+3. Update any public text to use placeholders
+
+### Example correct documentation:
+```env
+# CORRECT - uses placeholder
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<COPY_FROM_APPS_PLATFORM>
+```
+
+### Example incorrect documentation (NEVER DO THIS):
+```env
+# WRONG - real secret exposed
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_bWFqb3Itc3BhcnJvdy0xLmNsZXJrLmFjY291bnRzLmRldiQ
+```
 
 <!-- CLERK POLICY - DO NOT TOUCH -->
 # Clerk Changes Policy (Do Not Touch)
