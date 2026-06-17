@@ -11,12 +11,12 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",
-    "@mentorships/db": "workspace:*",
     "@mentorships/ui": "workspace:*",
     "@mentorships/storage": "workspace:*",
     "@uppy/core": "^4.0.0",
     "@uppy/tus": "^4.0.0",
     "@uppy/react": "^4.0.0",
+    "convex": "^1.39.1",
     "react-dropzone": "^14.2.3",
     "recharts": "^2.0.0",
     "next": "16.1.7",

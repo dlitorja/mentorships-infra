@@ -1,5 +1,6 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
 
 /**
  * Migrates a video editor assignment from legacy system.
@@ -39,5 +40,42 @@ export const migrateVideoEditorAssignment = mutation({
     });
 
     return { action: "inserted", id: insertResult };
+  },
+});
+
+export const getVideoEditorAssignments = query({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+  },
+});
+
+export const getAssignedInstructorIds = query({
+  args: { videoEditorId: v.string() },
+  handler: async (ctx, args) => {
+    const assignments = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
+      .collect();
+    return assignments.map((a: Doc<"videoEditorAssignments">) => a.instructorId);
+  },
+});
+
+export const isVideoEditorAssignedToInstructor = query({
+  args: {
+    videoEditorId: v.string(),
+    instructorId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const assignment = await ctx.db
+      .query("videoEditorAssignments")
+      .withIndex("by_videoEditorId_instructorId", (q) =>
+        q.eq("videoEditorId", args.videoEditorId).eq("instructorId", args.instructorId)
+      )
+      .first();
+    return !!assignment;
   },
 });

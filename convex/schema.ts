@@ -431,7 +431,7 @@ export default defineSchema({
     b2FileId: v.optional(v.string()),
     b2UploadId: v.optional(v.string()),
     b2PartEtags: v.optional(v.string()),
-    status: v.union(v.literal("pending"), v.literal("uploading"), v.literal("completed"), v.literal("archived"), v.literal("failed"), v.literal("deleted")),
+    status: v.union(v.literal("pending"), v.literal("uploading"), v.literal("completed"), v.literal("archived"), v.literal("failed"), v.literal("deleted"), v.literal("deleting")),
     errorMessage: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
     s3Key: v.optional(v.string()),
@@ -443,11 +443,14 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
+    deleteAttemptCount: v.optional(v.number()),
+    lastDeleteAttempt: v.optional(v.number()),
   }).index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
     .index("by_transferStatus", ["transferStatus"])
     .index("by_createdAt", ["createdAt"])
-    .index("by_status_createdAt", ["status", "createdAt"]),
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_legacyId", ["legacyId"]),
 
   studentOnboardingSubmissions: defineTable({
     userId: v.string(),

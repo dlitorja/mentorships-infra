@@ -1,11 +1,21 @@
 import React from "react";
 import { auth } from "@clerk/nextjs/server";
-import { getUserById } from "@mentorships/db";
-import { getVideoEditorAssignments } from "@mentorships/db";
-import { users } from "@mentorships/db/src/schema";
-import { inArray } from "drizzle-orm";
-import { db } from "@mentorships/db";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
 import { UploadsClient } from "./uploads-client";
+
+interface User {
+  _id: string;
+  userId: string;
+  email: string;
+  role: string;
+}
+
+interface Assignment {
+  _id: string;
+  videoEditorId: string;
+  instructorId: string;
+}
 
 export default async function UploadsPage(): Promise<React.ReactElement> {
   const { userId } = await auth();
@@ -21,24 +31,18 @@ export default async function UploadsPage(): Promise<React.ReactElement> {
     );
   }
 
-  const dbUser = await getUserById(userId);
+  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId }) as User | null;
   let instructors: Array<{ id: string; name: string | null; email: string }> = [];
 
   if (dbUser?.role === "video_editor") {
-    const assignments = await getVideoEditorAssignments(userId);
+    const assignments = await fetchQuery(api.videoEditorAssignments.getVideoEditorAssignments, { videoEditorId: userId }) as Assignment[];
     const instructorIds = assignments.map((a) => a.instructorId);
 
     if (instructorIds.length > 0) {
-      const instructorUsers = await db
-        .select({
-          id: users.id,
-          email: users.email,
-        })
-        .from(users)
-        .where(inArray(users.id, instructorIds));
+      const instructorUsers = await fetchQuery(api.users.getUsersByClerkIds, { userIds: instructorIds }) as User[];
 
       instructors = instructorUsers.map((u) => ({
-        id: u.id,
+        id: u.userId,
         name: null,
         email: u.email || "",
       }));
