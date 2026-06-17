@@ -431,8 +431,10 @@ export async function DELETE(
     }
 
     if (hardDelete) {
-      const existingInstructor = existing as { userId?: string } | null;
+      const existingInstructor = existing as { userId?: string; _id?: string } | null;
       const userId = existingInstructor?.userId;
+      const instructorId = existingInstructor?._id as string | undefined;
+
       if (userId) {
         try {
           const clerk = await clerkClient();
@@ -440,6 +442,23 @@ export async function DELETE(
           console.log(`[admin] Deleted Clerk user: ${userId}`);
         } catch (clerkErr) {
           console.error(`[admin] Failed to delete Clerk user ${userId}:`, clerkErr);
+          if (instructorId && resolvedId) {
+            try {
+              const convexAuth = await auth();
+              const token = await convexAuth.getToken({ template: "convex" });
+              if (token) {
+                convex.setAuth(token);
+                await convex.mutation(api.clerkDeletion.addPendingClerkDeletion, {
+                  clerkUserId: userId,
+                  instructorId: resolvedId as any,
+                  error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
+                });
+                console.log(`[admin] Recorded pending Clerk deletion for ${userId}`);
+              }
+            } catch (pendingErr) {
+              console.error(`[admin] Failed to record pending Clerk deletion:`, pendingErr);
+            }
+          }
         }
       }
       await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });

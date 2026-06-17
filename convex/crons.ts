@@ -30,4 +30,11 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "process-pending-clerk-deletions",
+  { minutes: 5 },
+  internal.clerkDeletion.processPendingClerkDeletions,
+  {}
+);
+
 export default crons;
