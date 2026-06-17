@@ -495,4 +495,12 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_month", ["month"]),
+
+  pendingClerkDeletions: defineTable({
+    clerkUserId: v.string(),
+    instructorId: v.id("instructors"),
+    attempts: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    createdAt: v.optional(v.number()),
+  }).index("by_clerkUserId", ["clerkUserId"]),
 });

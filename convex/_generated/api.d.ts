@@ -12,6 +12,7 @@ import type * as admin from "../admin.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
 import type * as bookings from "../bookings.js";
 import type * as cleanup from "../cleanup.js";
+import type * as clerkDeletion from "../clerkDeletion.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
 import type * as discordActionQueue from "../discordActionQueue.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   adminWorkspaces: typeof adminWorkspaces;
   bookings: typeof bookings;
   cleanup: typeof cleanup;
+  clerkDeletion: typeof clerkDeletion;
   contacts: typeof contacts;
   crons: typeof crons;
   discordActionQueue: typeof discordActionQueue;

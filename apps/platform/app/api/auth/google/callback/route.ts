@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleForApi, getConvexAuthToken } from "@/lib/auth-helpers";
+import { requireRoleForApi, getConvexAuthToken, getClerkUserEmail } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { exchangeGoogleCodeForTokens, getGoogleCalendarClient } from "@/lib/google";
+import { clerkClient } from "@clerk/nextjs/server";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
@@ -76,16 +77,74 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return res;
     }
     convex.setAuth(token);
-    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+    const userEmail = await getClerkUserEmail(user.id);
+    let instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
-    console.log("[platform] OAuth callback: instructor =", instructor ? instructor._id : "null", "userId used =", user.id);
+    console.log("[platform] OAuth callback: instructor by userId =", instructor ? instructor._id : "null", "userId =", user.id);
+
+    if (!instructor && userEmail) {
+      console.log("[platform] OAuth callback: trying email lookup for instructorId =", user.id);
+      instructor = await convex.query(api.instructors.getInstructorByEmail, {
+        email: userEmail,
+      });
+      console.log("[platform] OAuth callback: instructor by email =", instructor ? instructor._id : "null");
+
+      if (instructor && !instructor.userId) {
+        console.log("[platform] OAuth callback: instructor found via email but has no userId - backfilling");
+        await convex.mutation(api.instructors.backfillInstructorUserId, {
+          instructorId: instructor._id,
+          userId: user.id,
+        });
+        const refreshed = await convex.query(api.instructors.getInstructorById, {
+          id: instructor._id,
+        });
+        if (refreshed) {
+          instructor = refreshed;
+        }
+      }
+    }
+
     if (!instructor) {
-      console.log("[platform] OAuth callback: early exit - instructor not found");
+      console.log("[platform] OAuth callback: instructor not found by userId or email - will create new record");
+      if (userEmail) {
+        try {
+          const clerk = await clerkClient();
+          const clerkUser = await clerk.users.getUser(user.id);
+          let name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined;
+
+          if (!name) {
+            name = userEmail.split("@")[0];
+            console.log("[platform] OAuth callback: no name from Clerk, derived from email:", name);
+          }
+
+          const newInstructorId = await convex.mutation(api.instructors.createInstructor, {
+            userId: user.id,
+            email: userEmail,
+            name,
+          });
+          console.log("[platform] OAuth callback: created new instructor =", newInstructorId);
+
+          const newInstructor = await convex.query(api.instructors.getInstructorById, {
+            id: newInstructorId,
+          });
+          if (newInstructor) {
+            instructor = newInstructor;
+          }
+        } catch (createErr) {
+          console.error("[platform] OAuth callback: failed to create instructor:", createErr);
+        }
+      }
+    }
+
+    if (!instructor) {
+      console.log("[platform] OAuth callback: early exit - instructor not found and could not create");
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
+
+    console.log("[platform] OAuth callback: found instructor =", instructor._id, "userId =", user.id);
 
     console.log("[platform] OAuth callback: updating instructor with googleRefreshToken");
     const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);

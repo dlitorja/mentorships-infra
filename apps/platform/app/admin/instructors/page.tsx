@@ -93,13 +93,13 @@ export default function InstructorsPage() {
   const instructors = useMemo(() => {
     if (!allInstructors) return [];
 
-    const hasIdentifyingData = (i: Instructor): boolean => !!(i.name || i.email || i.slug);
+    const hasNameOrSlug = (i: Instructor): boolean => !!(i.name || i.slug);
 
     let filtered = showInactive
       ? allInstructors
       // Treat undefined isActive as active for backward compatibility
-      // Also filter out instructors with no identifying data (defensive measure)
-      : allInstructors.filter((i: Instructor) => (i.isActive !== false) && !i.deletedAt && hasIdentifyingData(i));
+      // Also filter out instructors without name or slug (defensive measure to hide incomplete records)
+      : allInstructors.filter((i: Instructor) => (i.isActive !== false) && !i.deletedAt && hasNameOrSlug(i));
 
     if (debouncedSearch) {
       const searchLower = debouncedSearch.toLowerCase();
