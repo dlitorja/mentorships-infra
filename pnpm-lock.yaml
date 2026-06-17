@@ -342,9 +342,6 @@ importers:
       '@clerk/nextjs':
         specifier: ^6.36.5
         version: 6.39.1(next@16.1.7(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      '@mentorships/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       '@mentorships/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -360,6 +357,9 @@ importers:
       '@uppy/tus':
         specifier: ^4.0.0
         version: 4.3.2(@uppy/core@4.5.3)
+      convex:
+        specifier: ^1.39.1
+        version: 1.39.1(@clerk/clerk-react@5.61.4(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(@clerk/react@6.6.3(react-dom@19.2.0(react@19.2.0))(react@19.2.0))(bufferutil@4.1.0)(react@19.2.0)(utf-8-validate@6.0.6)
       next:
         specifier: 16.1.7
         version: 16.1.7(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
