@@ -82,7 +82,11 @@ export function TimeZoneSelector() {
     }
   }, []);
 
+<<<<<<< HEAD
 const handleTimeZoneChange = async (timeZone: string) => {
+=======
+  const handleTimeZoneChange = async (timeZone: string) => {
+>>>>>>> d2a7d47f (chore: remove debug console.log statements)
     if (!instructor) {
       return;
     }
@@ -97,8 +101,7 @@ const handleTimeZoneChange = async (timeZone: string) => {
   const currentTimeZone = instructor?.timeZone;
   const isSaving = updateInstructor.isPending;
 
-
-  return (
+return (
     <Card>
       <CardHeader>
         <CardTitle>Timezone</CardTitle>
