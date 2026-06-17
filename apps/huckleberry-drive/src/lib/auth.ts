@@ -29,9 +29,12 @@ interface User {
 
 export async function requireInstructor(): Promise<User> {
   const { userId } = await auth();
+  console.log("[requireInstructor] userId from auth():", userId);
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
+  console.log("[requireInstructor] calling fetchAction with userId:", userId);
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
+  console.log("[requireInstructor] dbUser result:", dbUser);
   if (!dbUser || (dbUser.role !== "instructor" && dbUser.role !== "admin" && dbUser.role !== "video_editor")) {
     throw new ForbiddenError("Must be an instructor, admin, or video editor");
   }
