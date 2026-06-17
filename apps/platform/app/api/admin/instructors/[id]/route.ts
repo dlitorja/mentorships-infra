@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 
 function getConvexClient() {
@@ -431,6 +431,17 @@ export async function DELETE(
     }
 
     if (hardDelete) {
+      const existingInstructor = existing as { userId?: string } | null;
+      const userId = existingInstructor?.userId;
+      if (userId) {
+        try {
+          const clerk = await clerkClient();
+          await clerk.users.deleteUser(userId);
+          console.log(`[admin] Deleted Clerk user: ${userId}`);
+        } catch (clerkErr) {
+          console.error(`[admin] Failed to delete Clerk user ${userId}:`, clerkErr);
+        }
+      }
       await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });
       return NextResponse.json({
         success: true,
