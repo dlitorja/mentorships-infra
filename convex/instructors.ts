@@ -688,6 +688,19 @@ export const getCurrentInstructor = query({
   },
 });
 
+export const getInstructorByEmail = query({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .first();
+    if (!instructor) return null;
+    const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
+    return { ...instructor, profileImageUrl };
+  },
+});
+
 /** Returns the instructor document by id, or null if not authenticated. */
 export const getInstructorById = query({
   args: { id: v.id("instructors") },

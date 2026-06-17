@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireRoleForApi, getConvexAuthToken } from "@/lib/auth-helpers";
+import { requireRoleForApi, getConvexAuthToken, getClerkUserEmail } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { exchangeGoogleCodeForTokens, getGoogleCalendarClient } from "@/lib/google";
@@ -76,16 +76,30 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return res;
     }
     convex.setAuth(token);
-    const instructor = await convex.query(api.instructors.getInstructorByUserId, {
+    let instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
     });
-    console.log("[platform] OAuth callback: instructor =", instructor ? instructor._id : "null", "userId used =", user.id);
+    console.log("[platform] OAuth callback: instructor by userId =", instructor ? instructor._id : "null", "userId =", user.id);
+
     if (!instructor) {
-      console.log("[platform] OAuth callback: early exit - instructor not found");
+      const userEmail = await getClerkUserEmail(user.id);
+      console.log("[platform] OAuth callback: trying email lookup with =", userEmail);
+      if (userEmail) {
+        instructor = await convex.query(api.instructors.getInstructorByEmail, {
+          email: userEmail,
+        });
+        console.log("[platform] OAuth callback: instructor by email =", instructor ? instructor._id : "null", "email =", userEmail);
+      }
+    }
+
+    if (!instructor) {
+      console.log("[platform] OAuth callback: early exit - instructor not found by userId or email");
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
     }
+
+    console.log("[platform] OAuth callback: found instructor =", instructor._id, "userId =", user.id, "email =", instructor.email);
 
     console.log("[platform] OAuth callback: updating instructor with googleRefreshToken");
     const calendarTimezone = await getCalendarTimezone(tokens.refresh_token);

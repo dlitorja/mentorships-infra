@@ -9,6 +9,25 @@ export async function getConvexAuthToken(): Promise<string | null> {
   return clerkAuth.getToken({ template: "convex" });
 }
 
+export async function getClerkUserEmail(userId: string): Promise<string | null> {
+  try {
+    const { sessionClaims } = await auth();
+    const email = sessionClaims?.email;
+    if (typeof email === "string" && email) {
+      return email.toLowerCase();
+    }
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const primaryEmail = user.emailAddresses.find(
+      (e) => e.id === user.primaryEmailAddressId
+    );
+    return primaryEmail?.emailAddress.toLowerCase() ?? null;
+  } catch (err) {
+    console.error("[auth-helpers] Failed to get user email:", err);
+    return null;
+  }
+}
+
 export async function getServerUserRole(userId: string): Promise<UserRole> {
   try {
     const client = await clerkClient();
