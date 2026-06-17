@@ -8,8 +8,37 @@ import { internal } from "./_generated/api";
  * - send-grace-period-final-warning: Runs hourly, sends final warning to seats entering grace period
  * - check-seat-expiration: Runs hourly, processes expired seats and transitions to grace or released
  * - process-discord-action-queue: Runs every minute, processes pending Discord actions
-
  * - retry-pending-deletions: Runs hourly, retries uploads stuck in "deleting" state
+ */
+const crons = cronJobs();
+
+crons.interval(
+  "send-grace-period-final-warning",
+  { hours: 1 },
+  internal.seatReservations.sendGracePeriodFinalWarning,
+  {}
+);
+
+crons.interval(
+  "check-seat-expiration",
+  { hours: 1 },
+  internal.sessions.checkSeatExpiration,
+  {}
+);
+
+crons.interval(
+  "process-discord-action-queue",
+  { minutes: 1 },
+  internal.discordActionQueue.processDiscordActionQueue,
+  {}
+);
+
+crons.interval(
+  "process-pending-clerk-deletions",
+  { minutes: 5 },
+  internal.clerkDeletion.processPendingClerkDeletions,
+  {}
+);
 
 crons.interval(
   "retry-pending-deletions",
@@ -53,3 +82,4 @@ export const getStuckDeletions = internalQuery({
   },
 });
 
+export default crons;
