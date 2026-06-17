@@ -1,4 +1,5 @@
-import { query, mutation, internalQuery, internalMutation } from "./_generated/server";
+import { query, mutation, internalQuery, internalMutation, action } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
@@ -384,5 +385,14 @@ export const getUserByClerkIdPublic = query({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
+  },
+});
+
+export const getUserByClerkIdServer = action({
+  args: { userId: v.string() },
+  handler: async (ctx, args): Promise<any> => {
+    return await ctx.runQuery(internal.users.getUserByClerkId as any, {
+      userId: args.userId,
+    });
   },
 });
