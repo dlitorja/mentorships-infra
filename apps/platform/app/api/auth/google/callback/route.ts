@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRoleForApi, getConvexAuthToken, getClerkUserEmail } from "@/lib/auth-helpers";
 import { getConvexClient } from "@/lib/convex";
-import { api } from "@/convex/_generated/api";
+import { api, internal } from "@/convex/_generated/api";
 import { exchangeGoogleCodeForTokens, getGoogleCalendarClient } from "@/lib/google";
 import { clerkClient } from "@clerk/nextjs/server";
 
@@ -90,6 +90,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           email: userEmail,
         });
         console.log("[platform] OAuth callback: instructor by email =", instructor ? instructor._id : "null", "email =", userEmail);
+
+        if (instructor && !instructor.userId) {
+          console.log("[platform] OAuth callback: instructor found via email but has no userId - backfilling");
+          await convex.mutation(api.instructors.backfillInstructorUserId, {
+            instructorId: instructor._id as any,
+            userId: user.id,
+          });
+          const refreshed = await convex.query(api.instructors.getInstructorById, {
+            id: instructor._id as any,
+          });
+          if (refreshed) {
+            instructor = refreshed;
+          }
+        }
       }
     }
 
