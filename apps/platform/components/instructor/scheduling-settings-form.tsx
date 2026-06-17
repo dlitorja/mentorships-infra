@@ -43,9 +43,12 @@ export function SchedulingSettingsForm({
   initialTimeZone,
   initialWorkingHours,
 }: SchedulingSettingsFormProps) {
+  console.log("[SchedulingSettingsForm] RENDER - initialTimeZone prop:", initialTimeZone);
+  
   const timeZones = useMemo(() => getTimeZones(), []);
 
   const [timeZone, setTimeZone] = useState<string>(initialTimeZone ?? "");
+  console.log("[SchedulingSettingsForm] RENDER - timeZone state:", timeZone);
   const [workingHours, setWorkingHours] = useState<WorkingHours>(initialWorkingHours ?? {});
 
   function logDebug(...args: unknown[]): void {
@@ -87,7 +90,7 @@ export function SchedulingSettingsForm({
   const saving = saveMutation.isPending;
 
   function handleTimeZoneChange(value: string) {
-    logDebug("[DEBUG SchedulingSettingsForm] handleTimeZoneChange - new value:", value);
+    console.log("[SchedulingSettingsForm] handleTimeZoneChange - old value:", timeZone, "new value:", value);
     setTimeZone(value);
   }
 
