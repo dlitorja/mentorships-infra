@@ -376,6 +376,10 @@ export const getUserByClerkId = internalQuery({
 export const getUserByClerkIdPublic = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
+    const authUser = await ctx.auth.getUserIdentity();
+    if (!authUser) {
+      return null;
+    }
     return await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))

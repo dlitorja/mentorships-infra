@@ -7,7 +7,9 @@ import { api } from "@/convex/_generated/api";
 
 interface Upload {
   _id: string;
+  legacyId?: string;
   instructorId: string;
+  filename: string;
   b2UploadId?: string;
 }
 
@@ -19,7 +21,7 @@ interface User {
 const abortSchema = z.object({
   fileId: z.string(),
   uploadId: z.string(),
-  key: z.string(),
+  key: z.string().optional(),
 });
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { fileId, uploadId, key } = parsed.data;
+    const { fileId, uploadId, key: providedKey } = parsed.data;
 
     const upload = await fetchQuery(api.instructorUploads.getUploadById, { id: fileId }) as Upload | null;
     if (!upload) {
@@ -50,6 +52,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid upload ID" }, { status: 400 });
     }
 
+    const key = providedKey ?? upload.filename;
     await abortMultipartUpload({ key, uploadId });
 
     await fetchMutation(api.instructorUploads.softDeleteUpload, { id: fileId });
