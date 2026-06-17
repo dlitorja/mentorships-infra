@@ -1,7 +1,7 @@
 {
   "framework": "nextjs",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile --ignore-scripts",
-  "buildCommand": "pnpm --filter @mentorships/huckleberry-drive build",
+  "buildCommand": "cd ../.. && pnpm --filter @mentorships/huckleberry-drive build",
   "outputDirectory": ".next",
   "git": {
     "deploymentEnabled": {
