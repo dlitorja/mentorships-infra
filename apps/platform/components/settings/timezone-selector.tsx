@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { useCurrentUser, useUpdateUser } from "@/lib/queries/convex";
+import { useCurrentInstructor, useUpdateInstructor } from "@/lib/queries/convex";
 
 const fallbackTimeZones = [
   "UTC",
@@ -63,14 +63,14 @@ function formatTimeZone(tz: string): string {
 }
 
 /**
- * Timezone selector card for students to set their local timezone.
- * Saves selection to the user's Convex record.
+ * Timezone selector card for instructors to set their local timezone.
+ * Saves selection to the instructor's Convex record.
  */
 export function TimeZoneSelector() {
   const timeZones = useMemo(() => getTimeZones(), []);
 
-  const { data: user, isLoading } = useCurrentUser();
-  const updateUser = useUpdateUser();
+  const { data: instructor, isLoading } = useCurrentInstructor();
+  const updateInstructor = useUpdateInstructor();
 
   const [browserTz, setBrowserTz] = useState<string | null>(null);
 
@@ -82,29 +82,20 @@ export function TimeZoneSelector() {
     }
   }, []);
 
-  console.log("[TimeZoneSelector] render - user:", user, "timeZone:", user?.timeZone);
-
   const handleTimeZoneChange = async (timeZone: string) => {
-    console.log("[TimeZoneSelector] handleTimeZoneChange - timeZone:", timeZone, "user:", user?._id);
-    if (!user) {
-      console.log("[TimeZoneSelector] NO USER - returning early");
+    if (!instructor) {
       return;
     }
     try {
-      console.log("[TimeZoneSelector] calling mutateAsync with id:", user._id, "timeZone:", timeZone);
-      await updateUser.mutateAsync({ id: user._id, timeZone });
-      console.log("[TimeZoneSelector] mutation completed");
+      await updateInstructor.mutateAsync({ id: instructor._id, timeZone });
       toast.success("Timezone saved");
     } catch (error) {
-      console.log("[TimeZoneSelector] mutation error:", error);
       toast.error(error instanceof Error ? error.message : "Failed to save timezone");
     }
   };
 
-  const currentTimeZone = user?.timeZone;
-  const isSaving = updateUser.isPending;
-
-  console.log("[TimeZoneSelector] currentTimeZone:", currentTimeZone, "isSaving:", isSaving);
+  const currentTimeZone = instructor?.timeZone;
+  const isSaving = updateInstructor.isPending;
 
   return (
     <Card>
