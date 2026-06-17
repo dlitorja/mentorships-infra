@@ -3,6 +3,7 @@ import { requireRoleForApi, getConvexAuthToken, getClerkUserEmail } from "@/lib/
 import { getConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { exchangeGoogleCodeForTokens, getGoogleCalendarClient } from "@/lib/google";
+import { clerkClient } from "@clerk/nextjs/server";
 
 const OAUTH_STATE_COOKIE = "gcal_oauth_state";
 
@@ -93,7 +94,35 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (!instructor) {
-      console.log("[platform] OAuth callback: early exit - instructor not found by userId or email");
+      console.log("[platform] OAuth callback: instructor not found by userId or email - will create new record");
+      const userEmail = await getClerkUserEmail(user.id);
+      if (userEmail) {
+        try {
+          const clerk = await clerkClient();
+          const clerkUser = await clerk.users.getUser(user.id);
+          const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined;
+
+          const newInstructorId = await convex.mutation(api.instructors.createInstructor, {
+            userId: user.id,
+            email: userEmail,
+            name,
+          });
+          console.log("[platform] OAuth callback: created new instructor =", newInstructorId);
+
+          const newInstructor = await convex.query(api.instructors.getInstructorById, {
+            id: newInstructorId,
+          });
+          if (newInstructor) {
+            instructor = newInstructor;
+          }
+        } catch (createErr) {
+          console.error("[platform] OAuth callback: failed to create instructor:", createErr);
+        }
+      }
+    }
+
+    if (!instructor) {
+      console.log("[platform] OAuth callback: early exit - instructor not found and could not create");
       const res = NextResponse.redirect(getAppRedirectUrl(request, "/instructor/dashboard?google_calendar=error_instructor_not_found"));
       res.cookies.delete(OAUTH_STATE_COOKIE);
       return res;
