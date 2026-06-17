@@ -688,6 +688,23 @@ export const getCurrentInstructor = query({
   },
 });
 
+export const getInstructorByEmail = query({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .first();
+    if (!instructor) return null;
+    const profileImageUrl = await getFreshProfileUrl(ctx, instructor.profileImageStorageId, instructor.profileImageUrl);
+    return { ...instructor, profileImageUrl };
+  },
+});
+
 /** Returns the instructor document by id, or null if not authenticated. */
 export const getInstructorById = query({
   args: { id: v.id("instructors") },
@@ -2507,6 +2524,24 @@ export const deactivateInstructorInternal = internalMutation({
   handler: async (ctx, args) => {
     await ctx.db.patch(args.instructorId, {
       isActive: false,
+      updatedAt: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+export const backfillInstructorUserId = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    userId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) {
+      throw new Error("Instructor not found");
+    }
+    await ctx.db.patch(args.instructorId, {
+      userId: args.userId,
       updatedAt: Date.now(),
     });
     return { success: true };

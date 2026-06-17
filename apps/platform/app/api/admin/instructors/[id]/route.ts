@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { stripe } from "@/lib/stripe";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { resolveInstructorByIdOrSlug } from "@/lib/admin/instructors";
 
 function getConvexClient() {
@@ -431,6 +431,30 @@ export async function DELETE(
     }
 
     if (hardDelete) {
+      const existingInstructor = existing as { userId?: string; _id?: string } | null;
+      const userId = existingInstructor?.userId;
+
+      if (userId) {
+        try {
+          const clerk = await clerkClient();
+          await clerk.users.deleteUser(userId);
+          console.log(`[admin] Deleted Clerk user: ${userId}`);
+        } catch (clerkErr) {
+          console.error(`[admin] Failed to delete Clerk user ${userId}:`, clerkErr);
+          if (resolvedId) {
+            try {
+              await convex.mutation(api.clerkDeletion.addPendingClerkDeletion, {
+                clerkUserId: userId,
+                instructorId: resolvedId as unknown as string & { __tableName: "instructors" },
+                error: clerkErr instanceof Error ? clerkErr.message : String(clerkErr),
+              });
+              console.log(`[admin] Recorded pending Clerk deletion for ${userId}`);
+            } catch (pendingErr) {
+              console.error(`[admin] Failed to record pending Clerk deletion:`, pendingErr);
+            }
+          }
+        }
+      }
       await convex.mutation(api.instructors.hardDeleteInstructor, { id: resolvedId as any });
       return NextResponse.json({
         success: true,
