@@ -82,18 +82,29 @@ export function TimeZoneSelector() {
     }
   }, []);
 
+  console.log("[TimeZoneSelector] render - user:", user, "timeZone:", user?.timeZone);
+
   const handleTimeZoneChange = async (timeZone: string) => {
-    if (!user) return;
+    console.log("[TimeZoneSelector] handleTimeZoneChange - timeZone:", timeZone, "user:", user?._id);
+    if (!user) {
+      console.log("[TimeZoneSelector] NO USER - returning early");
+      return;
+    }
     try {
+      console.log("[TimeZoneSelector] calling mutateAsync with id:", user._id, "timeZone:", timeZone);
       await updateUser.mutateAsync({ id: user._id, timeZone });
+      console.log("[TimeZoneSelector] mutation completed");
       toast.success("Timezone saved");
     } catch (error) {
+      console.log("[TimeZoneSelector] mutation error:", error);
       toast.error(error instanceof Error ? error.message : "Failed to save timezone");
     }
   };
 
   const currentTimeZone = user?.timeZone;
   const isSaving = updateUser.isPending;
+
+  console.log("[TimeZoneSelector] currentTimeZone:", currentTimeZone, "isSaving:", isSaving);
 
   return (
     <Card>
