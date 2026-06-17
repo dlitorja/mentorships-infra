@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
 export class UnauthorizedError extends Error {
@@ -31,7 +31,7 @@ export async function requireInstructor(): Promise<User> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId });
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
   if (!dbUser || (dbUser.role !== "instructor" && dbUser.role !== "admin" && dbUser.role !== "video_editor")) {
     throw new ForbiddenError("Must be an instructor, admin, or video editor");
   }
@@ -42,7 +42,7 @@ export async function requireAdmin(): Promise<User> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId });
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
   if (!dbUser || dbUser.role !== "admin") {
     throw new ForbiddenError("Must be an admin");
   }
@@ -53,7 +53,7 @@ export async function requireVideoEditor(): Promise<User> {
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId });
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
   if (!dbUser || dbUser.role !== "video_editor") {
     throw new ForbiddenError("Must be a video editor");
   }
@@ -64,7 +64,7 @@ export async function canAccessFile(fileInstructorId: string): Promise<boolean> 
   const { userId } = await auth();
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
-  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId });
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
   if (!dbUser) throw new UnauthorizedError("User not found");
 
   if (dbUser.role === "admin") return true;
@@ -83,7 +83,7 @@ export async function getAccessibleInstructorIds(): Promise<string[] | null> {
   const { userId } = await auth();
   if (!userId) return [];
 
-  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId });
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
   if (!dbUser) return [];
 
   if (dbUser.role === "admin") {
@@ -105,6 +105,6 @@ export async function getCurrentUser(): Promise<User | null> {
   const { userId } = await auth();
   if (!userId) return null;
 
-  const dbUser = await fetchQuery(api.users.getUserByClerkIdPublic, { userId });
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
   return dbUser as User | null;
 }
