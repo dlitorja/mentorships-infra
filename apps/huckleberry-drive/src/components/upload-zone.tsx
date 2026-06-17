@@ -34,6 +34,8 @@ interface UploadingFile {
   uploadId?: string;
   parts: Array<{ partNumber: number; etag?: string }>;
   uploadedParts: number;
+  partSize?: number;
+  totalParts?: number;
 }
 
 interface UploadZoneProps {
@@ -65,7 +67,7 @@ export function UploadZone({
         setUploadingFiles((prev) =>
           prev.map((f) =>
             f.id === uploadingFile.id
-              ? { ...f, fileId: initiateResult.fileId, uploadId: initiateResult.uploadId }
+              ? { ...f, fileId: initiateResult.fileId, uploadId: initiateResult.uploadId, partSize: initiateResult.partSize, totalParts: initiateResult.partCount }
               : f
           )
         );
@@ -376,7 +378,7 @@ export function UploadZone({
                       : `${uploadingFile.progress}%`}
                   </span>
                   <span className="text-slate-500">
-                    {uploadingFile.uploadedParts} / {Math.ceil(uploadingFile.file.size / (100 * 1024 * 1024))} parts
+                    {uploadingFile.uploadedParts} / {uploadingFile.totalParts ?? Math.ceil(uploadingFile.file.size / (uploadingFile.partSize ?? (100 * 1024 * 1024)))} parts
                   </span>
                 </div>
                 <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
