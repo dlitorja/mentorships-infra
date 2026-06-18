@@ -364,31 +364,6 @@ export const getAllUsersForMigration = query({
   },
 });
 
-// Admin mutation to update userId and clerkId when Clerk user ID changes
-export const updateUserClerkId = mutation({
-  args: {
-    userId: v.string(),
-    newClerkId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .first();
-    
-    if (!user) {
-      throw new Error(`User with userId ${args.userId} not found`);
-    }
-    
-    await ctx.db.patch(user._id, {
-      userId: args.newClerkId,
-      clerkId: args.newClerkId,
-    });
-    
-    return await ctx.db.get(user._id);
-  },
-});
-
 // Sets clerkId field only - preserves userId for apps/platform
 export const setUserClerkId = internalMutation({
   args: {
@@ -424,8 +399,11 @@ export const getUserByClerkId = internalQuery({
     if (byUserId) return byUserId;
 
     // Fall back to clerkId (secondary Clerk ID from apps like huckleberry-drive)
-    const allUsers = await ctx.db.query("users").collect();
-    return allUsers.find(u => u.clerkId === args.userId) ?? null;
+    const byClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
+      .first();
+    return byClerkId;
   },
 });
 
