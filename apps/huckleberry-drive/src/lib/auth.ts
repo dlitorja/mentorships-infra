@@ -77,7 +77,7 @@ export async function canAccessFile(fileInstructorId: string): Promise<boolean> 
     return await fetchQuery(api.videoEditorAssignments.isVideoEditorAssignedToInstructor, {
       videoEditorId: userId,
       instructorId: fileInstructorId,
-    }) as boolean;
+    }, { token }) as boolean;
   }
 
   throw new ForbiddenError("Cannot access this file");
@@ -100,7 +100,7 @@ export async function getAccessibleInstructorIds(): Promise<string[] | null> {
   }
 
   if (dbUser.role === "video_editor") {
-    return await fetchQuery(api.videoEditorAssignments.getAssignedInstructorIds, { videoEditorId: userId }) as string[];
+    return await fetchQuery(api.videoEditorAssignments.getAssignedInstructorIds, { videoEditorId: userId }, { token }) as string[];
   }
 
   return [];
