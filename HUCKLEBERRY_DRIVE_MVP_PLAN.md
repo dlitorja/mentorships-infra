@@ -6,7 +6,7 @@
 |-------|--------|
 | Phase 1: Backend Schema & Convex Queries | ✅ Merged (PR #482, #479) |
 | Phase 2: API Routes | ✅ Merged (PR #484) |
-| Phase 3: Frontend Pages | ⬜ Pending |
+| Phase 3: Frontend Pages | ✅ In PR #485 |
 
 ---
 
@@ -96,7 +96,7 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 
 **API calls:**
 - `GET /api/files?instructorId=&status=&search=&cursor=` — fetch paginated files
-- `GET /api/admin/stats` — fetch instructor list for dropdown
+- `GET /api/admin/instructors` — fetch instructor list for dropdown filter
 - `POST /api/files/[id]/restore` — restore soft-deleted file
 - `DELETE /api/files/[id]/hard` — admin hard delete
 
@@ -108,7 +108,7 @@ Replace hardcoded `"-"` stats with live data from `/api/admin/stats`:
 - Total Instructors count
 - Total Files count
 - Total Storage Used (formatted in GB/TB)
-- Monthly Cost (placeholder — use `getTotalStorageStats` for now)
+- Monthly Cost (estimated at $0.006/GB/mo from `totalBytes`)
 
 ### 3.3 Update `/dashboard/page.tsx`
 
@@ -180,6 +180,7 @@ Add "Files" link in admin section:
 | POST | `/api/files/[id]/restore` | instructor+ | Restore soft-deleted file |
 | DELETE | `/api/files/[id]/hard` | admin | Hard delete (B2 + DB) |
 | GET | `/api/admin/stats` | admin | Quick stats for admin dashboard |
+| GET | `/api/admin/instructors` | admin | List instructors for filter dropdown |
 | POST | `/api/uploads/initiate` | instructor+ | Initiate multipart upload (✅ done Phase 1) |
 
 ---
@@ -193,12 +194,13 @@ Add "Files" link in admin section:
 - `apps/huckleberry-drive/src/app/api/storage-usage/route.ts` — ✅ admin aggregate mode
 - `apps/huckleberry-drive/src/app/api/admin/stats/route.ts` — ✅ **new**
 
-### Phase 3 (Frontend)
-- `apps/huckleberry-drive/src/app/admin/page.tsx` — wire real stats
-- `apps/huckleberry-drive/src/app/admin/files/page.tsx` — **new** — admin file management
-- `apps/huckleberry-drive/src/app/dashboard/page.tsx` — search + pagination + video editor sections
-- `apps/huckleberry-drive/src/components/file-list.tsx` — restore button, hard delete, grace period badge
-- `apps/huckleberry-drive/src/components/sidebar.tsx` — add admin files link
+### Phase 3 (Frontend) — ✅ All done
+- `apps/huckleberry-drive/src/app/admin/page.tsx` — ✅ wire real stats with loading/error states
+- `apps/huckleberry-drive/src/app/admin/files/page.tsx` — ✅ **new** — admin file management with filters, bulk hard delete, pagination
+- `apps/huckleberry-drive/src/app/dashboard/page.tsx` — ✅ search with debounce, load more pagination, video editor dual-section view
+- `apps/huckleberry-drive/src/components/file-list.tsx` — ✅ restore button, hard delete with confirmation, grace period badge
+- `apps/huckleberry-drive/src/components/sidebar.tsx` — ✅ add admin files link (FolderOpen icon)
+- `apps/huckleberry-drive/src/app/uploads/uploads-client.tsx` — ✅ gate uploads for video editors until instructor selected
 
 ---
 
