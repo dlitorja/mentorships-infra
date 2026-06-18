@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
-import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
@@ -7,6 +7,7 @@ interface Upload {
   _id: string;
   legacyId?: string;
   instructorId: string;
+  uploadedById?: string;
   filename: string;
   originalName: string;
   contentType: string;
@@ -18,6 +19,7 @@ interface Upload {
   createdAt?: number;
   archivedAt?: number;
   errorMessage?: string;
+  deletedAt?: number;
 }
 
 interface User {
@@ -36,10 +38,18 @@ interface FileResponse {
   createdAt: Date;
   archivedAt: Date | null;
   errorMessage: string | null;
+  instructorId?: string;
+  uploadedById?: string;
+  deletedAt?: number | null;
 }
 
-function formatFileResponse(upload: Upload): FileResponse {
-  return {
+interface PaginationInfo {
+  cursor: number | null;
+  hasMore: boolean;
+}
+
+function formatFileResponse(upload: Upload, includeDeleted = false): FileResponse {
+  const base = {
     id: upload.legacyId ?? upload._id,
     originalName: upload.originalName,
     contentType: upload.contentType,
@@ -49,36 +59,67 @@ function formatFileResponse(upload: Upload): FileResponse {
     createdAt: new Date(upload.createdAt ?? 0),
     archivedAt: upload.archivedAt ? new Date(upload.archivedAt) : null,
     errorMessage: upload.errorMessage ?? null,
+    instructorId: upload.instructorId,
+    uploadedById: upload.uploadedById,
   };
+
+  if (includeDeleted) {
+    return { ...base, deletedAt: upload.deletedAt ? upload.deletedAt : null };
+  }
+
+  return base;
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const { searchParams } = new URL(request.url);
     const dbUser = await requireInstructor() as User;
-    const accessibleIds = await getAccessibleInstructorIds();
 
-    let uploads: Upload[];
+    const instructorId = searchParams.get("instructorId") ?? undefined;
+    const uploadedById = searchParams.get("uploadedById") ?? undefined;
+    const status = searchParams.get("status") ?? undefined;
+    const search = searchParams.get("search") ?? undefined;
+    const cursor = searchParams.get("cursor") ? Number(searchParams.get("cursor")) : undefined;
+    const limit = searchParams.get("limit") ? Math.min(Number(searchParams.get("limit")), 100) : 50;
+
+    let result: { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
 
     if (dbUser.role === "admin") {
-      // Admin gets all uploads - placeholder until we add proper admin query
-      uploads = [];
-    } else if (accessibleIds === null || accessibleIds.length === 0) {
-      uploads = await fetchQuery(api.instructorUploads.getInstructorUploads, { instructorId: dbUser.userId }) as Upload[];
+      result = await fetchQuery(api.instructorUploads.getAllUploads, {
+        instructorId: instructorId || undefined,
+        uploadedById: uploadedById || undefined,
+        status: status || undefined,
+        search: search || undefined,
+        cursor,
+        limit,
+      }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
+    } else if (dbUser.role === "instructor") {
+      result = await fetchQuery(api.instructorUploads.getAllUploads, {
+        instructorId: dbUser.userId,
+        status: status === "all" ? undefined : status ?? "completed",
+        search: search || undefined,
+        cursor,
+        limit,
+      }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
     } else {
-      uploads = await fetchQuery(api.instructorUploads.getUploadsForInstructors, { instructorIds: accessibleIds }) as Upload[];
+      result = await fetchQuery(api.instructorUploads.getAllUploads, {
+        uploadedById: dbUser.userId,
+        status: status === "all" ? undefined : status ?? "completed",
+        search: search || undefined,
+        cursor,
+        limit,
+      }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
     }
 
-    const files = uploads
-      .filter((u) => u.status !== "deleted")
-      .map(formatFileResponse);
+    const includeDeleted = status === "all" || status === "deleted";
+    const files = result.uploads.map((u) => formatFileResponse(u, includeDeleted));
 
-    return NextResponse.json({
-      files,
-      pagination: {
-        total: files.length,
-        hasMore: false,
-      },
-    });
+    const pagination: PaginationInfo = {
+      cursor: result.nextCursor,
+      hasMore: result.hasMore,
+    };
+
+    return NextResponse.json({ files, pagination });
   } catch (error) {
     console.error("List files error:", error);
 

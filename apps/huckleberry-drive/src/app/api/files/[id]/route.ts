@@ -160,3 +160,51 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export async function POST(
+  request: NextRequest,
+  { params }: Params
+): Promise<NextResponse> {
+  try {
+    const { id } = await params;
+    const dbUser = await requireInstructor() as User;
+
+    const upload = await fetchQuery(api.instructorUploads.getUploadById, { id }) as Upload | null;
+    if (!upload) {
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
+    }
+
+    if (upload.status !== "deleted") {
+      return NextResponse.json({ error: "File is not deleted" }, { status: 400 });
+    }
+
+    if (upload.instructorId !== dbUser.userId && dbUser.role !== "admin") {
+      return NextResponse.json({ error: "Not authorized to restore this file" }, { status: 403 });
+    }
+
+    const result = await fetchMutation(api.instructorUploads.restoreUpload, { id }) as
+      | { success: true }
+      | { error: "not_found" | "not_deleted" | "grace_period_expired" };
+
+    if ("error" in result) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Restore file error:", error);
+
+    if (error instanceof UnauthorizedError) {
+      return NextResponse.json({ error: error.message }, { status: 401 });
+    }
+    if (error instanceof ForbiddenError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
+
+    if (error instanceof Error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
