@@ -53,7 +53,7 @@ const { userId, getToken } = await auth();
 const token = await getToken({ template: "convex" }) ?? undefined;
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
 
-  const userRole = dbUser?.role as "student" | "instructor" | "admin" | "video_editor" ?? "student";
+const userRole = dbUser?.role as "student" | "instructor" | "admin" | "video_editor" ?? "student";
   const userName = dbUser?.email;
 
   return (
