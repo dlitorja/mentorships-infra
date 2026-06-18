@@ -130,12 +130,12 @@ jobs:
         if: steps.check_drive.outputs.exists != 'true'
         run: |
           if [ -z "$VERCEL_DRIVE_DEPLOY_HOOK_URL" ]; then
-            echo "Missing secret: VERCEL_DRIVE_DEPLOY_HOOK_URL" >&2
-            exit 1
+            echo "::warning::VERCEL_DRIVE_DEPLOY_HOOK_URL secret not configured; skipping Drive deployment. Add the secret to enable auto-deploy."
+            exit 0
           fi
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_DRIVE_DEPLOY_HOOK_URL")
           echo "Drive HTTP Status: $code"
           if [ "$code" != "200" ] && [ "$code" != "202" ]; then
-            echo "Drive deploy hook call failed" >&2
+            echo "::error::Drive deploy hook call failed with status $code"
             exit 1
           fi
