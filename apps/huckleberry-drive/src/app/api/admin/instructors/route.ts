@@ -2,17 +2,27 @@ import { NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import type { AdminStats } from "@/lib/api";
+import type { InstructorOption } from "@/lib/api";
 
 export async function GET(): Promise<NextResponse> {
   try {
     await requireAdmin();
 
-    const stats = await fetchQuery(api.users.getAdminStats, {}) as AdminStats;
+    const instructors = await fetchQuery(api.users.getAllInstructors, {}) as {
+      userId: string;
+      name: string;
+      email: string;
+    }[];
 
-    return NextResponse.json(stats);
+    const formatted: InstructorOption[] = instructors.map((i) => ({
+      id: i.userId,
+      name: i.name || null,
+      email: i.email,
+    }));
+
+    return NextResponse.json({ instructors: formatted });
   } catch (error) {
-    console.error("Admin stats error:", error);
+    console.error("Admin instructors error:", error);
 
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: error.message }, { status: 401 });

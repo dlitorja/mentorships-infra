@@ -8,6 +8,9 @@ export interface FileItem {
   createdAt: Date;
   archivedAt: Date | null;
   errorMessage: string | null;
+  instructorId?: string;
+  uploadedById?: string;
+  deletedAt?: number | null;
 }
 
 export interface StorageUsage {
@@ -40,6 +43,34 @@ export interface CostResponse {
   historical: CostData[];
 }
 
+export interface AdminStats {
+  totalInstructors: number;
+  totalFiles: number;
+  totalBytes: number;
+  activeFiles: number;
+  activeBytes: number;
+}
+
+export interface InstructorOption {
+  id: string;
+  name: string | null;
+  email: string;
+}
+
+export interface FileListResponse {
+  files: FileItem[];
+  pagination: { cursor: number | null; hasMore: boolean };
+}
+
+export interface ListFilesParams {
+  instructorId?: string;
+  uploadedById?: string;
+  status?: string;
+  search?: string;
+  cursor?: number;
+  limit?: number;
+}
+
 async function fetchApi<T>(
   endpoint: string,
   options?: RequestInit
@@ -64,6 +95,30 @@ export async function listFiles(): Promise<FileItem[]> {
     "/api/files"
   );
   return data.files;
+}
+
+export async function listFilesWithParams(
+  params: ListFilesParams = {}
+): Promise<FileListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.instructorId) searchParams.set("instructorId", params.instructorId);
+  if (params.uploadedById) searchParams.set("uploadedById", params.uploadedById);
+  if (params.status) searchParams.set("status", params.status);
+  if (params.search) searchParams.set("search", params.search);
+  if (params.cursor !== undefined) searchParams.set("cursor", String(params.cursor));
+  if (params.limit !== undefined) searchParams.set("limit", String(params.limit));
+
+  const query = searchParams.toString();
+  return fetchApi<FileListResponse>(`/api/files${query ? `?${query}` : ""}`);
+}
+
+export async function getAdminStats(): Promise<AdminStats> {
+  return fetchApi<AdminStats>("/api/admin/stats");
+}
+
+export async function getAdminInstructors(): Promise<InstructorOption[]> {
+  const data = await fetchApi<{ instructors: InstructorOption[] }>("/api/admin/instructors");
+  return data.instructors;
 }
 
 export async function getStorageUsage(): Promise<StorageUsage> {
@@ -105,6 +160,19 @@ export async function abortUpload(fileId: string, uploadId: string): Promise<voi
 
 export async function deleteFile(fileId: string): Promise<void> {
   await fetchApi(`/api/files/${fileId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function restoreFile(fileId: string): Promise<void> {
+  await fetchApi<{ success?: boolean; error?: string }>(
+    `/api/files/${fileId}`,
+    { method: "POST" }
+  );
+}
+
+export async function hardDeleteFile(fileId: string): Promise<void> {
+  await fetchApi(`/api/files/${fileId}/hard`, {
     method: "DELETE",
   });
 }

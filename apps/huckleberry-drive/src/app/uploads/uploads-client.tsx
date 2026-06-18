@@ -42,12 +42,18 @@ export function UploadsClient({
         />
       )}
 
-      <UploadZone
-        onUploadComplete={() => {
-          // Refresh file list or show success message
-        }}
-        instructorId={userRole === "video_editor" ? selectedInstructorId ?? undefined : undefined}
-      />
+      {userRole === "video_editor" && !selectedInstructorId ? (
+        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-sm text-slate-400">
+          Select an instructor before uploading files.
+        </div>
+      ) : (
+        <UploadZone
+          onUploadComplete={() => {
+            // Refresh file list or show success message
+          }}
+          instructorId={userRole === "video_editor" ? selectedInstructorId ?? undefined : undefined}
+        />
+      )}
     </div>
   );
 }

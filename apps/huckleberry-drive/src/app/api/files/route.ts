@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
@@ -64,7 +64,7 @@ function formatFileResponse(upload: Upload, includeDeleted = false): FileRespons
   };
 
   if (includeDeleted) {
-    return { ...base, deletedAt: upload.deletedAt ? upload.deletedAt : null };
+    return { ...base, deletedAt: upload.deletedAt ?? null };
   }
 
   return base;
@@ -102,13 +102,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         limit,
       }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
     } else {
-      result = await fetchQuery(api.instructorUploads.getAllUploads, {
-        uploadedById: dbUser.userId,
-        status: status === "all" ? undefined : status ?? "completed",
-        search: search || undefined,
-        cursor,
-        limit,
-      }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
+      if (instructorId) {
+        const accessibleIds = await getAccessibleInstructorIds();
+        if (!accessibleIds || !accessibleIds.includes(instructorId)) {
+          return NextResponse.json({ error: "Not authorized to access this instructor's files" }, { status: 403 });
+        }
+        result = await fetchQuery(api.instructorUploads.getAllUploads, {
+          instructorId,
+          status: status === "all" ? undefined : status ?? "completed",
+          search: search || undefined,
+          cursor,
+          limit,
+        }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
+      } else {
+        result = await fetchQuery(api.instructorUploads.getAllUploads, {
+          uploadedById: dbUser.userId,
+          status: status === "all" ? undefined : status ?? "completed",
+          search: search || undefined,
+          cursor,
+          limit,
+        }) as { uploads: Upload[]; nextCursor: number | null; hasMore: boolean };
+      }
     }
 
     const includeDeleted = status === "all" || status === "deleted";

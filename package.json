@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit --skipLibCheck",
     "check": "pnpm run lint && pnpm run typecheck",
     "check:ci": "pnpm run lint && pnpm run typecheck && pnpm run build",
-    "postinstall": "npx convex codegen",
+    "postinstall": "node scripts/convex-codegen-or-skip.js",
     "test": "playwright test --config apps/web/playwright.config.mts",
     "test:ui": "playwright test --ui --config apps/web/playwright.config.mts",
     "test:unit": "vitest --config vitest.config.mjs",

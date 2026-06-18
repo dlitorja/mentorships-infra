@@ -1,10 +1,16 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { DollarSign } from "lucide-react";
+import { DollarSign, Loader2 } from "lucide-react";
+import { getAdminStats } from "@/lib/api";
+import type { AdminStats } from "@/lib/api";
 
 export default function AdminPage(): React.ReactElement {
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const adminLinks = [
     {
       href: "/admin/costs",
@@ -15,6 +21,40 @@ export default function AdminPage(): React.ReactElement {
       bgColor: "bg-purple-500/10",
     },
   ];
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const data = await getAdminStats();
+        setStats(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load stats");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    fetchStats();
+  }, []);
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const value = parseFloat((bytes / Math.pow(k, i)).toFixed(2));
+    return `${value} ${sizes[i]}`;
+  };
+
+  const B2_COST_PER_GB_PER_MONTH = 0.006;
+
+  const estimateMonthlyCost = (bytes: number): string => {
+    const gb = bytes / (1024 * 1024 * 1024);
+    const cost = gb * B2_COST_PER_GB_PER_MONTH;
+    return `$${cost.toFixed(2)}`;
+  };
 
   return (
     <div className="space-y-8">
@@ -45,24 +85,54 @@ export default function AdminPage(): React.ReactElement {
 
       <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-6">
         <h2 className="text-lg font-semibold text-slate-200 mb-4">Quick Stats</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div>
-            <p className="text-2xl font-bold text-emerald-400">-</p>
-            <p className="text-sm text-slate-400">Total Instructors</p>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+            <span className="ml-2 text-slate-400">Loading stats...</span>
           </div>
-          <div>
-            <p className="text-2xl font-bold text-emerald-400">-</p>
-            <p className="text-sm text-slate-400">Total Files</p>
+        ) : error ? (
+          <div className="text-red-400 text-sm">{error}</div>
+        ) : stats ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">{stats.totalInstructors}</p>
+              <p className="text-sm text-slate-400">Total Instructors</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">{stats.totalFiles.toLocaleString()}</p>
+              <p className="text-sm text-slate-400">Total Files</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">{formatBytes(stats.totalBytes)}</p>
+              <p className="text-sm text-slate-400">Storage Used</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">
+                {estimateMonthlyCost(stats.totalBytes)}
+              </p>
+              <p className="text-sm text-slate-400">Est. Monthly Cost</p>
+            </div>
           </div>
-          <div>
-            <p className="text-2xl font-bold text-emerald-400">-</p>
-            <p className="text-sm text-slate-400">Storage Used</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">-</p>
+              <p className="text-sm text-slate-400">Total Instructors</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">-</p>
+              <p className="text-sm text-slate-400">Total Files</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">-</p>
+              <p className="text-sm text-slate-400">Storage Used</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">-</p>
+              <p className="text-sm text-slate-400">Est. Monthly Cost</p>
+            </div>
           </div>
-          <div>
-            <p className="text-2xl font-bold text-emerald-400">-</p>
-            <p className="text-sm text-slate-400">Monthly Cost</p>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
