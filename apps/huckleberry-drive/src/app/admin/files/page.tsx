@@ -97,11 +97,6 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
     fetchFiles();
   }, [fetchFiles]);
 
-  const handleFilterChange = useCallback(() => {
-    setSelectedFileIds(new Set());
-    fetchFiles();
-  }, [fetchFiles]);
-
   const handleLoadMore = useCallback(() => {
     if (pagination.cursor !== null) {
       fetchFiles(pagination.cursor, true);
@@ -194,7 +189,6 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
               value={instructorFilter}
               onChange={(e) => {
                 setInstructorFilter(e.target.value);
-                handleFilterChange();
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
@@ -213,7 +207,6 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
-                handleFilterChange();
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >

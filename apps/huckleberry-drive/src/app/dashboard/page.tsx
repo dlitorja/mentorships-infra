@@ -136,7 +136,7 @@ const fetchVideoEditorUploads = useCallback(
         }
       }
     }
-  }, [isLoaded, user, userRole, fetchData, fetchInstructorFiles, fetchVideoEditorUploads, instructorIds]);
+  }, [isLoaded, user, userRole, fetchData, fetchInstructorFiles, instructorIds]);
 
   useEffect(() => {
     if (userRole === "instructor" || userRole === "admin") {
