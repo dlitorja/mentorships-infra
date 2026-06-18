@@ -32,9 +32,11 @@ export async function requireInstructor(): Promise<User> {
   if (!userId) throw new UnauthorizedError("Must be logged in");
 
   const token = await getToken({ template: "convex" }) ?? undefined;
+  console.error("[DEBUG requireInstructor] userId:", userId, "token present:", !!token);
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
+  console.error("[DEBUG requireInstructor] dbUser:", JSON.stringify(dbUser));
   if (!dbUser || (dbUser.role !== "instructor" && dbUser.role !== "admin" && dbUser.role !== "video_editor")) {
-    throw new ForbiddenError("Must be an instructor, admin, or video editor");
+    throw new ForbiddenError(`Must be an instructor, admin, or video editor at ${dbUser?.email ?? userId}`);
   }
   return dbUser as User;
 }

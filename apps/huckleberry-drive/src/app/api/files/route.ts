@@ -54,6 +54,12 @@ function formatFileResponse(upload: Upload): FileResponse {
 
 export async function GET(): Promise<NextResponse> {
   try {
+    const { userId, getToken } = await import("@clerk/nextjs/server").then(m => m.auth());
+    console.error("[DEBUG /api/files] Clerk userId:", userId);
+    if (userId) {
+      const token = await getToken({ template: "convex" });
+      console.error("[DEBUG /api/files] Convex token present:", !!token);
+    }
     const dbUser = await requireInstructor() as User;
     const accessibleIds = await getAccessibleInstructorIds();
 
