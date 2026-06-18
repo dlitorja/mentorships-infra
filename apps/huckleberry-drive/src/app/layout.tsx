@@ -41,10 +41,12 @@ export default async function RootLayout({
 
   return (
     <ClerkProvider
-      afterSignInUrl="https://drive.huckleberry.art/dashboard"
-      afterSignUpUrl="https://drive.huckleberry.art/dashboard"
+      router="path"
+      path="/sign-in"
       signInUrl="/sign-in"
       signUpUrl="/sign-up"
+      afterSignInUrl="/dashboard"
+      afterSignUpUrl="/dashboard"
     >
       <html lang="en">
         <body
