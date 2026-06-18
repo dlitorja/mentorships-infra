@@ -429,3 +429,52 @@ export const getUserByClerkIdServer = action({
     });
   },
 });
+
+export const getAllInstructors = query({
+  args: {},
+  handler: async (ctx) => {
+    const allUsers = await ctx.db.query("users").collect();
+    return allUsers
+      .filter((u) => u.role === "instructor")
+      .map((u) => ({
+        userId: u.userId,
+        name: [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || "",
+        email: u.email ?? "",
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+export const getAdminStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const allUsers = await ctx.db.query("users").collect();
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+
+    const instructors = allUsers.filter((u) => u.role === "instructor");
+
+    let totalFiles = 0;
+    let totalBytes = 0;
+    let deletedFiles = 0;
+    let deletedBytes = 0;
+
+    for (const upload of allUploads) {
+      totalFiles++;
+      totalBytes += upload.size;
+      if (upload.status === "deleted" || upload.status === "deleting") {
+        deletedFiles++;
+        deletedBytes += upload.size;
+      }
+    }
+
+    const activeBytes = totalBytes - deletedBytes;
+
+    return {
+      totalInstructors: instructors.length,
+      totalFiles,
+      totalBytes,
+      activeFiles: totalFiles - deletedFiles,
+      activeBytes,
+    };
+  },
+});
