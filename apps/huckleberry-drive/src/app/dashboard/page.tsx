@@ -24,6 +24,12 @@ export default function DashboardPage(): React.ReactElement {
   const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
 
+  const [uploadedByMeSearchQuery, setUploadedByMeSearchQuery] = useState("");
+  const [uploadedByMeDebouncedSearch, setUploadedByMeDebouncedSearch] = useState("");
+  const [uploadedByMeCursor, setUploadedByMeCursor] = useState<number | null>(null);
+  const [uploadedByMeHasMore, setUploadedByMeHasMore] = useState(false);
+  const [isLoadingUploadedByMeMore, setIsLoadingUploadedByMeMore] = useState(false);
+
   const userRole = (user?.publicMetadata?.role as UserRole) || null;
   const userId = user?.id || null;
   const instructorIds = (user?.publicMetadata?.instructorIds as string[]) || [];
@@ -34,6 +40,13 @@ export default function DashboardPage(): React.ReactElement {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setUploadedByMeDebouncedSearch(uploadedByMeSearchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [uploadedByMeSearchQuery]);
 
   const fetchInstructorFiles = useCallback(
     async (search?: string, nextCursor?: number | null, append = false, instructorId?: string) => {
@@ -66,19 +79,37 @@ export default function DashboardPage(): React.ReactElement {
     [debouncedSearch]
   );
 
-  const fetchVideoEditorUploads = useCallback(async () => {
-    if (!userId) return;
-    try {
-      const result: FileListResponse = await listFilesWithParams({
-        uploadedById: userId,
-        status: "completed",
-        limit: 50,
-      });
-      setUploadedByMeFiles(result.files);
-    } catch (err) {
-      console.error("Failed to fetch uploaded files:", err);
-    }
-  }, [userId]);
+  const fetchVideoEditorUploads = useCallback(
+    async (search?: string, nextCursor?: number | null, append = false) => {
+      if (!userId) return;
+      try {
+        if (!append) setIsLoading(true);
+        else setIsLoadingUploadedByMeMore(true);
+
+        const result: FileListResponse = await listFilesWithParams({
+          uploadedById: userId,
+          status: "completed",
+          search: search || uploadedByMeDebouncedSearch || undefined,
+          cursor: nextCursor ?? undefined,
+          limit: 50,
+        });
+
+        if (append) {
+          setUploadedByMeFiles((prev) => [...prev, ...result.files]);
+        } else {
+          setUploadedByMeFiles(result.files);
+        }
+        setUploadedByMeCursor(result.pagination.cursor);
+        setUploadedByMeHasMore(result.pagination.hasMore);
+      } catch (err) {
+        console.error("Failed to fetch uploaded files:", err);
+      } finally {
+        if (!append) setIsLoading(false);
+        else setIsLoadingUploadedByMeMore(false);
+      }
+    },
+    [userId, uploadedByMeDebouncedSearch]
+  );
 
   const fetchData = useCallback(async () => {
     try {
@@ -115,11 +146,23 @@ export default function DashboardPage(): React.ReactElement {
     }
   }, [debouncedSearch]);
 
+  useEffect(() => {
+    if (userRole === "video_editor") {
+      fetchVideoEditorUploads(uploadedByMeDebouncedSearch, undefined, false);
+    }
+  }, [uploadedByMeDebouncedSearch]);
+
   const handleLoadMore = useCallback(() => {
     if (cursor !== null) {
       fetchInstructorFiles(debouncedSearch, cursor, true);
     }
   }, [cursor, debouncedSearch, fetchInstructorFiles]);
+
+  const handleLoadMoreUploadedByMe = useCallback(() => {
+    if (uploadedByMeCursor !== null) {
+      fetchVideoEditorUploads(uploadedByMeDebouncedSearch, uploadedByMeCursor, true);
+    }
+  }, [uploadedByMeCursor, uploadedByMeDebouncedSearch, fetchVideoEditorUploads]);
 
   const handleFilesChange = useCallback(() => {
     if (userRole === "video_editor") {
@@ -240,12 +283,40 @@ export default function DashboardPage(): React.ReactElement {
 
       <div>
         <h2 className="text-xl font-semibold text-slate-200 mb-4">Files I Uploaded</h2>
+        <div className="relative flex-1 max-w-md mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search files I uploaded..."
+            value={uploadedByMeSearchQuery}
+            onChange={(e) => setUploadedByMeSearchQuery(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
+          />
+        </div>
         <FileList
           files={uploadedByMeFiles}
           onFilesChange={handleFilesChange}
           userRole={userRole || undefined}
           userId={userId || undefined}
         />
+        {uploadedByMeHasMore && (
+          <div className="flex justify-center mt-4">
+            <button
+              onClick={handleLoadMoreUploadedByMe}
+              disabled={isLoadingUploadedByMeMore}
+              className="px-6 py-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-700 hover:text-white transition-colors disabled:opacity-50"
+            >
+              {isLoadingUploadedByMeMore ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading...
+                </span>
+              ) : (
+                "Load More"
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
