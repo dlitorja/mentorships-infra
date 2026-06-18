@@ -27,7 +27,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>): Promise<React.ReactElement> {
-  const { userId, getToken } = await auth();
+const { userId, getToken } = await auth();
 
   if (!userId) {
     return (
@@ -50,7 +50,7 @@ export default async function RootLayout({
     );
   }
 
-  const token = await getToken({ template: "convex" }) ?? undefined;
+const token = await getToken({ template: "convex" }) ?? undefined;
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
 
   const userRole = dbUser?.role as "student" | "instructor" | "admin" | "video_editor" ?? "student";
