@@ -26,7 +26,7 @@ export default function AdminFilesPage(): React.ReactElement {
   const [isHardDeleting, setIsHardDeleting] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const handleDownload = useCallback(async (fileId: string) => {
     setDownloadingId(fileId);
@@ -362,7 +362,7 @@ export default function AdminFilesPage(): React.ReactElement {
                           {instructorNameMap[file.instructorId || ""] || file.instructorId || "-"}
                         </td>
                         <td className="px-4 py-3 text-slate-400">
-                          {file.uploadedById ? "Video Editor" : "-"}
+{file.uploadedById ? "Video Editor" : "-"}
                         </td>
                         <td className="px-4 py-3 text-slate-400">
                           {formatBytes(file.size)}
@@ -374,7 +374,7 @@ export default function AdminFilesPage(): React.ReactElement {
                           {formatDate(file.createdAt)}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
+<div className="flex items-center justify-end gap-1">
                             {file.status !== "deleted" && (
                               <button
                                 onClick={() => handleDownload(file.id)}

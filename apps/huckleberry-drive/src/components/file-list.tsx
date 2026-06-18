@@ -78,7 +78,7 @@ export function FileList({
   };
 
   const canHardDelete = (): boolean => {
-    return userRole === "admin";
+return userRole === "admin";
   };
 
   const getStatusDisplay = (

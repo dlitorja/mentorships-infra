@@ -24,12 +24,11 @@ export default function DashboardPage(): React.ReactElement {
   const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
 
-  const [uploadedByMeSearchQuery, setUploadedByMeSearchQuery] = useState("");
+const [uploadedByMeSearchQuery, setUploadedByMeSearchQuery] = useState("");
   const [uploadedByMeDebouncedSearch, setUploadedByMeDebouncedSearch] = useState("");
   const [uploadedByMeCursor, setUploadedByMeCursor] = useState<number | null>(null);
   const [uploadedByMeHasMore, setUploadedByMeHasMore] = useState(false);
   const [isLoadingUploadedByMeMore, setIsLoadingUploadedByMeMore] = useState(false);
-
   const userRole = (user?.publicMetadata?.role as UserRole) || null;
   const userId = user?.id || null;
   const instructorIds = (user?.publicMetadata?.instructorIds as string[]) || [];
@@ -41,13 +40,12 @@ export default function DashboardPage(): React.ReactElement {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  useEffect(() => {
+useEffect(() => {
     const timer = setTimeout(() => {
       setUploadedByMeDebouncedSearch(uploadedByMeSearchQuery);
     }, 300);
     return () => clearTimeout(timer);
   }, [uploadedByMeSearchQuery]);
-
   const fetchInstructorFiles = useCallback(
     async (search?: string, nextCursor?: number | null, append = false, instructorId?: string) => {
       try {
@@ -79,7 +77,7 @@ export default function DashboardPage(): React.ReactElement {
     [debouncedSearch]
   );
 
-  const fetchVideoEditorUploads = useCallback(
+const fetchVideoEditorUploads = useCallback(
     async (search?: string, nextCursor?: number | null, append = false) => {
       if (!userId) return;
       try {
@@ -146,24 +144,22 @@ export default function DashboardPage(): React.ReactElement {
     }
   }, [debouncedSearch]);
 
-  useEffect(() => {
+useEffect(() => {
     if (userRole === "video_editor") {
       fetchVideoEditorUploads(uploadedByMeDebouncedSearch, undefined, false);
     }
   }, [uploadedByMeDebouncedSearch]);
-
   const handleLoadMore = useCallback(() => {
     if (cursor !== null) {
       fetchInstructorFiles(debouncedSearch, cursor, true);
     }
   }, [cursor, debouncedSearch, fetchInstructorFiles]);
 
-  const handleLoadMoreUploadedByMe = useCallback(() => {
+const handleLoadMoreUploadedByMe = useCallback(() => {
     if (uploadedByMeCursor !== null) {
       fetchVideoEditorUploads(uploadedByMeDebouncedSearch, uploadedByMeCursor, true);
     }
   }, [uploadedByMeCursor, uploadedByMeDebouncedSearch, fetchVideoEditorUploads]);
-
   const handleFilesChange = useCallback(() => {
     if (userRole === "video_editor") {
       fetchVideoEditorUploads();
@@ -283,7 +279,7 @@ export default function DashboardPage(): React.ReactElement {
 
       <div>
         <h2 className="text-xl font-semibold text-slate-200 mb-4">Files I Uploaded</h2>
-        <div className="relative flex-1 max-w-md mb-4">
+<div className="relative flex-1 max-w-md mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
@@ -299,7 +295,7 @@ export default function DashboardPage(): React.ReactElement {
           userRole={userRole || undefined}
           userId={userId || undefined}
         />
-        {uploadedByMeHasMore && (
+{uploadedByMeHasMore && (
           <div className="flex justify-center mt-4">
             <button
               onClick={handleLoadMoreUploadedByMe}
