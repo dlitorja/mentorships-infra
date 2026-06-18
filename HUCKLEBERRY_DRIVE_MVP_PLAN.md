@@ -6,7 +6,7 @@
 |-------|--------|
 | Phase 1: Backend Schema & Convex Queries | ✅ Merged (PR #482, #479) |
 | Phase 2: API Routes | ✅ Merged (PR #484) |
-| Phase 3: Frontend Pages | ✅ In PR #486 (fixes from #485 review) |
+| Phase 3: Frontend Pages | ✅ Merged (PR #486 — fixes security, a11y, UX issues) |
 
 ---
 
@@ -68,9 +68,9 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 
 ---
 
-## Phase 3: Frontend Pages
+## Phase 3: Frontend Pages — ✅ Done (PR #486)
 
-**Note:** PR #486 applies additional fixes after code review of PR #485: admin/files page gets download action for active files and "Video Editor" label for uploadedById; dashboard video editor section gains per-section search + load-more pagination; file-list hard delete available without `onHardDelete` prop.
+**Note:** PR #486 fixes: admin/files page gets download action for active files and "Video Editor" label for uploadedById; dashboard video editor section gains per-section search + load-more pagination; file-list hard delete available without `onHardDelete` prop. Additional fixes applied post-review: `window.open` secured with `noopener,noreferrer`, icon buttons have `aria-label` attributes, video editor section uses section-specific loading state instead of global `isLoading`.
 
 ### 3.1 New `/admin/files` page
 
@@ -198,9 +198,9 @@ Add "Files" link in admin section:
 
 ### Phase 3 (Frontend) — ✅ All done (PR #486)
 - `apps/huckleberry-drive/src/app/admin/page.tsx` — ✅ wire real stats with loading/error states
-- `apps/huckleberry-drive/src/app/admin/files/page.tsx` — ✅ **new** — admin file management with filters, bulk hard delete, pagination
-- `apps/huckleberry-drive/src/app/dashboard/page.tsx` — ✅ search with debounce, load more pagination, video editor dual-section view
-- `apps/huckleberry-drive/src/components/file-list.tsx` — ✅ restore button, hard delete with confirmation, grace period badge
+- `apps/huckleberry-drive/src/app/admin/files/page.tsx` — ✅ **new** — admin file management with filters, bulk hard delete, pagination, download action, "Video Editor" label
+- `apps/huckleberry-drive/src/app/dashboard/page.tsx` — ✅ search with debounce, load more pagination, video editor dual-section view with per-section loading states
+- `apps/huckleberry-drive/src/components/file-list.tsx` — ✅ restore button, hard delete with confirmation (no `onHardDelete` prop required), grace period badge
 - `apps/huckleberry-drive/src/components/sidebar.tsx` — ✅ add admin files link (FolderOpen icon)
 - `apps/huckleberry-drive/src/app/uploads/uploads-client.tsx` — ✅ gate uploads for video editors until instructor selected
 
@@ -208,7 +208,7 @@ Add "Files" link in admin section:
 
 ## Deferred (Post-MVP)
 
-- S3 archival automation (code exists in `@mentorships/storage`, no trigger wired)
-- File preview / video playback
-- Bulk download as ZIP
-- Storage limit per-instructor enforcement at API level (currently only client-side enforcement)
+- S3 archival automation — **NOT deferred**: trigger already wired in `trigger/scheduled-tasks.ts` (`archiveOldFiles` daily cron). Code exists in `@mentorships/storage/src/archive.ts`.
+- File preview / video playback — no video player component, need to build inline player with B2 signed URL
+- Bulk download as ZIP — partial code in `@mentorships/storage/src/zip.ts` (`createAndUploadZip`), need trigger task + API endpoint + frontend
+- Storage limit per-instructor enforcement at API level — currently only client-side display; need to add check to `POST /api/uploads/initiate` to prevent overages (race condition risk with concurrent uploads)
