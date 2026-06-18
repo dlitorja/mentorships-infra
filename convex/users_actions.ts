@@ -47,3 +47,44 @@ export const serverVerifiedSetUserRole = action({
     return updated;
   },
 });
+
+/**
+ * Server-verified clerkId update using HMAC.
+ * Allows setting the clerkId field for multi-Clerk-app support
+ * without changing the userId field that other apps depend on.
+ */
+export const serverVerifiedSetUserClerkId = action({
+  args: {
+    userId: v.string(),
+    clerkId: v.string(),
+    ts: v.number(),
+    sig: v.string(),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    const { userId, clerkId, ts, sig } = args;
+    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+    if (!secret) throw new Error("Server misconfigured: CONVEX_SERVER_SHARED_SECRET not set");
+
+    const now = Date.now();
+    if (Math.abs(now - ts) > 5 * 60 * 1000) {
+      throw new Error("Signature expired");
+    }
+
+    const msg = `${userId}:clerkId:${clerkId}:${ts}`;
+    const expectedHex = crypto.createHmac("sha256", secret).update(msg).digest("hex");
+    const expectedBuf = Buffer.from(expectedHex, "hex");
+    const sigBuf = Buffer.from(sig, "hex");
+    if (expectedBuf.length !== sigBuf.length) {
+      throw new Error("Invalid signature");
+    }
+    if (!crypto.timingSafeEqual(expectedBuf, sigBuf)) {
+      throw new Error("Invalid signature");
+    }
+
+    const updated: any = await ctx.runMutation(internal.users.setUserClerkId as any, {
+      userId,
+      clerkId,
+    });
+    return updated;
+  },
+});

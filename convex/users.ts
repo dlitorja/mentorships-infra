@@ -364,13 +364,46 @@ export const getAllUsersForMigration = query({
   },
 });
 
-export const getUserByClerkId = internalQuery({
-  args: { userId: v.string() },
+// Sets clerkId field only - preserves userId for apps/platform
+export const setUserClerkId = internalMutation({
+  args: {
+    userId: v.string(),
+    clerkId: v.string(),
+  },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const user = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
+    
+    if (!user) {
+      throw new Error(`User with userId ${args.userId} not found`);
+    }
+    
+    await ctx.db.patch(user._id, {
+      clerkId: args.clerkId,
+    });
+    
+    return await ctx.db.get(user._id);
+  },
+});
+
+export const getUserByClerkId = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    // First try userId (primary Clerk ID from apps/platform)
+    const byUserId = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+    if (byUserId) return byUserId;
+
+    // Fall back to clerkId (secondary Clerk ID from apps like huckleberry-drive)
+    const byClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.userId))
+      .first();
+    return byClerkId;
   },
 });
 
