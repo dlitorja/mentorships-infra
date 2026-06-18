@@ -36,7 +36,7 @@ export default function DashboardPage(): React.ReactElement {
   }, [searchQuery]);
 
   const fetchInstructorFiles = useCallback(
-    async (search?: string, nextCursor?: number | null, append = false) => {
+    async (search?: string, nextCursor?: number | null, append = false, instructorId?: string) => {
       try {
         if (!append) setIsLoading(true);
         else setIsLoadingMore(true);
@@ -46,6 +46,7 @@ export default function DashboardPage(): React.ReactElement {
           search: search || debouncedSearch || undefined,
           cursor: nextCursor ?? undefined,
           limit: 50,
+          instructorId,
         });
 
         if (append) {
@@ -101,9 +102,12 @@ export default function DashboardPage(): React.ReactElement {
         fetchInstructorFiles();
       } else if (userRole === "video_editor") {
         fetchVideoEditorUploads();
+        if (instructorIds.length > 0) {
+          fetchInstructorFiles(undefined, undefined, false, instructorIds[0]);
+        }
       }
     }
-  }, [isLoaded, user, userRole, fetchData, fetchInstructorFiles, fetchVideoEditorUploads]);
+  }, [isLoaded, user, userRole, fetchData, fetchInstructorFiles, fetchVideoEditorUploads, instructorIds]);
 
   useEffect(() => {
     if (userRole === "instructor" || userRole === "admin") {
@@ -120,10 +124,13 @@ export default function DashboardPage(): React.ReactElement {
   const handleFilesChange = useCallback(() => {
     if (userRole === "video_editor") {
       fetchVideoEditorUploads();
+      if (instructorIds.length > 0) {
+        fetchInstructorFiles(debouncedSearch, undefined, false, instructorIds[0]);
+      }
     } else {
       fetchInstructorFiles(debouncedSearch, undefined, false);
     }
-  }, [userRole, debouncedSearch, fetchInstructorFiles, fetchVideoEditorUploads]);
+  }, [userRole, debouncedSearch, fetchInstructorFiles, fetchVideoEditorUploads, instructorIds]);
 
   if (!isLoaded || isLoading) {
     return (
@@ -141,7 +148,10 @@ export default function DashboardPage(): React.ReactElement {
       <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 text-center">
         <p className="text-red-400">{error}</p>
         <button
-          onClick={fetchData}
+          onClick={() => {
+            fetchData();
+            handleFilesChange();
+          }}
           className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
         >
           Retry

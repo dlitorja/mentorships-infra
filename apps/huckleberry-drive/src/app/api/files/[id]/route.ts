@@ -7,6 +7,7 @@ interface Upload {
   _id: string;
   legacyId?: string;
   instructorId: string;
+  uploadedById?: string;
   filename: string;
   originalName: string;
   contentType: string;
@@ -178,7 +179,12 @@ export async function POST(
       return NextResponse.json({ error: "File is not deleted" }, { status: 400 });
     }
 
-    if (upload.instructorId !== dbUser.userId && dbUser.role !== "admin") {
+    const canRestore =
+      upload.instructorId === dbUser.userId ||
+      upload.uploadedById === dbUser.userId ||
+      dbUser.role === "admin";
+
+    if (!canRestore) {
       return NextResponse.json({ error: "Not authorized to restore this file" }, { status: 403 });
     }
 
@@ -202,7 +208,7 @@ export async function POST(
     }
 
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

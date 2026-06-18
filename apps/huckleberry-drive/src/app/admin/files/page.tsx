@@ -6,7 +6,7 @@ import { listFilesWithParams, getAdminInstructors, hardDeleteFile } from "@/lib/
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 
 export default function AdminFilesPage(): React.ReactElement {
-  const [files, setFiles] = useState<FileItem[]>(null as unknown as FileItem[]);
+  const [files, setFiles] = useState<FileItem[] | null>(null);
   const [instructors, setInstructors] = useState<InstructorOption[]>([]);
   const [pagination, setPagination] = useState<{ cursor: number | null; hasMore: boolean }>({
     cursor: null,
@@ -25,6 +25,7 @@ export default function AdminFilesPage(): React.ReactElement {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [isHardDeleting, setIsHardDeleting] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -113,9 +114,13 @@ export default function AdminFilesPage(): React.ReactElement {
 
     setIsHardDeleting(true);
     try {
-      await Promise.all(
+      const results = await Promise.allSettled(
         Array.from(selectedFileIds).map((id) => hardDeleteFile(id))
       );
+      const failures = results.filter((r) => r.status === "rejected");
+      if (failures.length > 0) {
+        console.error(`${failures.length} hard deletes failed`);
+      }
       setSelectedFileIds(new Set());
       setShowBulkConfirm(false);
       await handleFilesChange();
@@ -139,7 +144,7 @@ export default function AdminFilesPage(): React.ReactElement {
   }, []);
 
   const toggleSelectAll = useCallback(() => {
-    if (!files) return;
+    if (files === null) return;
     if (selectedFileIds.size === files.length) {
       setSelectedFileIds(new Set());
     } else {
@@ -176,7 +181,7 @@ export default function AdminFilesPage(): React.ReactElement {
               value={instructorFilter}
               onChange={(e) => {
                 setInstructorFilter(e.target.value);
-                setTimeout(handleFilterChange, 0);
+                handleFilterChange();
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
@@ -195,7 +200,7 @@ export default function AdminFilesPage(): React.ReactElement {
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
-                setTimeout(handleFilterChange, 0);
+                handleFilterChange();
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
@@ -283,7 +288,7 @@ export default function AdminFilesPage(): React.ReactElement {
         </div>
       ) : (
         <>
-          {files && files.length > 0 && (
+          {files !== null && files.length > 0 && (
             <div className="bg-slate-800/30 border border-slate-700 rounded-xl overflow-hidden">
               <table className="w-full">
                 <thead>
@@ -358,13 +363,31 @@ export default function AdminFilesPage(): React.ReactElement {
                         <td className="px-4 py-3">
                           {file.status === "deleted" ? (
                             <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => handleHardDelete(file.id)}
-                                className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
-                                title="Hard Delete"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {confirmHardDeleteId === file.id ? (
+                                <>
+                                  <button
+                                    onClick={() => handleHardDelete(file.id)}
+                                    disabled={isHardDeleting}
+                                    className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                                  >
+                                    {isHardDeleting ? "Deleting..." : "Confirm"}
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirmHardDeleteId(null)}
+                                    className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => setConfirmHardDeleteId(file.id)}
+                                  className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
+                                  title="Hard Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           ) : (
                             <span className="text-slate-500 text-sm">—</span>
@@ -378,7 +401,7 @@ export default function AdminFilesPage(): React.ReactElement {
             </div>
           )}
 
-          {files && files.length === 0 && (
+          {files !== null && files.length === 0 && (
             <div className="text-center py-12 text-slate-500">
               <p className="text-lg">No files found</p>
               {hasActiveFilters && (

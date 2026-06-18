@@ -43,6 +43,13 @@ export async function DELETE(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
+    if (upload.status !== "deleted") {
+      return NextResponse.json(
+        { error: "File must be soft-deleted before permanent deletion" },
+        { status: 400 }
+      );
+    }
+
     const result = await fetchMutation(api.instructorUploads.hardDeleteUpload, {
       id,
       filename: upload.filename || undefined,
@@ -71,7 +78,7 @@ export async function DELETE(
     }
 
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

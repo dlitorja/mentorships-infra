@@ -330,18 +330,20 @@ export function FileList({
                       </>
                     ) : (
                       <>
-                        <button
-                          onClick={() => handleDownload(file)}
-                          disabled={isDownloading}
-                          className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-                          title="Download"
-                        >
-                          {isDownloading ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Download className="w-4 h-4" />
-                          )}
-                        </button>
+                        {file.status !== "deleted" && (
+                          <button
+                            onClick={() => handleDownload(file)}
+                            disabled={isDownloading}
+                            className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                            title="Download"
+                          >
+                            {isDownloading ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Download className="w-4 h-4" />
+                            )}
+                          </button>
+                        )}
                         {file.status === "deleted" && canRestoreThisFile && (
                           <button
                             onClick={() => handleRestore(file.id)}

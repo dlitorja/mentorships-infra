@@ -105,8 +105,8 @@ export async function listFilesWithParams(
   if (params.uploadedById) searchParams.set("uploadedById", params.uploadedById);
   if (params.status) searchParams.set("status", params.status);
   if (params.search) searchParams.set("search", params.search);
-  if (params.cursor) searchParams.set("cursor", String(params.cursor));
-  if (params.limit) searchParams.set("limit", String(params.limit));
+  if (params.cursor !== undefined) searchParams.set("cursor", String(params.cursor));
+  if (params.limit !== undefined) searchParams.set("limit", String(params.limit));
 
   const query = searchParams.toString();
   return fetchApi<FileListResponse>(`/api/files${query ? `?${query}` : ""}`);
@@ -165,11 +165,10 @@ export async function deleteFile(fileId: string): Promise<void> {
 }
 
 export async function restoreFile(fileId: string): Promise<void> {
-  const data = await fetchApi<{ success?: boolean; error?: string }>(
+  await fetchApi<{ success?: boolean; error?: string }>(
     `/api/files/${fileId}`,
     { method: "POST" }
   );
-  if (data.error) throw new Error(data.error);
 }
 
 export async function hardDeleteFile(fileId: string): Promise<void> {

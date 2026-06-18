@@ -55,8 +55,9 @@ export function UploadZone({
 
   const uploadFile = useCallback(
     async (uploadingFile: UploadingFile) => {
-      const { file, fileId, uploadId } = uploadingFile;
-      if (!fileId || !uploadId) return;
+      const { file } = uploadingFile;
+      let initiatedFileId: string | undefined;
+      let initiatedUploadId: string | undefined;
 
       try {
         const initiateResult = await initiateUpload(
@@ -65,6 +66,9 @@ export function UploadZone({
           file.size,
           instructorId
         );
+
+        initiatedFileId = initiateResult.fileId;
+        initiatedUploadId = initiateResult.uploadId;
 
         setUploadingFiles((prev) =>
           prev.map((f) =>
@@ -140,8 +144,8 @@ export function UploadZone({
             )
           );
           try {
-            if (uploadingFile.fileId && uploadingFile.uploadId) {
-              await abortUpload(uploadingFile.fileId, uploadingFile.uploadId);
+            if (initiatedFileId && initiatedUploadId) {
+              await abortUpload(initiatedFileId, initiatedUploadId);
             }
           } catch {
             // Ignore abort errors
