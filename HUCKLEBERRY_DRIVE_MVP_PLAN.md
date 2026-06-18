@@ -6,7 +6,7 @@
 |-------|--------|
 | Phase 1: Backend Schema & Convex Queries | ✅ Merged (PR #482, #479) |
 | Phase 2: API Routes | ✅ Merged (PR #484) |
-| Phase 3: Frontend Pages | ✅ In PR #485 |
+| Phase 3: Frontend Pages | ✅ In PR #486 (fixes from #485 review) |
 
 ---
 
@@ -70,6 +70,8 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 
 ## Phase 3: Frontend Pages
 
+**Note:** PR #486 applies additional fixes after code review of PR #485: admin/files page gets download action for active files and "Video Editor" label for uploadedById; dashboard video editor section gains per-section search + load-more pagination; file-list hard delete available without `onHardDelete` prop.
+
 ### 3.1 New `/admin/files` page
 
 **File:** `apps/huckleberry-drive/src/app/admin/files/page.tsx` (new)
@@ -81,7 +83,7 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 - **File table** with columns:
   - Filename
   - Instructor name (joined from users table)
-  - Uploaded by (video editor name, if `uploadedById` is set)
+  - Uploaded by ("Video Editor" label when `uploadedById` is set)
   - Size (formatted: MB/GB)
   - Status badge (On B2 / Archived / Deleted / Failed)
   - Deletion warning badge (shows days remaining before permanent deletion — only for deleted files within 60-day grace period)
@@ -194,7 +196,7 @@ Add "Files" link in admin section:
 - `apps/huckleberry-drive/src/app/api/storage-usage/route.ts` — ✅ admin aggregate mode
 - `apps/huckleberry-drive/src/app/api/admin/stats/route.ts` — ✅ **new**
 
-### Phase 3 (Frontend) — ✅ All done
+### Phase 3 (Frontend) — ✅ All done (PR #486)
 - `apps/huckleberry-drive/src/app/admin/page.tsx` — ✅ wire real stats with loading/error states
 - `apps/huckleberry-drive/src/app/admin/files/page.tsx` — ✅ **new** — admin file management with filters, bulk hard delete, pagination
 - `apps/huckleberry-drive/src/app/dashboard/page.tsx` — ✅ search with debounce, load more pagination, video editor dual-section view
