@@ -4,7 +4,6 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { redirect } from "next/navigation";
 import { LayoutClient } from "@/components/layout-client";
 import "./globals.css";
 
@@ -35,8 +34,10 @@ export default async function RootLayout({
       <ClerkProvider
         signInUrl="/sign-in"
         signUpUrl="/sign-up"
-        afterSignInUrl="/dashboard"
-        afterSignUpUrl="/dashboard"
+        afterSignInUrl="https://drive.huckleberry.art/dashboard"
+        afterSignUpUrl="https://drive.huckleberry.art/dashboard"
+        router="path"
+        path="/sign-in"
       >
         <html lang="en">
           <body
@@ -52,12 +53,8 @@ export default async function RootLayout({
   const token = await getToken({ template: "convex" }) ?? undefined;
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
 
-  if (!dbUser) {
-    redirect("/sign-in");
-  }
-
-  const userRole = dbUser.role as "student" | "instructor" | "admin" | "video_editor";
-  const userName = dbUser.email;
+  const userRole = dbUser?.role as "student" | "instructor" | "admin" | "video_editor" ?? "student";
+  const userName = dbUser?.email;
 
   return (
     <ClerkProvider
@@ -65,6 +62,8 @@ export default async function RootLayout({
       signUpUrl="/sign-up"
       afterSignInUrl="https://drive.huckleberry.art/dashboard"
       afterSignUpUrl="https://drive.huckleberry.art/dashboard"
+      router="path"
+      path="/sign-in"
     >
       <html lang="en">
         <body
