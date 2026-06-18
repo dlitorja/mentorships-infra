@@ -4,6 +4,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { redirect } from "next/navigation";
 import { LayoutClient } from "@/components/layout-client";
 import "./globals.css";
 
@@ -27,17 +28,36 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>): Promise<React.ReactElement> {
-  const { userId } = await auth();
-  let userRole: "student" | "instructor" | "admin" | "video_editor" = "student";
-  let userName: string | undefined;
+  const { userId, getToken } = await auth();
 
-  if (userId) {
-    const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
-    if (dbUser) {
-      userRole = dbUser.role as typeof userRole;
-      userName = dbUser.email;
-    }
+  if (!userId) {
+    return (
+      <ClerkProvider
+        signInUrl="/sign-in"
+        signUpUrl="/sign-up"
+        afterSignInUrl="/dashboard"
+        afterSignUpUrl="/dashboard"
+      >
+        <html lang="en">
+          <body
+            className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+          >
+            {children}
+          </body>
+        </html>
+      </ClerkProvider>
+    );
   }
+
+  const token = await getToken({ template: "convex" }) ?? undefined;
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
+
+  if (!dbUser) {
+    redirect("/sign-in");
+  }
+
+  const userRole = dbUser.role as "student" | "instructor" | "admin" | "video_editor";
+  const userName = dbUser.email;
 
   return (
     <ClerkProvider
