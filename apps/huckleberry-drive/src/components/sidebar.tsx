@@ -10,6 +10,7 @@ import {
   Shield,
   DollarSign,
   LogOut,
+  FolderOpen,
 } from "lucide-react";
 
 type UserRole = "student" | "instructor" | "admin" | "video_editor";
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
 
 const adminNavItems: NavItem[] = [
   { href: "/admin", label: "Admin", icon: <Shield className="w-5 h-5" />, adminOnly: true },
+  { href: "/admin/files", label: "Files", icon: <FolderOpen className="w-5 h-5" />, adminOnly: true },
   { href: "/admin/costs", label: "Costs", icon: <DollarSign className="w-5 h-5" />, adminOnly: true },
 ];
 

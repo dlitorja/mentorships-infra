@@ -4,15 +4,15 @@
 
 | Phase | Status |
 |-------|--------|
-| Phase 1: Backend Schema & Convex Queries | ✅ Merged |
-| Phase 2: API Routes | ⬜ Pending |
+| Phase 1: Backend Schema & Convex Queries | ✅ Merged (PR #482, #479) |
+| Phase 2: API Routes | ✅ Merged (PR #484) |
 | Phase 3: Frontend Pages | ⬜ Pending |
 
 ---
 
-## Phase 2: API Routes (Next.js)
+## Phase 2: API Routes (Next.js) — ✅ Done (PR #484)
 
-### 2.1 Update `GET /api/files`
+### 2.1 Update `GET /api/files` ✅
 
 **File:** `apps/huckleberry-drive/src/app/api/files/route.ts`
 
@@ -26,36 +26,39 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 - `?cursor=N&limit=50` — pagination
 
 **Access control:**
-- Instructors: see only their own uploads
-- Video editors: see uploads they made (`uploadedById === userId`) AND instructor's own uploads (via `getUploadsForInstructors`)
-- Admins: see all uploads with any filters
+- Instructors: see only their own uploads (default: non-deleted only)
+- Video editors: see uploads they made (`uploadedById === userId`) (default: non-deleted only)
+- Admins: see all uploads with any filters (no default status filter)
 
-### 2.2 Update `GET /api/storage-usage`
+**Note:** Non-admin paths default to `status: "completed"` to exclude soft-deleted files unless explicitly requested with `?status=all` or `?status=deleted`.
+
+### 2.2 Update `GET /api/storage-usage` ✅
 
 **File:** `apps/huckleberry-drive/src/app/api/storage-usage/route.ts`
 
-- Update `STORAGE_LIMIT_BYTES` from `20GB` → `50GB` ✅ (done in Phase 1)
-- Admin mode: aggregate storage across ALL instructors (use `getTotalStorageStats`)
+- `STORAGE_LIMIT_BYTES` updated from `20GB` → `50GB`
+- Admin mode: aggregate storage across ALL instructors (uses `getTotalStorageStats`)
 - Return `{ usedBytes, limitBytes: null, fileCount, instructorCount }` for admin
 
-### 2.3 New `POST /api/files/[id]/restore`
+### 2.3 New `POST /api/files/[id]/restore` ✅
 
-**File:** `apps/huckleberry-drive/src/app/api/files/[id]/route.ts` (add restore method)
+**File:** `apps/huckleberry-drive/src/app/api/files/[id]/route.ts` (POST method added)
 
 - Calls Convex `restoreUpload` mutation
 - Instructor can restore their own soft-deleted files
 - Admin can restore any file
 - Returns `{ success: true }` or `{ error: "grace_period_expired" }`
 
-### 2.4 New `DELETE /api/files/[id]/hard`
+### 2.4 New `DELETE /api/files/[id]/hard` ✅
 
-**File:** `apps/huckleberry-drive/src/app/api/files/[id]/route.ts` (add hard delete method)
+**File:** `apps/huckleberry-drive/src/app/api/files/[id]/hard/route.ts` (new file)
 
 - Admin only (gate with `requireAdmin()`)
 - Calls Convex `hardDeleteUpload` mutation
 - Deletes from B2 + removes DB record
+- Returns `200` if record deleted directly, `202` if async B2 deletion triggered
 
-### 2.5 New `GET /api/admin/stats`
+### 2.5 New `GET /api/admin/stats` ✅
 
 **File:** `apps/huckleberry-drive/src/app/api/admin/stats/route.ts` (new file)
 
@@ -183,11 +186,12 @@ Add "Files" link in admin section:
 
 ## Files to Modify
 
-### Phase 2 (API Routes)
-- `apps/huckleberry-drive/src/app/api/files/route.ts` — update GET, add admin filters
-- `apps/huckleberry-drive/src/app/api/files/[id]/route.ts` — add restore POST, hard delete DELETE
-- `apps/huckleberry-drive/src/app/api/storage-usage/route.ts` — admin aggregate mode
-- `apps/huckleberry-drive/src/app/api/admin/stats/route.ts` — **new**
+### Phase 2 (API Routes) — ✅ All done
+- `apps/huckleberry-drive/src/app/api/files/route.ts` — ✅ update GET, add admin filters
+- `apps/huckleberry-drive/src/app/api/files/[id]/route.ts` — ✅ add restore POST
+- `apps/huckleberry-drive/src/app/api/files/[id]/hard/route.ts` — ✅ **new** — hard delete DELETE
+- `apps/huckleberry-drive/src/app/api/storage-usage/route.ts` — ✅ admin aggregate mode
+- `apps/huckleberry-drive/src/app/api/admin/stats/route.ts` — ✅ **new**
 
 ### Phase 3 (Frontend)
 - `apps/huckleberry-drive/src/app/admin/page.tsx` — wire real stats
