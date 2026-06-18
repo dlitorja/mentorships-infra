@@ -21,7 +21,7 @@ const ACCEPTED_VIDEO_TYPES = {
   "video/mpeg": [".mpeg", ".mpg"],
 };
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024 * 1024; // 20GB
+const MAX_FILE_SIZE = 50 * 1024 * 1024 * 1024; // 50GB
 const MAX_CONCURRENT_UPLOADS = 2;
 
 interface UploadingFile {
@@ -39,10 +39,12 @@ interface UploadingFile {
 
 interface UploadZoneProps {
   onUploadComplete?: () => void;
+  instructorId?: string;
 }
 
 export function UploadZone({
   onUploadComplete,
+  instructorId,
 }: UploadZoneProps): React.ReactElement {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [rejectedFiles, setRejectedFiles] = useState<
@@ -60,7 +62,8 @@ export function UploadZone({
         const initiateResult = await initiateUpload(
           file.name,
           file.type,
-          file.size
+          file.size,
+          instructorId
         );
 
         setUploadingFiles((prev) =>
@@ -148,7 +151,7 @@ export function UploadZone({
         abortControllersRef.current.delete(uploadingFile.id);
       }
     },
-    [onUploadComplete]
+    [onUploadComplete, instructorId]
   );
 
   const onDrop = useCallback(
@@ -204,7 +207,7 @@ export function UploadZone({
       if (file.size > MAX_FILE_SIZE) {
         return {
           code: "file-too-large",
-          message: `File too large. Maximum size is 20GB`,
+          message: `File too large. Maximum size is 50GB`,
         };
       }
       return null;
@@ -290,7 +293,7 @@ export function UploadZone({
                   <span className="text-emerald-500 font-medium underline">click to browse</span>
                 </p>
                 <p className="text-sm text-slate-500 mt-2">
-                  MP4, MOV, AVI, WebM, MKV, MPEG • Max 20GB • Up to 2 files simultaneously
+                  MP4, MOV, AVI, WebM, MKV, MPEG • Max 50GB • Up to 2 files simultaneously
                 </p>
               </div>
             </>

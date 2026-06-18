@@ -137,6 +137,7 @@ export const createUpload = mutation({
     originalName: v.string(),
     contentType: v.string(),
     size: v.number(),
+    uploadedById: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("instructorUploads", {
@@ -150,6 +151,7 @@ export const createUpload = mutation({
       createdAt: Date.now(),
       updatedAt: Date.now(),
       legacyId: args.id,
+      uploadedById: args.uploadedById ?? undefined,
     });
     return await ctx.db
       .query("instructorUploads")
@@ -364,6 +366,196 @@ export const deleteUploadRecord = internalMutation({
 
     await ctx.db.delete(upload._id);
     return { deleted: true };
+  },
+});
+
+export const getAllUploads = query({
+  args: {
+    instructorId: v.optional(v.string()),
+    uploadedById: v.optional(v.string()),
+    status: v.optional(v.string()),
+    search: v.optional(v.string()),
+    cursor: v.optional(v.number()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 50, 100);
+    const instructorId = args.instructorId;
+    const uploadedById = args.uploadedById;
+
+    let allUploads: Doc<"instructorUploads">[];
+
+    if (instructorId) {
+      allUploads = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_instructorId", (q) => q.eq("instructorId", instructorId))
+        .collect();
+    } else if (uploadedById) {
+      allUploads = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_uploadedById", (q) => q.eq("uploadedById", uploadedById))
+        .collect();
+    } else {
+      allUploads = await ctx.db.query("instructorUploads").collect();
+    }
+
+    const sorted = allUploads.sort(
+      (a, b) => (b.createdAt ?? b._creationTime) - (a.createdAt ?? a._creationTime)
+    );
+
+    let filtered = sorted;
+    if (args.status === "deleted") {
+      filtered = sorted.filter((u) => u.status === "deleted");
+    } else if (args.status !== undefined && args.status !== "all") {
+      filtered = sorted.filter((u) => u.status === args.status && u.status !== "deleted");
+    }
+    // else: no filter, return all uploads (including deleted)
+
+    if (args.search) {
+      const searchLower = args.search.toLowerCase();
+      filtered = filtered.filter((u) => u.originalName.toLowerCase().includes(searchLower));
+    }
+
+    const skipCount = args.cursor ?? 0;
+    const paginatedResults = filtered.slice(skipCount, skipCount + limit);
+    const hasMore = skipCount + limit < filtered.length;
+    const nextCursor = hasMore ? skipCount + limit : null;
+
+    return {
+      uploads: paginatedResults,
+      nextCursor,
+      hasMore,
+    };
+  },
+});
+
+export const getVideoEditorUploads = query({
+  args: {
+    videoEditorId: v.string(),
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(args.limit ?? 50, 100);
+
+    const allUploads = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_uploadedById", (q) => q.eq("uploadedById", args.videoEditorId))
+      .collect();
+
+    const sorted = allUploads
+      .filter((u) => u.status !== "deleted" && u.status !== "deleting")
+      .sort((a, b) => (b.createdAt ?? b._creationTime) - (a.createdAt ?? a._creationTime));
+
+    const skipCount = args.cursor ?? 0;
+    const paginatedResults = sorted.slice(skipCount, skipCount + limit);
+    const hasMore = skipCount + limit < sorted.length;
+    const nextCursor = hasMore ? skipCount + limit : null;
+
+    return {
+      uploads: paginatedResults,
+      nextCursor,
+      hasMore,
+    };
+  },
+});
+
+export const getTotalStorageStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+
+    let totalFiles = 0;
+    let totalBytes = 0;
+    let activeBytes = 0;
+    let activeFiles = 0;
+
+    for (const upload of allUploads) {
+      totalFiles++;
+      totalBytes += upload.size;
+      if (upload.status !== "deleted" && upload.status !== "deleting") {
+        activeFiles++;
+        activeBytes += upload.size;
+      }
+    }
+
+    const instructors = new Set<string>();
+    for (const upload of allUploads) {
+      if (upload.status !== "deleted" && upload.status !== "deleting") {
+        instructors.add(upload.instructorId);
+      }
+    }
+
+    return {
+      totalFiles,
+      totalBytes,
+      activeFiles,
+      activeBytes,
+      instructorCount: instructors.size,
+    };
+  },
+});
+
+export const restoreUpload = mutation({
+  args: { id: v.string() },
+  handler: async (ctx, args) => {
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
+      .first();
+
+    if (!upload) return { error: "not_found" };
+
+    if (upload.status !== "deleted") {
+      return { error: "not_deleted" };
+    }
+
+    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+    if (upload.deletedAt && Date.now() - upload.deletedAt > sixtyDaysMs) {
+      return { error: "grace_period_expired" };
+    }
+
+    await ctx.db.patch(upload._id, {
+      status: "completed",
+      deletedAt: undefined,
+      updatedAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+export const hardDeleteUpload = mutation({
+  args: {
+    id: v.string(),
+    filename: v.optional(v.string()),
+    s3Key: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const upload = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.id))
+      .first();
+
+    if (!upload) return { error: "not_found" };
+
+    await ctx.db.patch(upload._id, {
+      status: "deleting",
+      updatedAt: Date.now(),
+    });
+
+    if (!args.filename && !args.s3Key) {
+      await ctx.db.delete(upload._id);
+      return { success: true, status: "deleted" };
+    }
+
+    await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
+      uploadId: args.id,
+      filename: args.filename ?? undefined,
+      s3Key: args.s3Key ?? undefined,
+    });
+
+    return { success: true, status: "deleting" };
   },
 });
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireInstructor } from "@/lib/auth";
 import { initiateMultipartUpload } from "@mentorships/storage";
-import { fetchMutation } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
 interface User {
@@ -13,10 +13,11 @@ interface User {
 const initiateSchema = z.object({
   filename: z.string().min(1).max(255),
   contentType: z.string().min(1),
-  size: z.number().positive().max(20 * 1024 * 1024 * 1024),
+  size: z.number().positive().max(50 * 1024 * 1024 * 1024),
+  instructorId: z.string().trim().min(1).optional(),
 });
 
-const MAX_UPLOAD_SIZE = 20 * 1024 * 1024 * 1024;
+const MAX_UPLOAD_SIZE = 50 * 1024 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = [
   "video/mp4",
   "video/quicktime",
@@ -39,7 +40,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { filename, contentType, size } = parsed.data;
+    const { filename, contentType, size, instructorId } = parsed.data;
+
+    const targetInstructorId = instructorId ?? dbUser.userId;
+    const isDelegatedUpload = dbUser.userId !== targetInstructorId;
+
+    if (isDelegatedUpload) {
+      if (dbUser.role === "instructor") {
+        return NextResponse.json(
+          { error: "Instructors can only upload to their own storage" },
+          { status: 403 }
+        );
+      }
+      if (dbUser.role === "video_editor") {
+        const isAssigned = await fetchQuery(
+          api.videoEditorAssignments.isVideoEditorAssignedToInstructor,
+          { videoEditorId: dbUser.userId, instructorId: targetInstructorId }
+        );
+        if (!isAssigned) {
+          return NextResponse.json(
+            { error: "You are not assigned to this instructor" },
+            { status: 403 }
+          );
+        }
+      }
+    }
 
     if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
       return NextResponse.json(
@@ -50,7 +75,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (size > MAX_UPLOAD_SIZE) {
       return NextResponse.json(
-        { error: "File too large. Maximum size is 20GB" },
+        { error: "File too large. Maximum size is 50GB" },
         { status: 400 }
       );
     }
@@ -63,16 +88,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       filename: sanitizedFilename,
       contentType,
       size,
-      instructorId: dbUser.userId,
+      instructorId: targetInstructorId,
     });
 
     await fetchMutation(api.instructorUploads.createUpload, {
       id: fileId,
-      instructorId: dbUser.userId,
+      instructorId: targetInstructorId,
       filename: upload.key,
       originalName: filename,
       contentType,
       size,
+      uploadedById: isDelegatedUpload ? dbUser.userId : undefined,
     });
 
     await fetchMutation(api.instructorUploads.updateUploadStarted, {

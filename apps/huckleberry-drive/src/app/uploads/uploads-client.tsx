@@ -46,6 +46,7 @@ export function UploadsClient({
         onUploadComplete={() => {
           // Refresh file list or show success message
         }}
+        instructorId={userRole === "video_editor" ? selectedInstructorId ?? undefined : undefined}
       />
     </div>
   );

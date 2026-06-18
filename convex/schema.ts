@@ -445,12 +445,14 @@ export default defineSchema({
     legacyId: v.optional(v.string()),
     deleteAttemptCount: v.optional(v.number()),
     lastDeleteAttempt: v.optional(v.number()),
+    uploadedById: v.optional(v.string()),
   }).index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
     .index("by_transferStatus", ["transferStatus"])
     .index("by_createdAt", ["createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
-    .index("by_legacyId", ["legacyId"]),
+    .index("by_legacyId", ["legacyId"])
+    .index("by_uploadedById", ["uploadedById"]),
 
   studentOnboardingSubmissions: defineTable({
     userId: v.string(),

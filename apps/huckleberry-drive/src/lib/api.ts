@@ -73,12 +73,13 @@ export async function getStorageUsage(): Promise<StorageUsage> {
 export async function initiateUpload(
   filename: string,
   contentType: string,
-  size: number
+  size: number,
+  instructorId?: string
 ): Promise<UploadInitiateResponse> {
   return fetchApi<UploadInitiateResponse>("/api/uploads/initiate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename, contentType, size }),
+    body: JSON.stringify({ filename, contentType, size, instructorId }),
   });
 }
 
