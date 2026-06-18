@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "clerk-cli": {
+      "source": "/tmp/clerk-cli-skill-mHOjtF",
+      "sourceType": "local",
+      "computedHash": "40da1ab8bae6401f5f70657f176473f646ef517279383b0f53a3a6c75603ce68"
+    },
     "convex": {
       "source": "get-convex/agent-skills",
       "sourceType": "github",
