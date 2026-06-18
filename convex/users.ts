@@ -390,7 +390,7 @@ export const updateUserClerkId = mutation({
 });
 
 // Sets clerkId field only - preserves userId for apps/platform
-export const setUserClerkId = mutation({
+export const setUserClerkId = internalMutation({
   args: {
     userId: v.string(),
     clerkId: v.string(),
