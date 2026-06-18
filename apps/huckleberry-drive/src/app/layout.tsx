@@ -40,7 +40,12 @@ export default async function RootLayout({
   }
 
   return (
-    <ClerkProvider>
+    <ClerkProvider
+      afterSignInUrl="https://drive.huckleberry.art/dashboard"
+      afterSignUpUrl="https://drive.huckleberry.art/dashboard"
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+    >
       <html lang="en">
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
