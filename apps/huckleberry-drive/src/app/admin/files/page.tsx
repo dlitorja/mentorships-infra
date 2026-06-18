@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, Search, X, Trash2 } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile } from "@/lib/api";
+import { Loader2, Search, X, Trash2, Download } from "lucide-react";
+import { listFilesWithParams, getAdminInstructors, hardDeleteFile, getDownloadUrl } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 
 export default function AdminFilesPage(): React.ReactElement {
@@ -26,6 +26,19 @@ export default function AdminFilesPage(): React.ReactElement {
   const [isHardDeleting, setIsHardDeleting] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
+const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const handleDownload = useCallback(async (fileId: string) => {
+    setDownloadingId(fileId);
+    try {
+      const url = await getDownloadUrl(fileId);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error("Download failed:", err);
+    } finally {
+      setDownloadingId(null);
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -81,11 +94,6 @@ export default function AdminFilesPage(): React.ReactElement {
   }, [fetchInstructors]);
 
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles]);
-
-  const handleFilterChange = useCallback(() => {
-    setSelectedFileIds(new Set());
     fetchFiles();
   }, [fetchFiles]);
 
@@ -181,7 +189,6 @@ export default function AdminFilesPage(): React.ReactElement {
               value={instructorFilter}
               onChange={(e) => {
                 setInstructorFilter(e.target.value);
-                handleFilterChange();
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
@@ -200,7 +207,6 @@ export default function AdminFilesPage(): React.ReactElement {
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
-                handleFilterChange();
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
@@ -349,7 +355,7 @@ export default function AdminFilesPage(): React.ReactElement {
                           {instructorNameMap[file.instructorId || ""] || file.instructorId || "-"}
                         </td>
                         <td className="px-4 py-3 text-slate-400">
-                          {file.uploadedById || "-"}
+{file.uploadedById ? "Video Editor" : "-"}
                         </td>
                         <td className="px-4 py-3 text-slate-400">
                           {formatBytes(file.size)}
@@ -361,37 +367,53 @@ export default function AdminFilesPage(): React.ReactElement {
                           {formatDate(file.createdAt)}
                         </td>
                         <td className="px-4 py-3">
-                          {file.status === "deleted" ? (
-                            <div className="flex items-center justify-end gap-1">
-                              {confirmHardDeleteId === file.id ? (
-                                <>
+<div className="flex items-center justify-end gap-1">
+                            {file.status !== "deleted" && (
+                              <button
+                                onClick={() => handleDownload(file.id)}
+                                disabled={downloadingId === file.id}
+                                className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                                aria-label="Download"
+                                title="Download"
+                              >
+                                {downloadingId === file.id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <Download className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
+                            {file.status === "deleted" && (
+                              <>
+                                {confirmHardDeleteId === file.id ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleHardDelete(file.id)}
+                                      disabled={isHardDeleting}
+                                      className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                                    >
+                                      {isHardDeleting ? "Deleting..." : "Confirm"}
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmHardDeleteId(null)}
+                                      className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
+                                ) : (
                                   <button
-                                    onClick={() => handleHardDelete(file.id)}
-                                    disabled={isHardDeleting}
-                                    className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                                    onClick={() => setConfirmHardDeleteId(file.id)}
+                                    className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
+                                    title="Hard Delete"
+                                    aria-label="Hard Delete"
                                   >
-                                    {isHardDeleting ? "Deleting..." : "Confirm"}
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
-                                  <button
-                                    onClick={() => setConfirmHardDeleteId(null)}
-                                    className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
-                                  >
-                                    Cancel
-                                  </button>
-                                </>
-                              ) : (
-                                <button
-                                  onClick={() => setConfirmHardDeleteId(file.id)}
-                                  className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
-                                  title="Hard Delete"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-500 text-sm">—</span>
-                          )}
+                                )}
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
