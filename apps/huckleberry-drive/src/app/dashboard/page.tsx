@@ -111,7 +111,9 @@ const fetchVideoEditorUploads = useCallback(
 
   const fetchData = useCallback(async () => {
     try {
-      setIsLoading(true);
+      if (userRole !== "video_editor") {
+        setIsLoading(true);
+      }
       setError(null);
 
       const [usageData] = await Promise.all([getStorageUsage()]);
@@ -120,7 +122,9 @@ const fetchVideoEditorUploads = useCallback(
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
-      setIsLoading(false);
+      if (userRole !== "video_editor") {
+        setIsLoading(false);
+      }
     }
   }, []);
 

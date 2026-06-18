@@ -32,7 +32,7 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
     setDownloadingId(fileId);
     try {
       const url = await getDownloadUrl(fileId);
-      window.open(url, "_blank");
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
       console.error("Download failed:", err);
     } finally {
@@ -373,6 +373,7 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
                                 onClick={() => handleDownload(file.id)}
                                 disabled={downloadingId === file.id}
                                 className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                                aria-label="Download"
                                 title="Download"
                               >
                                 {downloadingId === file.id ? (
@@ -405,6 +406,7 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
                                     onClick={() => setConfirmHardDeleteId(file.id)}
                                     className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
                                     title="Hard Delete"
+                                    aria-label="Hard Delete"
                                   >
                                     <Trash2 className="w-4 h-4" />
                                   </button>
