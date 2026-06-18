@@ -27,17 +27,30 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>): Promise<React.ReactElement> {
-  const { userId } = await auth();
-  let userRole: "student" | "instructor" | "admin" | "video_editor" = "student";
-  let userName: string | undefined;
+  const { userId, redirectToSignIn } = await auth();
 
-  if (userId) {
-    const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
-    if (dbUser) {
-      userRole = dbUser.role as typeof userRole;
-      userName = dbUser.email;
-    }
+  if (!userId) {
+    return (
+      <ClerkProvider
+        signInUrl="/sign-in"
+        signUpUrl="/sign-up"
+        afterSignInUrl="/dashboard"
+        afterSignUpUrl="/dashboard"
+      >
+        <html lang="en">
+          <body
+            className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+          >
+            {children}
+          </body>
+        </html>
+      </ClerkProvider>
+    );
   }
+
+  const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId });
+  const userRole = (dbUser?.role as "student" | "instructor" | "admin" | "video_editor") ?? "student";
+  const userName = dbUser?.email;
 
   return (
     <ClerkProvider
