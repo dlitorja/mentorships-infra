@@ -3,7 +3,7 @@ import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, Forbi
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
-const STORAGE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024; // 20GB
+const STORAGE_LIMIT_BYTES = 50 * 1024 * 1024 * 1024;
 
 interface Upload {
   _id: string;
@@ -19,6 +19,14 @@ interface User {
   role: string;
 }
 
+interface StorageStats {
+  totalFiles: number;
+  totalBytes: number;
+  activeFiles: number;
+  activeBytes: number;
+  instructorCount: number;
+}
+
 async function getUploadsForInstructor(instructorId: string): Promise<Upload[]> {
   return await fetchQuery(api.instructorUploads.getInstructorUploads, { instructorId }) as Upload[];
 }
@@ -28,17 +36,23 @@ export async function GET(): Promise<NextResponse> {
     const dbUser = await requireInstructor() as User;
     const accessibleIds = await getAccessibleInstructorIds();
 
+    if (dbUser.role === "admin") {
+      const stats = await fetchQuery(api.instructorUploads.getTotalStorageStats, {}) as StorageStats;
+
+      return NextResponse.json({
+        usedBytes: stats.activeBytes,
+        limitBytes: null,
+        fileCount: stats.activeFiles,
+        instructorCount: stats.instructorCount,
+      });
+    }
+
     let usedBytes = 0;
     let fileCount = 0;
 
-    if (dbUser.role === "admin") {
-      // For admin, we'd need to get all uploads - not efficient in Convex
-      // For now, return 0 as a placeholder until we add proper aggregation
-      usedBytes = 0;
-      fileCount = 0;
-    } else if (accessibleIds === null || accessibleIds.length === 0) {
+    if (accessibleIds === null || accessibleIds.length === 0) {
       const uploads = await getUploadsForInstructor(dbUser.userId);
-      const nonDeleted = uploads.filter(u => u.status !== "deleted");
+      const nonDeleted = uploads.filter((u) => u.status !== "deleted");
       usedBytes = nonDeleted.reduce((sum, u) => sum + u.size, 0);
       fileCount = nonDeleted.length;
     } else {
@@ -47,7 +61,7 @@ export async function GET(): Promise<NextResponse> {
 
       for (const instructorId of accessibleIds) {
         const uploads = await getUploadsForInstructor(instructorId);
-        const nonDeleted = uploads.filter(u => u.status !== "deleted");
+        const nonDeleted = uploads.filter((u) => u.status !== "deleted");
         totalSize += nonDeleted.reduce((sum, u) => sum + u.size, 0);
         totalCount += nonDeleted.length;
       }
