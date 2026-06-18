@@ -34,10 +34,6 @@ export default async function RootLayout({
       <ClerkProvider
         signInUrl="/sign-in"
         signUpUrl="/sign-up"
-        afterSignInUrl="https://drive.huckleberry.art/dashboard"
-        afterSignUpUrl="https://drive.huckleberry.art/dashboard"
-        router="path"
-        path="/sign-in"
       >
         <html lang="en">
           <body
@@ -60,10 +56,6 @@ export default async function RootLayout({
     <ClerkProvider
       signInUrl="/sign-in"
       signUpUrl="/sign-up"
-      afterSignInUrl="https://drive.huckleberry.art/dashboard"
-      afterSignUpUrl="https://drive.huckleberry.art/dashboard"
-      router="path"
-      path="/sign-in"
     >
       <html lang="en">
         <body
