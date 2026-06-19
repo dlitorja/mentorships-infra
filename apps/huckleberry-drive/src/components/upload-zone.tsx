@@ -9,6 +9,7 @@ import {
   Play,
   AlertCircle,
   Film,
+  RefreshCw,
 } from "lucide-react";
 import { initiateUpload, completeUpload, abortUpload } from "@/lib/api";
 
@@ -324,7 +325,11 @@ export function UploadZone({
           {uploadingFiles.map((uploadingFile) => (
             <div
               key={uploadingFile.id}
-              className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+              className={`rounded-lg p-4 border ${
+                uploadingFile.status === "error"
+                  ? "bg-red-500/10 border-red-500/30"
+                  : "bg-slate-800/50 border-slate-700"
+              }`}
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3 min-w-0">
@@ -372,13 +377,20 @@ export function UploadZone({
                 </div>
               </div>
 
+              {uploadingFile.status === "error" && (
+                <div className="mt-3 flex items-center gap-2 text-red-400 text-sm">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                  <span className="flex-1 break-words">{uploadingFile.error}</span>
+                </div>
+              )}
+
               <div className="mt-3">
                 <div className="flex items-center justify-between text-sm mb-1">
                   <span className="text-slate-400">
                     {uploadingFile.status === "completed"
                       ? "Upload complete"
                       : uploadingFile.status === "error"
-                      ? uploadingFile.error
+                      ? "Upload failed"
                       : uploadingFile.status === "paused"
                       ? "Paused"
                       : `${uploadingFile.progress}%`}
@@ -400,6 +412,35 @@ export function UploadZone({
                   />
                 </div>
               </div>
+
+              {uploadingFile.status === "error" && (
+                <div className="mt-3 flex justify-end">
+                  <button
+                    onClick={() => {
+                      const retryFile: UploadingFile = {
+                        ...uploadingFile,
+                        id: crypto.randomUUID(),
+                        status: "uploading" as const,
+                        error: undefined,
+                        progress: 0,
+                        parts: [],
+                        uploadedParts: 0,
+                        fileId: undefined,
+                        uploadId: undefined,
+                      };
+                      setUploadingFiles((prev) =>
+                        prev.map((f) => (f.id === uploadingFile.id ? retryFile : f))
+                      );
+                      activeUploadsRef.current++;
+                      uploadFile(retryFile);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Retry Upload
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
