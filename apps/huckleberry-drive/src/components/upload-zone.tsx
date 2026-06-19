@@ -109,8 +109,13 @@ export function UploadZone({
             throw new Error(`Failed to upload part ${partNumber}`);
           }
 
-          const etag = response.headers.get("ETag") || `"part-${partNumber}"`;
-          parts.push({ partNumber, etag });
+          const etag = response.headers.get("ETag");
+          if (!etag) {
+            console.error(`Missing ETag for part ${partNumber} - will use fallback`);
+          }
+          parts.push({ partNumber, etag: etag || `fallback-${partNumber}` });
+
+          console.log(`Part ${partNumber} uploaded, ETag: ${etag}, full parts:`, JSON.stringify(parts.map(p => ({n: p.partNumber, e: p.etag}))));
 
           const progress = Math.round(((i + 1) / totalParts) * 100);
           setUploadingFiles((prev) =>
@@ -122,6 +127,12 @@ export function UploadZone({
           );
         }
 
+        console.log("Calling completeUpload with:", {
+          fileId: initiateResult.fileId,
+          uploadId: initiateResult.uploadId,
+          key: initiateResult.key,
+          parts: parts.map(p => ({n: p.partNumber, e: p.etag}))
+        });
         await completeUpload(initiateResult.fileId, initiateResult.uploadId, initiateResult.key, parts);
 
         setUploadingFiles((prev) =>
