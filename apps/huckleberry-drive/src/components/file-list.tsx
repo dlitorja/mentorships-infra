@@ -10,8 +10,10 @@ import {
   Cloud,
   Loader2,
   RotateCcw,
+  Play,
+  X,
 } from "lucide-react";
-import { deleteFile, getDownloadUrl, restoreFile, hardDeleteFile } from "@/lib/api";
+import { deleteFile, getDownloadUrl, restoreFile, hardDeleteFile, restoreFromGlacierUrl, getStreamUrl } from "@/lib/api";
 import type { FileItem } from "@/lib/api";
 
 type UserRole = "student" | "instructor" | "admin" | "video_editor";
@@ -45,6 +47,9 @@ export function FileList({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
+  const [restoringGlacierId, setRestoringGlacierId] = useState<string | null>(null);
+  const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
+  const [playingVideoContentType, setPlayingVideoContentType] = useState<string>("video/mp4");
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -201,6 +206,39 @@ return userRole === "admin";
     [onFilesChange, onHardDelete]
   );
 
+  const handlePlay = useCallback(async (file: FileItem) => {
+    if (!file.contentType.startsWith("video/")) return;
+    setDownloadingIds((prev) => new Set(prev).add(file.id));
+    try {
+      const url = await getStreamUrl(file.id);
+      setPlayingVideoUrl(url);
+      setPlayingVideoContentType(file.contentType);
+    } catch (error) {
+      console.error("Play failed:", error);
+    } finally {
+      setDownloadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(file.id);
+        return next;
+      });
+    }
+  }, []);
+
+  const handleRestoreGlacier = useCallback(
+    async (fileId: string) => {
+      setRestoringGlacierId(fileId);
+      try {
+        await restoreFromGlacierUrl(fileId);
+        onFilesChange();
+      } catch (error) {
+        console.error("Restore from glacier failed:", error);
+      } finally {
+        setRestoringGlacierId(null);
+      }
+    },
+    [onFilesChange]
+  );
+
   if (files.length === 0) {
     return (
       <div className="text-center py-12 text-slate-500">
@@ -334,20 +372,48 @@ return userRole === "admin";
                       </>
                     ) : (
                       <>
-                        {file.status !== "deleted" && (
+                        {file.status === "archived" && (
                           <button
-                            onClick={() => handleDownload(file)}
-                            disabled={isDownloading}
-                            className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-                            title="Download"
-                            aria-label="Download"
+                            onClick={() => handleRestoreGlacier(file.id)}
+                            disabled={restoringGlacierId === file.id}
+                            className="p-2 rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
+                            title="Restore from Glacier"
+                            aria-label="Restore from Glacier"
                           >
-                            {isDownloading ? (
+                            {restoringGlacierId === file.id ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
-                              <Download className="w-4 h-4" />
+                              <RotateCcw className="w-4 h-4" />
                             )}
                           </button>
+                        )}
+                        {file.status !== "deleted" && file.status !== "archived" && (
+                          <>
+                            {file.contentType.startsWith("video/") && (
+                              <button
+                                onClick={() => handlePlay(file)}
+                                disabled={isDownloading}
+                                className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-50"
+                                title="Play"
+                                aria-label="Play video"
+                              >
+                                <Play className="w-4 h-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDownload(file)}
+                              disabled={isDownloading}
+                              className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                              title="Download"
+                              aria-label="Download"
+                            >
+                              {isDownloading ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Download className="w-4 h-4" />
+                              )}
+                            </button>
+                          </>
                         )}
                         {file.status === "deleted" && canRestoreThisFile && (
                           <button
@@ -374,7 +440,7 @@ return userRole === "admin";
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                        {file.status !== "deleted" && (
+                        {file.status !== "deleted" && file.status !== "archived" && (
                           <button
                             onClick={() => setConfirmDeleteId(file.id)}
                             className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"
@@ -393,6 +459,28 @@ return userRole === "admin";
           })}
         </tbody>
       </table>
+      {playingVideoUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setPlayingVideoUrl(null)}
+        >
+          <div className="relative max-w-4xl w-full mx-4">
+            <button
+              onClick={() => setPlayingVideoUrl(null)}
+              className="absolute -top-10 right-0 p-2 text-white hover:text-slate-300"
+              aria-label="Close video"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <video
+              src={playingVideoUrl}
+              controls
+              autoPlay
+              className="w-full rounded-lg"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

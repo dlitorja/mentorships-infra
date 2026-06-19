@@ -62,6 +62,16 @@ export interface FileListResponse {
   pagination: { cursor: number | null; hasMore: boolean };
 }
 
+export interface BulkDownloadStatus {
+  jobId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  fileCount: number;
+  downloadUrl?: string;
+  error?: string;
+  createdAt: number;
+  expiresAt?: number;
+}
+
 export interface ListFilesParams {
   instructorId?: string;
   uploadedById?: string;
@@ -177,6 +187,19 @@ export async function hardDeleteFile(fileId: string): Promise<void> {
   });
 }
 
+export async function restoreFromGlacierUrl(fileId: string): Promise<{ success: boolean; message?: string }> {
+  return fetchApi<{ success: boolean; message?: string }>(
+    `/api/files/${fileId}/restore-glacier`,
+    { method: "POST" }
+  );
+}
+
+export async function getStreamUrl(fileId: string, expiresIn?: number): Promise<string> {
+  const params = expiresIn ? `?expiresIn=${expiresIn}` : "";
+  const data = await fetchApi<{ url: string }>(`/api/files/${fileId}/stream${params}`);
+  return data.url;
+}
+
 export async function getDownloadUrl(fileId: string): Promise<string> {
   const data = await fetchApi<{ url: string }>(`/api/download/${fileId}`);
   return data.url;
@@ -184,4 +207,16 @@ export async function getDownloadUrl(fileId: string): Promise<string> {
 
 export async function getCosts(): Promise<CostResponse> {
   return fetchApi<CostResponse>("/api/costs");
+}
+
+export async function requestBulkDownload(fileIds: string[]): Promise<{ jobId: string }> {
+  return fetchApi<{ jobId: string }>("/api/files/bulk-download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ fileIds }),
+  });
+}
+
+export async function getBulkDownloadStatus(jobId: string): Promise<BulkDownloadStatus> {
+  return fetchApi<BulkDownloadStatus>(`/api/files/bulk-download/${jobId}`);
 }

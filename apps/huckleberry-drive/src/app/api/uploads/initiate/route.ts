@@ -80,6 +80,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    if (dbUser.role !== "admin") {
+      const stats = await fetchQuery(api.instructorUploads.getInstructorStorageStats, {
+        instructorId: targetInstructorId,
+      }) as { usedBytes: number; fileCount: number };
+
+      if (stats.usedBytes + size > MAX_UPLOAD_SIZE) {
+        return NextResponse.json(
+          { error: "Storage limit exceeded. Please delete files or contact support." },
+          { status: 403 }
+        );
+      }
+    }
+
     const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
     const fileId = crypto.randomUUID();
 
