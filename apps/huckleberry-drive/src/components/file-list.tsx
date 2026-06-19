@@ -356,7 +356,7 @@ return userRole === "admin";
                       </>
                     ) : (
                       <>
-{file.status !== "deleted" && (
+                        {file.status !== "deleted" && (
                           <>
                             {file.contentType.startsWith("video/") && (
                               <button
