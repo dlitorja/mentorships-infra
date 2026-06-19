@@ -122,7 +122,7 @@ export function UploadZone({
           );
         }
 
-        await completeUpload(initiateResult.fileId, initiateResult.uploadId, parts);
+        await completeUpload(initiateResult.fileId, initiateResult.uploadId, initiateResult.key, parts);
 
         setUploadingFiles((prev) =>
           prev.map((f) =>
