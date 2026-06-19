@@ -85,7 +85,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error("Upload complete error:", error);
 
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      const err = error as any;
+      return NextResponse.json({
+        error: error.message,
+        code: err.code || err.$fault,
+        details: err.$metadata || undefined
+      }, { status: 400 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
