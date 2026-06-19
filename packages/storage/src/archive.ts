@@ -21,9 +21,14 @@ export async function deleteFromS3(s3Key: string): Promise<void> {
     },
   });
 
+  const bucket = process.env.AWS_S3_BUCKET;
+  if (!bucket) {
+    throw new Error("Missing AWS_S3_BUCKET environment variable");
+  }
+
   await client.send(
     new DeleteObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET || "instructor-uploads-archive",
+      Bucket: bucket,
       Key: s3Key,
     })
   );

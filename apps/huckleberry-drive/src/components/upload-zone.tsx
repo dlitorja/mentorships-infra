@@ -417,10 +417,13 @@ export function UploadZone({
                 <div className="mt-3 flex justify-end">
                   <button
                     onClick={() => {
+                      if (activeUploadsRef.current >= MAX_CONCURRENT_UPLOADS) {
+                        return;
+                      }
                       const retryFile: UploadingFile = {
                         ...uploadingFile,
                         id: crypto.randomUUID(),
-                        status: "uploading" as const,
+                        status: "uploading",
                         error: undefined,
                         progress: 0,
                         parts: [],

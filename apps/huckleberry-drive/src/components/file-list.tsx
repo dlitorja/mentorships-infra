@@ -356,7 +356,7 @@ return userRole === "admin";
                       </>
                     ) : (
                       <>
-                        {file.status !== "deleted" && file.status !== "archived" && (
+                        {file.status !== "deleted" && (
                           <>
                             {file.contentType.startsWith("video/") && (
                               <button
@@ -409,7 +409,7 @@ return userRole === "admin";
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                        {file.status !== "deleted" && file.status !== "archived" && (
+                        {file.status !== "deleted" && (
                           <button
                             onClick={() => setConfirmDeleteId(file.id)}
                             className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"
