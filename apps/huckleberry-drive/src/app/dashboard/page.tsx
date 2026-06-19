@@ -101,7 +101,7 @@ const fetchVideoEditorUploads = useCallback(
         setUploadedByMeHasMore(result.pagination.hasMore);
       } catch (err) {
         console.error("Failed to fetch uploaded files:", err);
-        setError(err instanceof Error ? err.message : "Failed to load data");
+setError(err instanceof Error ? err.message : "Failed to load data");
       } finally {
         if (!append) setIsLoading(false);
         else setIsLoadingUploadedByMeMore(false);
@@ -153,7 +153,7 @@ useEffect(() => {
     if (userRole === "video_editor") {
       fetchVideoEditorUploads(uploadedByMeDebouncedSearch, undefined, false);
     }
-  }, [uploadedByMeDebouncedSearch, userRole, fetchVideoEditorUploads]);
+}, [uploadedByMeDebouncedSearch, userRole, fetchVideoEditorUploads]);
   const handleLoadMore = useCallback(() => {
     if (cursor !== null) {
       fetchInstructorFiles(debouncedSearch, cursor, true);
@@ -292,7 +292,7 @@ const handleLoadMoreUploadedByMe = useCallback(() => {
             value={uploadedByMeSearchQuery}
             onChange={(e) => setUploadedByMeSearchQuery(e.target.value)}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
-            aria-label="Search files I uploaded"
+aria-label="Search files I uploaded"
           />
         </div>
         <FileList

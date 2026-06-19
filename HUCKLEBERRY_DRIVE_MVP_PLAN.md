@@ -72,6 +72,8 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 
 **Note:** PR #486 fixes: admin/files page gets download action for active files and "Video Editor" label for uploadedById; dashboard video editor section gains per-section search + load-more pagination; file-list hard delete available without `onHardDelete` prop. Additional fixes applied post-review: `window.open` secured with `noopener,noreferrer`, icon buttons have `aria-label` attributes, video editor section uses section-specific loading state instead of global `isLoading`.
 
+**Note:** PR #486 applies additional fixes after code review of PR #485: admin/files page gets download action for active files and "Video Editor" label for uploadedById; dashboard video editor section gains per-section search + load-more pagination; file-list hard delete available without `onHardDelete` prop.
+
 ### 3.1 New `/admin/files` page
 
 **File:** `apps/huckleberry-drive/src/app/admin/files/page.tsx` (new)

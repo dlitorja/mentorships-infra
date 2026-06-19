@@ -38,7 +38,7 @@ const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
     } catch (err) {
       console.error("Download failed:", err);
     } finally {
-      setDownloadingIds((prev) => {
+setDownloadingIds((prev) => {
         const next = new Set(prev);
         next.delete(fileId);
         return next;
@@ -198,7 +198,7 @@ const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
               value={instructorFilter}
               onChange={(e) => {
                 setInstructorFilter(e.target.value);
-                setSelectedFileIds(new Set());
+setSelectedFileIds(new Set());
                 setShowBulkConfirm(false);
                 setConfirmHardDeleteId(null);
               }}
@@ -219,7 +219,7 @@ const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
-                setSelectedFileIds(new Set());
+setSelectedFileIds(new Set());
                 setShowBulkConfirm(false);
                 setConfirmHardDeleteId(null);
               }}
@@ -386,12 +386,12 @@ const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
                             {file.status !== "deleted" && (
                               <button
                                 onClick={() => handleDownload(file.id)}
-                                disabled={isDownloading(file.id)}
+disabled={isDownloading(file.id)}
                                 className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
                                 aria-label="Download"
                                 title="Download"
                               >
-                                {isDownloading(file.id) ? (
+{isDownloading(file.id) ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
                                   <Download className="w-4 h-4" />
