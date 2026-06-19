@@ -19,6 +19,9 @@ fi
 echo "Starting Headroom proxy on port $PORT..."
 echo "Press Ctrl+C to stop."
 
+# Ensure log directory exists
+mkdir -p ~/.headroom
+
 # Run proxy in background with nohup
 nohup $HEADROOM_BIN proxy --port $PORT > ~/.headroom/proxy.log 2>&1 &
 
