@@ -94,8 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const err = error as any;
       return NextResponse.json({
         error: error.message,
-        code: err.code || err.$fault,
-        details: err.$metadata || undefined
+        code: err.code
       }, { status: 400 });
     }
 
