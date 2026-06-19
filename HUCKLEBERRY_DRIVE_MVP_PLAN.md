@@ -70,7 +70,9 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
 
 ## Phase 3: Frontend Pages — ✅ Done (PR #486)
 
-**Note:** PR #486 delivers admin/files page with download action for active files and "Video Editor" label for `uploadedById`; dashboard video editor section gains per-section search + load-more pagination; `FileList` hard delete works without `onHardDelete` prop. Post-merge fixes (PR #487) addressed: `window.open` secured with `noopener,noreferrer` (admin/files + file-list); icon buttons given `aria-label` attributes (admin/files + file-list); video editor section uses section-specific loading state; concurrent download tracking changed from string to `Set`; filter changes reset bulk-selection state; `handleHardDelete` properly sets `isHardDeleting` at start; `fetchData` useCallback includes `userRole` in deps; `fetchVideoEditorUploads` catch block sets error state; all useEffect hooks have correct deps.
+**Note:** PR #486 fixes: admin/files page gets download action for active files and "Video Editor" label for uploadedById; dashboard video editor section gains per-section search + load-more pagination; file-list hard delete available without `onHardDelete` prop. Additional fixes applied post-review: `window.open` secured with `noopener,noreferrer`, icon buttons have `aria-label` attributes, video editor section uses section-specific loading state instead of global `isLoading`.
+
+**Note:** PR #486 applies additional fixes after code review of PR #485: admin/files page gets download action for active files and "Video Editor" label for uploadedById; dashboard video editor section gains per-section search + load-more pagination; file-list hard delete available without `onHardDelete` prop.
 
 ### 3.1 New `/admin/files` page
 
