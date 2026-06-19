@@ -38,6 +38,22 @@ export async function getDownloadUrlWithContentDisposition(
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
 }
 
+export async function getStreamUrl(
+  key: string,
+  contentType: string,
+  expiresInSeconds: number = 14400
+): Promise<string> {
+  const client = getB2Client();
+
+  const command = new GetObjectCommand({
+    Bucket: B2_BUCKET_NAME,
+    Key: key,
+    ResponseContentType: contentType,
+  });
+
+  return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+}
+
 export function parseKeyFromS3Url(url: string): string | null {
   const match = url.match(/s3\.[^/]+\.backblazeb2\.com\/[^/]+\/(.+?)(?:\?|$)/);
   return match?.[1] ?? null;

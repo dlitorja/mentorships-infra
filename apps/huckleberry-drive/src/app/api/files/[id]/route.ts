@@ -181,7 +181,6 @@ export async function POST(
 
     const canRestore =
       upload.instructorId === dbUser.userId ||
-      upload.uploadedById === dbUser.userId ||
       dbUser.role === "admin";
 
     if (!canRestore) {

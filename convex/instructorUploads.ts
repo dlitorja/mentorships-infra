@@ -496,6 +496,28 @@ export const getTotalStorageStats = query({
   },
 });
 
+export const getInstructorStorageStats = query({
+  args: { instructorId: v.string() },
+  handler: async (ctx, args) => {
+    const uploads = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    let usedBytes = 0;
+    let fileCount = 0;
+
+    for (const upload of uploads) {
+      if (upload.status !== "deleted" && upload.status !== "deleting") {
+        usedBytes += upload.size;
+        fileCount++;
+      }
+    }
+
+    return { usedBytes, fileCount };
+  },
+});
+
 export const restoreUpload = mutation({
   args: { id: v.string() },
   handler: async (ctx, args) => {
