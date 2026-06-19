@@ -151,12 +151,13 @@ export async function initiateUpload(
 export async function completeUpload(
   fileId: string,
   uploadId: string,
+  key: string,
   parts: Array<{ partNumber: number; etag: string }>
 ): Promise<void> {
   await fetchApi("/api/uploads/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fileId, uploadId, parts }),
+    body: JSON.stringify({ fileId, uploadId, key, parts }),
   });
 }
 
