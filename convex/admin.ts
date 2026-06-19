@@ -277,7 +277,6 @@ type StudentWithSessionInfo = {
 export const getStudentsForAdmin = query({
   args: {
     search: v.optional(v.string()),
-    // Accept string to avoid strict id validation errors from malformed query params
     instructorId: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
     expiresAfter: v.optional(v.number()),
@@ -295,7 +294,6 @@ export const getStudentsForAdmin = query({
     const isAdmin = await isAdminUser(ctx, identity.subject);
     if (!isAdmin) return { items: [], total: 0, page: 1, pageSize: 20 };
 
-    // Start with index pushdown when possible to avoid full table scans
     const packsQuery = args.instructorId
       ? ctx.db
           .query("sessionPacks")
@@ -304,7 +302,6 @@ export const getStudentsForAdmin = query({
     let sessionPacks = await packsQuery.collect();
 
     if (args.instructorId) {
-      // Filter by instructor id string; sessionPacks.instructorId is an Id<"instructors"> string
       sessionPacks = sessionPacks.filter(sp => sp.instructorId === (args.instructorId as any));
     }
 
@@ -345,44 +342,61 @@ export const getStudentsForAdmin = query({
       sessionPacks = sessionPacks.filter(sp => sp.remainingSessions <= (args.remainingMax as number));
     }
 
-    const total = sessionPacks.length;
-    const page = args.page ?? 1;
-    const pageSize = args.pageSize ?? 20;
-    const offset = (page - 1) * pageSize;
+    const studentsMap = new Map<string, {
+      userId: string;
+      email: string | null;
+      sessionPacks: Array<{
+        id: string;
+        instructorId: string;
+        instructorName: string | null;
+        instructorSlug: string | null;
+        totalSessions: number;
+        remainingSessions: number;
+        purchasedAt: number;
+        expiresAt: number | null;
+        status: string;
+      }>;
+    }>();
 
-    const sortedPacks = sessionPacks
-      .sort((a, b) => b._creationTime - a._creationTime)
-      .slice(offset, offset + pageSize);
-
-    const items = await Promise.all(
-      sortedPacks.map(async (pack) => {
+    for (const pack of sessionPacks) {
+      if (!studentsMap.has(pack.userId)) {
         const user = await ctx.db
           .query("users")
           .withIndex("by_userId", (q) => q.eq("userId", pack.userId))
           .first();
-        let instructor: { name?: string | undefined; slug?: string | undefined } | null = null;
-        try {
-          instructor = await ctx.db.get(pack.instructorId);
-        } catch {
-          instructor = null;
-        }
-
-        return {
-          id: pack._id,
+        studentsMap.set(pack.userId, {
           userId: pack.userId,
           email: user?.email ?? null,
-          instructorId: pack.instructorId,
-          instructorName: instructor?.name ?? null,
-          instructorSlug: instructor?.slug ?? null,
-          totalSessions: pack.totalSessions,
-          remainingSessions: pack.remainingSessions,
-          purchasedAt: pack.purchasedAt,
-          expiresAt: pack.expiresAt ?? null,
-          status: pack.status,
-          createdAt: pack._creationTime,
-        };
-      })
-    );
+          sessionPacks: [],
+        });
+      }
+      let instructor: { name?: string | undefined; slug?: string | undefined } | null = null;
+      try {
+        instructor = await ctx.db.get(pack.instructorId);
+      } catch {
+        instructor = null;
+      }
+      studentsMap.get(pack.userId)!.sessionPacks.push({
+        id: pack._id,
+        instructorId: pack.instructorId,
+        instructorName: instructor?.name ?? null,
+        instructorSlug: instructor?.slug ?? null,
+        totalSessions: pack.totalSessions,
+        remainingSessions: pack.remainingSessions,
+        purchasedAt: pack.purchasedAt,
+        expiresAt: pack.expiresAt ?? null,
+        status: pack.status,
+      });
+    }
+
+    const total = studentsMap.size;
+    const page = args.page ?? 1;
+    const pageSize = args.pageSize ?? 20;
+    const offset = (page - 1) * pageSize;
+
+    const items = Array.from(studentsMap.values())
+      .sort((a, b) => (b.sessionPacks[0]?.purchasedAt ?? 0) - (a.sessionPacks[0]?.purchasedAt ?? 0))
+      .slice(offset, offset + pageSize);
 
     return { items, total, page, pageSize };
   },
