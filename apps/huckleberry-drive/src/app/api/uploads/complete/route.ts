@@ -56,11 +56,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid upload ID" }, { status: 400 });
     }
 
-    const result = await completeMultipartUpload({
-      key,
-      uploadId,
-      parts: parts as UploadPart[],
-    });
+    let result;
+    try {
+      result = await completeMultipartUpload({
+        key,
+        uploadId,
+        parts: parts as UploadPart[],
+      });
+    } catch (error) {
+      console.error("completeMultipartUpload failed:", {
+        key,
+        uploadId,
+        partsCount: parts.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
 
     await fetchMutation(api.instructorUploads.completeUpload, { id: fileId, b2FileId: result.etag.replace(/"/g, "") });
 
