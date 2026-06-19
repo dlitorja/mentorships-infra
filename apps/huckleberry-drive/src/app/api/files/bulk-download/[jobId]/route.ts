@@ -47,13 +47,13 @@ async function getJobStatus(jobId: string): Promise<BulkDownloadJob | null> {
     if (!response.Body) return null;
 
     const chunks: Buffer[] = [];
-    const body = response.Body as any;
+    const body: AsyncIterable<Uint8Array> = response.Body as AsyncIterable<Uint8Array>;
     for await (const chunk of body) {
-      chunks.push(chunk);
+      chunks.push(Buffer.from(chunk));
     }
     return JSON.parse(Buffer.concat(chunks).toString());
-  } catch (error: any) {
-    if (error.name === "NoSuchKey" || error.$metadata?.httpStatusCode === 404) {
+  } catch (error: unknown) {
+    if (error instanceof Error && (error.name === "NoSuchKey" || (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404)) {
       return null;
     }
     throw error;

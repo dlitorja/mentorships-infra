@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useUser } from "@clerk/nextjs";
 import { FileList } from "@/components/file-list";
 import { StorageUsage } from "@/components/storage-usage";
@@ -31,7 +31,14 @@ const [uploadedByMeSearchQuery, setUploadedByMeSearchQuery] = useState("");
   const [isLoadingUploadedByMeMore, setIsLoadingUploadedByMeMore] = useState(false);
   const userRole = (user?.publicMetadata?.role as UserRole) || null;
   const userId = user?.id || null;
-  const instructorIds = (user?.publicMetadata?.instructorIds as string[]) || [];
+  const instructorIds = useMemo(
+    () => ((user?.publicMetadata?.instructorIds as string[] | undefined) ?? []),
+    [user?.publicMetadata?.instructorIds]
+  );
+  const primaryInstructorId = useMemo(
+    () => instructorIds[0] ?? null,
+    [instructorIds]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -136,12 +143,12 @@ setError(err instanceof Error ? err.message : "Failed to load data");
         fetchInstructorFiles();
       } else if (userRole === "video_editor") {
         fetchVideoEditorUploads();
-        if (instructorIds.length > 0) {
-          fetchInstructorFiles(undefined, undefined, false, instructorIds[0]);
+        if (primaryInstructorId) {
+          fetchInstructorFiles(undefined, undefined, false, primaryInstructorId);
         }
       }
     }
-  }, [isLoaded, user, userRole, fetchData, fetchInstructorFiles, instructorIds]);
+  }, [isLoaded, user, userRole, fetchData, fetchInstructorFiles, fetchVideoEditorUploads, primaryInstructorId]);
 
   useEffect(() => {
     if (userRole === "instructor" || userRole === "admin") {

@@ -41,7 +41,7 @@ export async function GET(
       86400
     ));
 
-    await requireInstructor();
+    const dbUser = await requireInstructor() as User;
 
     const upload = await fetchQuery(api.instructorUploads.getUploadById, { id }) as Upload | null;
     if (!upload) {
@@ -65,7 +65,7 @@ export async function GET(
     }
 
     const hasAccess = await canAccessFile(upload.instructorId);
-    if (!hasAccess) {
+    if (!hasAccess && dbUser.role !== "admin") {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 
