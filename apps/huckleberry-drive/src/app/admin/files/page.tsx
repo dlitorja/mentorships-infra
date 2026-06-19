@@ -26,17 +26,23 @@ export default function AdminFilesPage(): React.ReactElement {
   const [isHardDeleting, setIsHardDeleting] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
-const [downloadingId, setDownloadingId] = useState<string | null>(null);
+const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+
+  const isDownloading = (fileId: string) => downloadingIds.has(fileId);
 
   const handleDownload = useCallback(async (fileId: string) => {
-    setDownloadingId(fileId);
+    setDownloadingIds((prev) => new Set(prev).add(fileId));
     try {
       const url = await getDownloadUrl(fileId);
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
       console.error("Download failed:", err);
     } finally {
-      setDownloadingId(null);
+      setDownloadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(fileId);
+        return next;
+      });
     }
   }, []);
 
@@ -109,11 +115,14 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
   }, [fetchFiles]);
 
   const handleHardDelete = useCallback(async (fileId: string) => {
+    setIsHardDeleting(true);
     try {
       await hardDeleteFile(fileId);
       await handleFilesChange();
     } catch (err) {
       console.error("Hard delete failed:", err);
+    } finally {
+      setIsHardDeleting(false);
     }
   }, [handleFilesChange]);
 
@@ -189,6 +198,9 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
               value={instructorFilter}
               onChange={(e) => {
                 setInstructorFilter(e.target.value);
+                setSelectedFileIds(new Set());
+                setShowBulkConfirm(false);
+                setConfirmHardDeleteId(null);
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
@@ -207,6 +219,9 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
+                setSelectedFileIds(new Set());
+                setShowBulkConfirm(false);
+                setConfirmHardDeleteId(null);
               }}
               className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
             >
@@ -371,12 +386,12 @@ const [downloadingId, setDownloadingId] = useState<string | null>(null);
                             {file.status !== "deleted" && (
                               <button
                                 onClick={() => handleDownload(file.id)}
-                                disabled={downloadingId === file.id}
+                                disabled={isDownloading(file.id)}
                                 className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
                                 aria-label="Download"
                                 title="Download"
                               >
-                                {downloadingId === file.id ? (
+                                {isDownloading(file.id) ? (
                                   <Loader2 className="w-4 h-4 animate-spin" />
                                 ) : (
                                   <Download className="w-4 h-4" />

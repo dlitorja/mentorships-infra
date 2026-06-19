@@ -41,7 +41,7 @@ export function FileList({
   instructorNames = {},
 }: FileListProps): React.ReactElement {
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
@@ -135,14 +135,18 @@ return userRole === "admin";
   };
 
   const handleDownload = useCallback(async (file: FileItem) => {
-    setDownloadingId(file.id);
+    setDownloadingIds((prev) => new Set(prev).add(file.id));
     try {
       const url = await getDownloadUrl(file.id);
-      window.open(url, "_blank");
+      window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
       console.error("Download failed:", error);
     } finally {
-      setDownloadingId(null);
+      setDownloadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(file.id);
+        return next;
+      });
     }
   }, []);
 
@@ -246,7 +250,7 @@ return userRole === "admin";
               file.transferStatus
             );
             const isDeleting = deletingId === file.id;
-            const isDownloading = downloadingId === file.id;
+            const isDownloading = downloadingIds.has(file.id);
             const isConfirming = confirmDeleteId === file.id;
             const isRestoring = restoringId === file.id;
             const isConfirmingHardDelete = confirmHardDeleteId === file.id;
@@ -336,6 +340,7 @@ return userRole === "admin";
                             disabled={isDownloading}
                             className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
                             title="Download"
+                            aria-label="Download"
                           >
                             {isDownloading ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -350,6 +355,7 @@ return userRole === "admin";
                             disabled={isRestoring}
                             className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-50"
                             title="Restore"
+                            aria-label="Restore"
                           >
                             {isRestoring ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -363,6 +369,7 @@ return userRole === "admin";
                             onClick={() => setConfirmHardDeleteId(file.id)}
                             className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors"
                             title="Hard Delete"
+                            aria-label="Permanently delete file"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -372,6 +379,7 @@ return userRole === "admin";
                             onClick={() => setConfirmDeleteId(file.id)}
                             className="p-2 rounded-lg hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors"
                             title="Delete"
+                            aria-label="Delete file"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
