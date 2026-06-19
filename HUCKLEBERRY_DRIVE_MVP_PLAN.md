@@ -87,7 +87,7 @@ Wire up `getAllUploads` Convex query to support admin's full file browsing with 
   - Instructor name (joined from users table)
   - Uploaded by ("Video Editor" label when `uploadedById` is set)
   - Size (formatted: MB/GB)
-  - Status badge (On B2 / Archived / Deleted / Failed)
+  - Status badge (On B2 / Deleted / Failed)
   - Deletion warning badge (shows days remaining before permanent deletion — only for deleted files within 60-day grace period)
   - Date uploaded
   - Actions
@@ -210,7 +210,7 @@ Add "Files" link in admin section:
 
 ## Deferred (Post-MVP)
 
-- S3 archival automation — **NOT deferred**: trigger already wired in `trigger/scheduled-tasks.ts` (`archiveOldFiles` daily cron). Code exists in `@mentorships/storage/src/archive.ts`.
+- ~~S3 archival automation~~ — **Removed**: Using B2-only storage for simplicity. All files remain on B2 hot storage ($0.006/GB/mo) with instant access. No Glacier archival.
 - File preview / video playback — no video player component, need to build inline player with B2 signed URL
 - Bulk download as ZIP — partial code in `@mentorships/storage/src/zip.ts` (`createAndUploadZip`), need trigger task + API endpoint + frontend
 - Storage limit per-instructor enforcement at API level — currently only client-side display; need to add check to `POST /api/uploads/initiate` to prevent overages (race condition risk with concurrent uploads)
