@@ -118,6 +118,8 @@ export async function completeMultipartUpload(params: {
 }): Promise<{ location: string; etag: string }> {
   const client = getB2Client();
 
+  const actualParts = await listUploadedParts({ key: params.key, uploadId: params.uploadId });
+
   const sortedParts = [...params.parts].sort((a, b) => a.partNumber - b.partNumber);
 
   const command = new CompleteMultipartUploadCommand({
@@ -125,10 +127,13 @@ export async function completeMultipartUpload(params: {
     Key: params.key,
     UploadId: params.uploadId,
     MultipartUpload: {
-      Parts: sortedParts.map((part) => ({
-        ETag: part.etag,
-        PartNumber: part.partNumber,
-      })),
+      Parts: sortedParts.map((part) => {
+        const actualPart = actualParts.find(p => p.partNumber === part.partNumber);
+        return {
+          ETag: actualPart?.etag || part.etag,
+          PartNumber: part.partNumber,
+        };
+      }),
     },
   });
 
