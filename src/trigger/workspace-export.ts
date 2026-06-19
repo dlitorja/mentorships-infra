@@ -9,7 +9,7 @@ const B2_KEY_ID = process.env.B2_KEY_ID;
 const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY;
 const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";
 const B2_REGION = process.env.B2_REGION || "us-west-002";
-const B2_ENDPOINT = `https://s3.${B2_REGION}.backblazeb2.com`;
+const B2_ENDPOINT = process.env.B2_ENDPOINT || `https://s3.${B2_REGION}.backblazeb2.com`;
 const B2_DOWNLOAD_HOST = process.env.B2_DOWNLOAD_HOST || "download.backblazeb2.com";
 
 const EXPORT_URL_EXPIRY_DAYS = 7;
