@@ -215,6 +215,7 @@ const handleLoadMoreUploadedByMe = useCallback(() => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-slate-200 text-sm focus:outline-none focus:border-emerald-500"
+            aria-label="Search files"
           />
         </div>
       </div>
