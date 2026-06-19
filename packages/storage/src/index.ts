@@ -28,13 +28,8 @@ export {
 } from "./files";
 
 export {
-  copyToS3,
-  verifyS3Upload,
   deleteFromB2,
   deleteFromS3,
-  getS3DownloadUrl,
-  restoreFromGlacier,
-  getS3ArchiveKey,
 } from "./archive";
 
 export {

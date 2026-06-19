@@ -52,14 +52,6 @@ export async function GET(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
-    if (upload.status === "archived") {
-      return NextResponse.json({
-        error: "File is archived in S3 Glacier. Restore required before streaming.",
-        restoreRequired: true,
-        fileId: id,
-      }, { status: 410 });
-    }
-
     if (!upload.filename) {
       return NextResponse.json({ error: "File location unknown" }, { status: 400 });
     }

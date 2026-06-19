@@ -13,7 +13,7 @@ import {
   Play,
   X,
 } from "lucide-react";
-import { deleteFile, getDownloadUrl, restoreFile, hardDeleteFile, restoreFromGlacierUrl, getStreamUrl } from "@/lib/api";
+import { deleteFile, getDownloadUrl, restoreFile, hardDeleteFile, getStreamUrl } from "@/lib/api";
 import type { FileItem } from "@/lib/api";
 
 type UserRole = "student" | "instructor" | "admin" | "video_editor";
@@ -47,7 +47,6 @@ export function FileList({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
-  const [restoringGlacierId, setRestoringGlacierId] = useState<string | null>(null);
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
   const [playingVideoContentType, setPlayingVideoContentType] = useState<string>("video/mp4");
 
@@ -224,21 +223,6 @@ return userRole === "admin";
     }
   }, []);
 
-  const handleRestoreGlacier = useCallback(
-    async (fileId: string) => {
-      setRestoringGlacierId(fileId);
-      try {
-        await restoreFromGlacierUrl(fileId);
-        onFilesChange();
-      } catch (error) {
-        console.error("Restore from glacier failed:", error);
-      } finally {
-        setRestoringGlacierId(null);
-      }
-    },
-    [onFilesChange]
-  );
-
   if (files.length === 0) {
     return (
       <div className="text-center py-12 text-slate-500">
@@ -372,22 +356,7 @@ return userRole === "admin";
                       </>
                     ) : (
                       <>
-                        {file.status === "archived" && (
-                          <button
-                            onClick={() => handleRestoreGlacier(file.id)}
-                            disabled={restoringGlacierId === file.id}
-                            className="p-2 rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
-                            title="Restore from Glacier"
-                            aria-label="Restore from Glacier"
-                          >
-                            {restoringGlacierId === file.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <RotateCcw className="w-4 h-4" />
-                            )}
-                          </button>
-                        )}
-                        {file.status !== "deleted" && file.status !== "archived" && (
+                        {file.status !== "deleted" && (
                           <>
                             {file.contentType.startsWith("video/") && (
                               <button
