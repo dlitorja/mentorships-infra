@@ -94,7 +94,9 @@ async function fetchApi<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Request failed" }));
-    throw new Error(error.error || `HTTP ${response.status}`);
+    const code = error.code ? ` [${error.code}]` : "";
+    const details = error.details ? ` ${JSON.stringify(error.details)}` : "";
+    throw new Error((error.error || `HTTP ${response.status}`) + code + details);
   }
 
   return response.json();
