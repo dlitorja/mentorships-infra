@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import {
-  formatCost,
-  estimateB2StorageCost,
-  estimateS3StorageCost,
-} from "@mentorships/storage";
+import { formatCost } from "@mentorships/storage";
 
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(_request: NextRequest): Promise<NextResponse> {
   try {
     await requireAdmin();
-
-    const url = new URL(request.url);
-    const period = url.searchParams.get("period") || "6";
-    const months = parseInt(period, 10) || 6;
 
     // TODO: Implement Convex queries for cost data
     // For now, return empty data to avoid SQL dependency
@@ -20,14 +12,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const currentMonth = new Date().toISOString().slice(0, 7);
 
-    // Placeholder current cost calculation
+    // Placeholder current cost calculation - B2 only
     const estimatedCurrent = {
       month: currentMonth,
       b2StorageCost: 0,
       b2DownloadCost: 0,
       b2ApiCost: 0,
-      s3StorageCost: 0,
-      s3RetrievalCost: 0,
       totalCost: 0,
       alertSent: false,
       alertThreshold: 5000,
@@ -44,8 +34,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         b2Storage: formatCost(currentCost.b2StorageCost),
         b2Download: formatCost(currentCost.b2DownloadCost),
         b2Api: formatCost(currentCost.b2ApiCost),
-        s3Storage: formatCost(currentCost.s3StorageCost),
-        s3Retrieval: formatCost(currentCost.s3RetrievalCost),
         total: formatCost(currentCost.totalCost),
         alertThreshold: formatCost(currentCost.alertThreshold),
         isOverThreshold: currentCost.totalCost > currentCost.alertThreshold,
