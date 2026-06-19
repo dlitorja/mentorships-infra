@@ -56,6 +56,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid upload ID" }, { status: 400 });
     }
 
+    console.log("completeMultipartUpload called with:", {
+      key,
+      uploadId,
+      parts: parts.map(p => ({ partNumber: p.partNumber, etagLength: p.etag.length, etagStart: p.etag.substring(0, 20) }))
+    });
+
     let result;
     try {
       result = await completeMultipartUpload({
