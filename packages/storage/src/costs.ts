@@ -2,8 +2,6 @@ export interface StorageCosts {
   b2Storage: number;
   b2Download: number;
   b2Api: number;
-  s3Storage: number;
-  s3Retrieval: number;
   total: number;
   month: string;
 }
@@ -11,16 +9,10 @@ export interface StorageCosts {
 const B2_STORAGE_RATE_PER_GB = 0.006;
 const B2_CLASS_A_RATE_PER_1000 = 0.004;
 const B2_CLASS_B_RATE_PER_1000 = 0.002;
-const S3_GLACIER_DEEP_ARCHIVE_RATE_PER_GB = 0.00099;
 
 export function estimateB2StorageCost(bytes: number): number {
   const gb = bytes / (1024 * 1024 * 1024);
   return Math.round(gb * B2_STORAGE_RATE_PER_GB * 100);
-}
-
-export function estimateS3StorageCost(bytes: number): number {
-  const gb = bytes / (1024 * 1024 * 1024);
-  return Math.round(gb * S3_GLACIER_DEEP_ARCHIVE_RATE_PER_GB * 100);
 }
 
 export function calculateUploadTransactionCost(uploadCount: number): number {
@@ -39,8 +31,6 @@ export async function fetchMonthlyCosts(): Promise<StorageCosts> {
     b2Storage: 0,
     b2Download: 0,
     b2Api: 0,
-    s3Storage: 0,
-    s3Retrieval: 0,
     total: 0,
     month,
   };

@@ -28,13 +28,8 @@ export {
 } from "./files";
 
 export {
-  copyToS3,
-  verifyS3Upload,
   deleteFromB2,
   deleteFromS3,
-  getS3DownloadUrl,
-  restoreFromGlacier,
-  getS3ArchiveKey,
 } from "./archive";
 
 export {
@@ -43,7 +38,6 @@ export {
   formatCost,
   formatBytesToGB,
   estimateB2StorageCost,
-  estimateS3StorageCost,
   calculateUploadTransactionCost,
   calculateDownloadTransactionCost,
   type StorageCosts,
