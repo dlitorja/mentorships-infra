@@ -223,7 +223,7 @@ export const createSessionPack = mutation({
     totalSessions: v.optional(v.number()),
     remainingSessions: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
-    paymentId: v.id("payments"),
+    paymentId: v.optional(v.id("payments")),
   },
   handler: async (ctx, args) => {
     const totalSessions = args.totalSessions ?? 4;
@@ -235,7 +235,46 @@ export const createSessionPack = mutation({
       purchasedAt: Date.now(),
       expiresAt: args.expiresAt,
       status: "active",
-      paymentId: args.paymentId,
+      paymentId: args.paymentId ?? undefined,
+    });
+    return await ctx.db.get(id);
+  },
+});
+
+/** Creates a new session pack for admin-added students without payment. */
+export const createAdminSessionPack = mutation({
+  args: {
+    userId: v.string(),
+    instructorId: v.id("instructors"),
+    totalSessions: v.number(),
+    expiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!user || user.role !== "admin") {
+      throw new Error("Forbidden: Admin role required");
+    }
+
+    if (args.totalSessions < 1) {
+      throw new Error("totalSessions must be at least 1");
+    }
+
+    const id = await ctx.db.insert("sessionPacks", {
+      userId: args.userId,
+      instructorId: args.instructorId,
+      totalSessions: args.totalSessions,
+      remainingSessions: args.totalSessions,
+      purchasedAt: Date.now(),
+      expiresAt: args.expiresAt,
+      status: "active",
+      paymentId: undefined,
     });
     return await ctx.db.get(id);
   },
@@ -409,16 +448,19 @@ export const migrateSessionPack = mutation({
     purchasedAt: v.optional(v.number()),
     expiresAt: v.optional(v.number()),
     status: v.optional(v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded"))),
-    paymentId: v.id("payments"),
+    paymentId: v.optional(v.id("payments")),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("sessionPacks")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .filter((q) => q.eq(q.field("paymentId"), args.paymentId))
-      .first();
+    let existing = null;
+    if (args.paymentId) {
+      existing = await ctx.db
+        .query("sessionPacks")
+        .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+        .filter((q) => q.eq(q.field("paymentId"), args.paymentId))
+        .first();
+    }
 
     if (existing) {
       const updates: Record<string, unknown> = {};
@@ -441,7 +483,7 @@ export const migrateSessionPack = mutation({
       purchasedAt: args.purchasedAt ?? Date.now(),
       expiresAt: args.expiresAt ?? undefined,
       status: args.status ?? "active",
-      paymentId: args.paymentId,
+      paymentId: args.paymentId ?? undefined,
     });
 
     return { action: "inserted", id: insertResult };

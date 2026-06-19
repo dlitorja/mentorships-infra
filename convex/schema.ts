@@ -109,7 +109,7 @@ export default defineSchema({
     purchasedAt: v.number(),
     expiresAt: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("depleted"), v.literal("expired"), v.literal("refunded")),
-    paymentId: v.id("payments"),
+    paymentId: v.optional(v.id("payments")),
     deletedAt: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_userId", ["userId"])

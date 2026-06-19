@@ -89,11 +89,20 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      items: result.items.map((it: any) => ({
-        ...it,
-        purchasedAt: new Date(it.purchasedAt).toISOString(),
-        expiresAt: it.expiresAt ? new Date(it.expiresAt).toISOString() : null,
-        createdAt: new Date(it.createdAt).toISOString(),
+      items: result.items.map((student: any) => ({
+        userId: student.userId,
+        email: student.email,
+        sessionPacks: student.sessionPacks.map((pack: any) => ({
+          id: pack.id,
+          instructorId: pack.instructorId,
+          instructorName: pack.instructorName,
+          instructorSlug: pack.instructorSlug,
+          totalSessions: pack.totalSessions,
+          remainingSessions: pack.remainingSessions,
+          status: pack.status,
+          purchasedAt: new Date(pack.purchasedAt).toISOString(),
+          expiresAt: pack.expiresAt ? new Date(pack.expiresAt).toISOString() : null,
+        })),
       })),
       total: result.total,
       page: result.page,
