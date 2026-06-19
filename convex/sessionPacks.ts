@@ -454,12 +454,21 @@ export const migrateSessionPack = mutation({
   },
   handler: async (ctx, args) => {
     let existing = null;
+
     if (args.paymentId) {
       existing = await ctx.db
         .query("sessionPacks")
         .withIndex("by_userId", (q) => q.eq("userId", args.userId))
         .filter((q) => q.eq(q.field("paymentId"), args.paymentId))
         .first();
+    }
+
+    if (!existing && args.id) {
+      const allPacksForUser = await ctx.db
+        .query("sessionPacks")
+        .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+        .collect();
+      existing = allPacksForUser.find(p => p.legacyId === args.id);
     }
 
     if (existing) {
@@ -484,6 +493,7 @@ export const migrateSessionPack = mutation({
       expiresAt: args.expiresAt ?? undefined,
       status: args.status ?? "active",
       paymentId: args.paymentId ?? undefined,
+      legacyId: args.id,
     });
 
     return { action: "inserted", id: insertResult };

@@ -395,7 +395,7 @@ export const getStudentsForAdmin = query({
     const offset = (page - 1) * pageSize;
 
     const items = Array.from(studentsMap.values())
-      .sort((a, b) => b.sessionPacks[0]?.purchasedAt ?? 0 - (a.sessionPacks[0]?.purchasedAt ?? 0))
+      .sort((a, b) => (b.sessionPacks[0]?.purchasedAt ?? 0) - (a.sessionPacks[0]?.purchasedAt ?? 0))
       .slice(offset, offset + pageSize);
 
     return { items, total, page, pageSize };
