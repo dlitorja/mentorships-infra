@@ -38,7 +38,6 @@ export {
   formatCost,
   formatBytesToGB,
   estimateB2StorageCost,
-  estimateS3StorageCost,
   calculateUploadTransactionCost,
   calculateDownloadTransactionCost,
   type StorageCosts,

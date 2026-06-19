@@ -1,17 +1,12 @@
 import { task, logger } from "@trigger.dev/sdk";
 import archiver from "archiver";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-import { S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { getB2Client, B2_BUCKET_NAME } from "@mentorships/storage/src/client";
 import { createWriteStream, createReadStream, mkdir, rm } from "fs";
 import { pipeline } from "stream/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-
-const B2_KEY_ID = process.env.B2_KEY_ID;
-const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY;
-const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";
-const B2_REGION = process.env.B2_REGION || "us-west-002";
-const B2_ENDPOINT = `https://s3.${B2_REGION}.backblazeb2.com`;
 
 const MAX_FILES_PER_REQUEST = 20;
 const JOB_EXPIRY_HOURS = 24;
@@ -186,7 +181,15 @@ export const processBulkDownload = task({
         })
       );
 
-      const downloadUrl = `${B2_ENDPOINT}/${B2_BUCKET_NAME}/${zipKey}`;
+      const downloadUrl = await getSignedUrl(
+        client,
+        new GetObjectCommand({
+          Bucket: B2_BUCKET_NAME,
+          Key: zipKey,
+          ResponseContentDisposition: `attachment; filename="${zipFilename}"`,
+        }),
+        { expiresIn: JOB_EXPIRY_HOURS * 60 * 60 }
+      );
 
       job.status = "completed";
       job.downloadUrl = downloadUrl;

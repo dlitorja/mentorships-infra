@@ -41,7 +41,7 @@ export async function getDownloadUrlWithContentDisposition(
 export async function getStreamUrl(
   key: string,
   contentType: string,
-  expiresInSeconds: number = 14400
+  expiresInSeconds: number = DEFAULT_URL_EXPIRY
 ): Promise<string> {
   const client = getB2Client();
 
