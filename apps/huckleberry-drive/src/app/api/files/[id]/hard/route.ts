@@ -3,6 +3,8 @@ import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
+type UploadStatus = "pending" | "uploading" | "completed" | "archived" | "failed" | "deleted" | "deleting";
+
 interface Upload {
   _id: string;
   legacyId?: string;
@@ -11,7 +13,7 @@ interface Upload {
   originalName: string;
   contentType: string;
   size: number;
-  status: string;
+  status: UploadStatus;
   transferStatus?: string;
   s3Key?: string;
   s3Url?: string;
@@ -43,9 +45,9 @@ export async function DELETE(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
-    if (upload.status !== "deleted") {
+    if (upload.status !== "deleted" && upload.status !== "deleting" && upload.status !== "completed") {
       return NextResponse.json(
-        { error: "File must be soft-deleted before permanent deletion" },
+        { error: `Cannot hard delete file with status '${upload.status}'` },
         { status: 400 }
       );
     }
