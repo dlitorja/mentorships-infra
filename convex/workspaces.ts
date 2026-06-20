@@ -345,17 +345,50 @@ export const createWorkspaceLink = mutation({
     workspaceId: v.id("workspaces"),
     url: v.string(),
     title: v.optional(v.string()),
-    createdBy: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaceLinks", args);
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
+    return await ctx.db.insert("workspaceLinks", {
+      workspaceId: args.workspaceId,
+      url: args.url,
+      title: args.title,
+      createdBy: user.subject,
+    });
   },
 });
 
-/** Soft-deletes a workspace link by setting deletedAt. */
+/** Soft-deletes a workspace link by setting deletedAt. Only the link creator can delete their own links. */
 export const deleteWorkspaceLink = mutation({
   args: { id: v.id("workspaceLinks") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const link = await ctx.db.get(args.id);
+    if (!link) {
+      throw new Error("Link not found");
+    }
+
+    if (link.createdBy !== user.subject) {
+      throw new Error("Only the link creator can delete this link");
+    }
+
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
