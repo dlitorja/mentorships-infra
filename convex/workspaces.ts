@@ -385,11 +385,17 @@ export const deleteWorkspaceLink = mutation({
       throw new Error("Link not found");
     }
 
-    if (link.createdBy !== user.subject) {
-      throw new Error("Only the link creator can delete this link");
+    const workspace = await ctx.db.get(link.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
     }
 
-    await ctx.db.patch(args.id, { deletedAt: Date.now() });
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (role === "admin" || role === "instructor" || link.createdBy === user.subject) {
+      await ctx.db.patch(args.id, { deletedAt: Date.now() });
+    } else {
+      throw new Error("Access denied");
+    }
   },
 });
 
