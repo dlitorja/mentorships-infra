@@ -292,11 +292,28 @@ export const createWorkspaceNote = mutation({
     workspaceId: v.id("workspaces"),
     title: v.string(),
     content: v.string(),
-    createdBy: v.string(),
   },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
     return await ctx.db.insert("workspaceNotes", {
-      ...args,
+      workspaceId: args.workspaceId,
+      title: args.title,
+      content: args.content,
+      createdBy: user.subject,
       updatedAt: Date.now(),
     });
   },
@@ -345,18 +362,57 @@ export const createWorkspaceLink = mutation({
     workspaceId: v.id("workspaces"),
     url: v.string(),
     title: v.optional(v.string()),
-    createdBy: v.string(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaceLinks", args);
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
+    return await ctx.db.insert("workspaceLinks", {
+      workspaceId: args.workspaceId,
+      url: args.url,
+      title: args.title,
+      createdBy: user.subject,
+    });
   },
 });
 
-/** Soft-deletes a workspace link by setting deletedAt. */
+/** Soft-deletes a workspace link by setting deletedAt. Only the link creator can delete their own links. */
 export const deleteWorkspaceLink = mutation({
   args: { id: v.id("workspaceLinks") },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, { deletedAt: Date.now() });
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const link = await ctx.db.get(args.id);
+    if (!link) {
+      throw new Error("Link not found");
+    }
+
+    const workspace = await ctx.db.get(link.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (role === "admin" || role === "instructor" || link.createdBy === user.subject) {
+      await ctx.db.patch(args.id, { deletedAt: Date.now() });
+    } else {
+      throw new Error("Access denied");
+    }
   },
 });
 
@@ -401,15 +457,19 @@ export const createWorkspaceImage = mutation({
     workspaceId: v.id("workspaces"),
     imageUrl: v.string(),
     storageId: v.optional(v.string()),
-    createdBy: v.string(),
   },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
 
-    const role = await getWorkspaceRole(ctx, workspace, args.createdBy);
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
     if (!role) {
       throw new Error("Not authorized to add images to this workspace");
     }
@@ -432,7 +492,12 @@ export const createWorkspaceImage = mutation({
       );
     }
 
-    const imageId = await ctx.db.insert("workspaceImages", args);
+    const imageId = await ctx.db.insert("workspaceImages", {
+      workspaceId: args.workspaceId,
+      imageUrl: args.imageUrl,
+      storageId: args.storageId,
+      createdBy: user.subject,
+    });
 
     const nextStudentCount = isStudent ? studentCount + 1 : studentCount;
     await ctx.db.patch(args.workspaceId, {
