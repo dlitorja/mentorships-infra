@@ -39,6 +39,7 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
   const [newUrl, setNewUrl] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [error, setError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   const { data: links, isLoading } = useWorkspaceLinks(workspaceId);
   const createLink = useCreateWorkspaceLink();
@@ -82,10 +83,12 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
   };
 
   const handleDeleteLink = async (linkId: Id<'workspaceLinks'>) => {
+    setDeleteError('');
     try {
       await deleteLink.mutateAsync({ id: linkId });
     } catch (err) {
       console.error('Failed to delete link:', err);
+      setDeleteError('Failed to delete link. Please try again.');
     }
   };
 
@@ -123,14 +126,18 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
           Add Link
         </Button>
       </div>
+      {deleteError && (
+        <div className="mb-3 text-sm text-destructive">{deleteError}</div>
+      )}
 
       {/* Add Link Form */}
       {isAdding && (
         <div className="mb-4 p-4 border rounded-lg bg-muted/50 shrink-0">
           <div className="space-y-3">
             <div>
-              <label className="text-sm font-medium mb-1 block">URL (required)</label>
+              <label htmlFor="link-url" className="text-sm font-medium mb-1 block">URL (required)</label>
               <Input
+                id="link-url"
                 placeholder="https://example.com"
                 value={newUrl}
                 onChange={(e) => {
@@ -142,8 +149,9 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">Title (optional)</label>
+              <label htmlFor="link-title" className="text-sm font-medium mb-1 block">Title (optional)</label>
               <Input
+                id="link-title"
                 placeholder="Example Website"
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}

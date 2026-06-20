@@ -263,9 +263,9 @@ export interface WorkspaceExport {
  * Fetches export jobs for a specific workspace.
  * Returns the 10 most recent exports in descending order by creation time.
  */
-export function useWorkspaceExports(workspaceId: string) {
+export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
   return useQuery({
-    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId: workspaceId as Id<"workspaces"> }),
+    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId }),
     enabled: !!workspaceId,
   });
 }
@@ -317,7 +317,6 @@ export function useAcknowledgeRetentionNotification() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.acknowledgeNotification),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["retentionNotifications"] });
       queryClient.invalidateQueries({ queryKey: ["unacknowledgedRetentionNotifications"] });
     },
   });
