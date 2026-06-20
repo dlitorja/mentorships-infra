@@ -43,7 +43,7 @@ export async function DELETE(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
-    if (upload.status !== "deleted") {
+    if (upload.status !== "deleted" && upload.status !== "deleting" && upload.status !== "completed") {
       return NextResponse.json(
         { error: "File must be soft-deleted before permanent deletion" },
         { status: 400 }
