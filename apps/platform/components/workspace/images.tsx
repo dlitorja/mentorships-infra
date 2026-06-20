@@ -100,7 +100,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
           workspaceId,
           storageId: "", // Placeholder - real implementation needs Convex storage.store()
           imageUrl: "", // Placeholder
-          createdBy: currentUserId,
         });
       } catch (error) {
         console.error('Failed to upload image:', error);

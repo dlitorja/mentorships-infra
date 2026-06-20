@@ -104,7 +104,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
         workspaceId,
         title: newTitle.trim(),
         content: '',
-        createdBy: currentUserId,
       });
       setNewTitle('');
       setIsCreating(false);

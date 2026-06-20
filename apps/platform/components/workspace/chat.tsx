@@ -137,7 +137,6 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
       await createImage.mutateAsync({
         workspaceId,
         imageUrl: previewImage,
-        createdBy: currentUserId,
       });
       setPreviewImage(null);
       setUploadError(null);

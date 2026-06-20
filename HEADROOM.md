@@ -25,21 +25,37 @@ python3 -m venv ~/.headroom-venv
 
 ### 2. Start the Proxy
 
-In a separate terminal, run:
+In **Terminal 1**, run:
 
 ```bash
-headroom proxy --port 8787
+ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" headroom proxy --port 8787
 ```
 
 The proxy runs locally at `http://127.0.0.1:8787`.
 
 ### 3. Run opencode
 
+In **Terminal 2**, run:
+
 ```bash
-opencode
+cd /home/dlitorja/projects/mentorships-infra
+ANTHROPIC_BASE_URL=http://127.0.0.1:8787/v1 opencode
 ```
 
 All LLM requests will now be compressed automatically.
+
+### 4. Verify It's Working
+
+While opencode is running, check stats in **Terminal 1**:
+
+```bash
+curl http://127.0.0.1:8787/stats
+```
+
+Look for:
+- `api_requests` increasing as you use opencode
+- `total_tokens_saved_total` growing
+- `savings_percent` showing actual compression (typically 40-90%)
 
 ## Monitoring
 
