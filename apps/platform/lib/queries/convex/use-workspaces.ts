@@ -248,38 +248,37 @@ export function useUpdateWorkspace() {
 /**
  * Represents a workspace export job (ZIP, PDF, or Markdown).
  */
-interface WorkspaceExport {
-  _id: string;
-  workspaceId: string;
+export interface WorkspaceExport {
+  _id: Id<"workspaceExports">;
+  workspaceId: Id<"workspaces">;
   userId: string;
   format: string;
-  status: 'pending' | 'processing' | 'completed';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   downloadUrl?: string;
+  expiresAt?: number;
   createdAt: number;
 }
 
 /**
  * Fetches export jobs for a specific workspace.
- * Returns empty array as export functionality is not yet implemented.
+ * Returns the 10 most recent exports in descending order by creation time.
  */
-export function useWorkspaceExports(_workspaceId: string) {
-  return { data: [] as WorkspaceExport[] };
+export function useWorkspaceExports(workspaceId: string) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId: workspaceId as Id<"workspaces"> }),
+    enabled: !!workspaceId,
+  });
 }
 
 /**
  * Mutation hook for creating a workspace export job (ZIP, PDF, or Markdown).
- * Currently throws error as Convex API is not available.
+ * Triggers a background task to prepare the export file.
  */
 export function useCreateWorkspaceExport() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (vars: { workspaceId: string; userId: string; format: "pdf" | "markdown" | "zip" }) => {
-      throw new Error("Not implemented: createWorkspaceExport not available in platform Convex API");
-    },
-    onError: (error) => {
-      console.error("useCreateWorkspaceExport error:", error);
-    },
+    mutationFn: useConvexMutation(api.workspaces.createWorkspaceExport),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceExports"] });
     },
@@ -289,37 +288,37 @@ export function useCreateWorkspaceExport() {
 /**
  * Represents a retention warning notification for workspace deletion.
  */
-interface RetentionNotification {
-  _id: string;
-  workspaceId: string;
-  notificationType: string;
+export interface RetentionNotification {
+  _id: Id<"workspaceRetentionNotifications">;
+  workspaceId: Id<"workspaces">;
+  userId: string;
+  notificationType: 'expiry_warning' | 'deleted';
+  sentAt: number;
+  acknowledgedAt?: number;
 }
 
 /**
  * Fetches unacknowledged retention notifications for workspace deletion warnings.
- * Returns empty array as retention notifications are not yet implemented.
+ * These are warnings sent at 90, 30, and 7 days before workspace deletion.
  */
 export function useUnacknowledgedRetentionNotifications() {
-  return { data: [] as RetentionNotification[] };
+  return useQuery({
+    ...convexQuery(api.workspaces.getUnacknowledgedRetentionNotifications, {}),
+  });
 }
 
 /**
  * Mutation hook for acknowledging a retention notification.
- * Marks the notification as seen by the user.
- * Currently throws error as Convex API is not available.
+ * Marks the notification as seen by the user to hide the warning banner.
  */
 export function useAcknowledgeRetentionNotification() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (vars: { id: string }) => {
-      throw new Error("Not implemented");
-    },
-    onError: (error) => {
-      console.error("useAcknowledgeRetentionNotification error:", error);
-    },
+    mutationFn: useConvexMutation(api.workspaces.acknowledgeNotification),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["retentionNotifications"] });
+      queryClient.invalidateQueries({ queryKey: ["unacknowledgedRetentionNotifications"] });
     },
   });
 }
