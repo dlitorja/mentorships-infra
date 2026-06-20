@@ -45,7 +45,7 @@ export async function DELETE(
 
     if (upload.status !== "deleted" && upload.status !== "deleting" && upload.status !== "completed") {
       return NextResponse.json(
-        { error: "File must be soft-deleted before permanent deletion" },
+        { error: `Cannot hard delete file with status '${upload.status}'` },
         { status: 400 }
       );
     }
