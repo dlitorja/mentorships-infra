@@ -3,6 +3,8 @@ import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
+type UploadStatus = "deleted" | "deleting" | "completed" | "uploading" | "processing" | "failed";
+
 interface Upload {
   _id: string;
   legacyId?: string;
@@ -11,7 +13,7 @@ interface Upload {
   originalName: string;
   contentType: string;
   size: number;
-  status: string;
+  status: UploadStatus;
   transferStatus?: string;
   s3Key?: string;
   s3Url?: string;
