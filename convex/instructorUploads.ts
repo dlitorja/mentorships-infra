@@ -347,6 +347,8 @@ async function deleteFromB2(b2Key: string): Promise<void> {
   const url = `${endpoint}${canonicalUri}`;
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
 
+  console.log("B2 delete request:", { url, host, region, bucket, b2Key, amzDate });
+
   const response = await fetch(url, {
     method: "DELETE",
     headers: {
@@ -356,8 +358,11 @@ async function deleteFromB2(b2Key: string): Promise<void> {
     },
   });
 
+  console.log("B2 delete response:", response.status, response.statusText);
+  const body = await response.text();
+  console.log("B2 delete body:", body);
+
   if (!response.ok && response.status !== 404) {
-    const body = await response.text();
     throw new Error(`B2 delete failed: ${response.status} ${response.statusText} - ${body}`);
   }
 }
