@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, Search, X, Trash2, Download } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile, getDownloadUrl } from "@/lib/api";
+import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 
 export default function AdminFilesPage(): React.ReactElement {
@@ -24,8 +24,10 @@ export default function AdminFilesPage(): React.ReactElement {
 
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [isHardDeleting, setIsHardDeleting] = useState(false);
+  const [isSoftDeleting, setIsSoftDeleting] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
+  const [confirmSoftDeleteId, setConfirmSoftDeleteId] = useState<string | null>(null);
 const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
 
   const isDownloading = (fileId: string) => downloadingIds.has(fileId);
@@ -123,6 +125,18 @@ setDownloadingIds((prev) => {
       console.error("Hard delete failed:", err);
     } finally {
       setIsHardDeleting(false);
+    }
+  }, [handleFilesChange]);
+
+  const handleSoftDelete = useCallback(async (fileId: string) => {
+    setIsSoftDeleting(true);
+    try {
+      await deleteFile(fileId);
+      await handleFilesChange();
+    } catch (err) {
+      console.error("Soft delete failed:", err);
+    } finally {
+      setIsSoftDeleting(false);
     }
   }, [handleFilesChange]);
 
@@ -383,20 +397,48 @@ setSelectedFileIds(new Set());
                         </td>
                         <td className="px-4 py-3">
 <div className="flex items-center justify-end gap-1">
-                            {file.status !== "deleted" && (
-                              <button
-                                onClick={() => handleDownload(file.id)}
-disabled={isDownloading(file.id)}
-                                className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
-                                aria-label="Download"
-                                title="Download"
-                              >
-{isDownloading(file.id) ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
+                            {file.status !== "deleted" && file.status !== "deleting" && (
+                              <>
+                                <button
+                                  onClick={() => handleDownload(file.id)}
+                                  disabled={isDownloading(file.id)}
+                                  className="p-2 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors disabled:opacity-50"
+                                  aria-label="Download"
+                                  title="Download"
+                                >
+                                  {isDownloading(file.id) ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Download className="w-4 h-4" />
+                                  )}
+                                </button>
+                                {confirmSoftDeleteId === file.id ? (
+                                  <>
+                                    <button
+                                      onClick={() => handleSoftDelete(file.id)}
+                                      disabled={isSoftDeleting}
+                                      className="px-3 py-1.5 text-xs font-medium bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50"
+                                    >
+                                      {isSoftDeleting ? "Deleting..." : "Confirm"}
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmSoftDeleteId(null)}
+                                      className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </>
                                 ) : (
-                                  <Download className="w-4 h-4" />
+                                  <button
+                                    onClick={() => setConfirmSoftDeleteId(file.id)}
+                                    className="p-2 rounded-lg hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 transition-colors"
+                                    title="Delete"
+                                    aria-label="Delete"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
                                 )}
-                              </button>
+                              </>
                             )}
                             {file.status === "deleted" && (
                               <>
