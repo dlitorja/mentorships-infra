@@ -266,6 +266,145 @@ export const getUploadByLegacyId = internalQuery({
   },
 });
 
+async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    key.buffer.slice(key.byteOffset, key.byteOffset + key.byteLength) as ArrayBuffer,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
+  return new Uint8Array(signature);
+}
+
+async function sha256Hex(data: string): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function toHex(data: Uint8Array): Promise<string> {
+  return Array.from(data).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function getAwsSigV4Signature(
+  secretKey: string,
+  accessKeyId: string,
+  region: string,
+  service: string,
+  host: string,
+  canonicalUri: string,
+  method: string,
+  amzDate: string
+): Promise<string> {
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = "UNSIGNED-PAYLOAD";
+
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+
+  const canonicalRequest = [
+    method,
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest),
+  ].join("\n");
+
+  const kDate = await hmacSha256(new TextEncoder().encode("AWS4" + secretKey), dateStamp);
+  const kRegion = await hmacSha256(kDate, region);
+  const kService = await hmacSha256(kRegion, service);
+  const kSigning = await hmacSha256(kService, "aws4_request");
+  const signature = await toHex(await hmacSha256(kSigning, stringToSign));
+
+  return `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+}
+
+async function deleteFromB2(b2Key: string): Promise<void> {
+  const accessKeyId = process.env.B2_KEY_ID;
+  const secretAccessKey = process.env.B2_APPLICATION_KEY;
+  const bucket = process.env.B2_BUCKET_NAME || "instructor-uploads";
+  const region = process.env.B2_REGION || "us-west-002";
+  const endpoint = process.env.B2_ENDPOINT || `https://s3.${region}.backblazeb2.com`;
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("Missing B2 credentials: B2_KEY_ID and B2_APPLICATION_KEY must be set");
+  }
+
+  const host = `s3.${region}.backblazeb2.com`;
+  const canonicalUri = `/${bucket}/${b2Key}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri, "DELETE", amzDate);
+
+  const url = `${endpoint}${canonicalUri}`;
+
+  console.log("B2 delete request:", { url, host, region, bucket, b2Key, amzDate });
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: authorization,
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+      "x-amz-date": amzDate,
+    },
+  });
+
+  console.log("B2 delete response:", response.status, response.statusText);
+  const body = await response.text();
+  console.log("B2 delete body:", body);
+
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`B2 delete failed: ${response.status} ${response.statusText} - ${body}`);
+  }
+}
+
+async function deleteFromS3(s3Key: string): Promise<void> {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("Missing AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set");
+  }
+
+  const region = process.env.AWS_S3_REGION || "us-east-1";
+  const bucket = process.env.AWS_S3_BUCKET;
+  if (!bucket) {
+    throw new Error("Missing AWS_S3_BUCKET environment variable");
+  }
+
+  const endpoint = process.env.AWS_S3_ENDPOINT || `https://s3.${region}.amazonaws.com`;
+  const host = endpoint.includes("amazonaws.com") ? `s3.${region}.amazonaws.com` : new URL(endpoint).host;
+  const canonicalUri = `/${bucket}/${s3Key}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri, "DELETE", amzDate);
+
+  const url = `${endpoint}${canonicalUri}`;
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: authorization,
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+      "x-amz-date": amzDate,
+    },
+  });
+
+  if (!response.ok && response.status !== 404) {
+    const body = await response.text();
+    throw new Error(`S3 delete failed: ${response.status} ${response.statusText} - ${body}`);
+  }
+}
+
 export const deleteUploadFromStorage = internalAction({
   args: {
     uploadId: v.string(),
@@ -286,14 +425,10 @@ export const deleteUploadFromStorage = internalAction({
 
     try {
       if (args.filename) {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { deleteFromB2 } = require("@mentorships/storage/archive");
         await deleteFromB2(args.filename);
       }
 
       if (args.s3Key) {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { deleteFromS3 } = require("@mentorships/storage/archive");
         await deleteFromS3(args.s3Key);
       }
 
