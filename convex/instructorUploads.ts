@@ -2,7 +2,6 @@ import { mutation, query, internalMutation, internalQuery, internalAction } from
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 /**
  * Migrates an instructor upload record from legacy system.
@@ -278,14 +277,20 @@ async function deleteFromB2(b2Key: string): Promise<void> {
     throw new Error("Missing B2 credentials: B2_KEY_ID and B2_APPLICATION_KEY must be set");
   }
 
-  const client = new S3Client({
-    region,
-    endpoint,
-    credentials: { accessKeyId, secretAccessKey },
-    forcePathStyle: true,
+  const url = `${endpoint}/${bucket}/${b2Key}`;
+  const auth = Buffer.from(`${accessKeyId}:${secretAccessKey}`).toString("base64");
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Length": "0",
+    },
   });
 
-  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: b2Key }));
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`B2 delete failed: ${response.status} ${response.statusText}`);
+  }
 }
 
 async function deleteFromS3(s3Key: string): Promise<void> {
@@ -296,17 +301,27 @@ async function deleteFromS3(s3Key: string): Promise<void> {
     throw new Error("Missing AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set");
   }
 
-  const client = new S3Client({
-    region: process.env.AWS_S3_REGION || "us-east-1",
-    credentials: { accessKeyId, secretAccessKey },
-  });
-
+  const region = process.env.AWS_S3_REGION || "us-east-1";
   const bucket = process.env.AWS_S3_BUCKET;
   if (!bucket) {
     throw new Error("Missing AWS_S3_BUCKET environment variable");
   }
 
-  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: s3Key }));
+  const endpoint = process.env.AWS_S3_ENDPOINT || `https://s3.${region}.amazonaws.com`;
+  const url = `${endpoint}/${bucket}/${s3Key}`;
+  const auth = Buffer.from(`${accessKeyId}:${secretAccessKey}`).toString("base64");
+
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Length": "0",
+    },
+  });
+
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`S3 delete failed: ${response.status} ${response.statusText}`);
+  }
 }
 
 export const deleteUploadFromStorage = internalAction({
