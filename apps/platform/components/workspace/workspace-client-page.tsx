@@ -5,10 +5,12 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import { useWorkspacesByOwner } from "@/lib/queries/convex/use-workspaces";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, FileText, Image as ImageIcon, Loader2, Info, X } from "lucide-react";
+import { MessageSquare, FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
+import WorkspaceLinks from "@/components/workspace/links";
+import { RetentionWarningBanner } from "@/components/workspace/retention-warning-banner";
 
 type UserWorkspace = {
   _id: Id<"workspaces">;
@@ -99,6 +101,12 @@ function WorkspaceContent({
               </CardHeader>
               <CardContent className="flex-1 min-h-0 pt-0">
                 <WorkspacePolicyBanner />
+                {selectedWorkspace.endedAt && (
+                  <RetentionWarningBanner
+                    workspaceId={selectedWorkspace._id}
+                    endedAt={selectedWorkspace.endedAt}
+                  />
+                )}
                 <Tabs
                   value={activeTab}
                   onValueChange={setActiveTab}
@@ -116,6 +124,10 @@ function WorkspaceContent({
                     <TabsTrigger value="images" className="gap-2">
                       <ImageIcon className="h-4 w-4" />
                       Images
+                    </TabsTrigger>
+                    <TabsTrigger value="links" className="gap-2">
+                      <LinkIcon className="h-4 w-4" />
+                      Links
                     </TabsTrigger>
                   </TabsList>
 
@@ -136,6 +148,12 @@ function WorkspaceContent({
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
                       role="student"
+                    />
+                  </TabsContent>
+                  <TabsContent value="links" className="flex-1 min-h-0 mt-4">
+                    <WorkspaceLinks
+                      workspaceId={selectedWorkspace._id}
+                      currentUserId={clerkUserId}
                     />
                   </TabsContent>
                 </Tabs>
@@ -162,7 +180,7 @@ function WorkspacePolicyBanner() {
     <div className="mb-3 rounded-md border bg-muted/50 p-2 text-xs flex items-start gap-2">
       <Info className="h-4 w-4 mt-0.5 text-muted-foreground" />
       <div className="flex-1">
-        Need to cancel or reschedule? Message your instructor here. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours' notice at their discretion.
+        Need to cancel or reschedule? Message your instructor here. Please try to inform them at least 24 hours in advance; instructors handle changes requested with less than 24 hours&apos; notice at their discretion.
       </div>
       <button
         type="button"
