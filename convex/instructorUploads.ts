@@ -278,7 +278,7 @@ async function deleteFromB2(b2Key: string): Promise<void> {
   }
 
   const url = `${endpoint}/${bucket}/${b2Key}`;
-  const auth = Buffer.from(`${accessKeyId}:${secretAccessKey}`).toString("base64");
+  const auth = btoa(`${accessKeyId}:${secretAccessKey}`);
 
   const response = await fetch(url, {
     method: "DELETE",
@@ -309,7 +309,7 @@ async function deleteFromS3(s3Key: string): Promise<void> {
 
   const endpoint = process.env.AWS_S3_ENDPOINT || `https://s3.${region}.amazonaws.com`;
   const url = `${endpoint}/${bucket}/${s3Key}`;
-  const auth = Buffer.from(`${accessKeyId}:${secretAccessKey}`).toString("base64");
+  const auth = btoa(`${accessKeyId}:${secretAccessKey}`);
 
   const response = await fetch(url, {
     method: "DELETE",
