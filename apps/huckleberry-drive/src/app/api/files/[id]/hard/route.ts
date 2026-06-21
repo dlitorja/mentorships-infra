@@ -45,7 +45,7 @@ export async function DELETE(
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
 
-    if (upload.status !== "deleted" && upload.status !== "deleting" && upload.status !== "completed") {
+    if (upload.status !== "deleted" && upload.status !== "deleting") {
       return NextResponse.json(
         { error: `Cannot hard delete file with status '${upload.status}'` },
         { status: 400 }

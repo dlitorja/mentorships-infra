@@ -383,7 +383,7 @@ async function deleteFromS3(s3Key: string): Promise<void> {
   }
 
   const endpoint = process.env.AWS_S3_ENDPOINT || `https://s3.${region}.amazonaws.com`;
-  const host = `s3.${region}.amazonaws.com`;
+  const host = endpoint.includes("amazonaws.com") ? `s3.${region}.amazonaws.com` : new URL(endpoint).host;
   const canonicalUri = `/${bucket}/${s3Key}`;
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri, "DELETE", amzDate);
