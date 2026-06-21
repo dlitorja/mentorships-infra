@@ -294,9 +294,10 @@ async function getAwsSigV4Signature(
   region: string,
   service: string,
   host: string,
-  canonicalUri: string
+  canonicalUri: string,
+  method: string,
+  amzDate: string
 ): Promise<string> {
-  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const dateStamp = amzDate.slice(0, 8);
   const payloadHash = "UNSIGNED-PAYLOAD";
 
@@ -304,7 +305,7 @@ async function getAwsSigV4Signature(
   const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
 
   const canonicalRequest = [
-    "DELETE",
+    method,
     canonicalUri,
     "",
     canonicalHeaders,
@@ -342,10 +343,10 @@ async function deleteFromB2(b2Key: string): Promise<void> {
 
   const host = `s3.${region}.backblazeb2.com`;
   const canonicalUri = `/${bucket}/${b2Key}`;
-  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri);
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri, "DELETE", amzDate);
 
   const url = `${endpoint}${canonicalUri}`;
-  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
 
   console.log("B2 delete request:", { url, host, region, bucket, b2Key, amzDate });
 
@@ -384,10 +385,10 @@ async function deleteFromS3(s3Key: string): Promise<void> {
   const endpoint = process.env.AWS_S3_ENDPOINT || `https://s3.${region}.amazonaws.com`;
   const host = `s3.${region}.amazonaws.com`;
   const canonicalUri = `/${bucket}/${s3Key}`;
-  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri);
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri, "DELETE", amzDate);
 
   const url = `${endpoint}${canonicalUri}`;
-  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
 
   const response = await fetch(url, {
     method: "DELETE",
