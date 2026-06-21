@@ -2,6 +2,7 @@ import { mutation, query, internalMutation, internalQuery, internalAction } from
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { deleteFromB2, deleteFromS3 } from "@mentorships/storage/archive";
 
 /**
  * Migrates an instructor upload record from legacy system.
@@ -286,14 +287,10 @@ export const deleteUploadFromStorage = internalAction({
 
     try {
       if (args.filename) {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { deleteFromB2 } = require("@mentorships/storage/archive");
         await deleteFromB2(args.filename);
       }
 
       if (args.s3Key) {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const { deleteFromS3 } = require("@mentorships/storage/archive");
         await deleteFromS3(args.s3Key);
       }
 
