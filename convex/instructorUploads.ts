@@ -341,7 +341,8 @@ async function deleteFromB2(b2Key: string): Promise<void> {
     throw new Error("Missing B2 credentials: B2_KEY_ID and B2_APPLICATION_KEY must be set");
   }
 
-  const host = `s3.${region}.backblazeb2.com`;
+const parsedEndpoint = new URL(endpoint);
+  const host = parsedEndpoint.host;
   const pathSegments = b2Key.split("/").map((seg) => encodeURIComponent(seg)).join("/");
   const canonicalUri = `/${bucket}/${pathSegments}`;
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");

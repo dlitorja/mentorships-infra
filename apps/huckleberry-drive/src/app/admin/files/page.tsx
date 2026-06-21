@@ -137,6 +137,7 @@ setDownloadingIds((prev) => {
       console.error("Soft delete failed:", err);
     } finally {
       setIsSoftDeleting(false);
+      setConfirmSoftDeleteId(null);
     }
   }, [handleFilesChange]);
 
@@ -431,7 +432,12 @@ setSelectedFileIds(new Set());
                                 ) : (
                                   <button
                                     onClick={() => setConfirmSoftDeleteId(file.id)}
-                                    className="p-2 rounded-lg hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 transition-colors"
+                                    disabled={isSoftDeleting}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                      isSoftDeleting
+                                        ? "opacity-50 cursor-not-allowed text-slate-500"
+                                        : "hover:bg-amber-500/20 text-amber-400 hover:text-amber-300"
+                                    }`}
                                     title="Delete"
                                     aria-label="Delete"
                                   >
