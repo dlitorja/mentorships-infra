@@ -70,7 +70,6 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
         workspaceId,
         url: trimmedUrl,
         title: newTitle.trim() || undefined,
-        createdBy: currentUserId,
       });
       setNewUrl('');
       setNewTitle('');
