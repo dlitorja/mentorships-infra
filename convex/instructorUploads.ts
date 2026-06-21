@@ -342,7 +342,8 @@ async function deleteFromB2(b2Key: string): Promise<void> {
   }
 
   const host = `s3.${region}.backblazeb2.com`;
-  const canonicalUri = `/${bucket}/${b2Key}`;
+  const encodedKey = encodeURIComponent(b2Key);
+  const canonicalUri = `/${bucket}/${encodedKey}`;
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri, "DELETE", amzDate);
 
@@ -384,11 +385,12 @@ async function deleteFromS3(s3Key: string): Promise<void> {
 
   const endpoint = process.env.AWS_S3_ENDPOINT || `https://s3.${region}.amazonaws.com`;
   const host = endpoint.includes("amazonaws.com") ? `s3.${region}.amazonaws.com` : new URL(endpoint).host;
-  const canonicalUri = `/${bucket}/${s3Key}`;
+  const encodedKey = encodeURIComponent(s3Key);
+  const canonicalUri = `/${bucket}/${encodedKey}`;
   const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri, "DELETE", amzDate);
 
-  const url = `${endpoint}${canonicalUri}`;
+  const url = `${endpoint}/${bucket}/${encodedKey}`;
 
   const response = await fetch(url, {
     method: "DELETE",
