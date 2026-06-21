@@ -266,6 +266,69 @@ export const getUploadByLegacyId = internalQuery({
   },
 });
 
+async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    key,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
+  return new Uint8Array(signature);
+}
+
+async function sha256Hex(data: string): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(data));
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function toHex(data: Uint8Array): Promise<string> {
+  return Array.from(data).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function getAwsSigV4Signature(
+  secretKey: string,
+  accessKeyId: string,
+  region: string,
+  service: string,
+  host: string,
+  canonicalUri: string
+): Promise<string> {
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+  const payloadHash = "UNSIGNED-PAYLOAD";
+
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:${payloadHash}\nx-amz-date:${amzDate}\n`;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+
+  const canonicalRequest = [
+    "DELETE",
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256Hex(canonicalRequest),
+  ].join("\n");
+
+  const kDate = await hmacSha256(new TextEncoder().encode("AWS4" + secretKey), dateStamp);
+  const kRegion = await hmacSha256(kDate, region);
+  const kService = await hmacSha256(kRegion, service);
+  const kSigning = await hmacSha256(kService, "aws4_request");
+  const signature = await toHex(await hmacSha256(kSigning, stringToSign));
+
+  return `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+}
+
 async function deleteFromB2(b2Key: string): Promise<void> {
   const accessKeyId = process.env.B2_KEY_ID;
   const secretAccessKey = process.env.B2_APPLICATION_KEY;
@@ -277,19 +340,25 @@ async function deleteFromB2(b2Key: string): Promise<void> {
     throw new Error("Missing B2 credentials: B2_KEY_ID and B2_APPLICATION_KEY must be set");
   }
 
-  const url = `${endpoint}/${bucket}/${b2Key}`;
-  const auth = btoa(`${accessKeyId}:${secretAccessKey}`);
+  const host = `s3.${region}.backblazeb2.com`;
+  const canonicalUri = `/${bucket}/${b2Key}`;
+  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri);
+
+  const url = `${endpoint}${canonicalUri}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
 
   const response = await fetch(url, {
     method: "DELETE",
     headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Length": "0",
+      Authorization: authorization,
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+      "x-amz-date": amzDate,
     },
   });
 
   if (!response.ok && response.status !== 404) {
-    throw new Error(`B2 delete failed: ${response.status} ${response.statusText}`);
+    const body = await response.text();
+    throw new Error(`B2 delete failed: ${response.status} ${response.statusText} - ${body}`);
   }
 }
 
@@ -308,19 +377,25 @@ async function deleteFromS3(s3Key: string): Promise<void> {
   }
 
   const endpoint = process.env.AWS_S3_ENDPOINT || `https://s3.${region}.amazonaws.com`;
-  const url = `${endpoint}/${bucket}/${s3Key}`;
-  const auth = btoa(`${accessKeyId}:${secretAccessKey}`);
+  const host = `s3.${region}.amazonaws.com`;
+  const canonicalUri = `/${bucket}/${s3Key}`;
+  const authorization = await getAwsSigV4Signature(secretAccessKey, accessKeyId, region, "s3", host, canonicalUri);
+
+  const url = `${endpoint}${canonicalUri}`;
+  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
 
   const response = await fetch(url, {
     method: "DELETE",
     headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Length": "0",
+      Authorization: authorization,
+      "x-amz-content-sha256": "UNSIGNED-PAYLOAD",
+      "x-amz-date": amzDate,
     },
   });
 
   if (!response.ok && response.status !== 404) {
-    throw new Error(`S3 delete failed: ${response.status} ${response.statusText}`);
+    const body = await response.text();
+    throw new Error(`S3 delete failed: ${response.status} ${response.statusText} - ${body}`);
   }
 }
 
