@@ -25,6 +25,7 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   adminOnly?: boolean;
+  isSection?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -33,7 +34,7 @@ const navItems: NavItem[] = [
 ];
 
 const adminNavItems: NavItem[] = [
-  { href: "/admin", label: "Admin", icon: <Shield className="w-5 h-5" />, adminOnly: true },
+  { href: "/admin", label: "Admin", icon: <Shield className="w-5 h-5" />, adminOnly: true, isSection: true },
   { href: "/admin/files", label: "Files", icon: <FolderOpen className="w-5 h-5" />, adminOnly: true },
   { href: "/admin/costs", label: "Costs", icon: <DollarSign className="w-5 h-5" />, adminOnly: true },
 ];
@@ -58,7 +59,9 @@ export function Sidebar({ userRole, userName }: SidebarProps): React.ReactElemen
 
       <nav className="flex-1 p-4 space-y-1">
         {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          const isActive = item.isSection
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link
               key={item.href}
@@ -83,7 +86,9 @@ export function Sidebar({ userRole, userName }: SidebarProps): React.ReactElemen
               </p>
             </div>
             {adminNavItems.map((item) => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+              const isActive = item.isSection
+                ? pathname === item.href
+                : pathname === item.href || pathname.startsWith(item.href + "/");
               return (
                 <Link
                   key={item.href}
