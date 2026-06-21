@@ -269,7 +269,7 @@ export const getUploadByLegacyId = internalQuery({
 async function hmacSha256(key: Uint8Array, data: string): Promise<Uint8Array> {
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key,
+    key.buffer.slice(key.byteOffset, key.byteOffset + key.byteLength) as ArrayBuffer,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
