@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { fetchMutation } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { revokeClerkInvitation } from "@/lib/clerk-invitations";
 
@@ -18,20 +18,40 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const result = await fetchMutation(api.hdInvitations.cancelHdInvitation, {
+    const invitation = await fetchQuery(api.hdInvitations.getHdInvitation, {
       invitationId,
-    }) as { invitationId: string; clerkInvitationId: string | null };
+    });
 
-    let clerkRevoked = true;
-    if (result.clerkInvitationId) {
-      clerkRevoked = await revokeClerkInvitation(result.clerkInvitationId);
+    if (!invitation) {
+      return NextResponse.json(
+        { error: "Invitation not found" },
+        { status: 404 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      clerkInvitationRevoked: clerkRevoked,
-      warning: clerkRevoked ? undefined : "Clerk invitation revocation failed - the invitation link may still be active",
+    if (invitation.status !== "pending") {
+      return NextResponse.json(
+        { error: "Can only cancel pending invitations" },
+        { status: 400 }
+      );
+    }
+
+    if (invitation.clerkInvitationId) {
+      const clerkRevoked = await revokeClerkInvitation(invitation.clerkInvitationId);
+      if (!clerkRevoked) {
+        return NextResponse.json(
+          { error: "Failed to revoke Clerk invitation. Please try again." },
+          { status: 502 }
+        );
+      }
+    }
+
+    await fetchMutation(api.hdInvitations.updateHdInvitationStatus, {
+      invitationId,
+      status: "cancelled",
     });
+
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Cancel invitation error:", error);
 
