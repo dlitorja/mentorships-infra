@@ -98,6 +98,9 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
 
       const response = await fetch(uploadUrl, {
         method: 'POST',
+        headers: {
+          'Content-Type': file.type,
+        },
         body: file,
       });
 
@@ -119,7 +122,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     } finally {
       setIsUploading(false);
     }
-  }, [workspaceId, currentUserId, createImage, remainingImages, generateUploadUrl]);
+  }, [workspaceId, createImage, remainingImages, generateUploadUrl]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
