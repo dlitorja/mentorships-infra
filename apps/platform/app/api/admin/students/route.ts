@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
       items: result.items.map((student: any) => ({
         userId: student.userId,
         email: student.email,
-        sessionPacks: student.sessionPacks.map((pack: any) => ({
+        sessionPacks: (student.sessionPacks ?? []).map((pack: any) => ({
           id: pack.id,
           instructorId: pack.instructorId,
           instructorName: pack.instructorName,
