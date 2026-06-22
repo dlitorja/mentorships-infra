@@ -83,7 +83,7 @@ async function fetchStudents(search?: string): Promise<StudentsResponse> {
 }
 
 async function fetchInstructors() {
-  return apiFetch<{ items: { id: string; name: string; slug: string }[] }>("/api/admin/instructors?includeInactive=true");
+  return apiFetch<{ instructors: { id: string; name: string; slug: string }[] }>("/api/admin/instructors?includeInactive=true");
 }
 
 async function addSessionsToStudent(userId: string, data: { instructorId: string; totalSessions: number; expiresAt?: string }) {
@@ -282,7 +282,7 @@ export default function StudentsPage(): React.JSX.Element {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">Select an instructor...</SelectItem>
-                  {instructorsData?.items.map((inst) => (
+                  {(instructorsData?.instructors ?? []).map((inst) => (
                     <SelectItem key={inst.id} value={inst.id}>
                       {inst.name}
                     </SelectItem>
