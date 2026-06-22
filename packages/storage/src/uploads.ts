@@ -252,21 +252,42 @@ export async function listFileVersions(bucketId: string, prefix?: string): Promi
   const auth = await getB2Auth();
   const params = new URLSearchParams({ bucketId });
   if (prefix) params.set("prefix", prefix);
+  params.set("maxFileCount", "1000");
 
-  const response = await fetch(`${auth.apiUrl}/b2api/v4/b2_list_file_versions?${params}`, {
-    method: "GET",
-    headers: {
-      Authorization: `B2 ${auth.authorizationToken}`,
-    },
-  });
+  const allFiles: Array<{ fileId: string; fileName: string; action: string }> = [];
+  let startFileId: string | undefined;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`B2 list_file_versions failed: ${response.status} ${errorText}`);
+  while (true) {
+    const fetchParams = new URLSearchParams(params);
+    if (startFileId) fetchParams.set("startFileId", startFileId);
+
+    const response = await fetch(`${auth.apiUrl}/b2api/v4/b2_list_file_versions?${fetchParams}`, {
+      method: "GET",
+      headers: {
+        Authorization: `B2 ${auth.authorizationToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`B2 list_file_versions failed: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json() as {
+      files: Array<{ fileId: string; fileName: string; action: string }>;
+      nextFileId?: string;
+      nextFileName?: string;
+    };
+
+    allFiles.push(...data.files);
+
+    if (!data.nextFileId || !data.nextFileName) {
+      break;
+    }
+    startFileId = data.nextFileId;
   }
 
-  const data = await response.json() as { files: Array<{ fileId: string; fileName: string; action: string }> };
-  return data.files;
+  return allFiles;
 }
 
 export async function deleteFileVersion(fileId: string, fileName: string): Promise<void> {
@@ -288,8 +309,6 @@ export async function deleteFileVersion(fileId: string, fileName: string): Promi
 }
 
 export async function deleteAllVersionsFromB2(fileName: string): Promise<{ deleted: number; errors: string[] }> {
-  const auth = await getB2Auth();
-
   let bucketId = process.env.B2_BUCKET_ID;
   if (!bucketId) {
     throw new Error("B2_BUCKET_ID environment variable is required for B2 native API operations");

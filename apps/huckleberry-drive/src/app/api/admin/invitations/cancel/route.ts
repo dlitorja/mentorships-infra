@@ -36,6 +36,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    let clerkRevoked = false;
+
     if (invitation.clerkInvitationId) {
       const revokeResult = await revokeClerkInvitation(invitation.clerkInvitationId);
 
@@ -50,13 +52,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             { status: 502 }
           );
         }
+      } else {
+        clerkRevoked = true;
       }
     }
 
-    await fetchMutation(api.hdInvitations.updateHdInvitationStatus, {
-      invitationId,
-      status: "cancelled",
-    });
+    try {
+      await fetchMutation(api.hdInvitations.updateHdInvitationStatus, {
+        invitationId,
+        status: "cancelled",
+      });
+    } catch (error) {
+      if (clerkRevoked) {
+        console.error(`CRITICAL: Clerk invitation ${invitation.clerkInvitationId} was revoked but Convex update failed. Manual cleanup may be required. Error: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      throw error;
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

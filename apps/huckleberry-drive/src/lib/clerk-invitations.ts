@@ -17,7 +17,7 @@ export type RevokeClerkInvitationResult =
   | { success: false; reason: "not_found" | "already_consumed" | "transient_error"; message: string };
 
 interface ClerkAPIError {
-  statusCode: number;
+  status: number;
   message: string;
   code?: string;
 }
@@ -26,8 +26,8 @@ function isClerkAPIError(error: unknown): error is ClerkAPIError {
   return (
     typeof error === "object" &&
     error !== null &&
-    "statusCode" in error &&
-    typeof (error as Record<string, unknown>).statusCode === "number"
+    "status" in error &&
+    typeof (error as Record<string, unknown>).status === "number"
   );
 }
 
@@ -57,7 +57,7 @@ export async function createHdClerkInvitation(
     console.error("Failed to create Clerk invitation:", error);
 
     if (isClerkAPIError(error)) {
-      if (error.statusCode === 409) {
+      if (error.status === 409) {
         return {
           success: false,
           error: "User with this email already exists or has been invited",
@@ -65,7 +65,7 @@ export async function createHdClerkInvitation(
       }
       return {
         success: false,
-        error: `Clerk API error (${error.statusCode}): ${error.message}`,
+        error: `Clerk API error (${error.status}): ${error.message}`,
       };
     }
 
@@ -88,14 +88,14 @@ export async function revokeClerkInvitation(
     console.error("Failed to revoke Clerk invitation:", error);
 
     if (isClerkAPIError(error)) {
-      if (error.statusCode === 404) {
+      if (error.status === 404) {
         return {
           success: false,
           reason: "not_found",
           message: "Invitation not found or already revoked",
         };
       }
-      if (error.statusCode === 409) {
+      if (error.status === 409) {
         return {
           success: false,
           reason: "already_consumed",
@@ -105,7 +105,7 @@ export async function revokeClerkInvitation(
       return {
         success: false,
         reason: "transient_error",
-        message: `Clerk API error (${error.statusCode}): ${error.message}`,
+        message: `Clerk API error (${error.status}): ${error.message}`,
       };
     }
 
