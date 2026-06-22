@@ -47,21 +47,23 @@ type StudentItem = {
   [key: string]: unknown;
 };
 
+const SessionPackSchema = z.object({
+  id: z.string(),
+  instructorId: z.string(),
+  instructorName: z.string().optional(),
+  totalSessions: z.number(),
+  remainingSessions: z.number(),
+  status: z.string(),
+  expiresAt: z.string().nullable().optional(),
+});
+
 const StudentItemSchema = z.object({
   id: z.string().optional(),
   userId: z.string().optional(),
   email: z.string().optional(),
   firstName: z.string().nullable().optional(),
   lastName: z.string().nullable().optional(),
-  sessionPacks: z.array(z.object({
-    id: z.string(),
-    instructorId: z.string(),
-    instructorName: z.string().optional(),
-    totalSessions: z.number(),
-    remainingSessions: z.number(),
-    status: z.string(),
-    expiresAt: z.string().nullable().optional(),
-  })).optional(),
+  sessionPacks: z.array(SessionPackSchema).default([]),
 }).catchall(z.unknown());
 
 const StudentsResponseSchema = z.object({
@@ -224,9 +226,9 @@ export default function StudentsPage(): React.JSX.Element {
                     <div className="flex-1 min-w-0">
                       <div className="font-medium">{displayName(s)}</div>
                       <div className="text-sm text-muted-foreground">{s.email || s.userId}</div>
-                      {s.sessionPacks && s.sessionPacks.length > 0 && (
+                      {(s.sessionPacks ?? []).length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2">
-                          {s.sessionPacks.map((pack) => (
+                          {(s.sessionPacks ?? []).map((pack) => (
                             <Badge key={pack.id} variant={getStatusColor(pack.status)} className="text-xs">
                               {pack.instructorName || pack.instructorId}: {pack.remainingSessions}/{pack.totalSessions} remaining
                               {pack.expiresAt && ` (expires ${new Date(pack.expiresAt).toLocaleDateString()})`}
