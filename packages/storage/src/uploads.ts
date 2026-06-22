@@ -296,7 +296,7 @@ export async function deleteAllVersionsFromB2(fileName: string): Promise<{ delet
   }
 
   const versions = await listFileVersions(bucketId, fileName);
-  const fileVersions = versions.filter(v => v.fileName === fileName && v.action === "upload");
+  const fileVersions = versions.filter(v => v.fileName === fileName && (v.action === "upload" || v.action === "hide"));
 
   const errors: string[] = [];
   let deleted = 0;
