@@ -6,25 +6,32 @@ import { verifyTurnstileToken, getClientIp } from "@/lib/turnstile";
 import { reportError } from "@/lib/observability";
 
 /**
+ * Strip trailing slash from URL for consistent comparison
+ */
+function normalizeUrl(url: string): string {
+  return url.endsWith("/") ? url.slice(0, -1) : url;
+}
+
+/**
  * Allowed origins for CSRF protection
  * Validates Origin header on state-changing requests
  */
 function getAllowedOrigins(): string[] {
   const origins: string[] = [];
   
-  // Primary app URL
+  // Primary app URL (normalize to handle trailing slashes)
   if (process.env.NEXT_PUBLIC_URL) {
-    origins.push(process.env.NEXT_PUBLIC_URL);
+    origins.push(normalizeUrl(process.env.NEXT_PUBLIC_URL));
   }
   
   // Vercel deployment URLs
   if (process.env.VERCEL_URL) {
-    origins.push(`https://${process.env.VERCEL_URL}`);
+    origins.push(normalizeUrl(`https://${process.env.VERCEL_URL}`));
   }
   
   // Additional allowed origins from environment
   if (process.env.ALLOWED_ORIGINS) {
-    origins.push(...process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()));
+    origins.push(...process.env.ALLOWED_ORIGINS.split(",").map(o => normalizeUrl(o.trim())));
   }
   
   // Local development - allow common dev ports and hostnames
@@ -43,8 +50,11 @@ function getAllowedOrigins(): string[] {
  * Check if origin matches allowed origins, including wildcard patterns
  */
 function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
+  // Normalize origin for comparison (handle trailing slashes)
+  const normalizedOrigin = normalizeUrl(origin);
+  
   // Direct match
-  if (allowedOrigins.includes(origin)) {
+  if (allowedOrigins.includes(normalizedOrigin)) {
     return true;
   }
   

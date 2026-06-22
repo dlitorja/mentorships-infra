@@ -39,7 +39,7 @@ async function fetchInvitations(status?: string): Promise<InvitationsResponse> {
 }
 
 async function fetchInstructors() {
-  return apiFetch<{ items: { id: string; name: string; slug: string }[] }>("/api/admin/instructors?includeInactive=true");
+  return apiFetch<{ instructors: { id: string; name: string; slug: string }[] }>("/api/admin/instructors");
 }
 
 async function createInvitation(data: { email: string; instructorId: string }) {
@@ -157,7 +157,7 @@ export default function InviteStudentPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">Select an instructor...</SelectItem>
-                    {instructorsData?.items.map((inst) => (
+                    {(instructorsData?.instructors ?? []).map((inst) => (
                       <SelectItem key={inst.id} value={inst.id}>
                         {inst.name}
                       </SelectItem>

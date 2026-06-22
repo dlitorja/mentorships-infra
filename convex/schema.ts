@@ -508,4 +508,18 @@ export default defineSchema({
     lastError: v.optional(v.string()),
     createdAt: v.optional(v.number()),
   }).index("by_clerkUserId", ["clerkUserId"]),
+
+  hdInvitations: defineTable({
+    email: v.string(),
+    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+    status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled")),
+    clerkInvitationId: v.optional(v.string()),
+    invitedByUserId: v.string(),
+    expiresAt: v.number(),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  }).index("by_status", ["status"])
+    .index("by_role", ["role"])
+    .index("by_email", ["email"])
+    .index("by_invitedByUserId", ["invitedByUserId"]),
 });

@@ -72,6 +72,32 @@ export interface BulkDownloadStatus {
   expiresAt?: number;
 }
 
+export interface HdInvitation {
+  id: string;
+  email: string;
+  role: "student" | "instructor" | "admin" | "video_editor";
+  status: "pending" | "accepted" | "expired" | "cancelled";
+  clerkInvitationId: string | null;
+  invitedByUserId: string;
+  expiresAt: number;
+  createdAt: number;
+}
+
+export interface InvitationListResponse {
+  items: HdInvitation[];
+  total: number;
+}
+
+export interface InvitationStats {
+  total: number;
+  pending: number;
+  accepted: number;
+  expired: number;
+  cancelled: number;
+}
+
+export type UserRole = "student" | "instructor" | "admin" | "video_editor";
+
 export interface ListFilesParams {
   instructorId?: string;
   uploadedById?: string;
@@ -215,4 +241,28 @@ export async function requestBulkDownload(fileIds: string[]): Promise<{ jobId: s
 
 export async function getBulkDownloadStatus(jobId: string): Promise<BulkDownloadStatus> {
   return fetchApi<BulkDownloadStatus>(`/api/files/bulk-download/${jobId}`);
+}
+
+export async function listHdInvitations(): Promise<InvitationListResponse> {
+  return fetchApi<InvitationListResponse>("/api/admin/invitations");
+}
+
+export async function createHdInvitation(
+  email: string,
+  role: UserRole,
+  expiresInDays?: number
+): Promise<{ invitationId: string }> {
+  return fetchApi<{ invitationId: string }>("/api/admin/invitations/send", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, role, expiresInDays }),
+  });
+}
+
+export async function cancelHdInvitation(invitationId: string): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>("/api/admin/invitations/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invitationId }),
+  });
 }
