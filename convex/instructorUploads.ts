@@ -1,4 +1,4 @@
-import { mutation, query, internalMutation, internalQuery, internalAction } from "./_generated/server";
+import { mutation, query, internalMutation, internalQuery, internalAction, action } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -829,7 +829,7 @@ export const getExpiredSoftDeletions = query({
   },
 });
 
-export const cleanupExpiredSoftDelete = internalAction({
+export const cleanupExpiredSoftDelete = action({
   args: { uploadId: v.string() },
   handler: async (ctx, args) => {
     const upload = await ctx.runQuery(
@@ -867,7 +867,7 @@ export const cleanupExpiredSoftDelete = internalAction({
   },
 });
 
-export const findOrphanedFiles = internalQuery({
+export const findOrphanedFiles = query({
   args: { b2Keys: v.array(v.string()) },
   handler: async (ctx, args) => {
     if (args.b2Keys.length === 0) return [];
