@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { Id } from "./_generated/dataModel";
 
 const WORKSPACE_IMAGE_CAPS = {
   student: 75,
@@ -434,18 +435,31 @@ export const getWorkspaceImages = query({
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
       .collect();
 
+    const imagesWithUrls = await Promise.all(
+      images.map(async (img) => {
+        let imageUrl = img.imageUrl;
+        if (img.storageId) {
+          const url = await ctx.storage.getUrl(img.storageId as Id<"_storage">);
+          if (url) {
+            imageUrl = url;
+          }
+        }
+        return { ...img, imageUrl };
+      })
+    );
+
     if (role === "instructor") {
-      return images;
+      return imagesWithUrls;
     }
 
     if (!workspace.instructorId) {
-      return images.filter((img) => img.createdBy === user.subject);
+      return imagesWithUrls.filter((img) => img.createdBy === user.subject);
     }
 
     const instructor = await ctx.db.get(workspace.instructorId);
     const instructorUserId = instructor?.userId;
 
-    return images.filter(
+    return imagesWithUrls.filter(
       (img) => img.createdBy === user.subject || img.createdBy === instructorUserId
     );
   },
