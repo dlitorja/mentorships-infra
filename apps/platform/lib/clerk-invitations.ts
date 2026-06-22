@@ -16,6 +16,12 @@ export interface CreateClerkInvitationOptions {
   redirectUrl?: string;
 }
 
+export interface CreateStudentClerkInvitationOptions {
+  emailAddress: string;
+  studentId?: string;
+  redirectUrl?: string;
+}
+
 export interface ClerkInvitationResult {
   success: boolean;
   invitationId?: string;
@@ -49,6 +55,45 @@ export async function createClerkInvitation(
     };
   } catch (error) {
     console.error("Failed to create Clerk invitation:", error);
+
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (errorMessage.includes("already exists") || errorMessage.includes("already been invited")) {
+      return {
+        success: false,
+        error: "User with this email already exists or has been invited",
+      };
+    }
+
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+}
+
+export async function createStudentClerkInvitation(
+  options: CreateStudentClerkInvitationOptions
+): Promise<ClerkInvitationResult> {
+  const { emailAddress, studentId, redirectUrl = `${APP_URL}/sign-up` } = options;
+
+  try {
+    const client = await getClerkApi();
+
+    const invitation = await client.invitations.createInvitation({
+      emailAddress,
+      redirectUrl,
+      publicMetadata: studentId
+        ? { studentId, isStudent: true, role: "student" }
+        : { isStudent: true, role: "student" },
+    });
+
+    return {
+      success: true,
+      invitationId: invitation.id,
+    };
+  } catch (error) {
+    console.error("Failed to create student Clerk invitation:", error);
 
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
