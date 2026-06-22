@@ -16,7 +16,7 @@ type UserWorkspace = {
   _id: Id<"workspaces">;
   name?: string;
   description?: string;
-  mentorId?: Id<"instructors">;
+  instructorId?: Id<"instructors">;
   sessionPackId?: Id<"sessionPacks">;
   endedAt?: number;
 };

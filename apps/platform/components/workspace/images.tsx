@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
+import { useConvexAction } from '@convex-dev/react-query';
+import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Upload, Trash2, Image as ImageIcon, X, ZoomIn, Download, FileArchive } from 'lucide-react';
@@ -49,6 +51,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const createImage = useCreateWorkspaceImage();
   const deleteImage = useDeleteWorkspaceImage();
   const createExport = useCreateWorkspaceExport();
+  const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const currentCount = images?.filter((img: Image) => !img.deletedAt).length || 0;
   const maxImages = role === 'student' ? IMAGE_CAPS.student : IMAGE_CAPS.instructor;
@@ -90,24 +93,36 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
 
     setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      try {
-        // TODO: Implement proper Convex storage upload
-        // Convex requires using ctx.storage.store() to get a storageId
-        // For now, pass empty storageId - the backend will handle placeholder
-        await createImage.mutateAsync({
-          workspaceId,
-          storageId: "", // Placeholder - real implementation needs Convex storage.store()
-          imageUrl: "", // Placeholder
-        });
-      } catch (error) {
-        console.error('Failed to upload image:', error);
+    try {
+      const uploadUrl = await generateUploadUrl({ workspaceId });
+
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type,
+        },
+        body: file,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
       }
+
+      const { storageId } = await response.json();
+
+      await createImage.mutateAsync({
+        workspaceId,
+        storageId,
+        imageUrl: '',
+      });
+      toast.success('Image uploaded successfully');
+    } catch (error) {
+      console.error('Failed to upload image:', error);
+      toast.error('Failed to upload image. Please try again.');
+    } finally {
       setIsUploading(false);
-    };
-    reader.readAsDataURL(file);
-  }, [workspaceId, currentUserId, createImage, remainingImages]);
+    }
+  }, [workspaceId, createImage, remainingImages, generateUploadUrl]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,

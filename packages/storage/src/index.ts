@@ -28,6 +28,14 @@ export {
 } from "./files";
 
 export {
+  listB2Objects,
+  listAllB2Objects,
+  type B2Object,
+  type ListB2ObjectsOptions,
+  type ListB2ObjectsResult,
+} from "./list";
+
+export {
   deleteFromB2,
   deleteFromS3,
 } from "./archive";
