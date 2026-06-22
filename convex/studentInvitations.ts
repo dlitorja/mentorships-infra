@@ -115,6 +115,24 @@ export const updateStudentInvitationStatus = mutation({
 });
 
 /**
+ * Updates the clerkInvitationId of a student invitation.
+ * Called after successfully creating a Clerk invitation to link them.
+ */
+export const updateStudentInvitationClerkId = mutation({
+  args: {
+    invitationId: v.id("studentInvitations"),
+    clerkInvitationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    await ctx.db.patch(args.invitationId, { clerkInvitationId: args.clerkInvitationId });
+    return args.invitationId;
+  },
+});
+
+/**
  * Migrates a student invitation from legacy system.
  * Updates existing invitation if found by email and instructor, otherwise creates new.
  */

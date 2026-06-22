@@ -84,7 +84,7 @@ export async function listAllB2Objects(
   let continuationToken: string | undefined;
   let hasMore = true;
 
-  while (hasMore) {
+  while (hasMore && continuationToken !== undefined) {
     const result = await listB2Objects({
       prefix,
       maxKeys: 1000,

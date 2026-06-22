@@ -5,6 +5,7 @@ import { getConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
+import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
 
 const inviteSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -98,9 +99,35 @@ export async function POST(req: NextRequest) {
       }
     );
 
+    // Create Clerk invitation to send email to prospective student
+    const clerkResult = await createStudentClerkInvitation({
+      emailAddress: email,
+      redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL || "https://dev.mentorships.huckleberry.art"}/sign-up`,
+    });
+
+    // Update the invitation record with the Clerk invitation ID if successful
+    if (clerkResult.success && clerkResult.invitationId) {
+      await convex.mutation(api.studentInvitations.updateStudentInvitationClerkId, {
+        invitationId,
+        clerkInvitationId: clerkResult.invitationId,
+      });
+    }
+
+    // Return 201 only when invitation email was sent successfully
+    // If Clerk failed, return 502 to indicate gateway failure
+    if (!clerkResult.success) {
+      return NextResponse.json({
+        success: false,
+        invitationId,
+        invitationSent: false,
+        invitationError: clerkResult.error,
+      }, { status: 502 });
+    }
+
     return NextResponse.json({
       success: true,
       invitationId,
+      invitationSent: true,
     }, { status: 201 });
   } catch (error) {
     if (isUnauthorizedError(error)) {
