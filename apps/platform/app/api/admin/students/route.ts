@@ -51,7 +51,7 @@ const listStudentsQuerySchema = z.object({
  * Requires admin role. Supports pagination (page, pageSize) and various
  * filters (expiresAfter/Before, purchasedAfter/Before, remainingMin/Max).
  * Returns paginated student list with session pack info.
- * Fixed: sessionPacks mapping uses nullish coalescing to prevent undefined crashes.
+ * Fixed: sessionPacks mapping uses nullish coalescing (?? []) to prevent undefined crashes.
  */
 export async function GET(req: NextRequest) {
   try {
