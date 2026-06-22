@@ -60,8 +60,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (clerkInvitationId) {
       const revoked = await revokeClerkInvitation(clerkInvitationId);
-      if (!revoked) {
-        console.error(`CRITICAL: Clerk invitation ${clerkInvitationId} was sent but Convex insert failed and rollback failed. Manual cleanup required in Clerk dashboard.`);
+      if (revoked.success !== true) {
+        console.error(`CRITICAL: Clerk invitation ${clerkInvitationId} was sent but Convex insert failed and rollback failed. Manual cleanup required in Clerk dashboard. Revoke result: ${revoked.reason} - ${revoked.message}`);
       }
     }
 
