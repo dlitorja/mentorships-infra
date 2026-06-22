@@ -37,12 +37,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     if (invitation.clerkInvitationId) {
-      const clerkRevoked = await revokeClerkInvitation(invitation.clerkInvitationId);
-      if (!clerkRevoked) {
-        return NextResponse.json(
-          { error: "Failed to revoke Clerk invitation. Please try again." },
-          { status: 502 }
-        );
+      const revokeResult = await revokeClerkInvitation(invitation.clerkInvitationId);
+
+      if (!revokeResult.success) {
+        if (revokeResult.reason === "already_consumed" || revokeResult.reason === "not_found") {
+          console.log(
+            `Clerk invitation ${invitation.clerkInvitationId} already consumed or not found, proceeding with cancellation`
+          );
+        } else {
+          return NextResponse.json(
+            { error: revokeResult.message },
+            { status: 502 }
+          );
+        }
       }
     }
 

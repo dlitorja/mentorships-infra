@@ -12,6 +12,25 @@ export type ClerkInvitationResult =
   | { success: true; invitationId: string }
   | { success: false; error: string };
 
+export type RevokeClerkInvitationResult =
+  | { success: true }
+  | { success: false; reason: "not_found" | "already_consumed" | "transient_error"; message: string };
+
+interface ClerkAPIError {
+  statusCode: number;
+  message: string;
+  code?: string;
+}
+
+function isClerkAPIError(error: unknown): error is ClerkAPIError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    typeof (error as Record<string, unknown>).statusCode === "number"
+  );
+}
+
 async function getClerkApi() {
   return await clerkClient();
 }
@@ -37,15 +56,20 @@ export async function createHdClerkInvitation(
   } catch (error) {
     console.error("Failed to create Clerk invitation:", error);
 
-    const errorMessage = error instanceof Error ? error.message : "Unknown error";
-
-    if (errorMessage.includes("already exists") || errorMessage.includes("already been invited")) {
+    if (isClerkAPIError(error)) {
+      if (error.statusCode === 409) {
+        return {
+          success: false,
+          error: "User with this email already exists or has been invited",
+        };
+      }
       return {
         success: false,
-        error: "User with this email already exists or has been invited",
+        error: `Clerk API error (${error.statusCode}): ${error.message}`,
       };
     }
 
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return {
       success: false,
       error: errorMessage,
@@ -53,13 +77,43 @@ export async function createHdClerkInvitation(
   }
 }
 
-export async function revokeClerkInvitation(invitationId: string): Promise<boolean> {
+export async function revokeClerkInvitation(
+  invitationId: string
+): Promise<RevokeClerkInvitationResult> {
   try {
     const client = await getClerkApi();
     await client.invitations.revokeInvitation(invitationId);
-    return true;
+    return { success: true };
   } catch (error) {
     console.error("Failed to revoke Clerk invitation:", error);
-    return false;
+
+    if (isClerkAPIError(error)) {
+      if (error.statusCode === 404) {
+        return {
+          success: false,
+          reason: "not_found",
+          message: "Invitation not found or already revoked",
+        };
+      }
+      if (error.statusCode === 409) {
+        return {
+          success: false,
+          reason: "already_consumed",
+          message: "Invitation was already accepted or consumed",
+        };
+      }
+      return {
+        success: false,
+        reason: "transient_error",
+        message: `Clerk API error (${error.statusCode}): ${error.message}`,
+      };
+    }
+
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    return {
+      success: false,
+      reason: "transient_error",
+      message: errorMessage,
+    };
   }
 }
