@@ -256,10 +256,12 @@ export async function listFileVersions(bucketId: string, prefix?: string): Promi
 
   const allFiles: Array<{ fileId: string; fileName: string; action: string }> = [];
   let startFileId: string | undefined;
+  let startFileName: string | undefined;
 
   while (true) {
     const fetchParams = new URLSearchParams(params);
     if (startFileId) fetchParams.set("startFileId", startFileId);
+    if (startFileName) fetchParams.set("startFileName", startFileName);
 
     const response = await fetch(`${auth.apiUrl}/b2api/v4/b2_list_file_versions?${fetchParams}`, {
       method: "GET",
@@ -285,6 +287,7 @@ export async function listFileVersions(bucketId: string, prefix?: string): Promi
       break;
     }
     startFileId = data.nextFileId;
+    startFileName = data.nextFileName;
   }
 
   return allFiles;
