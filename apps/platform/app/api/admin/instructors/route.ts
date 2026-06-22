@@ -58,15 +58,18 @@ export async function GET(): Promise<NextResponse> {
 
     const instructorsWithStats = list.map((instructor) => {
       const flags = productFlags.get(instructor._id) || { oneOnOne: false, group: false };
+      const name = instructor.name || instructor.email || "";
       return {
+        id: instructor._id,
+        name,
+        slug: instructor.slug,
         instructorId: instructor._id,
         userId: instructor.userId || "",
         email: instructor.email || "",
-        displayName: instructor.name || instructor.email || "",
+        displayName: name,
         oneOnOneInventory: instructor.oneOnOneInventory || 0,
         groupInventory: instructor.groupInventory || 0,
         maxActiveStudents: instructor.maxActiveStudents || 0,
-        // Align naming with admin UI expectations
         activeStudentCount: instructor.activeStudentCount || 0,
         productActiveOneOnOne: flags.oneOnOne,
         productActiveGroup: flags.group,

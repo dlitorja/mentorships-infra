@@ -39,7 +39,7 @@ async function fetchInvitations(status?: string): Promise<InvitationsResponse> {
 }
 
 async function fetchInstructors() {
-  return apiFetch<{ instructors: { id: string; name: string; slug: string }[] }>("/api/admin/instructors?includeInactive=true");
+  return apiFetch<{ instructors: { id: string; name: string; slug: string }[] }>("/api/admin/instructors");
 }
 
 async function createInvitation(data: { email: string; instructorId: string }) {
