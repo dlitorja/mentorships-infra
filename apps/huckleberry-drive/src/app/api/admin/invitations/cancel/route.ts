@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { revokeClerkInvitation } from "@/lib/clerk-invitations";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -17,11 +18,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    await fetchMutation(api.hdInvitations.cancelHdInvitation, {
+    const result = await fetchMutation(api.hdInvitations.cancelHdInvitation, {
       invitationId,
-    });
+    }) as { invitationId: string; clerkInvitationId: string | null };
 
-    return NextResponse.json({ success: true });
+    let clerkRevoked = true;
+    if (result.clerkInvitationId) {
+      clerkRevoked = await revokeClerkInvitation(result.clerkInvitationId);
+    }
+
+    return NextResponse.json({
+      success: true,
+      clerkInvitationRevoked: clerkRevoked,
+      warning: clerkRevoked ? undefined : "Clerk invitation revocation failed - the invitation link may still be active",
+    });
   } catch (error) {
     console.error("Cancel invitation error:", error);
 
