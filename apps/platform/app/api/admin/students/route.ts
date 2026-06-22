@@ -6,6 +6,31 @@ import { requireRoleForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
 
+type ConvexSessionPack = {
+  id: string;
+  instructorId: string;
+  instructorName: string | null;
+  instructorSlug: string | null;
+  totalSessions: number;
+  remainingSessions: number;
+  purchasedAt: number;
+  expiresAt: number | null;
+  status: string;
+};
+
+type ConvexStudent = {
+  userId: string;
+  email: string | null;
+  sessionPacks: ConvexSessionPack[];
+};
+
+type GetStudentsForAdminResult = {
+  items: ConvexStudent[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
 const listStudentsQuerySchema = z.object({
   search: z.string().trim().default(""),
   instructorId: z.string().optional(),
@@ -60,9 +85,9 @@ export async function GET(req: NextRequest) {
     }
     convex.setAuth(token);
 
-    let result;
+    let result: GetStudentsForAdminResult;
     try {
-      result = await convex.query(api.admin.getStudentsForAdmin as any, {
+      result = (await convex.query(api.admin.getStudentsForAdmin, {
         search: search || undefined,
         instructorId: instructorId || undefined,
         status: status || undefined,
@@ -74,7 +99,7 @@ export async function GET(req: NextRequest) {
         remainingMax,
         page,
         pageSize,
-      });
+      })) as GetStudentsForAdminResult;
     } catch (err) {
       const msg = (err instanceof Error ? err.message : String(err)) || "";
       if (msg.includes("Server Error")) {
@@ -89,10 +114,10 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({
-      items: result.items.map((student: any) => ({
+      items: result.items.map((student) => ({
         userId: student.userId,
         email: student.email,
-        sessionPacks: (student.sessionPacks ?? []).map((pack: any) => ({
+        sessionPacks: (student.sessionPacks ?? []).map((pack) => ({
           id: pack.id,
           instructorId: pack.instructorId,
           instructorName: pack.instructorName,
