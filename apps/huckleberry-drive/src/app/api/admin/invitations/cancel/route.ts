@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { fetchMutation } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { revokeClerkInvitation } from "@/lib/clerk-invitations";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -17,8 +18,44 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    await fetchMutation(api.hdInvitations.cancelHdInvitation, {
+    const invitation = await fetchQuery(api.hdInvitations.getHdInvitation, {
       invitationId,
+    });
+
+    if (!invitation) {
+      return NextResponse.json(
+        { error: "Invitation not found" },
+        { status: 404 }
+      );
+    }
+
+    if (invitation.status !== "pending") {
+      return NextResponse.json(
+        { error: "Can only cancel pending invitations" },
+        { status: 400 }
+      );
+    }
+
+    if (invitation.clerkInvitationId) {
+      const revokeResult = await revokeClerkInvitation(invitation.clerkInvitationId);
+
+      if (!revokeResult.success) {
+        if (revokeResult.reason === "already_consumed" || revokeResult.reason === "not_found") {
+          console.log(
+            `Clerk invitation ${invitation.clerkInvitationId} already consumed or not found, proceeding with cancellation`
+          );
+        } else {
+          return NextResponse.json(
+            { error: revokeResult.message },
+            { status: 502 }
+          );
+        }
+      }
+    }
+
+    await fetchMutation(api.hdInvitations.updateHdInvitationStatus, {
+      invitationId,
+      status: "cancelled",
     });
 
     return NextResponse.json({ success: true });

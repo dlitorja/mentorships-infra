@@ -43,11 +43,45 @@ export const listHdInvitations = query({
   },
 });
 
+export const getHdInvitation = query({
+  args: {
+    invitationId: v.id("hdInvitations"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) return null;
+
+    return {
+      id: invitation._id,
+      email: invitation.email,
+      role: invitation.role,
+      status: invitation.status,
+      clerkInvitationId: invitation.clerkInvitationId ?? null,
+      invitedByUserId: invitation.invitedByUserId,
+      expiresAt: invitation.expiresAt,
+      createdAt: invitation._creationTime,
+    };
+  },
+});
+
 export const createHdInvitation = mutation({
   args: {
     email: v.string(),
     role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
     expiresInDays: v.optional(v.number()),
+    clerkInvitationId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -80,6 +114,7 @@ export const createHdInvitation = mutation({
       email: emailLower,
       role: args.role,
       status: "pending",
+      clerkInvitationId: args.clerkInvitationId,
       invitedByUserId: identity.subject,
       expiresAt,
       createdAt: Date.now(),
@@ -120,7 +155,10 @@ export const cancelHdInvitation = mutation({
       updatedAt: Date.now(),
     });
 
-    return args.invitationId;
+    return {
+      invitationId: args.invitationId,
+      clerkInvitationId: invitation.clerkInvitationId ?? null,
+    };
   },
 });
 
@@ -144,6 +182,33 @@ export const updateHdInvitationStatus = mutation({
 
     await ctx.db.patch(args.invitationId, {
       status: args.status,
+      updatedAt: Date.now(),
+    });
+
+    return args.invitationId;
+  },
+});
+
+export const updateHdInvitationClerkId = mutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+    clerkInvitationId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    await ctx.db.patch(args.invitationId, {
+      clerkInvitationId: args.clerkInvitationId,
       updatedAt: Date.now(),
     });
 

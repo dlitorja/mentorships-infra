@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { createHdClerkInvitation, revokeClerkInvitation } from "@/lib/clerk-invitations";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let clerkInvitationId: string | undefined = undefined;
+
   try {
     await requireAdmin();
 
@@ -25,15 +28,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    const clerkResult = await createHdClerkInvitation({
+      emailAddress: email,
+      role,
+    });
+
+    if (!clerkResult.success) {
+      return NextResponse.json({
+        success: false,
+        invitationSent: false,
+        invitationError: clerkResult.error,
+      }, { status: 502 });
+    }
+
+    clerkInvitationId = clerkResult.invitationId;
+
     const invitationId = await fetchMutation(api.hdInvitations.createHdInvitation, {
       email,
       role,
       expiresInDays: expiresInDays ?? 7,
+      clerkInvitationId,
     });
 
-    return NextResponse.json({ invitationId });
+    return NextResponse.json({
+      success: true,
+      invitationId,
+      invitationSent: true,
+    }, { status: 201 });
   } catch (error) {
     console.error("Create invitation error:", error);
+
+    if (clerkInvitationId) {
+      const revoked = await revokeClerkInvitation(clerkInvitationId);
+      if (!revoked) {
+        console.error(`CRITICAL: Clerk invitation ${clerkInvitationId} was sent but Convex insert failed and rollback failed. Manual cleanup required in Clerk dashboard.`);
+      }
+    }
 
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
