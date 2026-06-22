@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { fetchQuery, fetchMutation } from "convex/nextjs";
+import { fetchAction, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { UnauthorizedError, ForbiddenError } from "@/lib/auth";
 
@@ -11,7 +11,7 @@ async function requireAdminWithToken() {
   const token = await getToken({ template: "convex" }) ?? undefined;
   if (!token) throw new UnauthorizedError("Could not get auth token");
 
-  const user = await fetchQuery(api.users.getUserByClerkIdServer, { userId }, { token });
+  const user = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   if (!user || user.role !== "admin") {
     throw new ForbiddenError("Must be an admin");
   }
