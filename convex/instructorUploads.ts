@@ -795,3 +795,94 @@ The Convex record has been deleted. Please verify storage cleanup manually if ne
     }
   },
 });
+
+export const getSoftDeletedFiles = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    return allUploads.filter((u) => u.status === "deleted");
+  },
+});
+
+export const getExpiredSoftDeletions = query({
+  args: {},
+  handler: async (ctx) => {
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    return allUploads
+      .filter((u) => {
+        if (u.status !== "deleted" || !u.deletedAt) return false;
+        return now - u.deletedAt > sixtyDaysMs;
+      })
+      .map((u) => ({
+        id: u.legacyId ?? u._id,
+        _id: u._id,
+        filename: u.filename,
+        s3Key: u.s3Key,
+        originalName: u.originalName,
+        deletedAt: u.deletedAt,
+        instructorId: u.instructorId,
+        size: u.size,
+      }));
+  },
+});
+
+export const cleanupExpiredSoftDelete = internalAction({
+  args: { uploadId: v.string() },
+  handler: async (ctx, args) => {
+    const upload = await ctx.runQuery(
+      internal.instructorUploads.getUploadByLegacyId,
+      { id: args.uploadId }
+    );
+
+    if (!upload || upload.status !== "deleted") {
+      return { success: false, error: "not_found_or_not_deleted" };
+    }
+
+    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+    if (upload.deletedAt && Date.now() - upload.deletedAt < sixtyDaysMs) {
+      return { success: false, error: "grace_period_not_expired" };
+    }
+
+    try {
+      if (upload.filename) {
+        await deleteFromB2(upload.filename);
+      }
+      if (upload.s3Key) {
+        await deleteFromS3(upload.s3Key);
+      }
+
+      await ctx.runMutation(internal.instructorUploads.deleteUploadRecord, {
+        id: args.uploadId,
+      });
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error(`Cleanup failed for ${args.uploadId}:`, errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  },
+});
+
+export const findOrphanedFiles = internalQuery({
+  args: { b2Keys: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    if (args.b2Keys.length === 0) return [];
+
+    const allUploads = await ctx.db.query("instructorUploads").collect();
+    const knownKeys = new Set<string>();
+
+    for (const upload of allUploads) {
+      if (upload.filename) {
+        knownKeys.add(upload.filename);
+      }
+    }
+
+    return args.b2Keys
+      .filter((key) => !knownKeys.has(key))
+      .map((key) => ({ key }));
+  },
+});
