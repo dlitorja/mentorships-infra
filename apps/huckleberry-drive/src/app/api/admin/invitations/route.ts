@@ -22,12 +22,7 @@ export async function GET(): Promise<NextResponse> {
   try {
     const { token } = await requireAdminWithToken();
 
-    const result = await fetchQuery(api.hdInvitations.listHdInvitations, {
-      status: undefined,
-      role: undefined,
-      limit: undefined,
-      offset: undefined,
-    }, { token });
+    const result = await fetchQuery(api.hdInvitations.listHdInvitations, {}, { token });
 
     return NextResponse.json(result);
   } catch (error) {
