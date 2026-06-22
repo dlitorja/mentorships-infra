@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { DollarSign, Loader2 } from "lucide-react";
+import { DollarSign, Loader2, RefreshCw } from "lucide-react";
 import { getAdminStats } from "@/lib/api";
 import type { AdminStats } from "@/lib/api";
 
@@ -19,6 +19,14 @@ export default function AdminPage(): React.ReactElement {
       icon: <DollarSign className="w-6 h-6" />,
       color: "text-purple-500",
       bgColor: "bg-purple-500/10",
+    },
+    {
+      href: "/admin/storage/sync",
+      label: "Storage Sync",
+      description: "Monitor bucket contents and sync with database",
+      icon: <RefreshCw className="w-6 h-6" />,
+      color: "text-emerald-500",
+      bgColor: "bg-emerald-500/10",
     },
   ];
 

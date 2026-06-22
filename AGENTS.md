@@ -1613,3 +1613,11 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
+
+## CLI Execution Policy
+
+**NEVER stop after presenting an npx/npm/pnpm command. ALWAYS continue to execute the command.**
+
+When presenting a CLI command (especially npx commands), do not stop or wait for the user to run it. Execute the command immediately and continue to the next step. The user should not have to copy-paste and run commands manually.
+
+If multiple commands are needed in sequence, run them all without stopping.
