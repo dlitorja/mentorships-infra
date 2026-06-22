@@ -1,0 +1,191 @@
+import { query, mutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export const listHdInvitations = query({
+  args: {
+    status: v.optional(v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled"), v.literal("all"))),
+    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
+    limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    let invitations = await ctx.db.query("hdInvitations").collect();
+
+    if (args.status && args.status !== "all") {
+      invitations = invitations.filter((inv) => inv.status === args.status);
+    }
+
+    if (args.role) {
+      invitations = invitations.filter((inv) => inv.role === args.role);
+    }
+
+    const total = invitations.length;
+
+    invitations.sort((a, b) => b._creationTime - a._creationTime);
+
+    const offset = args.offset ?? 0;
+    const limit = args.limit ?? 50;
+    invitations = invitations.slice(offset, offset + limit);
+
+    return {
+      items: invitations.map((inv) => ({
+        id: inv._id,
+        email: inv.email,
+        role: inv.role,
+        status: inv.status,
+        clerkInvitationId: inv.clerkInvitationId ?? null,
+        invitedByUserId: inv.invitedByUserId,
+        expiresAt: inv.expiresAt,
+        createdAt: inv._creationTime,
+      })),
+      total,
+    };
+  },
+});
+
+export const createHdInvitation = mutation({
+  args: {
+    email: v.string(),
+    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+    expiresInDays: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const emailLower = args.email.toLowerCase().trim();
+
+    const existingPending = await ctx.db
+      .query("hdInvitations")
+      .withIndex("by_email", (q) => q.eq("email", emailLower))
+      .first();
+
+    if (existingPending && existingPending.status === "pending" && existingPending.expiresAt > Date.now()) {
+      throw new Error("A pending invitation already exists for this email");
+    }
+
+    const expiresInDays = args.expiresInDays ?? 7;
+    const expiresAt = Date.now() + expiresInDays * 24 * 60 * 60 * 1000;
+
+    const invitationId = await ctx.db.insert("hdInvitations", {
+      email: emailLower,
+      role: args.role,
+      status: "pending",
+      invitedByUserId: identity.subject,
+      expiresAt,
+      createdAt: Date.now(),
+    });
+
+    return invitationId;
+  },
+});
+
+export const cancelHdInvitation = mutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+
+    if (invitation.status !== "pending") {
+      throw new Error("Can only cancel pending invitations");
+    }
+
+    await ctx.db.patch(args.invitationId, {
+      status: "cancelled",
+      updatedAt: Date.now(),
+    });
+
+    return args.invitationId;
+  },
+});
+
+export const updateHdInvitationStatus = mutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+    status: v.union(v.literal("pending"), v.literal("accepted"), v.literal("expired"), v.literal("cancelled")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    await ctx.db.patch(args.invitationId, {
+      status: args.status,
+      updatedAt: Date.now(),
+    });
+
+    return args.invitationId;
+  },
+});
+
+export const getHdInvitationStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const invitations = await ctx.db.query("hdInvitations").collect();
+
+    return {
+      total: invitations.length,
+      pending: invitations.filter((i) => i.status === "pending").length,
+      accepted: invitations.filter((i) => i.status === "accepted").length,
+      expired: invitations.filter((i) => i.status === "expired").length,
+      cancelled: invitations.filter((i) => i.status === "cancelled").length,
+    };
+  },
+});
