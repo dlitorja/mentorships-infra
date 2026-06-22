@@ -1,19 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { fetchMutation, fetchQuery, fetchAction } from "convex/nextjs";
+import { fetchQuery, fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
-interface User {
-  _id: string;
-  userId: string;
-  role: string;
-}
+const UserSchema = z.object({
+  _id: z.string(),
+  userId: z.string(),
+  role: z.string(),
+});
+
+const ExpiredDeletionSchema = z.object({
+  id: z.string(),
+  filename: z.string().optional(),
+  s3Key: z.string().optional(),
+});
+
+const CleanupActionResultSchema = z.object({
+  success: z.boolean(),
+  error: z.string().optional(),
+});
 
 interface CleanupResult {
   success: boolean;
   cleanupId: string;
   totalToCleanup: number;
-  status: "completed" | "processing";
+  status: "completed" | "processing" | "partial" | "failed";
   errors?: string[];
 }
 
@@ -21,11 +33,13 @@ export async function POST(
   _request: NextRequest
 ): Promise<NextResponse> {
   try {
-    await requireAdmin() as User;
+    const adminUser = await requireAdmin();
+    UserSchema.parse(adminUser);
 
-    const expiredDeletions = await fetchQuery(
+    const rawExpiredDeletions = await fetchQuery(
       api.instructorUploads.getExpiredSoftDeletions
-    ) as Array<{ id: string; filename: string | undefined; s3Key: string | undefined }>;
+    );
+    const expiredDeletions = z.array(ExpiredDeletionSchema).parse(rawExpiredDeletions);
 
     if (expiredDeletions.length === 0) {
       return NextResponse.json({
@@ -42,10 +56,11 @@ export async function POST(
 
     for (const deletion of expiredDeletions) {
       try {
-        const result = await fetchAction(
+        const rawResult = await fetchAction(
           api.instructorUploads.cleanupExpiredSoftDelete,
           { uploadId: deletion.id }
-        ) as { success: boolean; error?: string };
+        );
+        const result = CleanupActionResultSchema.parse(rawResult);
 
         if (!result.success && result.error) {
           errors.push(`${deletion.id}: ${result.error}`);
@@ -77,7 +92,7 @@ export async function POST(
     }
 
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

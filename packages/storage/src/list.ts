@@ -50,13 +50,18 @@ export async function listB2Objects(
         const parsed = b2ObjectSchema.safeParse({
           key: item.Key,
           size: item.Size ?? 0,
-          lastModified: item.LastModified ?? new Date(),
+          lastModified: item.LastModified ?? new Date(0),
           etag: item.ETag ?? "",
           storageClass: item.StorageClass,
         });
         if (parsed.success) {
           objects.push(parsed.data);
           totalSize += parsed.data.size;
+        } else {
+          console.warn("[listB2Objects] Failed to parse B2 object:", {
+            key: item.Key,
+            error: parsed.error,
+          });
         }
       }
     }
@@ -79,7 +84,7 @@ export async function listAllB2Objects(
   let continuationToken: string | undefined;
   let hasMore = true;
 
-  while (hasMore) {
+  while (hasMore && continuationToken !== undefined) {
     const result = await listB2Objects({
       prefix,
       maxKeys: 1000,
@@ -87,7 +92,7 @@ export async function listAllB2Objects(
     });
 
     allObjects.push(...result.objects);
-    hasMore = result.isTruncated;
+    hasMore = result.isTruncated && result.nextContinuationToken !== null;
     continuationToken = result.nextContinuationToken ?? undefined;
 
     if (onProgress) {
