@@ -79,12 +79,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw error;
     }
 
-    await fetchMutation(api.instructorUploads.completeUpload, { id: fileId, b2FileId: result.etag.replace(/"/g, "") });
+    await fetchMutation(api.instructorUploads.completeUpload, { 
+      id: fileId, 
+      b2FileId: result.versionId || result.etag.replace(/"/g, ""),
+    });
 
     return NextResponse.json({
       success: true,
       fileId,
       etag: result.etag,
+      versionId: result.versionId,
       location: result.location,
     });
   } catch (error) {
