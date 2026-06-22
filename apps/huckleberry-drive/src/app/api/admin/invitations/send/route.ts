@@ -1,11 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { fetchMutation } from "convex/nextjs";
+import { auth } from "@clerk/nextjs/server";
+import { fetchAction, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { UnauthorizedError, ForbiddenError } from "@/lib/auth";
+
+async function requireAdminWithToken() {
+  const { userId, getToken } = await auth();
+  if (!userId) throw new UnauthorizedError("Must be logged in");
+
+  const token = await getToken({ template: "convex" }) ?? undefined;
+  if (!token) throw new UnauthorizedError("Could not get auth token");
+
+  const user = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
+  if (!user || user.role !== "admin") {
+    throw new ForbiddenError("Must be an admin");
+  }
+  return { userId, token };
+}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    await requireAdmin();
+    const { token } = await requireAdminWithToken();
 
     const body = await request.json();
     const { email, role, expiresInDays } = body;
@@ -29,7 +44,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       email,
       role,
       expiresInDays: expiresInDays ?? 7,
-    });
+    }, { token });
 
     return NextResponse.json({ invitationId });
   } catch (error) {
