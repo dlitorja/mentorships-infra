@@ -23,7 +23,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const invitation = await fetchQuery(api.hdInvitations.getHdInvitation, {
       invitationId,
-    });
+    }, { token: convexToken });
 
     if (!invitation) {
       return NextResponse.json(

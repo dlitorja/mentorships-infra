@@ -18,7 +18,7 @@ export async function POST(
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
-    const userWithFiles = await fetchQuery(api.users.getUserWithFiles, { userId });
+    const userWithFiles = await fetchQuery(api.users.getUserWithFiles, { userId }, { token: convexToken });
 
     if (!userWithFiles) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
