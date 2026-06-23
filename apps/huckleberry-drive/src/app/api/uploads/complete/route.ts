@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { auth } from "@clerk/nextjs/server";
 import { requireInstructor } from "@/lib/auth";
 import { completeMultipartUpload, type UploadPart } from "@mentorships/storage";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
@@ -31,6 +32,8 @@ const completeSchema = z.object({
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const dbUser = await requireInstructor() as User;
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
     const body = await request.json();
 
     const parsed = completeSchema.safeParse(body);
@@ -82,7 +85,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await fetchMutation(api.instructorUploads.completeUpload, { 
       id: fileId, 
       b2FileId: result.versionId || result.etag.replace(/"/g, ""),
-    });
+    }, { token: convexToken });
 
     return NextResponse.json({
       success: true,

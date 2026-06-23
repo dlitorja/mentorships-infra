@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -39,6 +40,8 @@ export async function DELETE(
   try {
     const { id } = await params;
     await requireAdmin() as User;
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const upload = await fetchQuery(api.instructorUploads.getUploadById, { id }) as Upload | null;
     if (!upload) {
@@ -56,7 +59,7 @@ if (upload.status === "deleting") {
       id,
       filename: upload.filename || undefined,
       s3Key: upload.s3Key || undefined,
-    }) as { success: true; status: "deleted" | "deleting" } | { error: "not_found" };
+    }, { token: convexToken }) as { success: true; status: "deleted" | "deleting" } | { error: "not_found" };
 
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 404 });

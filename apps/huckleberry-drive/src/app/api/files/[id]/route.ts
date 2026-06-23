@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireInstructor, canAccessFile, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -113,6 +114,8 @@ export async function DELETE(
   try {
     const { id } = await params;
     const dbUser = await requireInstructor() as User;
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const upload = await fetchQuery(api.instructorUploads.getUploadById, { id }) as Upload | null;
     if (!upload) {
@@ -131,7 +134,7 @@ export async function DELETE(
       id,
       filename: upload.filename || undefined,
       s3Key: upload.s3Key || undefined,
-    });
+    }, { token: convexToken });
 
     if (result.error === "not_found" || result.error === "already_deleted") {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
@@ -169,6 +172,8 @@ export async function POST(
   try {
     const { id } = await params;
     const dbUser = await requireInstructor() as User;
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const upload = await fetchQuery(api.instructorUploads.getUploadById, { id }) as Upload | null;
     if (!upload) {
@@ -187,7 +192,7 @@ export async function POST(
       return NextResponse.json({ error: "Not authorized to restore this file" }, { status: 403 });
     }
 
-    const result = await fetchMutation(api.instructorUploads.restoreUpload, { id }) as
+    const result = await fetchMutation(api.instructorUploads.restoreUpload, { id }, { token: convexToken }) as
       | { success: true }
       | { error: "not_found" | "not_deleted" | "grace_period_expired" };
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -7,6 +8,8 @@ import { revokeClerkInvitation } from "@/lib/clerk-invitations";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     await requireAdmin();
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const body = await request.json();
     const { invitationId } = body;
@@ -61,7 +64,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       await fetchMutation(api.hdInvitations.updateHdInvitationStatus, {
         invitationId,
         status: "cancelled",
-      });
+      }, { token: convexToken });
     } catch (error) {
       if (clerkRevoked) {
         console.error(`CRITICAL: Clerk invitation ${invitation.clerkInvitationId} was revoked but Convex update failed. Manual cleanup may be required. Error: ${error instanceof Error ? error.message : String(error)}`);

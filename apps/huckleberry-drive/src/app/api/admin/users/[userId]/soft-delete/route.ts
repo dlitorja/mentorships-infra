@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -15,6 +16,8 @@ export async function POST(
   try {
     const { userId } = await params;
     await requireAdmin();
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const userWithFiles = await fetchQuery(api.users.getUserWithFiles, { userId });
 
@@ -27,7 +30,7 @@ export async function POST(
       { email: userWithFiles.user.email }
     );
 
-    await fetchMutation(api.users.softDeleteUser, { userId });
+    await fetchMutation(api.users.softDeleteUser, { userId }, { token: convexToken });
 
     const clerkErrors: string[] = [];
     for (const inv of pendingInvitations) {
