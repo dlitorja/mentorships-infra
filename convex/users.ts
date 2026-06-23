@@ -482,69 +482,79 @@ export const getAdminStats = query({
 export const listActiveUsers = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
+    try {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) return [];
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
+      const currentUser = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
 
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
+      if (!currentUser || currentUser.role !== "admin") {
+        return [];
+      }
+
+      const allUsers = await ctx.db.query("users").collect();
+
+      return allUsers
+        .filter((u) => !u.deletedAt && !u.hardDeletedAt)
+        .map((u) => ({
+          _id: u._id,
+          userId: u.userId,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          role: u.role,
+          timeZone: u.timeZone,
+          clerkId: u.clerkId,
+          createdAt: u._creationTime,
+        }))
+        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    } catch (e) {
+      console.error("listActiveUsers error:", e);
+      return [];
     }
-
-    const allUsers = await ctx.db.query("users").collect();
-
-    return allUsers
-      .filter((u) => !u.deletedAt && !u.hardDeletedAt)
-      .map((u) => ({
-        _id: u._id,
-        userId: u.userId,
-        email: u.email,
-        firstName: u.firstName,
-        lastName: u.lastName,
-        role: u.role,
-        timeZone: u.timeZone,
-        clerkId: u.clerkId,
-        createdAt: u._creationTime,
-      }))
-      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   },
 });
 
 export const listDeletedUsers = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
+    try {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) return [];
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
+      const currentUser = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+        .first();
 
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
+      if (!currentUser || currentUser.role !== "admin") {
+        return [];
+      }
+
+      const allUsers = await ctx.db.query("users").collect();
+
+      return allUsers
+        .filter((u) => u.deletedAt && !u.hardDeletedAt)
+        .map((u) => ({
+          _id: u._id,
+          userId: u.userId,
+          email: u.email,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          role: u.role,
+          deletedAt: u.deletedAt,
+          deletedBy: u.deletedBy,
+          clerkId: u.clerkId,
+          createdAt: u._creationTime,
+        }))
+        .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+    } catch (e) {
+      console.error("listDeletedUsers error:", e);
+      return [];
     }
-
-    const allUsers = await ctx.db.query("users").collect();
-
-    return allUsers
-      .filter((u) => u.deletedAt && !u.hardDeletedAt)
-      .map((u) => ({
-        _id: u._id,
-        userId: u.userId,
-        email: u.email,
-        firstName: u.firstName,
-        lastName: u.lastName,
-        role: u.role,
-        deletedAt: u.deletedAt,
-        deletedBy: u.deletedBy,
-        clerkId: u.clerkId,
-        createdAt: u._creationTime,
-      }))
-      .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
   },
 });
 
