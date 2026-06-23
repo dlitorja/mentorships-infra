@@ -266,3 +266,107 @@ export async function cancelHdInvitation(invitationId: string): Promise<{ succes
     body: JSON.stringify({ invitationId }),
   });
 }
+
+export interface AdminUser {
+  _id: string;
+  userId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role: UserRole;
+  timeZone?: string;
+  clerkId: string;
+  createdAt: number;
+  deletedAt?: number;
+  deletedBy?: string;
+}
+
+export interface DeletedUser extends AdminUser {
+  deletedAt: number;
+  deletedBy: string;
+}
+
+export interface UsersListResponse {
+  active: AdminUser[];
+  deleted: DeletedUser[];
+}
+
+export interface UserWithFiles {
+  user: AdminUser;
+  files: {
+    total: number;
+    active: number;
+    totalBytes: number;
+    activeBytes: number;
+  };
+}
+
+export async function getAdminUsers(): Promise<UsersListResponse> {
+  return fetchApi<UsersListResponse>("/api/admin/users");
+}
+
+export async function updateUserRole(userId: string, role: UserRole): Promise<{ success: boolean; user: AdminUser }> {
+  return fetchApi<{ success: boolean; user: AdminUser }>(`/api/admin/users/${userId}/role`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function softDeleteUser(userId: string): Promise<{
+  success: boolean;
+  userId: string;
+  filesCount: number;
+  activeFilesCount: number;
+}> {
+  return fetchApi(`/api/admin/users/${userId}/soft-delete`, {
+    method: "POST",
+  });
+}
+
+export async function restoreUser(userId: string): Promise<{ success: boolean; userId: string }> {
+  return fetchApi(`/api/admin/users/${userId}/restore`, {
+    method: "POST",
+  });
+}
+
+export async function hardDeleteUser(userId: string): Promise<{
+  success: boolean;
+  userId: string;
+  filesQueued: number;
+  totalBytes: number;
+}> {
+  return fetchApi(`/api/admin/users/${userId}/hard-delete`, {
+    method: "POST",
+  });
+}
+
+export interface OrphanedFile {
+  key: string;
+  size: number;
+  lastModified: string;
+}
+
+export interface OrphanedFilesResponse {
+  files: OrphanedFile[];
+  totalCount: number;
+  totalBytes: number;
+}
+
+export async function getOrphanedFiles(): Promise<OrphanedFilesResponse> {
+  return fetchApi<OrphanedFilesResponse>("/api/admin/storage/orphaned-files");
+}
+
+export async function cleanupOrphanedFiles(keys: string[]): Promise<{
+  success: boolean;
+  deleted: number;
+  failed: number;
+  total: number;
+  errors?: string[];
+}> {
+  return fetchApi("/api/admin/storage/orphaned-files/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keys }),
+  });
+}
