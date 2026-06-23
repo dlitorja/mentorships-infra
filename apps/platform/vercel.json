@@ -1,0 +1,5 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "pnpm --filter @mentorships/platform build",
+  "installCommand": "pnpm install --ignore-scripts"
+}

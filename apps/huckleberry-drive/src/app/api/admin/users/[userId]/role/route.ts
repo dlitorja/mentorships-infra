@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -19,6 +20,8 @@ export async function PATCH(
   try {
     const { userId } = await params;
     await requireAdmin();
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const body = await request.json();
     const parsed = RoleUpdateSchema.safeParse(body);
@@ -33,7 +36,7 @@ export async function PATCH(
     const result = await fetchMutation(api.users.updateUserRole, {
       userId,
       role: parsed.data.role,
-    });
+    }, { token: convexToken });
 
     return NextResponse.json({ success: true, user: result });
   } catch (error) {

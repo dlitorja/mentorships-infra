@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -14,8 +15,10 @@ export async function POST(
   try {
     const { userId } = await params;
     await requireAdmin();
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
-    await fetchMutation(api.users.restoreUser, { userId });
+    await fetchMutation(api.users.restoreUser, { userId }, { token: convexToken });
 
     return NextResponse.json({ success: true, userId });
   } catch (error) {
