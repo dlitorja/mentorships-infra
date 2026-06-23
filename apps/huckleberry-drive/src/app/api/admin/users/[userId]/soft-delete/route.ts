@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { revokeClerkInvitation } from "@/lib/clerk-invitations";
 
 interface Params {
   params: Promise<{ userId: string }>;
@@ -21,13 +22,29 @@ export async function POST(
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    const pendingInvitations = await fetchQuery(
+      api.hdInvitations.getPendingInvitationsByEmail,
+      { email: userWithFiles.user.email }
+    );
+
     await fetchMutation(api.users.softDeleteUser, { userId });
+
+    const clerkErrors: string[] = [];
+    for (const inv of pendingInvitations) {
+      if (inv.clerkInvitationId) {
+        const result = await revokeClerkInvitation(inv.clerkInvitationId);
+        if (!result.success) {
+          clerkErrors.push(`Invitation ${inv.clerkInvitationId}: ${result.message}`);
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,
       userId,
       filesCount: userWithFiles.files.total,
       activeFilesCount: userWithFiles.files.active,
+      clerkRevocationErrors: clerkErrors.length > 0 ? clerkErrors : undefined,
     });
   } catch (error) {
     console.error("Soft delete user error:", error);

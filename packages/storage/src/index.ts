@@ -7,6 +7,10 @@ export {
   abortMultipartUpload,
   listUploadedParts,
   getUploadDestination,
+  getB2Auth,
+  listFileVersions,
+  deleteFileVersion,
+  deleteAllVersionsFromB2,
   type UploadInit,
   type UploadPart,
 } from "./uploads";

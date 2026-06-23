@@ -29,6 +29,16 @@ const ROLE_LABELS: Record<UserRole, string> = {
   video_editor: "Video Editor",
 };
 
+const VALID_ROLES: UserRole[] = ["student", "instructor", "admin", "video_editor"];
+
+function isValidUserRole(value: string): value is UserRole {
+  return VALID_ROLES.includes(value as UserRole);
+}
+
+function isDeletedUser(user: AdminUser): user is AdminUser & { deletedAt: number } {
+  return "deletedAt" in user && typeof user.deletedAt === "number";
+}
+
 function formatDate(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString("en-US", {
     year: "numeric",
@@ -254,7 +264,10 @@ export default function AdminUsersPage(): React.ReactElement {
                       {activeTab === "active" ? (
                         <select
                           value={user.role ?? "student"}
-                          onChange={(e) => handleRoleChange(user.userId, e.target.value as UserRole)}
+                          onChange={(e) => {
+                            const newRole = isValidUserRole(e.target.value) ? e.target.value : "student";
+                            handleRoleChange(user.userId, newRole);
+                          }}
                           disabled={isProcessingThis || user.userId === currentUserId}
                           className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                         >
@@ -270,93 +283,37 @@ export default function AdminUsersPage(): React.ReactElement {
                     <td className="px-4 py-3 text-slate-400 text-sm">
                       {activeTab === "active"
                         ? formatDate(user.createdAt)
-                        : formatDate((user as DeletedUser).deletedAt)}
+                        : formatDate(isDeletedUser(user) ? user.deletedAt : 0)}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
                         {activeTab === "active" ? (
-                          <>
-                            {showSoftDeleteConfirm === user.userId ? (
-                              <>
-                                <button
-                                  onClick={() => handleSoftDelete(user.userId)}
-                                  disabled={isProcessingThis}
-                                  className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
-                                >
-                                  {isProcessingThis ? "Deleting..." : "Confirm"}
-                                </button>
-                                <button
-                                  onClick={() => setShowSoftDeleteConfirm(null)}
-                                  className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                onClick={() => setShowSoftDeleteConfirm(user.userId)}
-                                disabled={isProcessing !== null || user.userId === currentUserId}
-                                className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                                title="Soft Delete User"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </>
+                          <button
+                            onClick={() => setShowSoftDeleteConfirm(user.userId)}
+                            disabled={isProcessing !== null || user.userId === currentUserId}
+                            className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                            title="Soft Delete User"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         ) : (
                           <>
-                            {showRestoreConfirm === user.userId ? (
-                              <>
-                                <button
-                                  onClick={() => handleRestore(user.userId)}
-                                  disabled={isProcessingThis}
-                                  className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:opacity-50"
-                                >
-                                  {isProcessingThis ? "Restoring..." : "Confirm Restore"}
-                                </button>
-                                <button
-                                  onClick={() => setShowRestoreConfirm(null)}
-                                  className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : showHardDeleteConfirm === user.userId ? (
-                              <>
-                                <button
-                                  onClick={() => handleHardDelete(user.userId)}
-                                  disabled={isProcessingThis}
-                                  className="px-3 py-1.5 text-xs font-medium bg-red-700 text-white rounded-md hover:bg-red-800 disabled:opacity-50"
-                                >
-                                  {isProcessingThis ? "Deleting..." : "Hard Delete"}
-                                </button>
-                                <button
-                                  onClick={() => setShowHardDeleteConfirm(null)}
-                                  className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => setShowRestoreConfirm(user.userId)}
-                                  disabled={isProcessing !== null}
-                                  className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-50"
-                                  title="Restore User"
-                                >
-                                  <RotateCcw className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => setShowHardDeleteConfirm(user.userId)}
-                                  disabled={isProcessing !== null}
-                                  className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                                  title="Hard Delete User and Files"
-                                >
-                                  <AlertTriangle className="w-4 h-4" />
-                                </button>
-                              </>
-                            )}
+                            <button
+                              onClick={() => setShowRestoreConfirm(user.userId)}
+                              disabled={isProcessing !== null}
+                              className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-50"
+                              title="Restore User"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setShowHardDeleteConfirm(user.userId)}
+                              disabled={isProcessing !== null}
+                              className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                              title="Hard Delete User and Files"
+                            >
+                              <AlertTriangle className="w-4 h-4" />
+                            </button>
                           </>
                         )}
                       </div>
@@ -425,6 +382,33 @@ export default function AdminUsersPage(): React.ReactElement {
               >
                 Cancel
               </button>
+              {showSoftDeleteConfirm && (
+                <button
+                  onClick={() => handleSoftDelete(showSoftDeleteConfirm)}
+                  disabled={isProcessing !== null}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                >
+                  {isProcessing === showSoftDeleteConfirm ? "Deleting..." : "Confirm Delete"}
+                </button>
+              )}
+              {showHardDeleteConfirm && (
+                <button
+                  onClick={() => handleHardDelete(showHardDeleteConfirm)}
+                  disabled={isProcessing !== null}
+                  className="px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 disabled:opacity-50"
+                >
+                  {isProcessing === showHardDeleteConfirm ? "Deleting..." : "Confirm Hard Delete"}
+                </button>
+              )}
+              {showRestoreConfirm && (
+                <button
+                  onClick={() => handleRestore(showRestoreConfirm)}
+                  disabled={isProcessing !== null}
+                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isProcessing === showRestoreConfirm ? "Restoring..." : "Confirm Restore"}
+                </button>
+              )}
             </div>
           </div>
         </div>

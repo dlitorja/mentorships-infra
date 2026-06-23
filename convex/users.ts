@@ -570,8 +570,10 @@ export const getUserWithFiles = query({
 
     if (!user) return null;
 
-    const allUploads = await ctx.db.query("instructorUploads").collect();
-    const userUploads = allUploads.filter((u) => u.instructorId === args.userId);
+    const userUploads = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.userId))
+      .collect();
 
     let totalFiles = 0;
     let totalBytes = 0;
