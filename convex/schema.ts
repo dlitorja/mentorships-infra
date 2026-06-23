@@ -11,9 +11,13 @@ export default defineSchema({
     role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
     legacyId: v.optional(v.string()),
+    deletedAt: v.optional(v.number()),
+    deletedBy: v.optional(v.string()),
+    hardDeletedAt: v.optional(v.number()),
   }).index("by_email", ["email"])
     .index("by_clerkId", ["clerkId"])
-    .index("by_userId", ["userId"]),
+    .index("by_userId", ["userId"])
+    .index("by_deletedAt", ["deletedAt"]),
 
   instructors: defineTable({
     userId: v.optional(v.string()),

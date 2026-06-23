@@ -478,3 +478,359 @@ export const getAdminStats = query({
     };
   },
 });
+
+export const listActiveUsers = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const allUsers = await ctx.db.query("users").collect();
+
+    return allUsers
+      .filter((u) => !u.deletedAt && !u.hardDeletedAt)
+      .map((u) => ({
+        _id: u._id,
+        userId: u.userId,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        timeZone: u.timeZone,
+        clerkId: u.clerkId,
+        createdAt: u._creationTime,
+      }))
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  },
+});
+
+export const listDeletedUsers = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const allUsers = await ctx.db.query("users").collect();
+
+    return allUsers
+      .filter((u) => u.deletedAt && !u.hardDeletedAt)
+      .map((u) => ({
+        _id: u._id,
+        userId: u.userId,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        deletedAt: u.deletedAt,
+        deletedBy: u.deletedBy,
+        clerkId: u.clerkId,
+        createdAt: u._creationTime,
+      }))
+      .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
+  },
+});
+
+export const getUserWithFiles = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!user) return null;
+
+    const userUploads = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.userId))
+      .collect();
+
+    let totalFiles = 0;
+    let totalBytes = 0;
+    let activeFiles = 0;
+    let activeBytes = 0;
+
+    for (const upload of userUploads) {
+      totalFiles++;
+      totalBytes += upload.size;
+      if (upload.status !== "deleted" && upload.status !== "deleting") {
+        activeFiles++;
+        activeBytes += upload.size;
+      }
+    }
+
+    return {
+      user: {
+        _id: user._id,
+        userId: user.userId,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        deletedAt: user.deletedAt,
+        hardDeletedAt: user.hardDeletedAt,
+        clerkId: user.clerkId,
+        createdAt: user._creationTime,
+      },
+      files: {
+        total: totalFiles,
+        active: activeFiles,
+        totalBytes,
+        activeBytes,
+      },
+    };
+  },
+});
+
+export const updateUserRole = mutation({
+  args: {
+    userId: v.string(),
+    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    if (args.userId === identity.subject) {
+      throw new Error("Cannot change your own role");
+    }
+
+    const targetUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!targetUser) {
+      throw new Error("User not found");
+    }
+
+    if (targetUser.hardDeletedAt) {
+      throw new Error("Cannot update role of hard-deleted user");
+    }
+
+    await ctx.db.patch(targetUser._id, {
+      role: args.role,
+    });
+
+    return await ctx.db.get(targetUser._id);
+  },
+});
+
+export const softDeleteUser = mutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    if (args.userId === identity.subject) {
+      throw new Error("Cannot delete your own account");
+    }
+
+    const targetUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!targetUser) {
+      throw new Error("User not found");
+    }
+
+    if (targetUser.deletedAt && !targetUser.hardDeletedAt) {
+      throw new Error("User is already soft-deleted");
+    }
+
+    if (targetUser.hardDeletedAt) {
+      throw new Error("Cannot soft-delete a hard-deleted user");
+    }
+
+    await ctx.db.patch(targetUser._id, {
+      deletedAt: Date.now(),
+      deletedBy: identity.subject,
+    });
+
+    const pendingInvitations = await ctx.db
+      .query("hdInvitations")
+      .withIndex("by_email", (q) => q.eq("email", targetUser.email.toLowerCase()))
+      .collect();
+
+    for (const inv of pendingInvitations) {
+      if (inv.status === "pending") {
+        await ctx.db.patch(inv._id, {
+          status: "cancelled",
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    return { success: true, userId: args.userId };
+  },
+});
+
+export const hardDeleteUser = mutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    if (args.userId === identity.subject) {
+      throw new Error("Cannot delete your own account");
+    }
+
+    const targetUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!targetUser) {
+      throw new Error("User not found");
+    }
+
+    if (!targetUser.deletedAt) {
+      throw new Error("Must soft-delete user before hard delete");
+    }
+
+    if (targetUser.hardDeletedAt) {
+      throw new Error("User is already hard-deleted");
+    }
+
+    await ctx.db.patch(targetUser._id, {
+      hardDeletedAt: Date.now(),
+    });
+
+    const pendingInvitations = await ctx.db
+      .query("hdInvitations")
+      .withIndex("by_email", (q) => q.eq("email", targetUser.email.toLowerCase()))
+      .collect();
+
+    for (const inv of pendingInvitations) {
+      if (inv.status === "pending") {
+        await ctx.db.patch(inv._id, {
+          status: "cancelled",
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    const userUploads = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.userId))
+      .collect();
+
+    const filesToDelete = userUploads.filter(
+      (u) => u.status !== "deleted" && u.status !== "deleting"
+    );
+
+    for (const upload of filesToDelete) {
+      await ctx.scheduler.runAfter(0, internal.instructorUploads.deleteUploadFromStorage, {
+        uploadId: upload.legacyId ?? upload._id,
+        filename: upload.filename ?? undefined,
+        s3Key: upload.s3Key ?? undefined,
+        b2FileId: upload.b2FileId ?? undefined,
+      });
+    }
+
+    return {
+      success: true,
+      userId: args.userId,
+      filesQueued: filesToDelete.length,
+    };
+  },
+});
+
+export const restoreUser = mutation({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const targetUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!targetUser) {
+      throw new Error("User not found");
+    }
+
+    if (!targetUser.deletedAt) {
+      throw new Error("User is not deleted");
+    }
+
+    if (targetUser.hardDeletedAt) {
+      throw new Error("Cannot restore a hard-deleted user");
+    }
+
+    await ctx.db.patch(targetUser._id, {
+      deletedAt: undefined,
+      deletedBy: undefined,
+    });
+
+    return { success: true, userId: args.userId };
+  },
+});

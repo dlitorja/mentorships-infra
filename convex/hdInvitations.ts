@@ -242,3 +242,34 @@ export const getHdInvitationStats = query({
     };
   },
 });
+
+export const getPendingInvitationsByEmail = query({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
+
+    const invitations = await ctx.db
+      .query("hdInvitations")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .collect();
+
+    return invitations
+      .filter((inv) => inv.status === "pending" && inv.clerkInvitationId)
+      .map((inv) => ({
+        id: inv._id,
+        clerkInvitationId: inv.clerkInvitationId,
+        role: inv.role,
+        expiresAt: inv.expiresAt,
+      }));
+  },
+});
