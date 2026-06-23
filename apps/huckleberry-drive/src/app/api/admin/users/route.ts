@@ -5,7 +5,7 @@ import { api } from "@/convex/_generated/api";
 
 export async function GET(): Promise<NextResponse> {
   try {
-    await requireAdmin();
+    const adminUser = await requireAdmin();
 
     const [activeUsers, deletedUsers] = await Promise.all([
       fetchQuery(api.users.listActiveUsers, {}),
@@ -18,6 +18,8 @@ export async function GET(): Promise<NextResponse> {
     });
   } catch (error) {
     console.error("Users list error:", error);
+    console.error("Error name:", error?.constructor?.name);
+    console.error("Error message:", error instanceof Error ? error.message : String(error));
 
     if (error instanceof UnauthorizedError) {
       return NextResponse.json({ error: error.message }, { status: 401 });
@@ -27,7 +29,7 @@ export async function GET(): Promise<NextResponse> {
     }
 
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: error.message, name: error.name }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
