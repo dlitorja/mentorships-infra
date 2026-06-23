@@ -1,6 +1,5 @@
 {
   "framework": "nextjs",
-  "buildCommand": "cd ../.. && pnpm --filter @mentorships/marketing build",
+  "buildCommand": "cd ../.. && pnpm --filter @mentorships/platform build",
   "installCommand": "cd ../.. && pnpm install --ignore-scripts"
 }
-

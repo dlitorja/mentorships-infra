@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -9,6 +10,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   try {
     await requireAdmin();
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     const body = await request.json();
     const { email, role, expiresInDays } = body;
@@ -48,7 +51,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       role,
       expiresInDays: expiresInDays ?? 7,
       clerkInvitationId,
-    });
+    }, { token: convexToken });
 
     return NextResponse.json({
       success: true,
