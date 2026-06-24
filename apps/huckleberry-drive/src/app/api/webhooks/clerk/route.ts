@@ -69,8 +69,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           { status: 401 }
         );
       }
-      console.warn("Invitation acceptance failed (non-critical):", result.reason);
-      return NextResponse.json({ success: true, message: "No matching invitation found" });
+      if (result.reason === "no_pending_invitation") {
+        console.warn("Invitation acceptance failed (non-critical):", result.reason);
+        return NextResponse.json({ success: true, message: "No matching invitation found" });
+      }
+      console.error("Invitation acceptance failed with unexpected reason:", result.reason);
+      return NextResponse.json(
+        { error: result.reason || "Unexpected invitation acceptance failure" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true, message: "Invitation accepted" });

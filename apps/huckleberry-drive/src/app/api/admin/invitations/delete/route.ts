@@ -20,7 +20,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const result = await fetchMutation(api.hdInvitations.deleteHdInvitation, {
+    await fetchMutation(api.hdInvitations.deleteHdInvitation, {
       invitationId,
     }, { token: convexToken });
 
