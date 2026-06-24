@@ -248,10 +248,6 @@ export const deleteHdInvitation = mutation({
       throw new Error("Cannot delete pending invitations. Cancel them first.");
     }
 
-    if (invitation.clerkInvitationId) {
-      throw new Error("Cannot delete invitations that have a Clerk invitation ID. Cancel them first.");
-    }
-
     await ctx.db.delete(args.invitationId);
 
     return { success: true };
