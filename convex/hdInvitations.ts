@@ -132,7 +132,6 @@ export const createHdInvitation = mutation({
       clerkInvitationId: args.clerkInvitationId,
       invitedByUserId: identity.subject,
       expiresAt,
-      createdAt: Date.now(),
     });
 
     return invitationId;
