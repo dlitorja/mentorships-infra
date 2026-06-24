@@ -2581,6 +2581,12 @@ export const createInstructorForClerkUser = action({
 
     console.log("createInstructorForClerkUser: Created instructor", args.userId, instructorId);
 
+    await ctx.runMutation(internal.users.setUserRoleTrusted, {
+      userId: args.userId,
+      role: "instructor",
+    });
+    console.log("createInstructorForClerkUser: Set user role to instructor", args.userId);
+
     return { success: true, instructorId };
   },
 });
