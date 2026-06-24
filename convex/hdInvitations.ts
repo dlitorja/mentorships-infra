@@ -1,4 +1,5 @@
-import { query, mutation, QueryCtx, MutationCtx } from "./_generated/server";
+import { query, mutation, internalMutation, action, QueryCtx, MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 
@@ -245,5 +246,84 @@ export const getPendingInvitationsByEmail = query({
         role: inv.role,
         expiresAt: inv.expiresAt,
       }));
+  },
+});
+
+export const acceptHdInvitationByEmail = internalMutation({
+  args: {
+    email: v.string(),
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const invitations = await ctx.db
+      .query("hdInvitations")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .collect();
+
+    const pending = invitations.find(
+      (inv) => inv.status === "pending" && inv.expiresAt > Date.now()
+    );
+
+    if (!pending) {
+      return null;
+    }
+
+    await ctx.db.patch(pending._id, {
+      status: "accepted",
+      updatedAt: Date.now(),
+    });
+
+    return {
+      invitationId: pending._id,
+      role: pending.role,
+      email: pending.email,
+    };
+  },
+});
+
+export const acceptHdInvitationFromClerk = action({
+  args: {
+    email: v.string(),
+    clerkUserId: v.string(),
+    role: v.optional(v.string()),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; reason?: string; invitationId?: string; role?: string }> => {
+    const result = await ctx.runMutation(internal.hdInvitations.acceptHdInvitationByEmail, {
+      email: args.email,
+      clerkUserId: args.clerkUserId,
+    }) as { invitationId: string; role: "student" | "instructor" | "admin" | "video_editor"; email: string } | null;
+
+    if (!result) {
+      return { success: false, reason: "no_pending_invitation" };
+    }
+
+    const existingUser = await ctx.runQuery(
+      internal.users.getUserByClerkId,
+      { userId: args.clerkUserId }
+    );
+
+    if (existingUser) {
+      await ctx.runMutation(internal.users.setUserRoleTrusted, {
+        userId: args.clerkUserId,
+        role: result.role,
+      });
+    } else {
+      await ctx.runMutation(internal.users.createUserFromClerk, {
+        userId: args.clerkUserId,
+        email: args.email,
+        clerkId: args.clerkUserId,
+        role: result.role,
+        firstName: args.firstName,
+        lastName: args.lastName,
+      });
+    }
+
+    return {
+      success: true,
+      invitationId: result.invitationId,
+      role: result.role,
+    };
   },
 });
