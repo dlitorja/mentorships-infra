@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { fetchAction } from "convex/nextjs";
+import { requireAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -14,6 +15,8 @@ function getConvexClient() {
 
 export async function POST() {
   try {
+    await requireAdmin();
+
     const clerkAuth = await auth();
     const userId = clerkAuth.userId;
     if (!userId) {
@@ -51,7 +54,7 @@ export async function POST() {
       if (msg.includes("unauthorized")) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
-      if (msg.includes("forbidden")) {
+      if (msg.includes("forbidden") || msg.includes("admin access required")) {
         return NextResponse.json({ error: "Forbidden: Admin role required" }, { status: 403 });
       }
     }
