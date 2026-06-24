@@ -32,8 +32,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const eventData = evt.data;
   const userId = eventData.id;
   const email = eventData.email_addresses?.[0]?.email_address;
-  const firstName = eventData.first_name;
-  const lastName = eventData.last_name;
+  const firstName = eventData.first_name ?? undefined;
+  const lastName = eventData.last_name ?? undefined;
 
   if (!email) {
     console.warn("User created event missing email:", userId);
