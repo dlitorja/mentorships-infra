@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth, UnauthorizedError, ForbiddenError } from "@clerk/nextjs/server";
-import { requireAdmin } from "@/lib/auth";
+import { auth } from "@clerk/nextjs/server";
+import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
