@@ -4,6 +4,8 @@ import { fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  console.log("[webhook/clerk] Received POST request");
+
   const webhookSecret = process.env.CLERK_WEBHOOK_SIGNING_SECRET;
 
   if (!webhookSecret) {
@@ -14,9 +16,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  console.log("[webhook/clerk] Webhook secret found, attempting verification");
+
   let evt;
   try {
     evt = await verifyWebhook(req);
+    console.log("[webhook/clerk] Webhook verified successfully, type:", evt.type);
   } catch (err) {
     console.error("Webhook verification failed:", err);
     return NextResponse.json(
@@ -26,8 +31,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (evt.type !== "user.created") {
+    console.log("[webhook/clerk] Ignoring event type:", evt.type);
     return NextResponse.json({ success: true, message: "Event type not handled" });
   }
+
+  console.log("[webhook/clerk] Processing user.created event");
 
   const eventData = evt.data;
   const userId = eventData.id;
