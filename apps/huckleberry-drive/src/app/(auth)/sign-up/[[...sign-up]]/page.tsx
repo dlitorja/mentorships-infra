@@ -24,23 +24,23 @@ export default function SignUpPage() {
 
   if (!isLoaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-gray-500">Loading...</p>
+      <div className="flex min-h-screen items-center justify-center bg-slate-900">
+        <p className="text-slate-400">Loading...</p>
       </div>
     );
   }
 
   if (!ticket) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-slate-900">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">No Invitation Found</h1>
-          <p className="text-gray-600 mb-4">
+          <h1 className="text-2xl font-bold mb-4 text-slate-100">No Invitation Found</h1>
+          <p className="text-slate-400 mb-4">
             This page is only accessible through an invitation link.
           </p>
           <button
             onClick={() => router.push("/")}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
           >
             Go to Dashboard
           </button>
@@ -78,22 +78,22 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md p-8 bg-white rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold mb-6 text-center">Complete Your Sign Up</h1>
-        <p className="text-gray-600 mb-6 text-center text-sm">
+    <div className="flex min-h-screen items-center justify-center bg-slate-900">
+      <div className="w-full max-w-md p-8 bg-slate-800 rounded-lg shadow-md border border-slate-700">
+        <h1 className="text-2xl font-bold mb-6 text-center text-slate-100">Complete Your Sign Up</h1>
+        <p className="text-slate-400 mb-6 text-center text-sm">
           Your email has been verified through the invitation. Please create a password to complete your account.
         </p>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded text-sm">
+          <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded text-sm border border-red-500/30">
             {error}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="firstName" className="block text-sm font-medium text-slate-300 mb-1">
               First Name
             </label>
             <input
@@ -101,12 +101,12 @@ export default function SignUpPage() {
               type="text"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-100"
               required
             />
           </div>
           <div>
-            <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="lastName" className="block text-sm font-medium text-slate-300 mb-1">
               Last Name
             </label>
             <input
@@ -114,12 +114,12 @@ export default function SignUpPage() {
               type="text"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-100"
               required
             />
           </div>
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-1">
               Create Password
             </label>
             <input
@@ -127,16 +127,16 @@ export default function SignUpPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-100"
               required
               minLength={8}
             />
-            <p className="text-xs text-gray-500 mt-1">Minimum 8 characters</p>
+            <p className="text-xs text-slate-500 mt-1">Minimum 8 characters</p>
           </div>
           <button
             type="submit"
             disabled={isSubmitting || !firstName || !lastName || !password || password.length < 8}
-            className="w-full py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="w-full py-2 px-4 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 disabled:bg-slate-700 disabled:cursor-not-allowed disabled:text-slate-500"
           >
             {isSubmitting ? "Creating Account..." : "Create Account"}
           </button>

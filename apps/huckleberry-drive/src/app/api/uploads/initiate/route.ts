@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { auth } from "@clerk/nextjs/server";
 import { requireInstructor } from "@/lib/auth";
 import { initiateMultipartUpload } from "@mentorships/storage";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
@@ -30,6 +31,8 @@ const ALLOWED_CONTENT_TYPES = [
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const dbUser = await requireInstructor() as User;
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
     const body = await request.json();
 
     const parsed = initiateSchema.safeParse(body);
@@ -112,12 +115,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       contentType,
       size,
       uploadedById: isDelegatedUpload ? dbUser.userId : undefined,
-    });
+    }, { token: convexToken });
 
     await fetchMutation(api.instructorUploads.updateUploadStarted, {
       id: fileId,
       b2UploadId: upload.uploadId,
-    });
+    }, { token: convexToken });
 
     return NextResponse.json({
       fileId,

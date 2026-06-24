@@ -522,7 +522,7 @@ export const getAdminStats = query({
 export const listActiveUsers = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
+const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
     const currentUser = await ctx.db
@@ -556,7 +556,7 @@ export const listActiveUsers = query({
 export const listDeletedUsers = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
+const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
     const currentUser = await ctx.db

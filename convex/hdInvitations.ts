@@ -253,14 +253,13 @@ export const deleteHdInvitation = mutation({
     return { success: true };
   },
 });
-
 export const getPendingInvitationsByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    await requireAdminUser(ctx, identity.subject);
+await requireAdminUser(ctx, identity.subject);
 
     const invitations = await ctx.db
       .query("hdInvitations")
