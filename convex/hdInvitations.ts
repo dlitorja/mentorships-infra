@@ -229,6 +229,35 @@ export const getHdInvitationStats = query({
   },
 });
 
+export const deleteHdInvitation = mutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    await requireAdminUser(ctx, identity.subject);
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+
+    if (invitation.status === "pending") {
+      throw new Error("Cannot delete pending invitations. Cancel them first.");
+    }
+
+    if (invitation.clerkInvitationId) {
+      throw new Error("Cannot delete invitations that have a Clerk invitation ID. Cancel them first.");
+    }
+
+    await ctx.db.delete(args.invitationId);
+
+    return { success: true };
+  },
+});
+
 export const getPendingInvitationsByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {

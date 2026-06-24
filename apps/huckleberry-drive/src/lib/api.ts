@@ -267,6 +267,14 @@ export async function cancelHdInvitation(invitationId: string): Promise<{ succes
   });
 }
 
+export async function deleteHdInvitation(invitationId: string): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>("/api/admin/invitations/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invitationId }),
+  });
+}
+
 export interface AdminUser {
   _id: string;
   userId: string;
