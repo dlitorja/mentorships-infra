@@ -343,7 +343,6 @@ export const setUserRoleTrusted = internalMutation({
       return await ctx.db.get(existing._id);
     }
 
-    // Best-effort email association if identity present; optional
     const identity = await ctx.auth.getUserIdentity();
     const email = identity?.email;
     const id = await ctx.db.insert("users", {
@@ -354,6 +353,47 @@ export const setUserRoleTrusted = internalMutation({
     } as Partial<Doc<"users">> as any);
     const inserted = await ctx.db.get(id);
     if (!inserted) throw new Error("Failed to set role");
+    return inserted;
+  },
+});
+
+export const createUserFromClerk = internalMutation({
+  args: {
+    userId: v.string(),
+    email: v.string(),
+    clerkId: v.string(),
+    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existingByUserId = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (existingByUserId) {
+      await ctx.db.patch(existingByUserId._id, {
+        email: args.email,
+        clerkId: args.clerkId,
+        role: args.role,
+        firstName: args.firstName ?? existingByUserId.firstName,
+        lastName: args.lastName ?? existingByUserId.lastName,
+      });
+      return await ctx.db.get(existingByUserId._id);
+    }
+
+    const id = await ctx.db.insert("users", {
+      userId: args.userId,
+      email: args.email,
+      clerkId: args.clerkId,
+      role: args.role,
+      firstName: args.firstName,
+      lastName: args.lastName,
+    });
+
+    const inserted = await ctx.db.get(id);
+    if (!inserted) throw new Error("Failed to create user");
     return inserted;
   },
 });
@@ -482,79 +522,69 @@ export const getAdminStats = query({
 export const listActiveUsers = query({
   args: {},
   handler: async (ctx) => {
-    try {
-      const identity = await ctx.auth.getUserIdentity();
-      if (!identity) return [];
+const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-      const currentUser = await ctx.db
-        .query("users")
-        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-        .first();
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
 
-      if (!currentUser || currentUser.role !== "admin") {
-        return [];
-      }
-
-      const allUsers = await ctx.db.query("users").collect();
-
-      return allUsers
-        .filter((u) => !u.deletedAt && !u.hardDeletedAt)
-        .map((u) => ({
-          _id: u._id,
-          userId: u.userId,
-          email: u.email,
-          firstName: u.firstName,
-          lastName: u.lastName,
-          role: u.role,
-          timeZone: u.timeZone,
-          clerkId: u.clerkId,
-          createdAt: u._creationTime,
-        }))
-        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-    } catch (e) {
-      console.error("listActiveUsers error:", e);
-      return [];
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
     }
+
+    const allUsers = await ctx.db.query("users").collect();
+
+    return allUsers
+      .filter((u) => !u.deletedAt && !u.hardDeletedAt)
+      .map((u) => ({
+        _id: u._id,
+        userId: u.userId,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        timeZone: u.timeZone,
+        clerkId: u.clerkId,
+        createdAt: u._creationTime,
+      }))
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   },
 });
 
 export const listDeletedUsers = query({
   args: {},
   handler: async (ctx) => {
-    try {
-      const identity = await ctx.auth.getUserIdentity();
-      if (!identity) return [];
+const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-      const currentUser = await ctx.db
-        .query("users")
-        .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-        .first();
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
 
-      if (!currentUser || currentUser.role !== "admin") {
-        return [];
-      }
-
-      const allUsers = await ctx.db.query("users").collect();
-
-      return allUsers
-        .filter((u) => u.deletedAt && !u.hardDeletedAt)
-        .map((u) => ({
-          _id: u._id,
-          userId: u.userId,
-          email: u.email,
-          firstName: u.firstName,
-          lastName: u.lastName,
-          role: u.role,
-          deletedAt: u.deletedAt,
-          deletedBy: u.deletedBy,
-          clerkId: u.clerkId,
-          createdAt: u._creationTime,
-        }))
-        .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
-    } catch (e) {
-      console.error("listDeletedUsers error:", e);
-      return [];
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
     }
+
+    const allUsers = await ctx.db.query("users").collect();
+
+    return allUsers
+      .filter((u) => u.deletedAt && !u.hardDeletedAt)
+      .map((u) => ({
+        _id: u._id,
+        userId: u.userId,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.role,
+        deletedAt: u.deletedAt,
+        deletedBy: u.deletedBy,
+        clerkId: u.clerkId,
+        createdAt: u._creationTime,
+      }))
+      .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0));
   },
 });
 

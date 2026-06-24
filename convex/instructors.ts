@@ -2568,6 +2568,11 @@ export const createInstructorForClerkUser = action({
 
     if (existing) {
       console.log("createInstructorForClerkUser: Instructor already exists", args.userId);
+      await ctx.runMutation(internal.users.setUserRoleTrusted, {
+        userId: args.userId,
+        role: "instructor",
+      });
+      console.log("createInstructorForClerkUser: Updated user role to instructor", args.userId);
       return { success: true, instructorId: existing._id, reason: "Already exists" };
     }
 

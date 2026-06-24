@@ -85,7 +85,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await fetchMutation(api.instructorUploads.completeUpload, { 
       id: fileId, 
       b2FileId: result.versionId || result.etag.replace(/"/g, ""),
-    }, { token: convexToken });
+    });
 
     return NextResponse.json({
       success: true,
