@@ -45,9 +45,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const revokeResult = await revokeClerkInvitation(invitation.clerkInvitationId);
 
       if (!revokeResult.success) {
-        if (revokeResult.reason === "already_consumed" || revokeResult.reason === "not_found") {
+        if (revokeResult.reason === "already_consumed" || revokeResult.reason === "not_found" || revokeResult.reason === "not_revocable") {
           console.log(
-            `Clerk invitation ${invitation.clerkInvitationId} already consumed or not found, proceeding with cancellation`
+            `Clerk invitation ${invitation.clerkInvitationId} ${revokeResult.reason}, proceeding with cancellation`
           );
         } else {
           return NextResponse.json(

@@ -102,6 +102,13 @@ export async function revokeClerkInvitation(
           message: "Invitation was already accepted or consumed",
         };
       }
+      if (error.status === 400) {
+        return {
+          success: false,
+          reason: "not_revocable",
+          message: "Invitation cannot be revoked (may already be expired or in unrevocable state)",
+        };
+      }
       return {
         success: false,
         reason: "transient_error",
