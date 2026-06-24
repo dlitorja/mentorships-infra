@@ -32,8 +32,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const eventData = evt.data;
   const userId = eventData.id;
   const email = eventData.email_addresses?.[0]?.email_address;
-  const firstName = eventData.first_name;
-  const lastName = eventData.last_name;
+  const firstName = eventData.first_name ?? undefined;
+  const lastName = eventData.last_name ?? undefined;
 
   if (!email) {
     console.warn("User created event missing email:", userId);
@@ -62,11 +62,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     if (!result.success) {
-      console.warn("Invitation acceptance failed:", result.reason);
-      return NextResponse.json(
-        { error: result.reason || "Invitation acceptance failed" },
-        { status: 400 }
-      );
+      if (result.reason === "unauthorized") {
+        console.error("Invitation acceptance unauthorized:", result.reason);
+        return NextResponse.json(
+          { error: result.reason || "Unauthorized" },
+          { status: 401 }
+        );
+      }
+      console.warn("Invitation acceptance failed (non-critical):", result.reason);
+      return NextResponse.json({ success: true, message: "No matching invitation found" });
     }
 
     return NextResponse.json({ success: true, message: "Invitation accepted" });

@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation, internalQuery, internalAction, action, httpAction, QueryCtx, MutationCtx } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery, action, httpAction, QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
@@ -132,7 +132,6 @@ export const createHdInvitation = mutation({
       clerkInvitationId: args.clerkInvitationId,
       invitedByUserId: identity.subject,
       expiresAt,
-      createdAt: Date.now(),
     });
 
     return invitationId;
@@ -227,6 +226,35 @@ export const getHdInvitationStats = query({
       expired: invitations.filter((i) => i.status === "expired").length,
       cancelled: invitations.filter((i) => i.status === "cancelled").length,
     };
+  },
+});
+
+export const deleteHdInvitation = mutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    await requireAdminUser(ctx, identity.subject);
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+
+    if (invitation.status === "pending") {
+      throw new Error("Cannot delete pending invitations. Cancel them first.");
+    }
+
+    if (invitation.clerkInvitationId) {
+      throw new Error("Cannot delete invitations that have a Clerk invitation ID. Cancel them first.");
+    }
+
+    await ctx.db.delete(args.invitationId);
+
+    return { success: true };
   },
 });
 
