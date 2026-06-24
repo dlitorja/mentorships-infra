@@ -14,7 +14,7 @@ export type ClerkInvitationResult =
 
 export type RevokeClerkInvitationResult =
   | { success: true }
-  | { success: false; reason: "not_found" | "already_consumed" | "transient_error"; message: string };
+  | { success: false; reason: "not_found" | "already_consumed" | "not_revocable" | "transient_error"; message: string };
 
 interface ClerkAPIError {
   status: number;
