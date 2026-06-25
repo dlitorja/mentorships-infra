@@ -143,7 +143,12 @@ export const processWorkspaceExport = task({
           await (async () => {
             for (let i = 0; i < exportData.images.length; i++) {
               const img = exportData.images[i];
-              const imageUrl = img.imageUrl;
+              let imageUrl = img.imageUrl;
+
+              if (!imageUrl && img.storageId && CONVEX_DEPLOYMENT_URL) {
+                imageUrl = `${CONVEX_DEPLOYMENT_URL}/api/storage/${img.storageId}`;
+                logger.info(`Using Convex storage URL for image ${i + 1}: ${img.storageId}`);
+              }
 
               if (!imageUrl) {
                 logger.warn(`Skipping image ${i + 1} - no URL available (storageId: ${img.storageId})`);
