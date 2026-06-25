@@ -88,7 +88,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
         await createImage.mutateAsync({
           workspaceId,
           imageUrl: dataUrl,
-          createdBy: currentUserId,
         });
       } catch (error) {
         console.error('Failed to upload image:', error);
