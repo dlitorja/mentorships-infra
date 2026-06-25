@@ -1,9 +1,27 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
+async function isAdmin(ctx: { db: any; auth: any }, userId: string): Promise<boolean> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first();
+  return user?.role === "admin";
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const adminCheck = await isAdmin(ctx, user.subject);
+    if (!adminCheck) {
+      throw new Error("Admin access required");
+    }
+
     const allCosts = await ctx.db.query("monthlyStorageCosts").collect();
     
     const sorted = allCosts.sort((a, b) => b.month.localeCompare(a.month));

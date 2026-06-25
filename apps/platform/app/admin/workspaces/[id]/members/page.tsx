@@ -90,6 +90,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
   const debouncedOwnerSearch = useDebouncedValue(ownerSearch, 300);
   const [selectedNewOwnerId, setSelectedNewOwnerId] = useState<string | null>(null);
   const [selectedNewInstructorId, setSelectedNewInstructorId] = useState<string | null>(null);
+  const [instructorHasBeenSelected, setInstructorHasBeenSelected] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
   const { data: workspace, isLoading, error } = useQuery({
@@ -115,6 +116,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
       queryClient.invalidateQueries({ queryKey: ["admin-workspace", workspaceId] });
       setSelectedNewOwnerId(null);
       setSelectedNewInstructorId(null);
+      setInstructorHasBeenSelected(false);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2000);
     },
@@ -278,7 +280,10 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
                   <Label>Change Instructor</Label>
                   <Select
                     value={selectedNewInstructorId || ""}
-                    onValueChange={(v) => setSelectedNewInstructorId(v === "__none__" ? null : v)}
+                    onValueChange={(v) => {
+                      setSelectedNewInstructorId(v === "__none__" ? null : v);
+                      setInstructorHasBeenSelected(true);
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select an instructor" />
@@ -292,7 +297,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
                       ))}
                     </SelectContent>
                   </Select>
-                  {selectedNewInstructorId && (
+                  {instructorHasBeenSelected && (
                     <Button onClick={handleSaveInstructor} disabled={updateMutation.isPending}>
                       {updateMutation.isPending ? (
                         <>
