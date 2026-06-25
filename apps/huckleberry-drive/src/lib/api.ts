@@ -15,8 +15,9 @@ export interface FileItem {
 
 export interface StorageUsage {
   usedBytes: number;
-  limitBytes: number;
+  limitBytes: number | null;
   fileCount: number;
+  instructorCount?: number;
 }
 
 export interface UploadInitiateResponse {

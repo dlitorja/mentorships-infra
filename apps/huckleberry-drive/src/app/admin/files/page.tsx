@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, Search, X, Trash2, Download } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl } from "@/lib/api";
+import { Loader2, Search, X, Trash2, Download, Play } from "lucide-react";
+import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 
 export default function AdminFilesPage(): React.ReactElement {
@@ -28,9 +28,32 @@ export default function AdminFilesPage(): React.ReactElement {
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
   const [confirmSoftDeleteId, setConfirmSoftDeleteId] = useState<string | null>(null);
-const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+  const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
+  const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
+  const [playError, setPlayError] = useState<string | null>(null);
 
   const isDownloading = (fileId: string) => downloadingIds.has(fileId);
+  const isPlaying = (fileId: string) => playingIds.has(fileId);
+
+  const handlePlay = useCallback(async (file: FileItem) => {
+    if (!file.contentType.startsWith("video/")) return;
+    setPlayError(null);
+    setPlayingIds((prev) => new Set(prev).add(file.id));
+    try {
+      const url = await getStreamUrl(file.id);
+      setPlayingVideoUrl(url);
+    } catch (error) {
+      console.error("Play failed:", error);
+      setPlayError("Failed to load video. Please try again.");
+    } finally {
+      setPlayingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(file.id);
+        return next;
+      });
+    }
+  }, []);
 
   const handleDownload = useCallback(async (fileId: string) => {
     setDownloadingIds((prev) => new Set(prev).add(fileId));
@@ -400,6 +423,21 @@ setSelectedFileIds(new Set());
 <div className="flex items-center justify-end gap-1">
                             {file.status !== "deleted" && file.status !== "deleting" && (
                               <>
+                                {file.contentType.startsWith("video/") && (
+                                  <button
+                                    onClick={() => handlePlay(file)}
+                                    disabled={isPlaying(file.id)}
+                                    className="p-2 rounded-lg hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-50 mr-2"
+                                    title="Play"
+                                    aria-label="Play video"
+                                  >
+                                    {isPlaying(file.id) ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Play className="w-4 h-4" />
+                                    )}
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => handleDownload(file.id)}
                                   disabled={isDownloading(file.id)}
@@ -483,6 +521,18 @@ setSelectedFileIds(new Set());
                   })}
                 </tbody>
               </table>
+              {playError ? (
+                <div className="mx-4 my-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center justify-between">
+                  <span className="text-red-400 text-sm">{playError}</span>
+                  <button
+                    onClick={() => setPlayError(null)}
+                    className="text-slate-400 hover:text-white"
+                    aria-label="Dismiss error"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -519,6 +569,32 @@ setSelectedFileIds(new Set());
             </div>
           )}
         </>
+      )}
+
+      {playingVideoUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+          onClick={() => setPlayingVideoUrl(null)}
+        >
+          <div
+            className="relative max-w-4xl w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setPlayingVideoUrl(null)}
+              className="absolute -top-10 right-0 p-2 text-white hover:text-slate-300"
+              aria-label="Close video"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <video
+              src={playingVideoUrl}
+              controls
+              autoPlay
+              className="w-full rounded-lg"
+            />
+          </div>
+        </div>
       )}
     </div>
   );
