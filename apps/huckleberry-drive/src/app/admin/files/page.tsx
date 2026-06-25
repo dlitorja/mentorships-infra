@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Search, X, Trash2, Download, Play } from "lucide-react";
 import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
@@ -32,6 +32,7 @@ export default function AdminFilesPage(): React.ReactElement {
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
+  const latestPlayRequestRef = useRef<string | null>(null);
 
   const isDownloading = (fileId: string) => downloadingIds.has(fileId);
   const isPlaying = (fileId: string) => playingIds.has(fileId);
@@ -39,11 +40,17 @@ export default function AdminFilesPage(): React.ReactElement {
   const handlePlay = useCallback(async (file: FileItem) => {
     if (!file.contentType.startsWith("video/")) return;
     setPlayError(null);
+
+    const requestId = `${Date.now()}-${file.id}`;
+    latestPlayRequestRef.current = requestId;
+
     setPlayingIds((prev) => new Set(prev).add(file.id));
     try {
       const url = await getStreamUrl(file.id);
+      if (latestPlayRequestRef.current !== requestId) return;
       setPlayingVideoUrl(url);
     } catch (error) {
+      if (latestPlayRequestRef.current !== requestId) return;
       console.error("Play failed:", error);
       setPlayError("Failed to load video. Please try again.");
     } finally {

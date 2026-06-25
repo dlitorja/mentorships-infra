@@ -59,8 +59,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const key = providedKey ?? upload.filename;
-    await fetchMutation(api.instructorUploads.softDeleteUpload, { id: fileId }, { token: convexToken });
     await abortMultipartUpload({ key, uploadId });
+    await fetchMutation(api.instructorUploads.softDeleteUpload, { id: fileId }, { token: convexToken });
 
     return NextResponse.json({
       success: true,

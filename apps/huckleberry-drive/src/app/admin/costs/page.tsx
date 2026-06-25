@@ -109,11 +109,10 @@ export default function CostsPage(): React.ReactElement {
   );
   const isPlaceholder = !hasData;
 
-  const totalB2Cost = (currentMonthData?.b2StorageCost ?? 0) +
-    (currentMonthData?.b2DownloadCost ?? 0) +
+  const b2StorageOnly = currentMonthData?.b2StorageCost ?? 0;
+  const b2DownloadsAndApi = (currentMonthData?.b2DownloadCost ?? 0) +
     (currentMonthData?.b2ApiCost ?? 0);
-  const totalS3Cost = (currentMonthData?.s3StorageCost ?? 0) +
-    (currentMonthData?.s3RetrievalCost ?? 0);
+  const s3StorageOnly = currentMonthData?.s3StorageCost ?? 0;
 
   return (
     <div className="space-y-8">
@@ -134,7 +133,7 @@ export default function CostsPage(): React.ReactElement {
 
       {isPlaceholder && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+          <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
           <div>
             <p className="text-amber-400 font-medium">Cost data not yet available</p>
             <p className="text-amber-200/70 text-sm mt-1">
@@ -154,21 +153,19 @@ export default function CostsPage(): React.ReactElement {
         />
         <SummaryCard
           title="B2 Cloud Storage"
-          value={formatCost(totalB2Cost)}
+          value={formatCost(b2StorageOnly)}
           icon={<Cloud className="w-5 h-5" />}
-          subValue={`Storage: ${formatCost(currentMonthData?.b2StorageCost ?? 0)}`}
         />
         <SummaryCard
           title="B2 Downloads & API"
-          value={formatCost((currentMonthData?.b2DownloadCost ?? 0) + (currentMonthData?.b2ApiCost ?? 0))}
+          value={formatCost(b2DownloadsAndApi)}
           icon={<Download className="w-5 h-5" />}
           subValue={`Downloads: ${formatCost(currentMonthData?.b2DownloadCost ?? 0)} | API: ${formatCost(currentMonthData?.b2ApiCost ?? 0)}`}
         />
         <SummaryCard
           title="S3 Storage"
-          value={formatCost(totalS3Cost)}
+          value={formatCost(s3StorageOnly)}
           icon={<Database className="w-5 h-5" />}
-          subValue={`Retrieval: ${formatCost(currentMonthData?.s3RetrievalCost ?? 0)}`}
         />
       </div>
 
