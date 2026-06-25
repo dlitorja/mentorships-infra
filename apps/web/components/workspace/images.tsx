@@ -6,9 +6,18 @@ import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Upload, Trash2, Image as ImageIcon, X, ZoomIn, Download, FileArchive } from 'lucide-react';
+import { Loader2, Upload, Trash2, Image as ImageIcon, X, ZoomIn, Download, FileArchive, FileText } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+type ExportFormat = 'zip' | 'pdf' | 'markdown';
 
 interface Image {
   _id: Id<'workspaceImages'>;
@@ -34,6 +43,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
 
   const { data: images, isLoading } = useWorkspaceImages(workspaceId);
   const { data: exports } = useWorkspaceExports(workspaceId);
@@ -55,18 +65,25 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   }, [latestExport]);
 
+  useEffect(() => {
+    setDownloadUrl(null);
+  }, [exportFormat]);
+
   const handleExport = async () => {
     setDownloadUrl(null);
     try {
       await createExport.mutateAsync({
         workspaceId,
         userId: currentUserId,
-        format: 'zip',
+        format: exportFormat,
       });
     } catch (error) {
       toast.error('Failed to create export. Please try again.');
     }
   };
+
+  const formatLabel = exportFormat === 'pdf' ? 'PDF' : exportFormat === 'markdown' ? 'Markdown' : 'ZIP';
+  const formatIcon = exportFormat === 'pdf' ? <FileText className="h-4 w-4" /> : exportFormat === 'markdown' ? <FileText className="h-4 w-4" /> : <FileArchive className="h-4 w-4" />;
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
@@ -140,22 +157,34 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             <Button variant="default" asChild>
               <a href={downloadUrl} download>
                 <Download className="h-4 w-4 mr-2" />
-                Download All
+                Download {formatLabel}
               </a>
             </Button>
           ) : (
-            <Button
-              variant="outline"
-              onClick={handleExport}
-              disabled={isProcessing || isPending || createExport.isPending}
-            >
-              {isProcessing || isPending || createExport.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <FileArchive className="h-4 w-4 mr-2" />
-              )}
-              {isProcessing ? 'Preparing...' : 'Download All'}
-            </Button>
+            <>
+              <Select value={exportFormat} onValueChange={(v: ExportFormat) => setExportFormat(v)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="Format" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="zip">ZIP</SelectItem>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="markdown">Markdown</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                onClick={handleExport}
+                disabled={isProcessing || isPending || createExport.isPending}
+              >
+                {isProcessing || isPending || createExport.isPending ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  formatIcon
+                )}
+                {isProcessing ? 'Preparing...' : `Export ${formatLabel}`}
+              </Button>
+            </>
           )}
           <div {...getRootProps()}>
             <input {...getInputProps()} />
