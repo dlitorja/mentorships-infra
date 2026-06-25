@@ -95,7 +95,7 @@ async function enrichWorkspaces(
   }));
 }
 
-/** List all workspaces with pagination, filtering by type. Returns enriched items with owner and instructor data. Requires admin auth. */
+/** List all workspaces with pagination, filtering by type. Returns enriched items with owner and instructor data. Requires admin auth. Excludes deleted workspaces. */
 export const getAllWorkspaces = query({
   args: {
     paginationOpts: v.any(),
@@ -123,7 +123,8 @@ export const getAllWorkspaces = query({
           .order("desc")
           .paginate(args.paginationOpts);
 
-    const enrichedPage = await enrichWorkspaces(ctx, result.page);
+    const filteredPage = result.page.filter((w) => !w.deletedAt);
+    const enrichedPage = await enrichWorkspaces(ctx, filteredPage);
 
     return {
       page: enrichedPage,
@@ -148,7 +149,7 @@ export const getWorkspaceByIdAdmin = query({
     }
 
     const workspace = await ctx.db.get(args.id);
-    if (!workspace) {
+    if (!workspace || workspace.deletedAt) {
       return null;
     }
 
@@ -221,6 +222,9 @@ export const createAdminStudentWorkspace = mutation({
 export const createAdminInstructorWorkspace = mutation({
   args: {
     instructorId: v.id("instructors"),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -248,12 +252,14 @@ export const createAdminInstructorWorkspace = mutation({
       return existingWorkspace;
     }
 
+    const defaultName = "Admin Communication - Instructor";
+
     const workspaceId = await ctx.db.insert("workspaces", {
-      name: "Admin Communication - Instructor",
-      description: "Private workspace for admin-instructor communication",
+      name: args.name ?? defaultName,
+      description: args.description ?? "Private workspace for admin-instructor communication",
       ownerId: user.subject,
       instructorId: args.instructorId,
-      isPublic: false,
+      isPublic: args.isPublic ?? false,
       studentImageCount: 0,
       instructorImageCount: 0,
       type: "admin_instructor",
