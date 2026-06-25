@@ -914,7 +914,7 @@ export const getImagesNeedingMigration = query({
   },
 });
 
-const migrateWorkspaceImageInternal = internalMutation({
+export const migrateWorkspaceImageInternal = internalMutation({
   args: {
     imageId: v.id("workspaceImages"),
     storageId: v.string(),
