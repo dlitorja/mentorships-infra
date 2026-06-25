@@ -229,37 +229,20 @@ export const getHdInvitationStats = query({
   },
 });
 
-export const deleteHdInvitation = mutation({
-  args: {
-    invitationId: v.id("hdInvitations"),
-  },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    await requireAdminUser(ctx, identity.subject);
-
-    const invitation = await ctx.db.get(args.invitationId);
-    if (!invitation) {
-      throw new Error("Invitation not found");
-    }
-
-    if (invitation.status === "pending") {
-      throw new Error("Cannot delete pending invitations. Cancel them first.");
-    }
-
-    await ctx.db.delete(args.invitationId);
-
-    return { success: true };
-  },
-});
 export const getPendingInvitationsByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-await requireAdminUser(ctx, identity.subject);
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser.role !== "admin") {
+      throw new Error("Admin access required");
+    }
 
     const invitations = await ctx.db
       .query("hdInvitations")
@@ -277,65 +260,24 @@ await requireAdminUser(ctx, identity.subject);
   },
 });
 
-export const acceptHdInvitationByEmail = internalMutation({
+export const deleteHdInvitation = mutation({
   args: {
-    email: v.string(),
-    clerkUserId: v.string(),
+    invitationId: v.id("hdInvitations"),
   },
   handler: async (ctx, args) => {
-    const invitations = await ctx.db
-      .query("hdInvitations")
-      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
-      .collect();
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-    const pending = invitations.find(
-      (inv) => inv.status === "pending" && inv.expiresAt > Date.now()
-    );
+    await requireAdminUser(ctx, identity.subject);
 
-    if (!pending) {
-      return null;
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
     }
 
-    await ctx.db.patch(pending._id, {
-      status: "accepted",
-      updatedAt: Date.now(),
-    });
+    await ctx.db.delete(args.invitationId);
 
-    return {
-      invitationId: pending._id,
-      role: pending.role,
-      email: pending.email,
-    };
-  },
-});
-
-export const getPendingInvitationByEmail = internalQuery({
-  args: { email: v.string() },
-  handler: async (ctx, args) => {
-    const invitations = await ctx.db
-      .query("hdInvitations")
-      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
-      .collect();
-
-    return invitations
-      .filter((inv) => inv.status === "pending")
-      .map((inv) => ({
-        id: inv._id,
-        clerkInvitationId: inv.clerkInvitationId,
-        role: inv.role,
-        expiresAt: inv.expiresAt,
-      }));
-  },
-});
-
-export const markInvitationAccepted = internalMutation({
-  args: { invitationId: v.id("hdInvitations") },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.invitationId, {
-      status: "accepted",
-      updatedAt: Date.now(),
-    });
-    return args.invitationId;
+    return { success: true };
   },
 });
 
@@ -347,80 +289,57 @@ export const acceptHdInvitationFromClerk = action({
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ success: boolean; reason?: string; invitationId?: string; role?: string }> => {
-    const CONVEX_WEBHOOK_SECRET = process.env.CONVEX_WEBHOOK_SECRET;
-    if (!CONVEX_WEBHOOK_SECRET || args.webhookSecret !== CONVEX_WEBHOOK_SECRET) {
+  handler: async (ctx, args) => {
+    const expectedSecret = process.env.CONVEX_WEBHOOK_SECRET;
+    if (!expectedSecret || args.webhookSecret !== expectedSecret) {
       return { success: false, reason: "unauthorized" };
     }
 
-    const invitations = await ctx.runQuery(
-      internal.hdInvitations.getPendingInvitationByEmail,
-      { email: args.email }
-    );
+    const emailLower = args.email.toLowerCase().trim();
 
-    const pending = invitations.find(
-      (inv) => inv.expiresAt > Date.now()
-    );
+    const invitation = await ctx.runQuery(internal.hdInvitations.getPendingInvitationByEmailInternal, {
+      email: emailLower,
+    });
 
-    if (!pending) {
+    if (!invitation) {
       return { success: false, reason: "no_pending_invitation" };
     }
 
-    const existingUser = await ctx.runQuery(
-      internal.users.getUserByClerkId,
-      { userId: args.clerkUserId }
-    );
-
-    const roleToSet = pending.role;
-
-    if (existingUser) {
-      await ctx.runMutation(internal.users.setUserRoleTrusted, {
-        userId: args.clerkUserId,
-        role: roleToSet,
-      });
-    } else {
-      await ctx.runMutation(internal.users.createUserFromClerk, {
-        userId: args.clerkUserId,
-        email: args.email,
-        clerkId: args.clerkUserId,
-        role: roleToSet,
-        firstName: args.firstName,
-        lastName: args.lastName,
-      });
-    }
-
-    if (roleToSet === "instructor") {
-      const existingInstructor = await ctx.runQuery(
-        internal.instructors.getInstructorByUserIdInternal,
-        { userId: args.clerkUserId }
-      );
-      if (!existingInstructor) {
-        const name = [args.firstName, args.lastName].filter(Boolean).join(" ") || undefined;
-        await ctx.runMutation(internal.instructors.createInstructorInternal, {
-          userId: args.clerkUserId,
-          name,
-          email: args.email,
-          isActive: true,
-          isNew: true,
-        });
-      }
-    }
-
     await ctx.runMutation(internal.hdInvitations.markInvitationAccepted, {
-      invitationId: pending.id,
+      invitationId: invitation._id,
+      clerkUserId: args.clerkUserId,
     });
 
-    return {
-      success: true,
-      invitationId: pending.id,
-      role: roleToSet,
-    };
+    return { success: true };
   },
 });
 
-export const httpAcceptHdInvitation = httpAction(async (ctx, request) => {
-  return new Response(JSON.stringify({ error: "Not implemented - use acceptHdInvitationFromClerk action" }), {
-    status: 501,
-    headers: { "Content-Type": "application/json" },
-  });
+export const getPendingInvitationByEmailInternal = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const invitation = await ctx.db
+      .query("hdInvitations")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .first();
+
+    if (!invitation || invitation.status !== "pending") {
+      return null;
+    }
+
+    return invitation;
+  },
+});
+
+export const markInvitationAccepted = internalMutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.invitationId, {
+      status: "accepted",
+      clerkInvitationId: args.clerkUserId,
+      updatedAt: Date.now(),
+    });
+  },
 });

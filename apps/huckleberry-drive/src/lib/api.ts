@@ -275,6 +275,7 @@ export async function deleteHdInvitation(invitationId: string): Promise<{ succes
     body: JSON.stringify({ invitationId }),
   });
 }
+
 export interface AdminUser {
   _id: string;
   userId: string;

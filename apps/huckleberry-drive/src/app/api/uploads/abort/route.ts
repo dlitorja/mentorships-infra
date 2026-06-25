@@ -29,10 +29,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const dbUser = await requireInstructor() as User;
     const { getToken } = await auth();
-    const convexToken = await getToken({ template: "convex" });
-    if (!convexToken) {
-      return NextResponse.json({ error: "Failed to get authentication token" }, { status: 401 });
-    }
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
     const body = await request.json();
 
     const parsed = abortSchema.safeParse(body);
@@ -60,6 +57,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const key = providedKey ?? upload.filename;
     await abortMultipartUpload({ key, uploadId });
+
     await fetchMutation(api.instructorUploads.softDeleteUpload, { id: fileId }, { token: convexToken });
 
     return NextResponse.json({

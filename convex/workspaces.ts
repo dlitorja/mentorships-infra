@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -883,5 +883,87 @@ export const deleteAllWorkspaceContent = mutation({
     });
 
     return { deleted: { notes: notes.length, links: links.length, images: images.length, messages: messages.length } };
+  },
+});
+
+export const getImagesNeedingMigration = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized: authentication required");
+    }
+    const isAdminUser = await isAdmin(ctx, user.subject);
+    if (!isAdminUser) {
+      throw new Error("Unauthorized: admin access required");
+    }
+
+    const images = await ctx.db.query("workspaceImages").collect();
+    return images.filter((img) => {
+      if (img.storageId) return false;
+      if (!img.imageUrl) return false;
+      return img.imageUrl.startsWith("data:");
+    }).map((img) => ({
+      _id: img._id,
+      workspaceId: img.workspaceId,
+      imageUrl: img.imageUrl,
+      createdBy: img.createdBy,
+    }));
+  },
+});
+
+export const migrateWorkspaceImage = action({
+  args: { imageId: v.id("workspaceImages") },
+  handler: async (ctx: any, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    const isAdminUser = await isAdmin(ctx, user.subject);
+    if (!isAdminUser) {
+      throw new Error("Admin access required");
+    }
+
+    const image = await ctx.db.get(args.imageId);
+    if (!image) {
+      throw new Error("Image not found");
+    }
+
+    if (image.storageId) {
+      return { success: true, reason: "already_migrated" };
+    }
+
+    if (!image.imageUrl || !image.imageUrl.startsWith("data:")) {
+      return { success: false, reason: "not_base64" };
+    }
+
+    const matches = image.imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+      return { success: false, reason: "invalid_data_url" };
+    }
+
+    const mimeType = matches[1];
+    const base64Data = matches[2];
+    const binaryData = Buffer.from(base64Data, "base64");
+
+    const uploadUrl = await ctx.storage.generateUploadUrl();
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      headers: { "Content-Type": mimeType },
+      body: binaryData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed: ${response.statusText}`);
+    }
+
+    const { storageId } = await response.json() as { storageId: string };
+
+    await ctx.db.patch(args.imageId, {
+      storageId,
+      imageUrl: "",
+    });
+
+    return { success: true, storageId };
   },
 });
