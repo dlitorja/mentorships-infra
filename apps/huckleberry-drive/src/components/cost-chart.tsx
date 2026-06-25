@@ -129,7 +129,7 @@ export function CostChart({ costs }: CostChartProps): React.ReactElement {
           <div className="flex justify-between items-center">
             <span className="text-slate-400">Total (current month)</span>
             <span className="text-xl font-bold text-emerald-400">
-              ${(data[data.length - 1].total || 0).toFixed(2)}
+              ${(data[0]?.total || 0).toFixed(2)}
             </span>
           </div>
         </div>
