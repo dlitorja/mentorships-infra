@@ -280,3 +280,66 @@ export const deleteHdInvitation = mutation({
     return { success: true };
   },
 });
+
+export const acceptHdInvitationFromClerk = action({
+  args: {
+    email: v.string(),
+    clerkUserId: v.string(),
+    webhookSecret: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const expectedSecret = process.env.CONVEX_WEBHOOK_SECRET;
+    if (!expectedSecret || args.webhookSecret !== expectedSecret) {
+      return { success: false, reason: "unauthorized" };
+    }
+
+    const emailLower = args.email.toLowerCase().trim();
+
+    const invitation = await ctx.runQuery(internal.hdInvitations.getPendingInvitationByEmailInternal, {
+      email: emailLower,
+    });
+
+    if (!invitation) {
+      return { success: false, reason: "no_pending_invitation" };
+    }
+
+    await ctx.runMutation(internal.hdInvitations.markInvitationAccepted, {
+      invitationId: invitation._id,
+      clerkUserId: args.clerkUserId,
+    });
+
+    return { success: true };
+  },
+});
+
+export const getPendingInvitationByEmailInternal = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    const invitation = await ctx.db
+      .query("hdInvitations")
+      .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
+      .first();
+
+    if (!invitation || invitation.status !== "pending") {
+      return null;
+    }
+
+    return invitation;
+  },
+});
+
+export const markInvitationAccepted = internalMutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.invitationId, {
+      status: "accepted",
+      clerkInvitationId: args.clerkUserId,
+      updatedAt: Date.now(),
+    });
+  },
+});
