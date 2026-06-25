@@ -1,5 +1,6 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
+import { Id } from "../_generated/dataModel";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 const dayMs = 24 * 60 * 60 * 1000;
@@ -117,6 +118,24 @@ export const getWorkspaceExportData = query({
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .collect();
 
+    const imagesWithUrls = await Promise.all(
+      images.map(async (img) => {
+        let imageUrl = img.imageUrl;
+        if (img.storageId) {
+          const url = await ctx.storage.getUrl(img.storageId as Id<"_storage">);
+          if (url) {
+            imageUrl = url;
+          }
+        }
+        return {
+          imageUrl,
+          storageId: img.storageId,
+          createdBy: img.createdBy,
+          createdAt: img._creationTime,
+        };
+      })
+    );
+
     return {
       workspaceName: workspace.name || "Workspace",
       notes: notes.map((n) => ({
@@ -124,12 +143,7 @@ export const getWorkspaceExportData = query({
         content: n.content,
         updatedAt: n.updatedAt,
       })),
-      images: images.map((img) => ({
-        imageUrl: img.imageUrl,
-        storageId: img.storageId,
-        createdBy: img.createdBy,
-        createdAt: img._creationTime,
-      })),
+      images: imagesWithUrls,
     };
   },
 });

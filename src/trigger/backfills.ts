@@ -133,14 +133,33 @@ export const migrateWorkspaceImagesToStorage = task({
       throw new Error("Convex not configured");
     }
 
-    const imagesResult = await callConvexQuery("workspaces.getImagesNeedingMigration", {}) as {
-      _id: string;
-      workspaceId: string;
-      imageUrl: string;
-      createdBy: string;
-    }[];
+    const queryResponse = await fetch(
+      `${CONVEX_DEPLOYMENT_URL}/api/workspaces/getImagesNeedingMigration`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${CONVEX_HTTP_KEY}`,
+        },
+      }
+    );
 
-    if (!imagesResult || imagesResult.length === 0) {
+    if (!queryResponse.ok) {
+      const text = await queryResponse.text();
+      throw new Error(`Query failed: ${queryResponse.status} ${text}`);
+    }
+
+    const queryResult = await queryResponse.json() as {
+      value: Array<{
+        _id: string;
+        workspaceId: string;
+        imageUrl: string;
+        createdBy: string;
+      }>;
+    };
+
+    const imagesResult = queryResult.value || [];
+
+    if (imagesResult.length === 0) {
       logger.info("No images need migration");
       return { ok: true, migrated: 0, skipped: 0 };
     }
@@ -151,9 +170,24 @@ export const migrateWorkspaceImagesToStorage = task({
 
     for (const img of imagesResult) {
       try {
-        const result = await callConvexAction("workspaces.migrateWorkspaceImage", {
-          imageId: img._id,
-        }) as { success: boolean; reason?: string };
+        const actionResponse = await fetch(
+          `${CONVEX_DEPLOYMENT_URL}/api/workspaces/migrateWorkspaceImage`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${CONVEX_HTTP_KEY}`,
+            },
+            body: JSON.stringify({ imageId: img._id }),
+          }
+        );
+
+        if (!actionResponse.ok) {
+          const text = await actionResponse.text();
+          throw new Error(`Action failed: ${actionResponse.status} ${text}`);
+        }
+
+        const result = await actionResponse.json() as { success: boolean; reason?: string };
 
         if (result.success) {
           if (result.reason === "already_migrated") {
