@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation, action, internalAction, QueryCtx, MutationCtx } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery, action, internalAction, QueryCtx, MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
@@ -998,6 +998,6 @@ export const isAdminQuery = internalQuery({
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
-    return user?.role === "admin" ?? false;
+    return (user?.role ?? "") === "admin";
   },
 });
