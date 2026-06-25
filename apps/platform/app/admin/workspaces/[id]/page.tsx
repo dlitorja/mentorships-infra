@@ -125,7 +125,7 @@ export default function WorkspaceDetailPage({ params }: { params: Promise<{ id: 
     <div className="container mx-auto py-8">
       <div className="flex items-center gap-4 mb-6">
         <Button variant="ghost" size="sm" asChild>
-          <Link href="/admin/workspaces">
+          <Link href="/admin/workspaces" aria-label="Back to workspaces">
             <ArrowLeft className="h-4 w-4" />
           </Link>
         </Button>

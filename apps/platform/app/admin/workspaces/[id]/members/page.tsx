@@ -67,7 +67,7 @@ async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
 
 async function updateWorkspaceMember(
   workspaceId: string,
-  data: { newOwnerId?: string; newInstructorId?: string }
+  data: { newOwnerId?: string; newInstructorId?: string | null }
 ) {
   const response = await fetch(`/api/admin/workspaces/${workspaceId}/members`, {
     method: "PATCH",
@@ -100,7 +100,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
   const { data: studentsData, isLoading: loadingStudents } = useQuery({
     queryKey: ["admin-students-search", debouncedOwnerSearch],
     queryFn: () => fetchStudents(debouncedOwnerSearch),
-    enabled: ownerSearch.length > 0,
+    enabled: debouncedOwnerSearch.length > 0,
   });
 
   const { data: instructorsData } = useQuery({
@@ -109,7 +109,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
   });
 
   const updateMutation = useMutation({
-    mutationFn: (data: { newOwnerId?: string; newInstructorId?: string }) =>
+    mutationFn: (data: { newOwnerId?: string; newInstructorId?: string | null }) =>
       updateWorkspaceMember(workspaceId, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-workspace", workspaceId] });
@@ -127,9 +127,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
   };
 
   const handleSaveInstructor = () => {
-    if (selectedNewInstructorId) {
-      updateMutation.mutate({ newInstructorId: selectedNewInstructorId });
-    }
+    updateMutation.mutate({ newInstructorId: selectedNewInstructorId });
   };
 
   if (isLoading) {
@@ -209,9 +207,10 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
                 {studentsData?.items && ownerSearch && (
                   <div className="max-h-48 overflow-y-auto border rounded-lg">
                     {studentsData.items.map((student) => (
-                      <div
+                      <button
                         key={student.userId}
-                        className={`p-3 cursor-pointer hover:bg-muted ${
+                        type="button"
+                        className={`w-full text-left p-3 cursor-pointer hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring ${
                           selectedNewOwnerId === student.userId ? "bg-primary/10" : ""
                         }`}
                         onClick={() => setSelectedNewOwnerId(student.userId)}
@@ -222,7 +221,7 @@ export default function WorkspaceMembersPage({ params }: { params: Promise<{ id:
                         <div className="text-sm text-muted-foreground">
                           {student.email}
                         </div>
-                      </div>
+                      </button>
                     ))}
                     {studentsData.items.length === 0 && (
                       <div className="p-3 text-center text-muted-foreground text-sm">

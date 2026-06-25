@@ -17,13 +17,12 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
-const updateOwnerBodySchema = z.object({
-  newOwnerId: z.string().min(1, "Owner ID is required"),
-}).strict();
-
-const updateInstructorBodySchema = z.object({
-  newInstructorId: convexIdSchema,
-}).strict();
+const memberUpdateBodySchema = z.object({
+  newOwnerId: z.string().min(1, "Owner ID is required").optional(),
+  newInstructorId: z.union([convexIdSchema, z.null()]).optional(),
+}).refine((data) => data.newOwnerId !== undefined || data.newInstructorId !== undefined, {
+  message: "Must provide newOwnerId or newInstructorId",
+});
 
 /**
  * PATCH /api/admin/workspaces/[id]/members
@@ -46,41 +45,46 @@ export async function PATCH(
       );
     }
 
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
+    }
+
+    const parsedBody = memberUpdateBodySchema.safeParse(body);
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        { error: "Invalid request body", details: parsedBody.error.issues },
+        { status: 400 }
+      );
+    }
+
     const validatedId = parsedParams.data.id as Id<"workspaces">;
     const convex = getConvexClient();
 
-    if (body.newOwnerId !== undefined) {
-      const parsedBody = updateOwnerBodySchema.safeParse(body);
-      if (!parsedBody.success) {
-        return NextResponse.json(
-          { error: "Invalid request body", details: parsedBody.error.issues },
-          { status: 400 }
-        );
-      }
-
+    if (parsedBody.data.newOwnerId !== undefined) {
       const result = await convex.mutation(api.adminWorkspaces.updateWorkspaceOwner, {
         workspaceId: validatedId,
         newOwnerId: parsedBody.data.newOwnerId,
       });
-
       return NextResponse.json(result);
     }
 
-    if (body.newInstructorId !== undefined) {
-      const parsedBody = updateInstructorBodySchema.safeParse(body);
-      if (!parsedBody.success) {
-        return NextResponse.json(
-          { error: "Invalid request body", details: parsedBody.error.issues },
-          { status: 400 }
-        );
+    if (parsedBody.data.newInstructorId !== undefined) {
+      if (parsedBody.data.newInstructorId === null) {
+        const result = await convex.mutation(api.adminWorkspaces.clearWorkspaceInstructor, {
+          workspaceId: validatedId,
+        });
+        return NextResponse.json(result);
       }
-
       const result = await convex.mutation(api.adminWorkspaces.updateWorkspaceInstructor, {
         workspaceId: validatedId,
         newInstructorId: parsedBody.data.newInstructorId as Id<"instructors">,
       });
-
       return NextResponse.json(result);
     }
 

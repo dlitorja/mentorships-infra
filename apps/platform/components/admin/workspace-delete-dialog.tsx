@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -29,6 +30,7 @@ export function WorkspaceDeleteDialog({
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -45,6 +47,7 @@ export function WorkspaceDeleteDialog({
       }
 
       setOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["admin-workspaces"] });
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete workspace");
@@ -57,7 +60,7 @@ export function WorkspaceDeleteDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {trigger || (
-          <Button variant="ghost" size="sm">
+          <Button variant="ghost" size="sm" aria-label="Delete workspace">
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
         )}

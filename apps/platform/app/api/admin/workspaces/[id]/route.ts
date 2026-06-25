@@ -191,7 +191,16 @@ export async function PATCH(
       );
     }
 
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
+    }
+
     const parsedBody = updateWorkspaceBodySchema.safeParse(body);
     if (!parsedBody.success) {
       return NextResponse.json(

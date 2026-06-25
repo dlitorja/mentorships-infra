@@ -63,6 +63,7 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
   const [description, setDescription] = React.useState("");
   const [isPublic, setIsPublic] = React.useState(false);
   const [isSaved, setIsSaved] = React.useState(false);
+  const [nameError, setNameError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (workspace) {
@@ -83,6 +84,12 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setNameError("Workspace name is required");
+      return;
+    }
+    setNameError(null);
     updateMutation.mutate();
   };
 
@@ -134,9 +141,15 @@ export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id
               <Input
                 id="name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) setNameError(null);
+                }}
                 placeholder="Workspace name"
               />
+              {nameError && (
+                <p className="text-sm text-destructive">{nameError}</p>
+              )}
             </div>
 
             <div className="space-y-2">

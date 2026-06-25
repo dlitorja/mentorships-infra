@@ -137,9 +137,12 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const handleCreate = () => {
     if (!selectedUserId) return;
 
+    const trimmedName = customName.trim() || undefined;
+    const trimmedDescription = customDescription.trim() || undefined;
+
     const workspaceData = {
-      name: customName || undefined,
-      description: customDescription || undefined,
+      name: trimmedName,
+      description: trimmedDescription,
       isPublic: customIsPublic || undefined,
     };
 
@@ -293,7 +296,7 @@ const items = workspaceType === "admin_student"
 
             <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
               <div>
-                <div className="text-sm font-medium">Visibility</div>
+                <div className="text-sm font-medium" id="visibility-label">Visibility</div>
                 <div className="text-sm text-muted-foreground">
                   {customIsPublic ? "Public - visible with link" : "Private - admin and user only"}
                 </div>
@@ -301,6 +304,7 @@ const items = workspaceType === "admin_student"
               <Switch
                 checked={customIsPublic}
                 onCheckedChange={setCustomIsPublic}
+                aria-labelledby="visibility-label"
               />
             </div>
 

@@ -522,3 +522,39 @@ export const updateWorkspaceInstructor = mutation({
     return await ctx.db.get(args.workspaceId);
   },
 });
+
+/** Clears the instructor associated with a workspace. Requires admin auth. Logs audit event. */
+export const clearWorkspaceInstructor = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    if (!isUserAdmin) {
+      throw new Error("Admin access required");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const oldInstructorId = workspace.instructorId;
+    await ctx.db.patch(args.workspaceId, { instructorId: undefined });
+
+    await logWorkspaceAudit(
+      ctx,
+      args.workspaceId,
+      user.subject,
+      "transfer_workspace_ownership",
+      `Cleared instructor (was: ${oldInstructorId || "none"})`
+    );
+
+    return await ctx.db.get(args.workspaceId);
+  },
+});
