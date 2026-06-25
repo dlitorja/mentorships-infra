@@ -27,15 +27,20 @@ export function CostChart({ costs }: CostChartProps): React.ReactElement {
 
   const data = costs.map((cost) => ({
     month: formatMonth(cost.month),
-    "B2 Storage": cost.b2StorageCost / 100,
-    "B2 Downloads": cost.b2DownloadCost / 100,
-    "B2 API": cost.b2ApiCost / 100,
-    "S3 Storage": cost.s3StorageCost / 100,
-    "S3 Retrieval": cost.s3RetrievalCost / 100,
-    total: cost.totalCost / 100,
+    "B2 Storage": (cost.b2StorageCost || 0) / 100,
+    "B2 Downloads": (cost.b2DownloadCost || 0) / 100,
+    "B2 API": (cost.b2ApiCost || 0) / 100,
+    "S3 Storage": (cost.s3StorageCost || 0) / 100,
+    "S3 Retrieval": (cost.s3RetrievalCost || 0) / 100,
+    total: (cost.totalCost || 0) / 100,
   }));
 
-  if (data.length === 0) {
+  const hasAnyData = data.some(d => 
+    d["B2 Storage"] > 0 || d["B2 Downloads"] > 0 || d["B2 API"] > 0 ||
+    d["S3 Storage"] > 0 || d["S3 Retrieval"] > 0
+  );
+
+  if (data.length === 0 || !hasAnyData) {
     return (
       <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-6">
         <div className="flex items-center gap-3 mb-4">
@@ -43,7 +48,8 @@ export function CostChart({ costs }: CostChartProps): React.ReactElement {
           <h3 className="font-semibold text-slate-200">Monthly Costs</h3>
         </div>
         <div className="text-center py-12 text-slate-500">
-          <p>No cost data available</p>
+          <p>No cost data recorded yet</p>
+          <p className="text-sm mt-1">Costs will appear here once billing data is available</p>
         </div>
       </div>
     );
@@ -123,7 +129,7 @@ export function CostChart({ costs }: CostChartProps): React.ReactElement {
           <div className="flex justify-between items-center">
             <span className="text-slate-400">Total (current month)</span>
             <span className="text-xl font-bold text-emerald-400">
-              ${data[data.length - 1].total.toFixed(2)}
+              ${(data[data.length - 1].total || 0).toFixed(2)}
             </span>
           </div>
         </div>
