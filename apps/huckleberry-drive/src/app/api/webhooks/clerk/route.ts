@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
+import type { WebhookEvent } from "@clerk/nextjs/webhooks";
 import { fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   console.log("[webhook/clerk] Webhook secret found, attempting verification");
 
-  let evt;
+  let evt: WebhookEvent;
   try {
     evt = await verifyWebhook(req);
     console.log("[webhook/clerk] Webhook verified successfully, type:", evt.type);

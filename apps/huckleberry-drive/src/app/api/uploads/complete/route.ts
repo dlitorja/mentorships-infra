@@ -33,7 +33,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const dbUser = await requireInstructor() as User;
     const { getToken } = await auth();
-    const convexToken = await getToken({ template: "convex" }) ?? undefined;
+    const convexToken = await getToken({ template: "convex" });
+    if (!convexToken) {
+      return NextResponse.json({ error: "Failed to get authentication token" }, { status: 401 });
+    }
     const body = await request.json();
 
     const parsed = completeSchema.safeParse(body);
@@ -85,7 +88,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await fetchMutation(api.instructorUploads.completeUpload, { 
       id: fileId, 
       b2FileId: result.versionId || result.etag.replace(/"/g, ""),
-    });
+    }, { token: convexToken });
 
     return NextResponse.json({
       success: true,
