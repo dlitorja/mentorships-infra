@@ -1,4 +1,5 @@
-import { query, mutation, action } from "./_generated/server";
+import { query, mutation, internalMutation, action, internalAction, QueryCtx, MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -559,7 +560,7 @@ export const getWorkspaceExportData = query({
     const imagesWithUrls = await Promise.all(
       images.map(async (img) => {
         let imageUrl = img.imageUrl;
-        if (img.storageId) {
+        if (img.storageId && !imageUrl) {
           const url = await ctx.storage.getUrl(img.storageId as Id<"_storage">);
           if (url) {
             imageUrl = url;
@@ -567,6 +568,7 @@ export const getWorkspaceExportData = query({
         }
         return {
           imageUrl,
+          storageId: img.storageId,
           createdBy: img.createdBy,
           createdAt: img._creationTime,
         };
@@ -912,19 +914,33 @@ export const getImagesNeedingMigration = query({
   },
 });
 
+const migrateWorkspaceImageInternal = internalMutation({
+  args: {
+    imageId: v.id("workspaceImages"),
+    storageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.imageId, {
+      storageId: args.storageId,
+      imageUrl: "",
+    });
+  },
+});
+
 export const migrateWorkspaceImage = action({
   args: { imageId: v.id("workspaceImages") },
-  handler: async (ctx: any, args) => {
+  handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       throw new Error("Unauthorized");
     }
-    const isAdminUser = await isAdmin(ctx, user.subject);
+
+    const isAdminUser = await ctx.runQuery(internal.workspaces.isAdminQuery, { userId: user.subject });
     if (!isAdminUser) {
       throw new Error("Admin access required");
     }
 
-    const image = await ctx.db.get(args.imageId);
+    const image = await ctx.runQuery(internal.workspaces.getWorkspaceImage, { imageId: args.imageId });
     if (!image) {
       throw new Error("Image not found");
     }
@@ -959,11 +975,29 @@ export const migrateWorkspaceImage = action({
 
     const { storageId } = await response.json() as { storageId: string };
 
-    await ctx.db.patch(args.imageId, {
+    await ctx.runMutation(internal.workspaces.migrateWorkspaceImageInternal, {
+      imageId: args.imageId,
       storageId,
-      imageUrl: "",
     });
 
     return { success: true, storageId };
+  },
+});
+
+export const getWorkspaceImage = internalQuery({
+  args: { imageId: v.id("workspaceImages") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.imageId);
+  },
+});
+
+export const isAdminQuery = internalQuery({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+    return user?.role === "admin" ?? false;
   },
 });
