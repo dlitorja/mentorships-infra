@@ -32,7 +32,7 @@ export function StorageUsage({
         <HardDrive className="w-5 h-5 text-emerald-500" />
         <h3 className="font-semibold text-slate-200">Storage Usage</h3>
         <span className="text-sm text-slate-500 ml-auto">
-          {fileCount} files{instructorCount !== undefined && ` across ${instructorCount} instructors`}
+          {fileCount} file{fileCount !== 1 ? "s" : ""}{instructorCount !== undefined && ` across ${instructorCount} instructor${instructorCount !== 1 ? "s" : ""}`}
         </span>
       </div>
 
@@ -50,10 +50,7 @@ export function StorageUsage({
 
         <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
           {isUnlimited ? (
-            <div
-              className="h-full bg-emerald-500 transition-all duration-500"
-              style={{ width: "45%" }}
-            />
+            <div className="h-full bg-slate-600 w-full" />
           ) : (
             <div
               className={`h-full transition-all duration-500 ${

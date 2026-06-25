@@ -1,5 +1,34 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    const allCosts = await ctx.db.query("monthlyStorageCosts").collect();
+    
+    const sorted = allCosts.sort((a, b) => b.month.localeCompare(a.month));
+    
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentRecord = sorted.find((c) => c.month === currentMonth);
+    
+    return {
+      currentMonth: currentRecord ?? {
+        month: currentMonth,
+        b2StorageCost: 0,
+        b2DownloadCost: 0,
+        b2ApiCost: 0,
+        s3StorageCost: 0,
+        s3RetrievalCost: 0,
+        totalCost: 0,
+        alertSent: false,
+        alertThreshold: 5000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      historical: sorted.filter((c) => c.month !== currentMonth),
+    };
+  },
+});
 
 /**
  * Migrates monthly storage cost data from billing system.

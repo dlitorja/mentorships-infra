@@ -1,56 +1,41 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { formatCost } from "@mentorships/storage";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
+import type { CostData, CostResponse } from "@/lib/api";
 
-export async function GET(_request: NextRequest): Promise<NextResponse> {
+export async function GET(): Promise<NextResponse> {
   try {
     await requireAdmin();
 
-    // TODO: Implement Convex queries for cost data
-    // For now, return empty data to avoid SQL dependency
-    const recentCosts: Array<{ month: string; totalCost: number }> = [];
+    const costData = await fetchQuery(api.monthlyStorageCosts.list, {});
 
-    const currentMonth = new Date().toISOString().slice(0, 7);
-
-    // Placeholder current cost calculation - B2 only
-    const estimatedCurrent = {
-      month: currentMonth,
-      b2StorageCost: 0,
-      b2DownloadCost: 0,
-      b2ApiCost: 0,
-      totalCost: 0,
-      alertSent: false,
-      alertThreshold: 5000,
+    const currentMonth: CostData = {
+      month: costData.currentMonth.month,
+      b2StorageCost: costData.currentMonth.b2StorageCost ?? 0,
+      b2DownloadCost: costData.currentMonth.b2DownloadCost ?? 0,
+      b2ApiCost: costData.currentMonth.b2ApiCost ?? 0,
+      s3StorageCost: costData.currentMonth.s3StorageCost ?? 0,
+      s3RetrievalCost: costData.currentMonth.s3RetrievalCost ?? 0,
+      totalCost: costData.currentMonth.totalCost ?? 0,
     };
 
-    const currentCost = estimatedCurrent;
+    const historical: CostData[] = costData.historical.map((record) => ({
+      month: record.month,
+      b2StorageCost: record.b2StorageCost ?? 0,
+      b2DownloadCost: record.b2DownloadCost ?? 0,
+      b2ApiCost: record.b2ApiCost ?? 0,
+      s3StorageCost: record.s3StorageCost ?? 0,
+      s3RetrievalCost: record.s3RetrievalCost ?? 0,
+      totalCost: record.totalCost ?? 0,
+    }));
 
-    // TODO: Implement Convex query for months over threshold
-    const monthsOverThreshold: Array<{ month: string; totalCost: number; alertThreshold: number }> = [];
-
-    const summary = {
-      currentMonth: {
-        month: currentCost.month,
-        b2Storage: formatCost(currentCost.b2StorageCost),
-        b2Download: formatCost(currentCost.b2DownloadCost),
-        b2Api: formatCost(currentCost.b2ApiCost),
-        total: formatCost(currentCost.totalCost),
-        alertThreshold: formatCost(currentCost.alertThreshold),
-        isOverThreshold: currentCost.totalCost > currentCost.alertThreshold,
-      },
-      historical: recentCosts.map((cost) => ({
-        month: cost.month,
-        total: formatCost(cost.totalCost),
-        totalCents: cost.totalCost,
-      })),
-      alerts: monthsOverThreshold.map((cost) => ({
-        month: cost.month,
-        total: formatCost(cost.totalCost),
-        threshold: formatCost(cost.alertThreshold),
-      })),
+    const response: CostResponse = {
+      currentMonth,
+      historical,
     };
 
-    return NextResponse.json(summary);
+    return NextResponse.json(response);
   } catch (error) {
     console.error("Costs error:", error);
 
@@ -62,7 +47,7 @@ export async function GET(_request: NextRequest): Promise<NextResponse> {
     }
 
     if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
