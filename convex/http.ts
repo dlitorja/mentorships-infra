@@ -850,7 +850,7 @@ const httpMigrateWorkspaceImage = httpAction(async (ctx, request) => {
   }
 
   try {
-    const result = await ctx.runMutation(api.workspaces.migrateWorkspaceImage, { imageId });
+    const result = await ctx.runAction(api.workspaces.migrateWorkspaceImage, { imageId: imageId as any });
     return new Response(JSON.stringify(result), {
       headers: { "Content-Type": "application/json" },
     });
