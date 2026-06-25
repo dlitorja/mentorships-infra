@@ -4,6 +4,54 @@ import {
   sql,
 } from "../../packages/db/src/schema";
 
+const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
+const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
+
+async function callConvexAction(actionPath: string, args: Record<string, unknown>): Promise<unknown> {
+  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+    throw new Error("Convex deployment URL or HTTP key not configured");
+  }
+
+  const response = await fetch(`${CONVEX_DEPLOYMENT_URL}/api/${actionPath}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${CONVEX_HTTP_KEY}`,
+    },
+    body: JSON.stringify(args),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Convex action failed: ${response.status} ${text}`);
+  }
+
+  return response.json();
+}
+
+async function callConvexQuery(queryPath: string, args: Record<string, unknown>): Promise<unknown> {
+  if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+    throw new Error("Convex deployment URL or HTTP key not configured");
+  }
+
+  const url = new URL(`${CONVEX_DEPLOYMENT_URL}/api/${queryPath}`);
+  Object.entries(args).forEach(([k, v]) => url.searchParams.set(k, String(v)));
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${CONVEX_HTTP_KEY}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Convex query failed: ${response.status} ${text}`);
+  }
+
+  return response.json();
+}
+
 // Convex is the source of truth. This task backfills Postgres analytics/helper columns
 // without guessing ambiguous mappings. It only writes when values are NULL and the source is deterministic.
 export const backfillConvexAndInstructorIds = task({
@@ -70,6 +118,63 @@ export const backfillConvexAndInstructorIds = task({
     // Note: We intentionally DO NOT backfill session_packs.convex_id or seat_reservations.convex_id
     // until those columns and a deterministic mapping are present in the live schema.
 
+    return { ok: true, ...results };
+  },
+});
+
+export const migrateWorkspaceImagesToStorage = task({
+  id: "migrate-workspace-images-to-storage",
+  retry: { maxAttempts: 3, factor: 2, minTimeoutInMs: 5000, maxTimeoutInMs: 60000 },
+  maxDuration: 3600,
+  run: async () => {
+    logger.info("Starting workspace images migration to Convex storage");
+
+    if (!CONVEX_DEPLOYMENT_URL || !CONVEX_HTTP_KEY) {
+      throw new Error("Convex not configured");
+    }
+
+    const imagesResult = await callConvexQuery("workspaces.getImagesNeedingMigration", {}) as {
+      _id: string;
+      workspaceId: string;
+      imageUrl: string;
+      createdBy: string;
+    }[];
+
+    if (!imagesResult || imagesResult.length === 0) {
+      logger.info("No images need migration");
+      return { ok: true, migrated: 0, skipped: 0 };
+    }
+
+    logger.info(`Found ${imagesResult.length} images needing migration`);
+
+    const results = { migrated: 0, failed: 0, skipped: 0 };
+
+    for (const img of imagesResult) {
+      try {
+        const result = await callConvexAction("workspaces.migrateWorkspaceImage", {
+          imageId: img._id,
+        }) as { success: boolean; reason?: string };
+
+        if (result.success) {
+          if (result.reason === "already_migrated") {
+            results.skipped++;
+            logger.info(`Image ${img._id} already migrated, skipping`);
+          } else {
+            results.migrated++;
+            logger.info(`Migrated image ${img._id}`);
+          }
+        } else {
+          results.skipped++;
+          logger.info(`Image ${img._id} skipped: ${result.reason}`);
+        }
+      } catch (error) {
+        results.failed++;
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.error(`Failed to migrate image ${img._id}: ${msg}`);
+      }
+    }
+
+    logger.info("Migration complete", results);
     return { ok: true, ...results };
   },
 });
