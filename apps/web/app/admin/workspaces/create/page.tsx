@@ -242,8 +242,8 @@ const items = workspaceType === "admin_student"
               <div className="text-lg font-semibold">
                 {selectedUserId ? (
                   workspaceType === "admin_student" 
-                    ? usersData?.items.find((u: StudentItem) => u.userId === selectedUserId)?.email || selectedUserId
-                    : instructorsData?.items.find((i) => i.id === selectedUserId)?.name || selectedUserId
+                    ? usersData?.items.find(u => u.userId === selectedUserId)?.email || selectedUserId
+                    : instructorsData?.items.find(i => i.id === selectedUserId)?.name || selectedUserId
                 ) : (
                   <span className="text-muted-foreground">None selected</span>
                 )}

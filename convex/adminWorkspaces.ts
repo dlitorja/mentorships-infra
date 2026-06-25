@@ -112,7 +112,7 @@ export const getAllWorkspaces = query({
       throw new Error("Admin access required");
     }
 
-    const result = args.type
+    let result = args.type
       ? await ctx.db
           .query("workspaces")
           .withIndex("by_type", (q) => q.eq("type", args.type))
@@ -123,12 +123,30 @@ export const getAllWorkspaces = query({
           .order("desc")
           .paginate(args.paginationOpts);
 
-    const filteredPage = result.page.filter((w) => !w.deletedAt);
+    let filteredPage = result.page.filter((w) => !w.deletedAt);
+    const numRequested = args.paginationOpts.numItems as number;
+
+    while (filteredPage.length < numRequested && !result.isDone) {
+      result = args.type
+        ? await ctx.db
+            .query("workspaces")
+            .withIndex("by_type", (q) => q.eq("type", args.type))
+            .order("desc")
+            .paginate({ numItems: numRequested - filteredPage.length, cursor: result.continueCursor })
+        : await ctx.db
+            .query("workspaces")
+            .order("desc")
+            .paginate({ numItems: numRequested - filteredPage.length, cursor: result.continueCursor });
+
+      const moreFiltered = result.page.filter((w) => !w.deletedAt);
+      filteredPage = [...filteredPage, ...moreFiltered];
+    }
+
     const enrichedPage = await enrichWorkspaces(ctx, filteredPage);
 
     return {
       page: enrichedPage,
-      continueCursor: result.continueCursor,
+      continueCursor: result.isDone ? null : result.continueCursor,
       isDone: result.isDone,
     };
   },
@@ -475,6 +493,15 @@ export const updateWorkspaceOwner = mutation({
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
+    }
+
+    const newOwner = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.newOwnerId))
+      .first();
+    
+    if (!newOwner) {
+      throw new Error("Invalid owner ID: user does not exist");
     }
 
     const oldOwnerId = workspace.ownerId;
