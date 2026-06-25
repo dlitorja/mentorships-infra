@@ -83,14 +83,6 @@ export function useWorkspaceImages(workspaceId: string) {
   });
 }
 
-/**
- * Stub: returns empty array as workspace fetching is not yet implemented.
- * When real fetching is added, this will fetch all workspaces for admin dashboard.
- */
-export function useAllWorkspaces() {
-  return { data: [] as any[] };
-}
-
 // Mutations
 
 /**
