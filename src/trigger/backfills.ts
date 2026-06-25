@@ -148,16 +148,14 @@ export const migrateWorkspaceImagesToStorage = task({
       throw new Error(`Query failed: ${queryResponse.status} ${text}`);
     }
 
-    const queryResult = await queryResponse.json() as {
-      value: Array<{
-        _id: string;
-        workspaceId: string;
-        imageUrl: string;
-        createdBy: string;
-      }>;
-    };
+    const queryResult = await queryResponse.json() as Array<{
+      _id: string;
+      workspaceId: string;
+      imageUrl: string;
+      createdBy: string;
+    }>;
 
-    const imagesResult = queryResult.value || [];
+    const imagesResult = queryResult || [];
 
     if (imagesResult.length === 0) {
       logger.info("No images need migration");
@@ -209,6 +207,11 @@ export const migrateWorkspaceImagesToStorage = task({
     }
 
     logger.info("Migration complete", results);
+
+    if (results.failed > 0) {
+      throw new Error(`Migration completed with ${results.failed} failures: migrated=${results.migrated}, failed=${results.failed}, skipped=${results.skipped}`);
+    }
+
     return { ok: true, ...results };
   },
 });

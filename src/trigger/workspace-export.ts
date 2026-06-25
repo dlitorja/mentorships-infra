@@ -140,54 +140,56 @@ export const processWorkspaceExport = task({
         }
 
         if (exportData.images.length > 0) {
-          for (let i = 0; i < exportData.images.length; i++) {
-            const img = exportData.images[i];
-            const imageUrl = img.imageUrl;
+          await (async () => {
+            for (let i = 0; i < exportData.images.length; i++) {
+              const img = exportData.images[i];
+              const imageUrl = img.imageUrl;
 
-            if (!imageUrl) {
-              logger.warn(`Skipping image ${i + 1} - no URL available (storageId: ${img.storageId})`);
-              continue;
-            }
-
-            if (imageUrl.startsWith("data:")) {
-              const base64Data = imageUrl.split(",")[1];
-              if (base64Data) {
-                const ext = imageUrl.match(/data:([^;]+);/)?.[1] || "image/png";
-                const mimeToExt: Record<string, string> = {
-                  "image/png": "png",
-                  "image/jpeg": "jpg",
-                  "image/gif": "gif",
-                  "image/webp": "webp",
-                };
-                const extension = mimeToExt[ext] || "png";
-                const filename = `images/image-${i + 1}.${extension}`;
-                const buffer = Buffer.from(base64Data, "base64");
-                archive.append(buffer, { name: filename });
+              if (!imageUrl) {
+                logger.warn(`Skipping image ${i + 1} - no URL available (storageId: ${img.storageId})`);
+                continue;
               }
-            } else if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
-              try {
-                const response = await fetch(imageUrl);
-                if (response.ok) {
-                  const buffer = Buffer.from(await response.arrayBuffer());
-                  const contentType = response.headers.get("content-type") || "image/png";
+
+              if (imageUrl.startsWith("data:")) {
+                const base64Data = imageUrl.split(",")[1];
+                if (base64Data) {
+                  const ext = imageUrl.match(/data:([^;]+);/)?.[1] || "image/png";
                   const mimeToExt: Record<string, string> = {
                     "image/png": "png",
                     "image/jpeg": "jpg",
                     "image/gif": "gif",
                     "image/webp": "webp",
                   };
-                  const extension = mimeToExt[contentType] || "png";
+                  const extension = mimeToExt[ext] || "png";
                   const filename = `images/image-${i + 1}.${extension}`;
+                  const buffer = Buffer.from(base64Data, "base64");
                   archive.append(buffer, { name: filename });
-                  logger.info(`Added image ${i + 1} from ${imageUrl.slice(0, 50)}...`);
-                } else {
-                  logger.warn(`Failed to fetch image ${i + 1}: ${response.status}`);
                 }
-              } catch (fetchError) {
-                logger.warn(`Error fetching image ${i + 1}: ${fetchError}`);
+              } else if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+                try {
+                  const response = await fetch(imageUrl);
+                  if (response.ok) {
+                    const buffer = Buffer.from(await response.arrayBuffer());
+                    const contentType = response.headers.get("content-type") || "image/png";
+                    const mimeToExt: Record<string, string> = {
+                      "image/png": "png",
+                      "image/jpeg": "jpg",
+                      "image/gif": "gif",
+                      "image/webp": "webp",
+                    };
+                    const extension = mimeToExt[contentType] || "png";
+                    const filename = `images/image-${i + 1}.${extension}`;
+                    archive.append(buffer, { name: filename });
+                    logger.info(`Added image ${i + 1} from ${imageUrl.slice(0, 50)}...`);
+                  } else {
+                    logger.warn(`Failed to fetch image ${i + 1}: ${response.status}`);
+                  }
+                } catch (fetchError) {
+                  logger.warn(`Error fetching image ${i + 1}: ${fetchError}`);
+                }
               }
             }
-          }
+          })();
         }
 
         if (exportData.notes.length === 0 && exportData.images.length === 0) {

@@ -891,11 +891,11 @@ export const getImagesNeedingMigration = query({
   handler: async (ctx) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
-      return [];
+      throw new Error("Unauthorized: authentication required");
     }
     const isAdminUser = await isAdmin(ctx, user.subject);
     if (!isAdminUser) {
-      return [];
+      throw new Error("Unauthorized: admin access required");
     }
 
     const images = await ctx.db.query("workspaceImages").collect();
