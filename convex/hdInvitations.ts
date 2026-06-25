@@ -389,6 +389,23 @@ export const acceptHdInvitationFromClerk = action({
       });
     }
 
+    if (roleToSet === "instructor") {
+      const existingInstructor = await ctx.runQuery(
+        internal.instructors.getInstructorByUserIdInternal,
+        { userId: args.clerkUserId }
+      );
+      if (!existingInstructor) {
+        const name = [args.firstName, args.lastName].filter(Boolean).join(" ") || undefined;
+        await ctx.runMutation(internal.instructors.createInstructorInternal, {
+          userId: args.clerkUserId,
+          name,
+          email: args.email,
+          isActive: true,
+          isNew: true,
+        });
+      }
+    }
+
     await ctx.runMutation(internal.hdInvitations.markInvitationAccepted, {
       invitationId: pending.id,
     });

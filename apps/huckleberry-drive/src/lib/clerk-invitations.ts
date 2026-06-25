@@ -14,7 +14,7 @@ export type ClerkInvitationResult =
 
 export type RevokeClerkInvitationResult =
   | { success: true }
-  | { success: false; reason: "not_found" | "already_consumed" | "transient_error"; message: string };
+  | { success: false; reason: "not_found" | "already_consumed" | "not_revocable" | "transient_error"; message: string };
 
 interface ClerkAPIError {
   status: number;
@@ -100,6 +100,13 @@ export async function revokeClerkInvitation(
           success: false,
           reason: "already_consumed",
           message: "Invitation was already accepted or consumed",
+        };
+      }
+      if (error.status === 400) {
+        return {
+          success: false,
+          reason: "not_revocable",
+          message: "Invitation cannot be revoked (may already be expired or in unrevocable state)",
         };
       }
       return {
