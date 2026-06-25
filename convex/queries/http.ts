@@ -126,6 +126,7 @@ export const getWorkspaceExportData = query({
       })),
       images: images.map((img) => ({
         imageUrl: img.imageUrl,
+        storageId: img.storageId,
         createdBy: img.createdBy,
         createdAt: img._creationTime,
       })),

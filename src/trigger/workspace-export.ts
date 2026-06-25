@@ -55,7 +55,7 @@ async function getExportData(workspaceId: string) {
   return callConvexHttp("/workspace/export/data", { workspaceId }) as Promise<{
     workspaceName: string;
     notes: Array<{ title: string; content: string; updatedAt: number }>;
-    images: Array<{ imageUrl: string; createdBy: string; createdAt: number }>;
+    images: Array<{ imageUrl: string; storageId?: string; createdBy: string; createdAt: number }>;
   }>;
 }
 
@@ -285,6 +285,45 @@ export const processWorkspacePdfExport = task({
           doc.moveDown(2);
         }
 
+        if (exportData.images.length > 0) {
+          doc.addPage();
+          doc.fontSize(18).text("Images");
+          doc.moveDown();
+          
+          for (let i = 0; i < exportData.images.length; i++) {
+            const img = exportData.images[i];
+            
+            if (img.imageUrl && img.imageUrl.startsWith("data:")) {
+              const base64Data = img.imageUrl.split(",")[1];
+              const mimeMatch = img.imageUrl.match(/data:([^;]+);/);
+              const mimeType = mimeMatch ? mimeMatch[1] : "image/png";
+              
+              try {
+                const imageBuffer = Buffer.from(base64Data, "base64");
+                doc.fontSize(12).text(`Image ${i + 1} - Added ${new Date(img.createdAt).toLocaleDateString()}`, { continued: false });
+                doc.image(imageBuffer, { fit: [450, 300], align: "center" });
+                doc.moveDown(2);
+              } catch (imgError) {
+                logger.warn("Failed to embed image in PDF", { index: i, error: imgError });
+                doc.fontSize(10).fillColor("gray").text(`[Image ${i + 1} - Failed to embed]`);
+                doc.moveDown();
+              }
+            } else if (img.imageUrl) {
+              doc.fontSize(12).text(`Image ${i + 1} - Added ${new Date(img.createdAt).toLocaleDateString()}`);
+              doc.fontSize(10).fillColor("blue").text(img.imageUrl, { link: img.imageUrl });
+              doc.moveDown();
+            } else {
+              doc.fontSize(12).text(`Image ${i + 1} - Added ${new Date(img.createdAt).toLocaleDateString()}`);
+              doc.fontSize(10).fillColor("gray").text(`[Image stored in Convex - download ZIP for embedded file]`);
+              doc.moveDown();
+            }
+            
+            if (i < exportData.images.length - 1) {
+              doc.moveDown();
+            }
+          }
+        }
+
         doc.end();
       });
 
@@ -356,19 +395,38 @@ export const processWorkspaceMarkdownExport = task({
       if (exportData.images.length > 0) {
         lines.push("## Images");
         lines.push("");
-        lines.push("| # | Created By | Date |");
-        lines.push("|---|-------------|------|");
         
         for (let i = 0; i < exportData.images.length; i++) {
           const img = exportData.images[i];
           const date = new Date(img.createdAt).toLocaleDateString();
-          const ext = img.imageUrl.match(/data:([^;]+);/)?.[1] || "image";
-          const filename = `image-${i + 1}.${ext.split("/")[1] || "png"}`;
-          lines.push(`| ${i + 1} | ${img.createdBy.slice(0, 8)}... | ${date} |`);
+          const filename = `image-${i + 1}`;
+          
+          if (img.imageUrl && img.imageUrl.startsWith("data:")) {
+            lines.push(`### ${filename}`);
+            lines.push("");
+            lines.push(`*Created by ${img.createdBy.slice(0, 8)}... on ${date}*`);
+            lines.push("");
+            lines.push(`![${filename}](${img.imageUrl})`);
+            lines.push("");
+          } else if (img.storageId && CONVEX_DEPLOYMENT_URL) {
+            const imageDownloadUrl = `${CONVEX_DEPLOYMENT_URL}/api/storage/${img.storageId}`;
+            lines.push(`### ${filename}`);
+            lines.push("");
+            lines.push(`*Created by ${img.createdBy.slice(0, 8)}... on ${date}*`);
+            lines.push("");
+            lines.push(`![${filename}](${imageDownloadUrl})`);
+            lines.push("");
+          } else if (img.imageUrl) {
+            lines.push(`### ${filename}`);
+            lines.push("");
+            lines.push(`*Created by ${img.createdBy.slice(0, 8)}... on ${date}*`);
+            lines.push("");
+            lines.push(`![${filename}](${img.imageUrl})`);
+            lines.push("");
+          }
         }
         
-        lines.push("");
-        lines.push("*Images stored separately in Convex. Download ZIP export to bundle images with this markdown.*");
+        lines.push("*For best image quality, download the ZIP export which includes embedded image files.*");
       }
 
       const markdown = lines.join("\n");
