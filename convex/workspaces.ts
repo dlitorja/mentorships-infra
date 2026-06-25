@@ -1,4 +1,4 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, action } from "./_generated/server";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 
@@ -914,7 +914,7 @@ export const getImagesNeedingMigration = query({
 
 export const migrateWorkspaceImage = action({
   args: { imageId: v.id("workspaceImages") },
-  handler: async (ctx, args) => {
+  handler: async (ctx: any, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       throw new Error("Unauthorized");
