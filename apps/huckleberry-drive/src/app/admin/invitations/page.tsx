@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Loader2, Mail, X, UserPlus, AlertCircle, CheckCircle2, Clock, XCircle } from "lucide-react";
-import { listHdInvitations, createHdInvitation, cancelHdInvitation } from "@/lib/api";
+import { Loader2, Mail, X, UserPlus, AlertCircle, CheckCircle2, Clock, XCircle, Trash2 } from "lucide-react";
+import { listHdInvitations, createHdInvitation, cancelHdInvitation, deleteHdInvitation } from "@/lib/api";
 import type { HdInvitation, InvitationListResponse, UserRole } from "@/lib/api";
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -24,6 +24,7 @@ export default function AdminInvitationsPage(): React.ReactElement {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isCancelling, setIsCancelling] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -31,6 +32,7 @@ export default function AdminInvitationsPage(): React.ReactElement {
   const [roleInput, setRoleInput] = useState<UserRole>("student");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showConfirmCancel, setShowConfirmCancel] = useState<string | null>(null);
+  const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
 
   const fetchInvitations = useCallback(async () => {
     try {
@@ -89,6 +91,19 @@ export default function AdminInvitationsPage(): React.ReactElement {
       setError(err instanceof Error ? err.message : "Failed to cancel invitation");
     } finally {
       setIsCancelling(null);
+    }
+  }, [fetchInvitations]);
+
+  const handleDeleteInvitation = useCallback(async (invitationId: string) => {
+    try {
+      setIsDeleting(invitationId);
+      await deleteHdInvitation(invitationId);
+      setShowConfirmDelete(null);
+      await fetchInvitations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete invitation");
+    } finally {
+      setIsDeleting(null);
     }
   }, [fetchInvitations]);
 
@@ -360,6 +375,37 @@ export default function AdminInvitationsPage(): React.ReactElement {
                                 aria-label="Cancel Invitation"
                               >
                                 <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {(invitation.status === "cancelled" || invitation.status === "expired" || invitation.status === "accepted") && (
+                          <>
+                            {showConfirmDelete === invitation.id ? (
+                              <>
+                                <button
+                                  onClick={() => handleDeleteInvitation(invitation.id)}
+                                  disabled={isDeleting === invitation.id}
+                                  className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+                                >
+                                  {isDeleting === invitation.id ? "Deleting..." : "Confirm"}
+                                </button>
+                                <button
+                                  onClick={() => setShowConfirmDelete(null)}
+                                  className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setShowConfirmDelete(invitation.id)}
+                                disabled={isDeleting !== null}
+                                className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                                title="Delete Invitation"
+                                aria-label="Delete Invitation"
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </>

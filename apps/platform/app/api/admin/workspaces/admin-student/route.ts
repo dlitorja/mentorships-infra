@@ -23,7 +23,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const convex = getConvexClient();
 
     const body = await req.json();
-    const { studentUserId } = body;
+    const { studentUserId, name, description, isPublic } = body;
 
     if (!studentUserId) {
       return NextResponse.json(
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const workspace = (await convex.mutation(
       api.adminWorkspaces.createAdminStudentWorkspace,
-      { studentUserId }
+      { studentUserId, name, description, isPublic }
     )) as Doc<"workspaces"> | null;
 
     if (!workspace) {

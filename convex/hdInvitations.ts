@@ -1,5 +1,29 @@
-import { query, mutation } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery, action, httpAction, QueryCtx, MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Doc } from "./_generated/dataModel";
+
+async function getAdminUser(ctx: QueryCtx | MutationCtx, identitySubject: string): Promise<Doc<"users"> | null> {
+  const byUserId = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identitySubject))
+    .first();
+  if (byUserId) return byUserId;
+
+  const byClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerkId", (q) => q.eq("clerkId", identitySubject))
+    .first();
+  return byClerkId;
+}
+
+async function requireAdminUser(ctx: QueryCtx | MutationCtx, identitySubject: string): Promise<Doc<"users">> {
+  const user = await getAdminUser(ctx, identitySubject);
+  if (!user || user.role !== "admin") {
+    throw new Error("Admin access required");
+  }
+  return user;
+}
 
 export const listHdInvitations = query({
   args: {
@@ -9,6 +33,11 @@ export const listHdInvitations = query({
     offset: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    await requireAdminUser(ctx, identity.subject);
+
     let invitations = await ctx.db.query("hdInvitations").collect();
 
     if (args.status && args.status !== "all") {
@@ -51,14 +80,7 @@ export const getHdInvitation = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminUser(ctx, identity.subject);
 
     const invitation = await ctx.db.get(args.invitationId);
     if (!invitation) return null;
@@ -87,14 +109,7 @@ export const createHdInvitation = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminUser(ctx, identity.subject);
 
     const emailLower = args.email.toLowerCase().trim();
 
@@ -117,7 +132,6 @@ export const createHdInvitation = mutation({
       clerkInvitationId: args.clerkInvitationId,
       invitedByUserId: identity.subject,
       expiresAt,
-      createdAt: Date.now(),
     });
 
     return invitationId;
@@ -132,14 +146,7 @@ export const cancelHdInvitation = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminUser(ctx, identity.subject);
 
     const invitation = await ctx.db.get(args.invitationId);
     if (!invitation) {
@@ -171,14 +178,7 @@ export const updateHdInvitationStatus = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminUser(ctx, identity.subject);
 
     await ctx.db.patch(args.invitationId, {
       status: args.status,
@@ -198,14 +198,7 @@ export const updateHdInvitationClerkId = mutation({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminUser(ctx, identity.subject);
 
     await ctx.db.patch(args.invitationId, {
       clerkInvitationId: args.clerkInvitationId,
@@ -222,14 +215,7 @@ export const getHdInvitationStats = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    const currentUser = await ctx.db
-      .query("users")
-      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
-      .first();
-
-    if (!currentUser || currentUser.role !== "admin") {
-      throw new Error("Admin access required");
-    }
+    await requireAdminUser(ctx, identity.subject);
 
     const invitations = await ctx.db.query("hdInvitations").collect();
 

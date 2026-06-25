@@ -1,5 +1,53 @@
-import { mutation } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { QueryCtx } from "./_generated/server";
+
+async function isAdmin(ctx: QueryCtx, userId: string): Promise<boolean> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .first();
+  return user?.role === "admin";
+}
+
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const adminCheck = await isAdmin(ctx, user.subject);
+    if (!adminCheck) {
+      throw new Error("Admin access required");
+    }
+
+    const allCosts = await ctx.db.query("monthlyStorageCosts").collect();
+    
+    const sorted = allCosts.sort((a, b) => b.month.localeCompare(a.month));
+    
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentRecord = sorted.find((c) => c.month === currentMonth);
+    
+    return {
+      currentMonth: currentRecord ?? {
+        month: currentMonth,
+        b2StorageCost: 0,
+        b2DownloadCost: 0,
+        b2ApiCost: 0,
+        s3StorageCost: 0,
+        s3RetrievalCost: 0,
+        totalCost: 0,
+        alertSent: false,
+        alertThreshold: 5000,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+      historical: sorted.filter((c) => c.month !== currentMonth),
+    };
+  },
+});
 
 /**
  * Migrates monthly storage cost data from billing system.

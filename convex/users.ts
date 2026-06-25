@@ -343,7 +343,6 @@ export const setUserRoleTrusted = internalMutation({
       return await ctx.db.get(existing._id);
     }
 
-    // Best-effort email association if identity present; optional
     const identity = await ctx.auth.getUserIdentity();
     const email = identity?.email;
     const id = await ctx.db.insert("users", {
@@ -354,6 +353,47 @@ export const setUserRoleTrusted = internalMutation({
     } as Partial<Doc<"users">> as any);
     const inserted = await ctx.db.get(id);
     if (!inserted) throw new Error("Failed to set role");
+    return inserted;
+  },
+});
+
+export const createUserFromClerk = internalMutation({
+  args: {
+    userId: v.string(),
+    email: v.string(),
+    clerkId: v.string(),
+    role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existingByUserId = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (existingByUserId) {
+      await ctx.db.patch(existingByUserId._id, {
+        email: args.email,
+        clerkId: args.clerkId,
+        role: args.role,
+        firstName: args.firstName ?? existingByUserId.firstName,
+        lastName: args.lastName ?? existingByUserId.lastName,
+      });
+      return await ctx.db.get(existingByUserId._id);
+    }
+
+    const id = await ctx.db.insert("users", {
+      userId: args.userId,
+      email: args.email,
+      clerkId: args.clerkId,
+      role: args.role,
+      firstName: args.firstName,
+      lastName: args.lastName,
+    });
+
+    const inserted = await ctx.db.get(id);
+    if (!inserted) throw new Error("Failed to create user");
     return inserted;
   },
 });
