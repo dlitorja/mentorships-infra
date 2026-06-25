@@ -343,6 +343,7 @@ aria-label="Search files I uploaded"
           usedBytes={storageUsage.usedBytes}
           limitBytes={storageUsage.limitBytes}
           fileCount={storageUsage.fileCount}
+          instructorCount={storageUsage.instructorCount}
         />
       )}
 
