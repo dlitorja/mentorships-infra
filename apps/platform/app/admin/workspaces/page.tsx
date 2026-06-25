@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, ExternalLink, Plus } from "lucide-react";
 import { apiFetch } from "@/lib/queries/api-client";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { WorkspaceDeleteDialog } from "@/components/admin/workspace-delete-dialog";
 
 type Workspace = {
   id: string;
@@ -198,11 +199,17 @@ export default function WorkspacesPage() {
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/admin/workspaces/${workspace.id}`}>
-                            <ExternalLink className="h-4 w-4" />
-                          </Link>
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/admin/workspaces/${workspace.id}`}>
+                              <ExternalLink className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                          <WorkspaceDeleteDialog
+                            workspaceId={workspace.id}
+                            workspaceName={workspace.name}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}

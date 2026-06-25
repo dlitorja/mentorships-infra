@@ -126,3 +126,92 @@ export async function GET(
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+
+/**
+ * DELETE /api/admin/workspaces/[id]
+ * Soft-deletes a workspace by setting deletedAt. Requires admin auth.
+ */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { requireRoleForApi } = await import("@/lib/auth-helpers");
+    await requireRoleForApi("admin");
+
+    const { id } = await params;
+    const parsedParams = workspaceIdParamSchema.safeParse({ id });
+    if (!parsedParams.success) {
+      return NextResponse.json(
+        { error: "Invalid workspace ID", details: parsedParams.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const validatedId = parsedParams.data.id as Id<"workspaces">;
+    const convex = getConvexClient();
+
+    await convex.mutation(api.adminWorkspaces.deleteWorkspaceAdmin, {
+      workspaceId: validatedId,
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to delete workspace";
+    console.error("Error deleting workspace:", error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+const updateWorkspaceBodySchema = z.object({
+  name: z.string().optional(),
+  description: z.string().optional(),
+  imageUrl: z.string().optional(),
+  isPublic: z.boolean().optional(),
+}).strict();
+
+/**
+ * PATCH /api/admin/workspaces/[id]
+ * Updates a workspace's name, description, image, or visibility. Requires admin auth.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { requireRoleForApi } = await import("@/lib/auth-helpers");
+    await requireRoleForApi("admin");
+
+    const { id } = await params;
+    const parsedParams = workspaceIdParamSchema.safeParse({ id });
+    if (!parsedParams.success) {
+      return NextResponse.json(
+        { error: "Invalid workspace ID", details: parsedParams.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const body = await req.json();
+    const parsedBody = updateWorkspaceBodySchema.safeParse(body);
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        { error: "Invalid request body", details: parsedBody.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const validatedId = parsedParams.data.id as Id<"workspaces">;
+    const convex = getConvexClient();
+
+    const result = await convex.mutation(api.adminWorkspaces.updateWorkspaceAdmin, {
+      workspaceId: validatedId,
+      ...parsedBody.data,
+    });
+
+    return NextResponse.json(result);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Failed to update workspace";
+    console.error("Error updating workspace:", error);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

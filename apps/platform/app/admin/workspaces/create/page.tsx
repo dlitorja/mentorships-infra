@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -56,11 +58,16 @@ async function fetchInstructors(): Promise<{ items: InstructorItem[] }> {
 }
 
 /** Creates an admin-student workspace and returns the result. */
-async function createAdminStudentWorkspace(studentUserId: string) {
+async function createAdminStudentWorkspace(data: {
+  studentUserId: string;
+  name?: string;
+  description?: string;
+  isPublic?: boolean;
+}) {
   const response = await fetch("/api/admin/workspaces/admin-student", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ studentUserId }),
+    body: JSON.stringify(data),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -70,11 +77,16 @@ async function createAdminStudentWorkspace(studentUserId: string) {
 }
 
 /** Creates an admin-instructor workspace and returns the result. */
-async function createAdminInstructorWorkspace(instructorId: string) {
+async function createAdminInstructorWorkspace(data: {
+  instructorId: string;
+  name?: string;
+  description?: string;
+  isPublic?: boolean;
+}) {
   const response = await fetch("/api/admin/workspaces/admin-instructor", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instructorId }),
+    body: JSON.stringify(data),
   });
   if (!response.ok) {
     const error = await response.json();
@@ -92,6 +104,9 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 300);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [customName, setCustomName] = useState("");
+  const [customDescription, setCustomDescription] = useState("");
+  const [customIsPublic, setCustomIsPublic] = useState(false);
 
   const { data: usersData, isLoading: loadingUsers } = useQuery({
     queryKey: ["users", debouncedSearch],
@@ -121,11 +136,17 @@ export default function CreateWorkspacePage({ searchParams }: { searchParams: Pr
 
   const handleCreate = () => {
     if (!selectedUserId) return;
-    
+
+    const workspaceData = {
+      name: customName || undefined,
+      description: customDescription || undefined,
+      isPublic: customIsPublic || undefined,
+    };
+
     if (workspaceType === "admin_student") {
-      createStudentMutation.mutate(selectedUserId);
+      createStudentMutation.mutate({ studentUserId: selectedUserId, ...workspaceData });
     } else {
-      createInstructorMutation.mutate(selectedUserId);
+      createInstructorMutation.mutate({ instructorId: selectedUserId, ...workspaceData });
     }
   };
 
@@ -241,7 +262,7 @@ const items = workspaceType === "admin_student"
               <div className="text-sm font-medium text-muted-foreground">Selected User</div>
               <div className="text-lg font-semibold">
                 {selectedUserId ? (
-                  workspaceType === "admin_student" 
+                  workspaceType === "admin_student"
                     ? usersData?.items.find((u: StudentItem) => u.userId === selectedUserId)?.email || selectedUserId
                     : instructorsData?.items.find((i) => i.id === selectedUserId)?.name || selectedUserId
                 ) : (
@@ -250,11 +271,37 @@ const items = workspaceType === "admin_student"
               </div>
             </div>
 
-            <div className="p-4 bg-muted rounded-lg">
-              <div className="text-sm font-medium text-muted-foreground">Visibility</div>
-              <div className="text-lg font-semibold">
-                Private - Only visible to admin and selected user
+            <div className="space-y-2">
+              <Label htmlFor="workspaceName">Workspace Name (optional)</Label>
+              <Input
+                id="workspaceName"
+                placeholder="Leave blank for auto-generated name"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="workspaceDescription">Description (optional)</Label>
+              <Input
+                id="workspaceDescription"
+                placeholder="Brief description of workspace purpose"
+                value={customDescription}
+                onChange={(e) => setCustomDescription(e.target.value)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+              <div>
+                <div className="text-sm font-medium">Visibility</div>
+                <div className="text-sm text-muted-foreground">
+                  {customIsPublic ? "Public - visible with link" : "Private - admin and user only"}
+                </div>
               </div>
+              <Switch
+                checked={customIsPublic}
+                onCheckedChange={setCustomIsPublic}
+              />
             </div>
 
             <Button
