@@ -713,9 +713,17 @@ export const createWorkspaceExport = mutation({
     const triggerApiKey = process.env.TRIGGER_API_KEY;
     const triggerProjectRef = process.env.NEXT_PUBLIC_TRIGGER_PROJECT_REF || "proj_fvyorgaijayllujsxzgb";
 
-    if (triggerApiKey && args.format === "zip") {
+    const taskMap: Record<string, string> = {
+      zip: "process-workspace-export",
+      pdf: "process-workspace-pdf-export",
+      markdown: "process-workspace-markdown-export",
+    };
+
+    const taskName = taskMap[args.format];
+
+    if (triggerApiKey && taskName) {
       try {
-        const response = await fetch(`https://app.trigger.dev/api/v1/projects/${triggerProjectRef}/tasks/process-workspace-export/trigger`, {
+        const response = await fetch(`https://app.trigger.dev/api/v1/projects/${triggerProjectRef}/tasks/${taskName}/trigger`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
