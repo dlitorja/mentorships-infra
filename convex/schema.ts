@@ -335,7 +335,10 @@ export default defineSchema({
       v.literal("send_message"),
       v.literal("create_workspace"),
       v.literal("create_admin_student_workspace"),
-      v.literal("create_admin_instructor_workspace")
+      v.literal("create_admin_instructor_workspace"),
+      v.literal("delete_workspace"),
+      v.literal("update_workspace"),
+      v.literal("transfer_workspace_ownership")
     ),
     details: v.optional(v.string()),
     timestamp: v.number(),

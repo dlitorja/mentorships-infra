@@ -7,6 +7,9 @@ import { convexIdSchema } from "@/lib/validators";
 
 const createAdminInstructorSchema = z.object({
   instructorId: convexIdSchema,
+  name: z.string().optional(),
+  description: z.string().optional(),
+  isPublic: z.boolean().optional(),
 });
 
 function getConvexClient() {
@@ -28,7 +31,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const convex = getConvexClient();
 
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
+    }
+
     const parsedBody = createAdminInstructorSchema.safeParse(body);
     if (!parsedBody.success) {
       return NextResponse.json(
@@ -37,11 +49,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { instructorId } = parsedBody.data;
+    const { instructorId, name, description, isPublic } = parsedBody.data;
 
-    // convexIdSchema validates format only; table affinity is enforced by Convex at runtime
     const workspace = await convex.mutation(api.adminWorkspaces.createAdminInstructorWorkspace, {
       instructorId: instructorId as Id<"instructors">,
+      name,
+      description,
+      isPublic,
     }) as any;
 
     if (!workspace) {

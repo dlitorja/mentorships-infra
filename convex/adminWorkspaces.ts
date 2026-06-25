@@ -95,7 +95,7 @@ async function enrichWorkspaces(
   }));
 }
 
-/** List all workspaces with pagination, filtering by type. Returns enriched items with owner and instructor data. Requires admin auth. */
+/** List all workspaces with pagination, filtering by type. Returns enriched items with owner and instructor data. Requires admin auth. Excludes deleted workspaces. */
 export const getAllWorkspaces = query({
   args: {
     paginationOpts: v.any(),
@@ -123,7 +123,8 @@ export const getAllWorkspaces = query({
           .order("desc")
           .paginate(args.paginationOpts);
 
-    const enrichedPage = await enrichWorkspaces(ctx, result.page);
+    const filteredPage = result.page.filter((w) => !w.deletedAt);
+    const enrichedPage = await enrichWorkspaces(ctx, filteredPage);
 
     return {
       page: enrichedPage,
@@ -148,7 +149,7 @@ export const getWorkspaceByIdAdmin = query({
     }
 
     const workspace = await ctx.db.get(args.id);
-    if (!workspace) {
+    if (!workspace || workspace.deletedAt) {
       return null;
     }
 
@@ -161,6 +162,9 @@ export const getWorkspaceByIdAdmin = query({
 export const createAdminStudentWorkspace = mutation({
   args: {
     studentUserId: v.string(),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -196,11 +200,13 @@ export const createAdminStudentWorkspace = mutation({
       .withIndex("by_userId", (q) => q.eq("userId", args.studentUserId))
       .first();
 
+    const defaultName = `Admin Communication - ${student?.firstName || student?.email || "User"}`;
+
     const workspaceId = await ctx.db.insert("workspaces", {
-      name: `Admin Communication - ${student?.firstName || student?.email || "User"}`,
-      description: "Private workspace for admin-student communication",
+      name: args.name ?? defaultName,
+      description: args.description ?? "Private workspace for admin-student communication",
       ownerId: args.studentUserId,
-      isPublic: false,
+      isPublic: args.isPublic ?? false,
       studentImageCount: 0,
       instructorImageCount: 0,
       type: "admin_student",
@@ -216,6 +222,9 @@ export const createAdminStudentWorkspace = mutation({
 export const createAdminInstructorWorkspace = mutation({
   args: {
     instructorId: v.id("instructors"),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -243,12 +252,14 @@ export const createAdminInstructorWorkspace = mutation({
       return existingWorkspace;
     }
 
+    const defaultName = "Admin Communication - Instructor";
+
     const workspaceId = await ctx.db.insert("workspaces", {
-      name: "Admin Communication - Instructor",
-      description: "Private workspace for admin-instructor communication",
+      name: args.name ?? defaultName,
+      description: args.description ?? "Private workspace for admin-instructor communication",
       ownerId: user.subject,
       instructorId: args.instructorId,
-      isPublic: false,
+      isPublic: args.isPublic ?? false,
       studentImageCount: 0,
       instructorImageCount: 0,
       type: "admin_instructor",
@@ -358,5 +369,198 @@ export const getAllAuditLogs = query({
       .withIndex("by_timestamp")
       .order("desc")
       .paginate(args.paginationOpts);
+  },
+});
+
+/** Soft-deletes a workspace by setting the deletedAt timestamp. Requires admin auth. Logs audit event. */
+export const deleteWorkspaceAdmin = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    if (!isUserAdmin) {
+      throw new Error("Admin access required");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    await ctx.db.patch(args.workspaceId, { deletedAt: Date.now() });
+    await logWorkspaceAudit(ctx, args.workspaceId, user.subject, "delete_workspace", `Deleted workspace: ${workspace.name}`);
+  },
+});
+
+export type UpdateWorkspaceAdminArgs = {
+  workspaceId: Id<"workspaces">;
+  name?: string;
+  description?: string;
+  imageUrl?: string;
+  isPublic?: boolean;
+};
+
+/** Updates a workspace's name, description, image, or visibility. Requires admin auth. Logs audit event. */
+export const updateWorkspaceAdmin = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    name: v.optional(v.string()),
+    description: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    isPublic: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    if (!isUserAdmin) {
+      throw new Error("Admin access required");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const { workspaceId, ...updates } = args;
+    const filteredUpdates: Record<string, unknown> = {};
+    if (updates.name !== undefined) filteredUpdates.name = updates.name;
+    if (updates.description !== undefined) filteredUpdates.description = updates.description;
+    if (updates.imageUrl !== undefined) filteredUpdates.imageUrl = updates.imageUrl;
+    if (updates.isPublic !== undefined) filteredUpdates.isPublic = updates.isPublic;
+
+    if (Object.keys(filteredUpdates).length > 0) {
+      await ctx.db.patch(workspaceId, filteredUpdates);
+    }
+
+    const updatedWorkspace = await ctx.db.get(workspaceId);
+    await logWorkspaceAudit(
+      ctx,
+      workspaceId,
+      user.subject,
+      "update_workspace",
+      `Updated workspace: ${updatedWorkspace?.name || workspace.name}`
+    );
+
+    return updatedWorkspace;
+  },
+});
+
+/** Transfers workspace ownership to a different user. Requires admin auth. Logs audit event. */
+export const updateWorkspaceOwner = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    newOwnerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    if (!isUserAdmin) {
+      throw new Error("Admin access required");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const oldOwnerId = workspace.ownerId;
+    await ctx.db.patch(args.workspaceId, { ownerId: args.newOwnerId });
+
+    await logWorkspaceAudit(
+      ctx,
+      args.workspaceId,
+      user.subject,
+      "transfer_workspace_ownership",
+      `Transferred ownership from ${oldOwnerId} to ${args.newOwnerId}`
+    );
+
+    return await ctx.db.get(args.workspaceId);
+  },
+});
+
+/** Updates the instructor associated with a workspace. Requires admin auth. Logs audit event. */
+export const updateWorkspaceInstructor = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    newInstructorId: v.id("instructors"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    if (!isUserAdmin) {
+      throw new Error("Admin access required");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const oldInstructorId = workspace.instructorId;
+    await ctx.db.patch(args.workspaceId, { instructorId: args.newInstructorId });
+
+    await logWorkspaceAudit(
+      ctx,
+      args.workspaceId,
+      user.subject,
+      "transfer_workspace_ownership",
+      `Changed instructor from ${oldInstructorId || "none"} to ${args.newInstructorId}`
+    );
+
+    return await ctx.db.get(args.workspaceId);
+  },
+});
+
+/** Clears the instructor associated with a workspace. Requires admin auth. Logs audit event. */
+export const clearWorkspaceInstructor = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    if (!isUserAdmin) {
+      throw new Error("Admin access required");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const oldInstructorId = workspace.instructorId;
+    await ctx.db.patch(args.workspaceId, { instructorId: undefined });
+
+    await logWorkspaceAudit(
+      ctx,
+      args.workspaceId,
+      user.subject,
+      "transfer_workspace_ownership",
+      `Cleared instructor (was: ${oldInstructorId || "none"})`
+    );
+
+    return await ctx.db.get(args.workspaceId);
   },
 });
