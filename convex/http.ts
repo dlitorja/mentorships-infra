@@ -808,4 +808,70 @@ http.route({
   handler: httpLinkSeatReservationsByEmail,
 });
 
+const httpGetImagesNeedingMigration = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) {
+    return unauthorizedResponse();
+  }
+
+  try {
+    const images = await ctx.runQuery(api.workspaces.getImagesNeedingMigration, {});
+    return new Response(JSON.stringify({ images }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpMigrateWorkspaceImage = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) {
+    return unauthorizedResponse();
+  }
+
+  let imageId: string;
+  try {
+    const body = await request.json();
+    imageId = body.imageId;
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!imageId || typeof imageId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid imageId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(api.workspaces.migrateWorkspaceImage, { imageId });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+http.route({
+  path: "/api/workspaces/getImagesNeedingMigration",
+  method: "GET",
+  handler: httpGetImagesNeedingMigration,
+});
+
+http.route({
+  path: "/api/workspaces/migrateWorkspaceImage",
+  method: "POST",
+  handler: httpMigrateWorkspaceImage,
+});
+
 export default http;
