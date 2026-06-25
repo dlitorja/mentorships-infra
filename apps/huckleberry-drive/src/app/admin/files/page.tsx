@@ -32,7 +32,7 @@ export default function AdminFilesPage(): React.ReactElement {
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
-  const latestPlayRequestRef = useRef<string | null>(null);
+const latestPlayRequestRef = useRef<string | null>(null);
 
   const isDownloading = (fileId: string) => downloadingIds.has(fileId);
   const isPlaying = (fileId: string) => playingIds.has(fileId);
