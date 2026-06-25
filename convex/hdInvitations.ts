@@ -317,16 +317,17 @@ export const acceptHdInvitationFromClerk = action({
 export const getPendingInvitationByEmailInternal = internalQuery({
   args: { email: v.string() },
   handler: async (ctx, args) => {
-    const invitation = await ctx.db
+    const invitations = await ctx.db
       .query("hdInvitations")
       .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
-      .first();
+      .collect();
 
-    if (!invitation || invitation.status !== "pending") {
-      return null;
-    }
+    const now = Date.now();
+    const validInvitation = invitations
+      .filter((inv) => inv.status === "pending" && inv.expiresAt > now)
+      .sort((a, b) => b.expiresAt - a.expiresAt)[0];
 
-    return invitation;
+    return validInvitation ?? null;
   },
 });
 
@@ -336,10 +337,45 @@ export const markInvitationAccepted = internalMutation({
     clerkUserId: v.string(),
   },
   handler: async (ctx, args) => {
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+
     await ctx.db.patch(args.invitationId, {
       status: "accepted",
       clerkInvitationId: args.clerkUserId,
       updatedAt: Date.now(),
     });
+
+    const existingUser = await ctx.db
+      .query("users")
+      .withIndex("by_clerkId", (q) => q.eq("clerkId", args.clerkUserId))
+      .first();
+
+    if (existingUser) {
+      await ctx.db.patch(existingUser._id, {
+        role: invitation.role,
+        email: invitation.email,
+      });
+    } else {
+      await ctx.db.insert("users", {
+        userId: args.clerkUserId,
+        email: invitation.email,
+        clerkId: args.clerkUserId,
+        role: invitation.role,
+      });
+
+      if (invitation.role === "instructor") {
+        const instructorId = await ctx.db.insert("instructors", {
+          userId: args.clerkUserId,
+          email: invitation.email,
+          name: undefined,
+          isActive: true,
+          isNew: true,
+        });
+        console.log("Created instructor record for", args.clerkUserId, instructorId);
+      }
+    }
   },
 });
