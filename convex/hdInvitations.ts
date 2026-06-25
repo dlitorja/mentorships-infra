@@ -259,3 +259,24 @@ export const getPendingInvitationsByEmail = query({
       }));
   },
 });
+
+export const deleteHdInvitation = mutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    await requireAdminUser(ctx, identity.subject);
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+
+    await ctx.db.delete(args.invitationId);
+
+    return { success: true };
+  },
+});
