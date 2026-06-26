@@ -7,24 +7,44 @@ import { createHdClerkInvitation, revokeClerkInvitation } from "@/lib/clerk-invi
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let newClerkInvitationId: string | undefined = undefined;
+  let oldClerkInvitationId: string | undefined = undefined;
 
   try {
     await requireAdmin();
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
-    const body = await request.json();
-    const { invitationId, expiresInDays } = body;
+    let body: any;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid JSON payload" },
+        { status: 400 }
+      );
+    }
 
-    if (!invitationId) {
+    const invitationId = body.invitationId;
+    const expiresInDays = body.expiresInDays;
+
+    if (!invitationId || typeof invitationId !== "string") {
       return NextResponse.json(
         { error: "Invitation ID is required" },
         { status: 400 }
       );
     }
 
+    if (expiresInDays !== undefined && expiresInDays !== null) {
+      if (typeof expiresInDays !== "number" || !Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 30) {
+        return NextResponse.json(
+          { error: "expiresInDays must be an integer between 1 and 30" },
+          { status: 400 }
+        );
+      }
+    }
+
     const invitation = await fetchQuery(api.hdInvitations.getHdInvitation, {
-      invitationId,
+      invitationId: invitationId as any,
     }, { token: convexToken });
 
     if (!invitation) {
@@ -41,22 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    if (invitation.clerkInvitationId) {
-      const revokeResult = await revokeClerkInvitation(invitation.clerkInvitationId);
-
-      if (!revokeResult.success) {
-        if (revokeResult.reason === "already_consumed" || revokeResult.reason === "not_found" || revokeResult.reason === "not_revocable") {
-          console.log(
-            `Existing Clerk invitation ${invitation.clerkInvitationId} ${revokeResult.reason}, proceeding with resend`
-          );
-        } else {
-          return NextResponse.json(
-            { error: revokeResult.message },
-            { status: 502 }
-          );
-        }
-      }
-    }
+    oldClerkInvitationId = invitation.clerkInvitationId ?? undefined;
 
     const clerkResult = await createHdClerkInvitation({
       emailAddress: invitation.email,
@@ -74,10 +79,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     try {
       const result = await fetchMutation(api.hdInvitations.resendHdInvitation, {
-        invitationId,
+        invitationId: invitationId as any,
         clerkInvitationId: newClerkInvitationId,
         expiresInDays: expiresInDays ?? 7,
       }, { token: convexToken });
+
+      if (oldClerkInvitationId) {
+        const revokeResult = await revokeClerkInvitation(oldClerkInvitationId);
+        if (!revokeResult.success && revokeResult.reason !== "already_consumed" && revokeResult.reason !== "not_found" && revokeResult.reason !== "not_revocable") {
+          console.error(`Failed to revoke old Clerk invitation ${oldClerkInvitationId}: ${revokeResult.message}`);
+        }
+      }
 
       return NextResponse.json({
         success: true,
@@ -100,10 +112,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (error instanceof ForbiddenError) {
       return NextResponse.json({ error: error.message }, { status: 403 });
-    }
-
-    if (error instanceof Error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

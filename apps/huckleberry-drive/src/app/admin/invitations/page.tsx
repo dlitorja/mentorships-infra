@@ -108,14 +108,17 @@ export default function AdminInvitationsPage(): React.ReactElement {
     }
   }, [fetchInvitations]);
 
-  const handleResendInvitation = useCallback(async (invitationId: string) => {
+  const handleResendInvitation = useCallback(async (invitationId: string): Promise<void> => {
     try {
+      setError(null);
+      setSuccessMessage(null);
       setIsResending(invitationId);
       await resendHdInvitation(invitationId);
       setSuccessMessage("Invitation resent successfully");
       setTimeout(() => setSuccessMessage(null), 3000);
       await fetchInvitations();
     } catch (err) {
+      setSuccessMessage(null);
       setError(err instanceof Error ? err.message : "Failed to resend invitation");
     } finally {
       setIsResending(null);
@@ -385,16 +388,16 @@ export default function AdminInvitationsPage(): React.ReactElement {
                               <>
                                 <button
                                   onClick={() => handleResendInvitation(invitation.id)}
-                                  disabled={isResending !== null}
+                                  disabled={isResending !== null || isCancelling !== null}
                                   className="p-2 rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
-                                  title="Resend Invitation"
-                                  aria-label="Resend Invitation"
+                                  title={`Resend Invitation to ${invitation.email}`}
+                                  aria-label={`Resend Invitation to ${invitation.email}`}
                                 >
                                   <Mail className="w-4 h-4" />
                                 </button>
                                 <button
                                   onClick={() => setShowConfirmCancel(invitation.id)}
-                                  disabled={isCancelling !== null}
+                                  disabled={isResending !== null || isCancelling !== null}
                                   className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
                                   title="Cancel Invitation"
                                   aria-label="Cancel Invitation"
