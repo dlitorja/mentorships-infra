@@ -209,6 +209,40 @@ export const updateHdInvitationClerkId = mutation({
   },
 });
 
+export const resendHdInvitation = mutation({
+  args: {
+    invitationId: v.id("hdInvitations"),
+    clerkInvitationId: v.string(),
+    expiresInDays: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    await requireAdminUser(ctx, identity.subject);
+
+    const invitation = await ctx.db.get(args.invitationId);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+
+    if (invitation.status !== "pending") {
+      throw new Error("Can only resend pending invitations");
+    }
+
+    const expiresInDays = args.expiresInDays ?? 7;
+    const expiresAt = Date.now() + expiresInDays * 24 * 60 * 60 * 1000;
+
+    await ctx.db.patch(args.invitationId, {
+      clerkInvitationId: args.clerkInvitationId,
+      expiresAt,
+      updatedAt: Date.now(),
+    });
+
+    return { invitationId: args.invitationId, newExpiresAt: expiresAt };
+  },
+});
+
 export const getHdInvitationStats = query({
   args: {},
   handler: async (ctx) => {

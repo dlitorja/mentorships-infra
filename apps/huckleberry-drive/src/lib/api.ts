@@ -276,6 +276,14 @@ export async function deleteHdInvitation(invitationId: string): Promise<{ succes
   });
 }
 
+export async function resendHdInvitation(invitationId: string, expiresInDays?: number): Promise<{ success: boolean; newExpiresAt: number }> {
+  return fetchApi<{ success: boolean; newExpiresAt: number }>("/api/admin/invitations/resend", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ invitationId, expiresInDays }),
+  });
+}
+
 export interface AdminUser {
   _id: string;
   userId: string;
