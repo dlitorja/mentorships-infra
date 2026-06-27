@@ -116,12 +116,17 @@ export default function AdminInvitationsPage(): React.ReactElement {
       await resendHdInvitation(invitationId);
       setSuccessMessage("Invitation resent successfully");
       setTimeout(() => setSuccessMessage(null), 3000);
-      await fetchInvitations();
     } catch (err) {
       setSuccessMessage(null);
       setError(err instanceof Error ? err.message : "Failed to resend invitation");
     } finally {
       setIsResending(null);
+    }
+
+    try {
+      await fetchInvitations();
+    } catch {
+      setError("Invitation resent but failed to refresh the list");
     }
   }, [fetchInvitations]);
 
@@ -372,14 +377,15 @@ export default function AdminInvitationsPage(): React.ReactElement {
                               <>
                                 <button
                                   onClick={() => handleCancelInvitation(invitation.id)}
-                                  disabled={isCancelling === invitation.id}
+                                  disabled={isCancelling === invitation.id || isResending !== null}
                                   className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
                                 >
                                   {isCancelling === invitation.id ? "Cancelling..." : "Confirm"}
                                 </button>
                                 <button
                                   onClick={() => setShowConfirmCancel(null)}
-                                  className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500"
+                                  disabled={isResending !== null}
+                                  className="px-3 py-1.5 text-xs font-medium bg-slate-600 text-slate-300 rounded-md hover:bg-slate-500 disabled:opacity-50"
                                 >
                                   Cancel
                                 </button>

@@ -3,18 +3,18 @@ import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { createHdClerkInvitation, revokeClerkInvitation } from "@/lib/clerk-invitations";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let newClerkInvitationId: string | undefined = undefined;
-  let oldClerkInvitationId: string | undefined = undefined;
 
   try {
     await requireAdmin();
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
-    let body: any;
+    let body: unknown;
     try {
       body = await request.json();
     } catch {
@@ -24,8 +24,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const invitationId = body.invitationId;
-    const expiresInDays = body.expiresInDays;
+    if (!body || typeof body !== "object") {
+      return NextResponse.json(
+        { error: "Invalid JSON payload" },
+        { status: 400 }
+      );
+    }
+
+    const { invitationId, expiresInDays } = body as { invitationId?: unknown; expiresInDays?: unknown };
 
     if (!invitationId || typeof invitationId !== "string") {
       return NextResponse.json(
@@ -33,6 +39,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 400 }
       );
     }
+
+    const validInvitationId = invitationId as Id<"hdInvitations">;
 
     if (expiresInDays !== undefined && expiresInDays !== null) {
       if (typeof expiresInDays !== "number" || !Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 30) {
@@ -44,7 +52,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     const invitation = await fetchQuery(api.hdInvitations.getHdInvitation, {
-      invitationId: invitationId as any,
+      invitationId: validInvitationId,
     }, { token: convexToken });
 
     if (!invitation) {
@@ -61,17 +69,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    oldClerkInvitationId = invitation.clerkInvitationId ?? undefined;
-
     const clerkResult = await createHdClerkInvitation({
       emailAddress: invitation.email,
       role: invitation.role,
     });
 
     if (!clerkResult.success) {
+      console.error("Failed to create Clerk invitation:", clerkResult.error);
       return NextResponse.json({
         success: false,
-        error: clerkResult.error,
+        error: "Failed to create invitation",
       }, { status: 502 });
     }
 
@@ -79,15 +86,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     try {
       const result = await fetchMutation(api.hdInvitations.resendHdInvitation, {
-        invitationId: invitationId as any,
+        invitationId: validInvitationId,
         clerkInvitationId: newClerkInvitationId,
         expiresInDays: expiresInDays ?? 7,
       }, { token: convexToken });
 
-      if (oldClerkInvitationId) {
-        const revokeResult = await revokeClerkInvitation(oldClerkInvitationId);
+      if (result.previousClerkInvitationId) {
+        const revokeResult = await revokeClerkInvitation(result.previousClerkInvitationId);
         if (!revokeResult.success && revokeResult.reason !== "already_consumed" && revokeResult.reason !== "not_found" && revokeResult.reason !== "not_revocable") {
-          console.error(`Failed to revoke old Clerk invitation ${oldClerkInvitationId}: ${revokeResult.message}`);
+          console.error(`Failed to revoke old Clerk invitation ${result.previousClerkInvitationId}: ${revokeResult.message}`);
         }
       }
 
