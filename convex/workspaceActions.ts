@@ -1,39 +1,6 @@
 import { action } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
-
-async function isAdmin(ctx: any, userId: string): Promise<boolean> {
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_userId", (q: any) => q.eq("userId", userId))
-    .first();
-  return user?.role === "admin";
-}
-
-async function canAccessWorkspace(
-  ctx: any,
-  workspaceId: any,
-  userId: string
-): Promise<boolean> {
-  const workspace = await ctx.db.get(workspaceId);
-  if (!workspace) return false;
-
-  const userIsAdmin = await isAdmin(ctx, userId);
-  if (userIsAdmin) return true;
-
-  if (workspace.ownerId === userId) return true;
-
-  if (workspace.instructorId) {
-    const instructor = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q: any) => q.eq("userId", userId))
-      .first();
-    if (instructor && instructor._id === workspace.instructorId) {
-      return true;
-    }
-  }
-
-  return false;
-}
 
 export const generateWorkspaceImageUploadUrl = action({
   args: {
@@ -41,11 +8,18 @@ export const generateWorkspaceImageUploadUrl = action({
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
+    console.log("DEBUG generateWorkspaceImageUploadUrl called");
+    console.log("DEBUG user:", user);
     if (!user) {
+      console.log("DEBUG: user is null, throwing Unauthorized");
       throw new Error("Unauthorized");
     }
 
-    const canAccess = await canAccessWorkspace(ctx, args.workspaceId, user.subject);
+    console.log("DEBUG user.subject:", user.subject);
+    const canAccess = await ctx.runQuery(internal.workspaces.canAccessWorkspaceQuery, {
+      workspaceId: args.workspaceId,
+      userId: user.subject,
+    });
     if (!canAccess) {
       throw new Error("Not authorized to upload images to this workspace");
     }

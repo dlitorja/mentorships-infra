@@ -1026,3 +1026,31 @@ export const isAdminQuery = internalQuery({
     return (user?.role ?? "") === "admin";
   },
 });
+
+export const canAccessWorkspaceQuery = internalQuery({
+  args: { workspaceId: v.id("workspaces"), userId: v.string() },
+  handler: async (ctx, args) => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) return false;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .first();
+    if (user?.role === "admin") return true;
+
+    if (workspace.ownerId === args.userId) return true;
+
+    if (workspace.instructorId) {
+      const instructor = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+        .first();
+      if (instructor && instructor._id === workspace.instructorId) {
+        return true;
+      }
+    }
+
+    return false;
+  },
+});
