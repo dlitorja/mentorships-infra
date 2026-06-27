@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth-helpers";
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { UserButton } from "@clerk/nextjs";
 
 import { api } from "@/convex/_generated/api";
@@ -76,7 +76,8 @@ function formatDateTime(date: Date | string | number): string {
  */
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
-  const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId: user.id });
+  const token = await getConvexAuthToken();
+  const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId: user.id }, { token: token ?? undefined });
 
   if (!instructorRecord) {
     return (
