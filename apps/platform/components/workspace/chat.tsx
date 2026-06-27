@@ -4,6 +4,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImage } from '@/lib/queries/convex/use-workspaces';
+import { useConvexAction } from '@convex-dev/react-query';
+import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
@@ -70,6 +72,7 @@ interface WorkspaceChatProps {
 export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceChatProps) {
   const [message, setMessage] = useState('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -78,6 +81,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
   const { data: messages, isLoading } = useWorkspaceMessages(workspaceId);
   const createMessage = useCreateWorkspaceMessage();
   const createImage = useCreateWorkspaceImage();
+  const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -110,7 +114,31 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     const file = acceptedFiles[0];
     if (!file || !workspaceId) return;
 
-    processImageFile(file, workspaceId, setPreviewImage, setUploadError, setIsUploading);
+    if (file.size > MAX_IMAGE_BYTES) {
+      setPreviewImage(null);
+      setImageFile(null);
+      setUploadError('Image is too large. Maximum size is 5MB.');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setPreviewImage(null);
+      setImageFile(null);
+      setUploadError('Only image files are supported.');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setPreviewImage(dataUrl);
+      setImageFile(file);
+      setIsUploading(false);
+    };
+    reader.readAsDataURL(file);
   }, [workspaceId]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -126,28 +154,82 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     const file = e.target.files?.[0];
     if (!file || !workspaceId) return;
 
-    processImageFile(file, workspaceId, setPreviewImage, setUploadError, setIsUploading);
+    if (file.size > MAX_IMAGE_BYTES) {
+      setPreviewImage(null);
+      setImageFile(null);
+      setUploadError('Image is too large. Maximum size is 5MB.');
+      return;
+    }
+
+    if (!file.type.startsWith('image/')) {
+      setPreviewImage(null);
+      setImageFile(null);
+      setUploadError('Only image files are supported.');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setPreviewImage(dataUrl);
+      setImageFile(file);
+      setIsUploading(false);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSendImage = async () => {
-    if (!previewImage || !workspaceId) return;
+    if ((!previewImage && !imageFile) || !workspaceId) return;
 
     try {
-      // Upload the image using Convex mutation; data URL is acceptable for imageUrl
+      setIsUploading(true);
+
+      // Get upload URL from Convex
+      const uploadUrl = await generateUploadUrl({ workspaceId });
+
+      // Upload file to Convex Storage
+      if (!imageFile) {
+        throw new Error('No image file selected');
+      }
+
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': imageFile.type,
+        },
+        body: imageFile,
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const { storageId } = await response.json();
+
+      // Create workspace image with storageId
       await createImage.mutateAsync({
         workspaceId,
-        imageUrl: previewImage,
+        storageId,
+        imageUrl: '',
       });
+
       setPreviewImage(null);
+      setImageFile(null);
       setUploadError(null);
     } catch (error) {
       console.error('Failed to upload image:', error);
       setUploadError('Failed to upload image. Please try again.');
+    } finally {
+      setIsUploading(false);
     }
   };
 
   const cancelPreview = () => {
     setPreviewImage(null);
+    setImageFile(null);
     setUploadError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
