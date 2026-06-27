@@ -8,14 +8,10 @@ export const generateWorkspaceImageUploadUrl = action({
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
-    console.log("DEBUG generateWorkspaceImageUploadUrl called");
-    console.log("DEBUG user:", user);
     if (!user) {
-      console.log("DEBUG: user is null, throwing Unauthorized");
       throw new Error("Unauthorized");
     }
 
-    console.log("DEBUG user.subject:", user.subject);
     const canAccess = await ctx.runQuery(internal.workspaces.canAccessWorkspaceQuery, {
       workspaceId: args.workspaceId,
       userId: user.subject,
