@@ -117,7 +117,7 @@ export const getWorkspaceById = query({
   },
 });
 
-/** Returns all workspaces owned by a user. Requires auth. */
+/** Returns all workspaces owned by a user OR where the user is the instructor. Requires auth. */
 export const getUserWorkspaces = query({
   args: { ownerId: v.string() },
   handler: async (ctx, args) => {
@@ -125,10 +125,33 @@ export const getUserWorkspaces = query({
     if (!user) {
       return [];
     }
-    return await ctx.db
+    const ownedWorkspaces = await ctx.db
       .query("workspaces")
       .withIndex("by_ownerId", (q) => q.eq("ownerId", args.ownerId))
       .collect();
+
+    // Also get workspaces where the user is the instructor
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q) => q.eq("userId", args.ownerId))
+      .first();
+
+    let instructorWorkspaces: typeof ownedWorkspaces = [];
+    if (instructor) {
+      instructorWorkspaces = await ctx.db
+        .query("workspaces")
+        .withIndex("by_instructorId", (q) => q.eq("instructorId", instructor._id))
+        .collect();
+    }
+
+    // Merge and deduplicate by workspace ID
+    const allWorkspaces = [...ownedWorkspaces, ...instructorWorkspaces];
+    const seen = new Set<string>();
+    return allWorkspaces.filter((w) => {
+      if (seen.has(w._id)) return false;
+      seen.add(w._id);
+      return true;
+    });
   },
 });
 
@@ -249,7 +272,7 @@ export const createWorkspace = mutation({
   },
 });
 
-/** Updates a workspace's name, description, image, or visibility. */
+/** Updates a workspace's name, description, image, visibility, or owner. */
 export const updateWorkspace = mutation({
   args: {
     id: v.id("workspaces"),
@@ -257,6 +280,7 @@ export const updateWorkspace = mutation({
     description: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     isPublic: v.optional(v.boolean()),
+    ownerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
