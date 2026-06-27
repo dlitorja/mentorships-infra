@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { useWorkspacesByOwner } from "@/lib/queries/convex/use-workspaces";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MessageSquare, FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X } from "lucide-react";
@@ -23,13 +22,15 @@ type UserWorkspace = {
 
 function WorkspaceContent({
   clerkUserId,
+  workspaces,
 }: {
   clerkUserId: string;
+  workspaces: UserWorkspace[] | undefined;
 }) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<"workspaces"> | null>(null);
   const [activeTab, setActiveTab] = useState("chat");
 
-  const { data: workspaces, isLoading: workspacesLoading } = useWorkspacesByOwner(clerkUserId);
+  const workspacesLoading = false;
 
   useEffect(() => {
     if (workspaces && workspaces.length > 0 && !selectedWorkspaceId) {
@@ -196,8 +197,9 @@ function WorkspacePolicyBanner() {
 
 interface WorkspaceClientPageProps {
   clerkUserId: string;
+  workspaces?: UserWorkspace[];
 }
 
-export default function WorkspaceClientPage({ clerkUserId }: WorkspaceClientPageProps) {
-  return <WorkspaceContent clerkUserId={clerkUserId} />;
+export default function WorkspaceClientPage({ clerkUserId, workspaces }: WorkspaceClientPageProps) {
+  return <WorkspaceContent clerkUserId={clerkUserId} workspaces={workspaces} />;
 }
