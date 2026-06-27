@@ -2,7 +2,7 @@ import { requireRole } from "@/lib/auth-helpers";
 import { UserButton } from "@clerk/nextjs";
 
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { fetchQuery } from "convex/nextjs";
 import { Id, Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -76,8 +76,7 @@ function formatDateTime(date: Date | string | number): string {
  */
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
-  const convex = getConvexClient();
-  const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
+  const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructorRecord) {
     return (
@@ -103,10 +102,10 @@ export default async function InstructorDashboardPage() {
   let maxSeats = 0;
   let activeStudentsCount = 0;
 
-  if (instructorRecord?._id) {
+if (instructorRecord?._id) {
     try {
       // Get active seats and calculate unique students
-      activeSeatsData = await convex.query(api.seatReservations.getInstructorActiveSeats, { instructorId: instructorRecord._id as Id<"instructors"> });
+      activeSeatsData = await fetchQuery(api.seatReservations.getInstructorActiveSeats, { instructorId: instructorRecord._id as Id<"instructors"> });
       const uniqueStudentIds = new Set(activeSeatsData.map((seat) => seat.userId));
       activeStudentsCount = uniqueStudentIds.size;
 
@@ -116,11 +115,11 @@ export default async function InstructorDashboardPage() {
       maxSeats = oneOnOne + group;
 
       // Get upcoming sessions with student info
-      const sessionsResult = await convex.query(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
+      const sessionsResult = await fetchQuery(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
       upcomingSessions = sessionsResult as UpcomingSession[];
 
       // Get past sessions with student info
-      const pastSessionsResult = await convex.query(api.sessions.getInstructorPastSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
+      const pastSessionsResult = await fetchQuery(api.sessions.getInstructorPastSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
       pastSessions = pastSessionsResult as PastSession[];
     } catch (e) {
       console.error("Failed to load instructor dashboard stats", e);
@@ -133,11 +132,11 @@ export default async function InstructorDashboardPage() {
   let bookings: Array<{ id: string; startUtc: number; endUtc: number; studentEmail: string; status: string }> = [];
   if (instructorRecord?._id) {
     try {
-      bookings = await convex.query(api.bookings.listInstructorBookings, { instructorId: instructorRecord._id as any, limit: 10 });
+      bookings = await fetchQuery(api.bookings.listInstructorBookings, { instructorId: instructorRecord._id as any, limit: 10 });
     } catch (e) {
       console.error("Failed to load instructor bookings", e);
     }
-}
+  }
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
