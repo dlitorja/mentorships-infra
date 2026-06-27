@@ -1,7 +1,10 @@
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, getConvexAuthToken } from "@/lib/auth";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import WorkspaceClientPage from "@/components/workspace/workspace-client-page";
 import { Loader2 } from "lucide-react";
+import { fetchQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +21,12 @@ export default async function WorkspacePage() {
   }
 
   const clerkUserId = await requireAuth();
+  const token = await getConvexAuthToken();
+  const workspaces = await fetchQuery(api.workspaces.getUserWorkspaces, { ownerId: clerkUserId }, { token: token ?? undefined });
 
   return (
     <ProtectedLayout currentPath="/workspace">
-      <WorkspaceClientPage clerkUserId={clerkUserId} />
+      <WorkspaceClientPage clerkUserId={clerkUserId} workspaces={workspaces} />
     </ProtectedLayout>
   );
 }
