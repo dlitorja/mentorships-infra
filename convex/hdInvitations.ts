@@ -230,6 +230,7 @@ export const resendHdInvitation = mutation({
       throw new Error("Can only resend pending invitations");
     }
 
+    const previousClerkInvitationId = invitation.clerkInvitationId ?? null;
     const expiresInDays = args.expiresInDays ?? 7;
     const expiresAt = Date.now() + expiresInDays * 24 * 60 * 60 * 1000;
 
@@ -239,7 +240,7 @@ export const resendHdInvitation = mutation({
       updatedAt: Date.now(),
     });
 
-    return { invitationId: args.invitationId, newExpiresAt: expiresAt };
+    return { invitationId: args.invitationId, newExpiresAt: expiresAt, previousClerkInvitationId };
   },
 });
 
