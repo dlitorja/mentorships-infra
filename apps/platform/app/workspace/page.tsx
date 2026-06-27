@@ -1,4 +1,5 @@
-import { requireAuth, getConvexAuthToken } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
+import { getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import WorkspaceClientPage from "@/components/workspace/workspace-client-page";
 import { Loader2 } from "lucide-react";
