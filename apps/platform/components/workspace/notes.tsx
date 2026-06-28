@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -44,12 +44,19 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
+  const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
+  const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
   const deleteNote = useDeleteWorkspaceNote();
 
   const selectedNote = notes?.find(n => n._id === selectedNoteId);
+
+  useEffect(() => {
+    selectedNoteIdRef.current = selectedNoteId;
+  }, [selectedNoteId]);
 
   const editor = useEditor({
     extensions: [
@@ -65,29 +72,47 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       },
     },
     onUpdate: ({ editor }) => {
-      if (selectedNoteId && selectedNote) {
-        const timeoutId = setTimeout(async () => {
+      const noteId = selectedNoteIdRef.current;
+      if (noteId) {
+        if (autosaveTimeoutRef.current) {
+          clearTimeout(autosaveTimeoutRef.current);
+        }
+
+        autosaveTimeoutRef.current = setTimeout(async () => {
           try {
             await updateNote.mutateAsync({
-              id: selectedNoteId,
+              id: noteId,
               content: editor.getHTML(),
             });
           } catch (error) {
             console.error('Failed to auto-save note:', error);
           }
         }, 1000);
-        return () => clearTimeout(timeoutId);
       }
     },
   });
 
   useEffect(() => {
-    if (editor && selectedNote) {
-      editor.commands.setContent(selectedNote.content || '');
-    } else if (editor && !selectedNote) {
-      editor.commands.setContent('');
+    if (!editor) return;
+
+    if (selectedNote) {
+      if (loadedNoteIdRef.current !== selectedNote._id) {
+        editor.commands.setContent(selectedNote.content || '', { emitUpdate: false });
+        loadedNoteIdRef.current = selectedNote._id;
+      }
+    } else {
+      editor.commands.setContent('', { emitUpdate: false });
+      loadedNoteIdRef.current = null;
     }
   }, [editor, selectedNote]);
+
+  useEffect(() => {
+    return () => {
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (notes && notes.length > 0 && !selectedNoteId) {
