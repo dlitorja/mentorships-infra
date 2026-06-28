@@ -82,6 +82,10 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   }, [latestExport]);
 
+  useEffect(() => {
+    setDownloadUrl(null);
+  }, [exportFormat]);
+
   const handleExport = async () => {
     setDownloadUrl(null);
     try {
@@ -153,6 +157,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     } else {
       setPreviewImages([]);
       setImageFiles([]);
+      setFailedUploads([]);
       toast.success(`${imageFiles.length} images uploaded successfully`);
     }
   };

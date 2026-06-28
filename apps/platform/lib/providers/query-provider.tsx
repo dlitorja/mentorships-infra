@@ -28,7 +28,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           queryKeyHashFn: convexQueryClient?.hashFn(),
           queryFn: convexQueryClient?.queryFn(),
           staleTime: 1000 * 60,
-          gcTime: 1000 * 60 * 5,
+          // @convex-dev/react-query can throw during query removal if its
+          // subscription bookkeeping has already been cleaned up. Keep Convex
+          // query entries alive so subscriptions stay stable across tab changes.
+          gcTime: Infinity,
           retry: 3,
           refetchOnWindowFocus: true,
           refetchOnMount: true,
