@@ -257,8 +257,11 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             size="icon"
             variant="ghost"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] })}
-            title="Refresh images"
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
+              queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceExports"] });
+            }}
+            title="Refresh images and exports"
           >
             <RefreshCw className="h-4 w-4" />
           </Button>

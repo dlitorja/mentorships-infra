@@ -397,6 +397,114 @@ export const deleteWorkspaceNote = mutation({
   },
 });
 
+/** Creates a comment on a workspace note. Both instructors and students can comment. Requires auth and workspace access. */
+export const createNoteComment = mutation({
+  args: {
+    noteId: v.id("workspaceNotes"),
+    content: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const note = await ctx.db.get(args.noteId);
+    if (!note) {
+      throw new Error("Note not found");
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to comment on this note");
+    }
+
+    const commentId = await ctx.db.insert("workspaceNoteComments", {
+      noteId: args.noteId,
+      content: args.content,
+      createdBy: user.subject,
+      createdAt: Date.now(),
+    });
+
+    return commentId;
+  },
+});
+
+/** Soft-deletes a note comment by setting deletedAt. Only the comment author can delete their own comment. Requires auth and workspace access. */
+export const deleteNoteComment = mutation({
+  args: { id: v.id("workspaceNoteComments") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const comment = await ctx.db.get(args.id);
+    if (!comment) {
+      throw new Error("Comment not found");
+    }
+
+    const note = await ctx.db.get(comment.noteId);
+    if (!note) {
+      throw new Error("Note not found");
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to delete comments on this note");
+    }
+
+    if (comment.createdBy !== user.subject) {
+      throw new Error("You can only delete your own comments");
+    }
+
+    await ctx.db.patch(args.id, { deletedAt: Date.now() });
+  },
+});
+
+/** Returns all non-deleted comments for a workspace note, ordered by creation time. Requires auth and workspace access. */
+export const getNoteComments = query({
+  args: { noteId: v.id("workspaceNotes") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+
+    const note = await ctx.db.get(args.noteId);
+    if (!note) {
+      return [];
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return [];
+    }
+
+    return await ctx.db
+      .query("workspaceNoteComments")
+      .withIndex("by_noteId", (q) => q.eq("noteId", args.noteId))
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .order("asc")
+      .collect();
+  },
+});
+
 /** Embeds an image into a workspace note. Creates a workspaceImage record and updates the note's imageUrl field. Enforces instructor image caps. Requires instructor or admin role. */
 export const embedImageInNote = mutation({
   args: {

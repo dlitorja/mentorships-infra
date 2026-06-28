@@ -147,6 +147,49 @@ export function useDeleteWorkspaceNote() {
 }
 
 /**
+ * Represents a comment on a workspace note.
+ */
+export interface NoteComment {
+  _id: Id<"workspaceNoteComments">;
+  noteId: Id<"workspaceNotes">;
+  content: string;
+  createdBy: string;
+  createdAt: number;
+  deletedAt?: number;
+}
+
+/**
+ * Fetches all comments for a specific note.
+ * Returns comments ordered by creation time.
+ */
+export function useNoteComments(noteId: string) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getNoteComments, { noteId: noteId as Id<"workspaceNotes"> }),
+    enabled: !!noteId,
+  });
+}
+
+/**
+ * Mutation hook for creating a comment on a workspace note.
+ * Both instructors and students can comment.
+ */
+export function useCreateNoteComment() {
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.createNoteComment),
+  });
+}
+
+/**
+ * Mutation hook for deleting a note comment.
+ * Only the comment author can delete their own comments.
+ */
+export function useDeleteNoteComment() {
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.deleteNoteComment),
+  });
+}
+
+/**
  * Mutation hook for creating a shared link in a workspace.
  * Invalidates workspace links queries on success to refresh list.
  */
@@ -303,7 +346,7 @@ export function useCreateWorkspaceExport() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceExport),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceExports"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceExports"] });
     },
   });
 }
@@ -318,7 +361,7 @@ export function useCancelWorkspaceExport() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.cancelWorkspaceExport),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceExports"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceExports"] });
     },
   });
 }
