@@ -34,7 +34,6 @@ export default async function RootLayout({
       <ClerkProvider
         signInUrl="/sign-in"
         signUpUrl="/sign-up"
-        domain="epic-rhino-31.clerk.accounts.dev"
       >
         <html lang="en">
           <body
