@@ -112,8 +112,20 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const timeout = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading && messages) {
+      const timeout = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 50);
+      return () => clearTimeout(timeout);
+    }
+  }, [messages, isLoading]);
 
   const handleSendMessage = async () => {
     if (!message.trim() || !workspaceId) return;
