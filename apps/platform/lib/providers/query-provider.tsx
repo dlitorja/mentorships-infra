@@ -29,9 +29,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
           queryFn: convexQueryClient?.queryFn(),
           staleTime: 1000 * 60,
           // @convex-dev/react-query can throw during query removal if its
-          // subscription bookkeeping has already been cleaned up. Keep Convex
-          // query entries alive so subscriptions stay stable across tab changes.
-          gcTime: Infinity,
+          // subscription bookkeeping has already been cleaned up. Keep entries
+          // alive across normal tab/workspace switches, but still eventually GC.
+          gcTime: 1000 * 60 * 60,
           retry: 3,
           refetchOnWindowFocus: true,
           refetchOnMount: true,
