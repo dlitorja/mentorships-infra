@@ -34,6 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const clerkResult = await createHdClerkInvitation({
       emailAddress: email,
       role,
+      expiresInDays: expiresInDays ?? 7,
     });
 
     if (!clerkResult.success) {
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         success: false,
         invitationSent: false,
         invitationError: clerkResult.error,
-      }, { status: 502 });
+      }, { status: clerkResult.status && clerkResult.status < 500 ? clerkResult.status : 502 });
     }
 
     clerkInvitationId = clerkResult.invitationId;
