@@ -47,7 +47,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
 
     if (!clerkResult.success) {
-      const status = clerkResult.status === 400 || clerkResult.status === 409 ? clerkResult.status : 502;
+      const status = clerkResult.status === 409 ? 409 : 502;
       return NextResponse.json({
         success: false,
         invitationSent: false,
