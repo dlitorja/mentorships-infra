@@ -296,6 +296,20 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
   }).index("by_workspaceId", ["workspaceId"]),
 
+  instructorResources: defineTable({
+    instructorId: v.id("instructors"),
+    workspaceId: v.id("workspaces"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+    contentType: v.string(),
+    size: v.number(),
+    type: v.union(v.literal("image"), v.literal("file")),
+    createdBy: v.string(),
+    deletedAt: v.optional(v.number()),
+  }).index("by_instructorId", ["instructorId"])
+    .index("by_workspaceId", ["workspaceId"])
+    .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"]),
+
   workspaceMessages: defineTable({
     workspaceId: v.id("workspaces"),
     userId: v.string(),
