@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
@@ -70,11 +70,17 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const isAdmin = role === 'admin';
   const currentCount = images?.filter((img: Image) => !img.deletedAt).length || 0;
   const maxImages = isAdmin ? 9999 : (role === 'student' ? IMAGE_CAPS.student : IMAGE_CAPS.instructor);
-  const remainingSlots = isAdmin ? 9999 : (maxImages - currentCount);
+  const remainingSlots = maxImages - currentCount;
 
   const latestExport = exports?.[0];
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
+
+  useEffect(() => {
+    if (latestExport?.status === 'completed' && latestExport.downloadUrl) {
+      setDownloadUrl(latestExport.downloadUrl);
+    }
+  }, [latestExport]);
 
   const handleExport = async () => {
     setDownloadUrl(null);
@@ -126,7 +132,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
 
     const newFailedUploads: FailedUpload[] = [];
     const previewImagesCopy = [...previewImages];
-    const imageFilesCopy = [...imageFiles];
 
     for (let i = 0; i < imageFiles.length; i++) {
       const file = imageFiles[i];
@@ -179,30 +184,31 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     setFailedUploads([]);
     setIsUploading(true);
     setUploadProgress({ current: 0, total: failed.length });
+    const stillFailed: FailedUpload[] = [];
 
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
       const result = await uploadSingleImage(workspaceId, failed[i].file, generateUploadUrl, createImage.mutateAsync);
 
       if (!result.success) {
-        failed[i] = { ...failed[i], error: (result as UploadError).error };
+        stillFailed.push({ ...failed[i], error: (result as UploadError).error });
       }
     }
 
     setIsUploading(false);
     setUploadProgress(null);
 
-    const stillFailed = failed.filter(f => f.error !== 'Upload failed');
     if (stillFailed.length > 0) {
       setFailedUploads(stillFailed);
       setPreviewImages(stillFailed.map(f => f.preview));
       setImageFiles(stillFailed.map(f => f.file));
+      toast.error(`${stillFailed.length} image${stillFailed.length !== 1 ? 's' : ''} still failed to upload`);
     } else {
       setFailedUploads([]);
       setPreviewImages([]);
       setImageFiles([]);
+      toast.success('All images uploaded successfully');
     }
-    toast.success('All images uploaded successfully');
   };
 
   const removeImage = (index: number) => {

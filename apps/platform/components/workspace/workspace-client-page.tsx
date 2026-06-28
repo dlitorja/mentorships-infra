@@ -152,7 +152,7 @@ function WorkspaceContent({
                     <WorkspaceImages
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
-                      role={userRole === "admin" ? "instructor" : userRole}
+                      role={userRole}
                     />
                   </TabsContent>
                   <TabsContent value="links" className="flex-1 min-h-0 mt-4">

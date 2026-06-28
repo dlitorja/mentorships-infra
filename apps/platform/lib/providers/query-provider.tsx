@@ -13,8 +13,7 @@ let convexClient: ConvexReactClient | null = null;
 
 if (convexUrl) {
   convexClient = new ConvexReactClient(convexUrl);
-  // Pass convexUrl string to avoid type mismatches across duplicated Convex packages
-  convexQueryClient = new ConvexQueryClient(convexUrl);
+  convexQueryClient = new ConvexQueryClient(convexClient);
 }
 
 export { convexClient, convexQueryClient };
