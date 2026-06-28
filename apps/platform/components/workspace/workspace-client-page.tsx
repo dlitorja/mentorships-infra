@@ -10,6 +10,7 @@ import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
 import WorkspaceLinks from "@/components/workspace/links";
 import { RetentionWarningBanner } from "@/components/workspace/retention-warning-banner";
+import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
   _id: Id<"workspaces">;
@@ -23,9 +24,11 @@ type UserWorkspace = {
 function WorkspaceContent({
   clerkUserId,
   workspaces,
+  userRole,
 }: {
   clerkUserId: string;
   workspaces: UserWorkspace[] | undefined;
+  userRole: UserRole;
 }) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<"workspaces"> | null>(null);
   const [activeTab, setActiveTab] = useState("chat");
@@ -136,6 +139,7 @@ function WorkspaceContent({
                     <WorkspaceChat
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
+                      role={userRole}
                     />
                   </TabsContent>
                   <TabsContent value="notes" className="flex-1 min-h-0 mt-4">
@@ -148,7 +152,7 @@ function WorkspaceContent({
                     <WorkspaceImages
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
-                      role="student"
+                      role={userRole === "admin" ? "instructor" : userRole}
                     />
                   </TabsContent>
                   <TabsContent value="links" className="flex-1 min-h-0 mt-4">
@@ -198,8 +202,9 @@ function WorkspacePolicyBanner() {
 interface WorkspaceClientPageProps {
   clerkUserId: string;
   workspaces?: UserWorkspace[];
+  userRole: UserRole;
 }
 
-export default function WorkspaceClientPage({ clerkUserId, workspaces }: WorkspaceClientPageProps) {
-  return <WorkspaceContent clerkUserId={clerkUserId} workspaces={workspaces} />;
+export default function WorkspaceClientPage({ clerkUserId, workspaces, userRole }: WorkspaceClientPageProps) {
+  return <WorkspaceContent clerkUserId={clerkUserId} workspaces={workspaces} userRole={userRole} />;
 }

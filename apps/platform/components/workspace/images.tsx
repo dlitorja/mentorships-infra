@@ -47,7 +47,7 @@ const PER_UPLOAD_CAP = 5;
 interface WorkspaceImagesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
-  role: 'student' | 'instructor';
+  role: 'student' | 'instructor' | 'admin';
 }
 
 export default function WorkspaceImages({ workspaceId, currentUserId, role }: WorkspaceImagesProps) {
@@ -67,9 +67,10 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const createExport = useCreateWorkspaceExport();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
+  const isAdmin = role === 'admin';
   const currentCount = images?.filter((img: Image) => !img.deletedAt).length || 0;
-  const maxImages = role === 'student' ? IMAGE_CAPS.student : IMAGE_CAPS.instructor;
-  const remainingSlots = maxImages - currentCount;
+  const maxImages = isAdmin ? 9999 : (role === 'student' ? IMAGE_CAPS.student : IMAGE_CAPS.instructor);
+  const remainingSlots = isAdmin ? 9999 : (maxImages - currentCount);
 
   const latestExport = exports?.[0];
   const isProcessing = latestExport?.status === 'processing';
@@ -92,7 +93,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const formatIcon = exportFormat === 'pdf' ? <FileText className="h-4 w-4" /> : exportFormat === 'markdown' ? <FileText className="h-4 w-4" /> : <FileArchive className="h-4 w-4" />;
 
   const processFiles = useCallback(async (files: File[]) => {
-    const { valid, invalid } = validateImageFiles(files, remainingSlots, false);
+    const { valid, invalid } = validateImageFiles(files, remainingSlots, isAdmin);
 
     for (const { file, error } of invalid) {
       toast.error(`${file.name}: ${error}`);
