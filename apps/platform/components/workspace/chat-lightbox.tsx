@@ -92,7 +92,7 @@ export function ChatImageLightbox({
               <img
                 src={currentImage}
                 alt={`Chat attachment ${currentIndex + 1}`}
-                className="max-h-full max-w-full object-contain"
+                className="max-w-[100vw] max-h-[100vh] object-contain"
                 onError={() => setImageError(true)}
               />
             ) : (
