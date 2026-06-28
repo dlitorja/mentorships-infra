@@ -428,6 +428,9 @@ export const embedImageInNote = mutation({
     if (!storageMeta) {
       throw new Error("Storage file not found");
     }
+    if (!storageMeta.contentType?.startsWith("image/")) {
+      throw new Error("Only image files can be embedded in notes");
+    }
     if (storageMeta.size > MAX_WORKSPACE_FILE_BYTES) {
       throw new Error("Image exceeds 50MB size limit");
     }

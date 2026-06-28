@@ -50,12 +50,17 @@ export const getInstructorResources = query({
       .collect();
 
     const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace || workspace.instructorId !== instructor._id) {
+    if (!workspace) {
+      return [];
+    }
+
+    const filtered = resources.filter(r => r.workspaceId === args.workspaceId);
+    if (workspace.instructorId !== instructor._id) {
       return [];
     }
 
     const enriched = await Promise.all(
-      resources.map(async (r) => {
+      filtered.map(async (r) => {
         const url = await ctx.storage.getUrl(r.storageId);
         return {
           ...r,
@@ -102,7 +107,7 @@ export const uploadInstructorResource = mutation({
       throw new Error("Instructor not found");
     }
 
-    if (workspace.instructorId !== instructor._id) {
+    if (role === "instructor" && workspace.instructorId !== instructor._id) {
       throw new Error("You are not the instructor for this workspace");
     }
 
