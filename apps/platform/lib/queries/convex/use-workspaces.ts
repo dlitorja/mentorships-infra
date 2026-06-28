@@ -87,7 +87,7 @@ export function useWorkspaceImages(workspaceId: string) {
 
 /**
  * Mutation hook for creating a new chat message in a workspace.
- * Invalidates workspace messages queries on success to refresh chat.
+ * Refetches workspace messages queries on success to refresh chat.
  */
 export function useCreateWorkspaceMessage() {
   const queryClient = useQueryClient();
@@ -95,7 +95,9 @@ export function useCreateWorkspaceMessage() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceMessage),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceMessages"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
+      });
     },
   });
 }
@@ -110,7 +112,9 @@ export function useCreateWorkspaceNote() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceNote),
     onSuccess: () => {
-      queryClient.refetchQueries({ queryKey: ["workspaceNotes"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"],
+      });
     },
   });
 }
@@ -125,7 +129,9 @@ export function useUpdateWorkspaceNote() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.updateWorkspaceNote),
     onSuccess: () => {
-      queryClient.refetchQueries({ queryKey: ["workspaceNotes"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"],
+      });
     },
   });
 }
@@ -140,7 +146,9 @@ export function useDeleteWorkspaceNote() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceNote),
     onSuccess: () => {
-      queryClient.refetchQueries({ queryKey: ["workspaceNotes"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"],
+      });
     },
   });
 }
@@ -155,7 +163,9 @@ export function useCreateWorkspaceLink() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceLink),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceLinks"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceLinks"],
+      });
     },
   });
 }
@@ -170,7 +180,9 @@ export function useDeleteWorkspaceLink() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceLink),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceLinks"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceLinks"],
+      });
     },
   });
 }
@@ -185,8 +197,12 @@ export function useCreateWorkspaceImage() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImage),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceImages"] });
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspacesByOwner"],
+      });
     },
   });
 }
@@ -201,8 +217,12 @@ export function useDeleteWorkspaceImage() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceImage),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceImages"] });
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspacesByOwner"],
+      });
     },
   });
 }
@@ -217,9 +237,15 @@ export function useCreateWorkspaceImageAndMessage() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceImages"] });
-      queryClient.invalidateQueries({ queryKey: ["workspaceMessages"] });
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery"],
+      });
     },
   });
 }
@@ -234,7 +260,12 @@ export function useCreateWorkspace() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspace),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getInstructorWorkspaces"],
+      });
     },
   });
 }
@@ -249,7 +280,9 @@ export function useUpdateWorkspace() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.updateWorkspace),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceById"],
+      });
     },
   });
 }
