@@ -69,11 +69,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    if (invitation.clerkInvitationId) {
+      const revokeResult = await revokeClerkInvitation(invitation.clerkInvitationId);
+      if (!revokeResult.success && revokeResult.reason !== "already_consumed" && revokeResult.reason !== "not_found" && revokeResult.reason !== "not_revocable") {
+        console.error(`Failed to revoke old Clerk invitation ${invitation.clerkInvitationId}: ${revokeResult.message}`);
+        return NextResponse.json({
+          success: false,
+          error: "Failed to revoke existing invitation before resend",
+        }, { status: 502 });
+      }
+    }
+
     const clerkResult = await createHdClerkInvitation({
       emailAddress: invitation.email,
       role: invitation.role,
       expiresInDays: expiresInDays ?? 7,
-      ignoreExisting: true,
     });
 
     if (!clerkResult.success) {
@@ -93,13 +103,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         clerkInvitationId: newClerkInvitationId,
         expiresInDays: expiresInDays ?? 7,
       }, { token: convexToken });
-
-      if (result.previousClerkInvitationId) {
-        const revokeResult = await revokeClerkInvitation(result.previousClerkInvitationId);
-        if (!revokeResult.success && revokeResult.reason !== "already_consumed" && revokeResult.reason !== "not_found" && revokeResult.reason !== "not_revocable") {
-          console.error(`Failed to revoke old Clerk invitation ${result.previousClerkInvitationId}: ${revokeResult.message}`);
-        }
-      }
 
       return NextResponse.json({
         success: true,
