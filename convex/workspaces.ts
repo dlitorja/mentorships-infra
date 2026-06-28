@@ -6,7 +6,7 @@ import { Id } from "./_generated/dataModel";
 const WORKSPACE_IMAGE_CAPS = {
   student: 75,
   instructor: 150,
-  admin: 150,
+  admin: 9999,
 } as const;
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
@@ -71,6 +71,14 @@ async function getWorkspaceRole(
     }
   }
   return null;
+}
+
+async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces">): Promise<number> {
+  const images = await ctx.db
+    .query("workspaceImages")
+    .withIndex("by_workspaceId", (q: any) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return images.filter((image: any) => !image.deletedAt).length;
 }
 
 async function logWorkspaceAudit(
@@ -518,10 +526,11 @@ export const createWorkspaceImage = mutation({
     const isStudent = role === "student";
     const isAdmin = role === "admin";
     const studentCount = (workspace as any).studentImageCount ?? 0;
+    const adminCount = isAdmin ? await countActiveWorkspaceImages(ctx, args.workspaceId) : 0;
     const currentCount = isStudent
       ? studentCount
       : isAdmin
-        ? 0
+        ? adminCount
         : (workspace.instructorImageCount ?? 0);
     const cap = isStudent
       ? WORKSPACE_IMAGE_CAPS.student
@@ -579,10 +588,11 @@ export const createWorkspaceImageAndMessage = mutation({
     const isStudent = role === "student";
     const isAdmin = role === "admin";
     const studentCount = (workspace as any).studentImageCount ?? 0;
+    const adminCount = isAdmin ? await countActiveWorkspaceImages(ctx, args.workspaceId) : 0;
     const currentCount = isStudent
       ? studentCount
       : isAdmin
-        ? 0
+        ? adminCount
         : (workspace.instructorImageCount ?? 0);
     const cap = isStudent
       ? WORKSPACE_IMAGE_CAPS.student

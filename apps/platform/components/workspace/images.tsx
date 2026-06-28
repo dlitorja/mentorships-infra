@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
@@ -70,11 +70,17 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const isAdmin = role === 'admin';
   const currentCount = images?.filter((img: Image) => !img.deletedAt).length || 0;
   const maxImages = isAdmin ? 9999 : (role === 'student' ? IMAGE_CAPS.student : IMAGE_CAPS.instructor);
-  const remainingSlots = isAdmin ? 9999 : (maxImages - currentCount);
+  const remainingSlots = maxImages - currentCount;
 
   const latestExport = exports?.[0];
   const isProcessing = latestExport?.status === 'processing';
   const isPending = latestExport?.status === 'pending';
+
+  useEffect(() => {
+    if (latestExport?.status === 'completed' && latestExport.downloadUrl) {
+      setDownloadUrl(latestExport.downloadUrl);
+    }
+  }, [latestExport]);
 
   const handleExport = async () => {
     setDownloadUrl(null);
