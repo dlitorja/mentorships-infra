@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 # Delete merged branches that are protected and can't be deleted via git push --delete
 
 BRANCHES=(
