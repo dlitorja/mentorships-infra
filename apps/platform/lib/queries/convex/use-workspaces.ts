@@ -87,7 +87,7 @@ export function useWorkspaceImages(workspaceId: string) {
 
 /**
  * Mutation hook for creating a new chat message in a workspace.
- * Refetches workspace messages queries on success to refresh chat.
+ * Invalidates and refetches workspace messages queries on success.
  */
 export function useCreateWorkspaceMessage() {
   const queryClient = useQueryClient();
@@ -96,7 +96,10 @@ export function useCreateWorkspaceMessage() {
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceMessage),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
+        queryKey: ["convexQuery"],
+      });
+      queryClient.refetchQueries({
+        queryKey: ["convexQuery"],
       });
     },
   });
@@ -238,12 +241,9 @@ export function useCreateWorkspaceImageAndMessage() {
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
+        queryKey: ["convexQuery"],
       });
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
-      });
-      queryClient.invalidateQueries({
+      queryClient.refetchQueries({
         queryKey: ["convexQuery"],
       });
     },
