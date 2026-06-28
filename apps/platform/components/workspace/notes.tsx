@@ -44,7 +44,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
-  const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosaveTimeoutsRef = useRef(new Map<Id<'workspaceNotes'>, ReturnType<typeof setTimeout>>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
 
@@ -74,20 +74,27 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     onUpdate: ({ editor }) => {
       const noteId = selectedNoteIdRef.current;
       if (noteId) {
-        if (autosaveTimeoutRef.current) {
-          clearTimeout(autosaveTimeoutRef.current);
+        const existingTimeout = autosaveTimeoutsRef.current.get(noteId);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
         }
 
-        autosaveTimeoutRef.current = setTimeout(async () => {
+        const content = editor.getHTML();
+        const timeout = setTimeout(async () => {
           try {
             await updateNote.mutateAsync({
               id: noteId,
-              content: editor.getHTML(),
+              content,
             });
           } catch (error) {
             console.error('Failed to auto-save note:', error);
+          } finally {
+            if (autosaveTimeoutsRef.current.get(noteId) === timeout) {
+              autosaveTimeoutsRef.current.delete(noteId);
+            }
           }
         }, 1000);
+        autosaveTimeoutsRef.current.set(noteId, timeout);
       }
     },
   });
@@ -108,9 +115,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
 
   useEffect(() => {
     return () => {
-      if (autosaveTimeoutRef.current) {
-        clearTimeout(autosaveTimeoutRef.current);
-      }
+      autosaveTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
+      autosaveTimeoutsRef.current.clear();
     };
   }, []);
 
@@ -159,6 +165,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       await refetch();
     } catch (error) {
       console.error('Failed to delete note:', error);
+      toast.error('Failed to delete note');
     }
   };
 
