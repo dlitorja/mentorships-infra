@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { convexQueryClient } from "@/lib/providers/query-provider";
 
 /**
  * Fetches a single workspace by ID.
@@ -101,6 +102,7 @@ export function useCreateWorkspaceMessage() {
       queryClient.refetchQueries({
         queryKey: ["convexQuery"],
       });
+      convexQueryClient?.onUpdate();
     },
   });
 }
@@ -246,6 +248,7 @@ export function useCreateWorkspaceImageAndMessage() {
       queryClient.refetchQueries({
         queryKey: ["convexQuery"],
       });
+      convexQueryClient?.onUpdate();
     },
   });
 }
