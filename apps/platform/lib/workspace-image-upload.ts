@@ -17,6 +17,9 @@ export type UploadResponse = UploadResult | UploadError;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const PER_UPLOAD_CAP = 5;
 
+export const LARGE_CHAT_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_CHAT_FILE_BYTES = 50 * 1024 * 1024;
+
 export interface ImageValidationResult {
   valid: File[];
   invalid: { file: File; error: string }[];
@@ -91,6 +94,30 @@ export async function uploadImageForChat(
     const response = await fetch(uploadUrl, {
       method: 'POST',
       headers: { 'Content-Type': file.type },
+      body: file,
+    });
+
+    if (!response.ok) {
+      return { success: false, error: 'Upload failed' };
+    }
+
+    const { storageId } = await response.json();
+    return { success: true, storageId };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
+  }
+}
+
+export async function uploadFileForChat(
+  workspaceId: Id<'workspaces'>,
+  file: File,
+  generateUploadUrl: (args: { workspaceId: Id<'workspaces'> }) => Promise<string>
+): Promise<UploadResponse> {
+  try {
+    const uploadUrl = await generateUploadUrl({ workspaceId });
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
       body: file,
     });
 

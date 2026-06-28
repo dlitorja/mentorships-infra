@@ -9,6 +9,13 @@ const WORKSPACE_IMAGE_CAPS = {
   admin: 9999,
 } as const;
 
+const WORKSPACE_FILE_CAPS = {
+  student: 25,
+  instructor: 50,
+} as const;
+
+const MAX_WORKSPACE_FILE_BYTES = 50 * 1024 * 1024;
+
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
@@ -79,6 +86,19 @@ async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces"
     .withIndex("by_workspaceId", (q: any) => q.eq("workspaceId", workspaceId))
     .collect();
   return images.filter((image: any) => !image.deletedAt).length;
+}
+
+async function countWorkspaceFilesByRole(
+  ctx: any,
+  workspaceId: Id<"workspaces">,
+  role: "instructor" | "student"
+): Promise<number> {
+  const messages = await ctx.db
+    .query("workspaceMessages")
+    .withIndex("by_workspaceId", (q: any) => q.eq("workspaceId", workspaceId))
+    .collect();
+
+  return messages.filter((message: any) => message.type === "file" && message.senderRole === role).length;
 }
 
 async function logWorkspaceAudit(
@@ -606,6 +626,14 @@ export const createWorkspaceImageAndMessage = mutation({
       );
     }
 
+    const metadata = await ctx.db.system.get("_storage", args.storageId as Id<"_storage">);
+    if (!metadata) {
+      throw new Error("Uploaded image not found");
+    }
+    if (metadata.size > MAX_WORKSPACE_FILE_BYTES) {
+      throw new Error("Image is too large. Maximum size is 50MB.");
+    }
+
     const imageId = await ctx.db.insert("workspaceImages", {
       workspaceId: args.workspaceId,
       imageUrl: "",
@@ -801,6 +829,64 @@ export const createWorkspaceMessage = mutation({
     }
 
     return messageId;
+  },
+});
+
+/** Creates a downloadable file message in a workspace with role-based file caps. Requires auth. */
+export const createWorkspaceFileMessage = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    storageId: v.id("_storage"),
+    fileName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to add files to this workspace");
+    }
+
+    const metadata = await ctx.db.system.get("_storage", args.storageId);
+    if (!metadata) {
+      throw new Error("Uploaded file not found");
+    }
+    if (metadata.size > MAX_WORKSPACE_FILE_BYTES) {
+      throw new Error("File is too large. Maximum size is 50MB.");
+    }
+
+    if (role !== "admin") {
+      const currentCount = await countWorkspaceFilesByRole(ctx, args.workspaceId, role);
+      const cap = WORKSPACE_FILE_CAPS[role];
+      if (currentCount >= cap) {
+        throw new Error(`File limit reached (${cap} ${role} files allowed per workspace)`);
+      }
+    }
+
+    const fileUrl = await ctx.storage.getUrl(args.storageId);
+    if (!fileUrl) {
+      throw new Error("Failed to get file URL");
+    }
+
+    await ctx.db.insert("workspaceMessages", {
+      workspaceId: args.workspaceId,
+      userId: user.subject,
+      content: `${encodeURIComponent(args.fileName)}|${fileUrl}`,
+      type: "file",
+      senderRole: role,
+    });
+
+    if (role === "admin") {
+      await logWorkspaceAudit(ctx, args.workspaceId, user.subject, "send_message");
+    }
   },
 });
 
