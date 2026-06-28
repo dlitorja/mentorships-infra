@@ -134,6 +134,7 @@ export const uploadInstructorResource = mutation({
       contentType: args.contentType,
       size: args.size,
       type: args.type,
+      createdBy: user.subject,
       createdAt: Date.now(),
     });
 

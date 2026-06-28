@@ -151,7 +151,7 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role }:
         )}
       </div>
 
-      {resources && resources.length > 0 ? (
+      {Array.isArray(resources) && resources.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 overflow-y-auto">
           {resources.map((resource: InstructorResource) => (
             <div
