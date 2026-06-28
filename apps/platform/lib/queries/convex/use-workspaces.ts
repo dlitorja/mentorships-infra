@@ -95,14 +95,16 @@ export function useCreateWorkspaceMessage() {
 
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceMessage),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: ["convexQuery"],
       });
       queryClient.refetchQueries({
         queryKey: ["convexQuery"],
       });
-      convexQueryClient?.onUpdate();
+      setTimeout(() => {
+        convexQueryClient?.onUpdate();
+      }, 100);
     },
   });
 }
@@ -201,13 +203,16 @@ export function useCreateWorkspaceImage() {
 
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImage),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
+        queryKey: ["convexQuery"],
       });
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
+      queryClient.refetchQueries({
+        queryKey: ["convexQuery"],
       });
+      setTimeout(() => {
+        convexQueryClient?.onUpdate();
+      }, 100);
     },
   });
 }
@@ -221,13 +226,16 @@ export function useDeleteWorkspaceImage() {
 
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceImage),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
+        queryKey: ["convexQuery"],
       });
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
+      queryClient.refetchQueries({
+        queryKey: ["convexQuery"],
       });
+      setTimeout(() => {
+        convexQueryClient?.onUpdate();
+      }, 100);
     },
   });
 }
@@ -241,14 +249,16 @@ export function useCreateWorkspaceImageAndMessage() {
 
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({
         queryKey: ["convexQuery"],
       });
       queryClient.refetchQueries({
         queryKey: ["convexQuery"],
       });
-      convexQueryClient?.onUpdate();
+      setTimeout(() => {
+        convexQueryClient?.onUpdate();
+      }, 100);
     },
   });
 }
