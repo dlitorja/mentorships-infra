@@ -13,5 +13,5 @@ BRANCHES=(
 
 for branch in "${BRANCHES[@]}"; do
   echo "Deleting refs/heads/$branch..."
-  gh api repos/:owner/:repo/git/refs/refs/heads/$branch --method DELETE 2>&1 && echo "Deleted $branch" || echo "Failed to delete $branch (may be protected or already deleted)"
+  gh api repos/:owner/:repo/git/refs/heads/$branch --method DELETE 2>&1 && echo "Deleted $branch" || echo "Failed to delete $branch (may be protected or already deleted)"
 done
