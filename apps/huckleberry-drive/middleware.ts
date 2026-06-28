@@ -7,12 +7,12 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(
-  { domain: process.env.NEXT_PUBLIC_CLERK_DOMAIN },
   async (auth, request) => {
     if (!isPublicRoute(request)) {
       await auth.protect();
     }
-  }
+  },
+  { domain: process.env.NEXT_PUBLIC_CLERK_DOMAIN }
 );
 
 export const config = {
