@@ -205,8 +205,13 @@ export function useDeleteWorkspaceImage() {
  * Used for uploading images directly to chat.
  */
 export function useCreateWorkspaceImageAndMessage() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
+    },
   });
 }
 
@@ -297,6 +302,21 @@ export function useCreateWorkspaceExport() {
 
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceExport),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaceExports"] });
+    },
+  });
+}
+
+/**
+ * Mutation hook for cancelling a stuck workspace export.
+ * Marks the export as failed so a new one can be started.
+ */
+export function useCancelWorkspaceExport() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.cancelWorkspaceExport),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workspaceExports"] });
     },
