@@ -309,7 +309,8 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_instructorId", ["instructorId"])
-    .index("by_workspaceId", ["workspaceId"]),
+    .index("by_workspaceId", ["workspaceId"])
+    .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"]),
 
   workspaceMessages: defineTable({
     workspaceId: v.id("workspaces"),
