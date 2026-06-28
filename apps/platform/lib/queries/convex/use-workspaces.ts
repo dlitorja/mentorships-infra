@@ -201,7 +201,7 @@ export function useCreateWorkspaceImage() {
         queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
       });
       queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspacesByOwner"],
+        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
       });
     },
   });
@@ -221,7 +221,7 @@ export function useDeleteWorkspaceImage() {
         queryKey: ["convexQuery", "workspaces.getWorkspaceImages"],
       });
       queryClient.invalidateQueries({
-        queryKey: ["convexQuery", "workspaces.getWorkspacesByOwner"],
+        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
       });
     },
   });
@@ -272,7 +272,7 @@ export function useCreateWorkspace() {
 
 /**
  * Mutation hook for updating workspace settings or metadata.
- * Invalidates workspaces queries on success to refresh data.
+ * Invalidates workspace detail and list queries on success.
  */
 export function useUpdateWorkspace() {
   const queryClient = useQueryClient();
@@ -282,6 +282,12 @@ export function useUpdateWorkspace() {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["convexQuery", "workspaces.getWorkspaceById"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getUserWorkspaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getInstructorWorkspaces"],
       });
     },
   });
