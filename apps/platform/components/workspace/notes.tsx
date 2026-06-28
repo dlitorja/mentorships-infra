@@ -180,6 +180,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       setEditingTitle(null);
     } catch (error) {
       console.error('Failed to update title:', error);
+      toast.error('Failed to update note title');
     }
   };
 
