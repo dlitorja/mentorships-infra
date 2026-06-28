@@ -82,6 +82,10 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   }, [latestExport]);
 
+  useEffect(() => {
+    setDownloadUrl(null);
+  }, [exportFormat]);
+
   const handleExport = async () => {
     setDownloadUrl(null);
     try {
@@ -116,13 +120,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     await processFiles(acceptedFiles);
   }, [processFiles]);
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0 || !workspaceId) return;
-    await processFiles(files);
-    e.currentTarget.value = '';
-  };
 
   const handleSendImages = async () => {
     if (imageFiles.length === 0 || !workspaceId) return;
@@ -160,6 +157,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     } else {
       setPreviewImages([]);
       setImageFiles([]);
+      setFailedUploads([]);
       toast.success(`${imageFiles.length} images uploaded successfully`);
     }
   };
@@ -226,12 +224,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: {
       'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp']
     },
     disabled: remainingSlots <= 0 || isUploading,
+    noClick: true,
+    noKeyboard: true,
   });
 
   if (isLoading) {
@@ -288,21 +288,48 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               </Button>
             </>
           )}
-          <div {...getRootProps()}>
-            <input {...getInputProps()} />
-            <Button
-              disabled={remainingSlots <= 0 || isUploading}
-              variant={isDragActive ? "default" : "outline"}
-            >
-              {isUploading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4 mr-2" />
-              )}
-              {imageFiles.length > 0 ? `Add More (${imageFiles.length})` : 'Upload Images'}
-            </Button>
-          </div>
+          <Button
+            disabled={remainingSlots <= 0 || isUploading}
+            variant="outline"
+            onClick={open}
+          >
+            {isUploading ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4 mr-2" />
+            )}
+            {imageFiles.length > 0 ? `Add More (${imageFiles.length})` : 'Upload Images'}
+          </Button>
         </div>
+      </div>
+
+      {/* Drop Area */}
+      <div
+        {...getRootProps()}
+        className={clsx(
+          "mb-4 rounded-lg border-2 border-dashed p-6 text-center transition-colors",
+          isDragActive ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/30",
+          remainingSlots <= 0 || isUploading ? "cursor-not-allowed opacity-60" : "cursor-default hover:border-primary/60 hover:bg-muted/50"
+        )}
+      >
+        <input {...getInputProps()} />
+        <Upload className={clsx("mx-auto mb-2 h-8 w-8", isDragActive ? "text-primary" : "text-muted-foreground")} />
+        <p className="text-sm font-medium">
+          {isDragActive ? "Drop images here" : "Drag and drop images here"}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          PNG, JPG, GIF, or WebP up to 5MB. You can add up to {PER_UPLOAD_CAP} images at a time.
+        </p>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="mt-3"
+          disabled={remainingSlots <= 0 || isUploading}
+          onClick={open}
+        >
+          Browse files
+        </Button>
       </div>
 
       {/* Upload Progress */}
@@ -391,14 +418,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               Cancel
             </Button>
           </div>
-        </div>
-      )}
-
-      {/* Drag overlay */}
-      {isDragActive && (
-        <div className="mb-4 p-8 border-2 border-dashed border-primary rounded-lg bg-primary/5 text-center">
-          <Upload className="h-8 w-8 mx-auto mb-2 text-primary" />
-          <p>Drop images here to upload</p>
         </div>
       )}
 
