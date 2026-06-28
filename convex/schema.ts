@@ -305,6 +305,7 @@ export default defineSchema({
     size: v.number(),
     type: v.union(v.literal("image"), v.literal("file")),
     createdAt: v.number(),
+    deletedAt: v.optional(v.number()),
   }).index("by_instructorId", ["instructorId"])
     .index("by_workspaceId", ["workspaceId"]),
 
