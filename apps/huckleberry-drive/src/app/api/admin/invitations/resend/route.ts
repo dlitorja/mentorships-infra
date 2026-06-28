@@ -78,7 +78,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (!clerkResult.success) {
       console.error("Failed to create Clerk invitation:", clerkResult.error);
-      const status = clerkResult.status === 400 || clerkResult.status === 409 ? clerkResult.status : 502;
+      const status = clerkResult.status === 409 ? 409 : 502;
       return NextResponse.json({
         success: false,
         error: clerkResult.error,
