@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
@@ -60,11 +61,13 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
 
+  const queryClient = useQueryClient();
   const { data: images, isLoading } = useWorkspaceImages(workspaceId);
   const { data: exports } = useWorkspaceExports(workspaceId);
   const createImage = useCreateWorkspaceImage();
   const deleteImage = useDeleteWorkspaceImage();
   const createExport = useCreateWorkspaceExport();
+  const cancelExport = useCancelWorkspaceExport();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const isAdmin = role === 'admin';
@@ -248,12 +251,21 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     <div className="h-full flex flex-col">
       {/* Header with upload */}
       <div className="flex items-center justify-between mb-4 shrink-0">
-        <div>
+        <div className="flex items-center gap-2">
           <h3 className="font-semibold">Images</h3>
-          <p className="text-sm text-muted-foreground">
-            {currentCount} / {maxImages} images used ({remainingSlots} remaining)
-          </p>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            onClick={() => queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] })}
+            title="Refresh images"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
         </div>
+        <p className="text-sm text-muted-foreground">
+          {currentCount} / {maxImages} images used ({remainingSlots} remaining)
+        </p>
         <div className="flex items-center gap-2">
           {downloadUrl ? (
             <Button variant="default" asChild>
@@ -261,6 +273,19 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                 <Download className="h-4 w-4 mr-2" />
                 Download {formatLabel}
               </a>
+            </Button>
+          ) : isProcessing || isPending ? (
+            <Button
+              variant="outline"
+              onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
+              disabled={cancelExport.isPending}
+            >
+              {cancelExport.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <X className="h-4 w-4 mr-2" />
+              )}
+              Cancel
             </Button>
           ) : (
             <>
@@ -277,14 +302,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               <Button
                 variant="outline"
                 onClick={handleExport}
-                disabled={isProcessing || isPending || createExport.isPending}
+                disabled={createExport.isPending}
               >
-                {isProcessing || isPending || createExport.isPending ? (
+                {createExport.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   formatIcon
                 )}
-                {isProcessing ? 'Preparing...' : `Export ${formatLabel}`}
+                Export {formatLabel}
               </Button>
             </>
           )}

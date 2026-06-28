@@ -975,6 +975,22 @@ export const updateWorkspaceExport = mutation({
   },
 });
 
+/** Cancels a stuck workspace export by marking it as failed. Requires auth. */
+export const cancelWorkspaceExport = mutation({
+  args: { id: v.id("workspaceExports") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    const exportDoc = await ctx.db.get(args.id);
+    if (!exportDoc) {
+      throw new Error("Export not found");
+    }
+    await ctx.db.patch(args.id, { status: "failed" });
+  },
+});
+
 /** Returns the 10 most recent exports for a workspace. Requires auth. */
 export const getWorkspaceExports = query({
   args: { workspaceId: v.id("workspaces") },
