@@ -37,19 +37,33 @@ interface PendingAttachment {
   error?: string;
 }
 
+interface WorkspaceImageDoc {
+  _id: Id<'workspaceImages'>;
+  workspaceId: Id<'workspaces'>;
+  imageUrl: string;
+  storageId?: string;
+  createdBy: string;
+  deletedAt?: number;
+}
+
 interface WorkspaceChatProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
   role?: 'student' | 'instructor' | 'admin';
 }
 
-function formatBytes(bytes: number) {
+function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function parseFileMessage(content: string) {
+interface ParsedFileMessage {
+  fileName: string;
+  url: string;
+}
+
+function parseFileMessage(content: string): ParsedFileMessage {
   const separatorIndex = content.indexOf('|');
   if (separatorIndex === -1) {
     return { fileName: 'Download file', url: content };
@@ -72,6 +86,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [retryingIndices, setRetryingIndices] = useState<Set<number>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -83,10 +98,10 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const isAdmin = role === 'admin';
-  const currentCount = existingImages?.filter((img: any) => !img.deletedAt).length || 0;
+  const currentCount = (existingImages as WorkspaceImageDoc[] | undefined)?.filter((img) => !img.deletedAt).length || 0;
   const remainingSlots = isAdmin ? 999 : (role === 'instructor' ? 150 : 75) - currentCount;
   const currentFileCount = (messages as Message[] | undefined)?.filter(
-    (msg) => msg.type === 'file' && msg.senderRole === role
+    (msg) => msg.type === 'file' && (msg.senderRole === role || msg.senderRole === undefined)
   ).length || 0;
   const pendingFileCount = attachments.filter((attachment) => !attachment.isImage).length;
   const remainingFileSlots = isAdmin
@@ -273,16 +288,29 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const handleRetryUpload = async (attachment: PendingAttachment, index: number) => {
+    if (retryingIndices.has(index)) return;
+
+    setRetryingIndices((prev) => new Set(prev).add(index));
     const failedAttachment = await uploadAttachment({ ...attachment, error: undefined });
 
     if (failedAttachment) {
       setAttachments((prev) => prev.map((item, itemIndex) => (
         itemIndex === index ? failedAttachment : item
       )));
+      setRetryingIndices((prev) => {
+        const next = new Set(prev);
+        next.delete(index);
+        return next;
+      });
       return;
     }
 
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    setRetryingIndices((prev) => {
+      const next = new Set(prev);
+      next.delete(index);
+      return next;
+    });
     toast.success('Attachment uploaded successfully');
   };
 
@@ -292,10 +320,22 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     setUploadProgress({ current: 0, total: failed.length });
 
     const stillFailed: PendingAttachment[] = [];
+    const indicesToTrack = new Set<number>();
 
     for (let i = 0; i < failed.length; i++) {
+      if (retryingIndices.has(i)) continue;
+
+      indicesToTrack.add(i);
+      setRetryingIndices((prev) => new Set(prev).add(i));
       setUploadProgress({ current: i + 1, total: failed.length });
       const failedAttachment = await uploadAttachment({ ...failed[i], error: undefined });
+      indicesToTrack.delete(i);
+      setRetryingIndices((prev) => {
+        const next = new Set(prev);
+        next.delete(i);
+        return next;
+      });
+
       if (failedAttachment) {
         stillFailed.push(failedAttachment);
       }
@@ -499,6 +539,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                       variant="secondary"
                       className="h-6 w-6 absolute -top-2 -right-2"
                       onClick={() => handleRetryUpload(attachment, index)}
+                      aria-label={`Retry uploading ${attachment.file.name}`}
                     >
                       <RefreshCw className="h-3 w-3" />
                     </Button>
@@ -507,8 +548,9 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                   <Button
                     size="icon"
                     variant="destructive"
-                    className="h-6 w-6 absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="h-6 w-6 absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => removeAttachment(index)}
+                    aria-label={`Remove ${attachment.file.name} from attachments`}
                   >
                     <X className="h-3 w-3" />
                   </Button>
@@ -517,11 +559,11 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <Button size="sm" onClick={handleSendAttachments} disabled={isUploading}>
+            <Button size="sm" onClick={handleSendAttachments} disabled={isUploading} aria-label={`Send ${attachments.length} attachment${attachments.length !== 1 ? 's' : ''}`}>
               <Send className="h-4 w-4 mr-1" />
               Send {attachments.length} Attachment{attachments.length !== 1 ? 's' : ''}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setAttachments([])}>
+            <Button size="sm" variant="outline" onClick={() => setAttachments([])} aria-label="Cancel all attachments">
               Cancel
             </Button>
           </div>
@@ -544,6 +586,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
             size="icon"
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
+            aria-label="Attach files"
           >
             {isUploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -559,7 +602,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
             className="min-h-[44px] max-h-32 resize-none"
             rows={1}
           />
-          <Button onClick={handleSendMessage} disabled={!message.trim() || createMessage.isPending}>
+          <Button onClick={handleSendMessage} disabled={!message.trim() || createMessage.isPending} aria-label="Send message">
             <Send className="h-4 w-4" />
           </Button>
         </div>
