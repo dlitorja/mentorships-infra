@@ -305,6 +305,8 @@ export default defineSchema({
     contentType: v.string(),
     size: v.number(),
     type: v.union(v.literal("image"), v.literal("file")),
+    createdBy: v.string(),
+    deletedAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_instructorId", ["instructorId"])
     .index("by_workspaceId", ["workspaceId"]),
