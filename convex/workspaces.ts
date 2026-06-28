@@ -552,6 +552,87 @@ export const createWorkspaceImage = mutation({
   },
 });
 
+/** Creates an image in a workspace AND a chat message with the image URL. Enforces role-based upload caps. Requires auth. */
+export const createWorkspaceImageAndMessage = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    storageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to add images to this workspace");
+    }
+
+    const isStudent = role === "student";
+    const isAdmin = role === "admin";
+    const studentCount = (workspace as any).studentImageCount ?? 0;
+    const currentCount = isStudent
+      ? studentCount
+      : (workspace.instructorImageCount ?? 0);
+    const cap = isStudent
+      ? WORKSPACE_IMAGE_CAPS.student
+      : isAdmin
+        ? WORKSPACE_IMAGE_CAPS.admin
+        : WORKSPACE_IMAGE_CAPS.instructor;
+
+    if (currentCount >= cap) {
+      throw new Error(
+        `Image limit reached (${cap} ${role} images allowed per workspace)`
+      );
+    }
+
+    const imageId = await ctx.db.insert("workspaceImages", {
+      workspaceId: args.workspaceId,
+      imageUrl: "",
+      storageId: args.storageId,
+      createdBy: user.subject,
+    });
+
+    const nextStudentCount = isStudent ? studentCount + 1 : studentCount;
+    await ctx.db.patch(args.workspaceId, {
+      studentImageCount: nextStudentCount,
+      instructorImageCount: !isStudent
+        ? (workspace.instructorImageCount ?? 0) + 1
+        : workspace.instructorImageCount ?? 0,
+    });
+
+    const imageUrl = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!imageUrl) {
+      throw new Error("Failed to get image URL");
+    }
+
+    let senderRole: "instructor" | "student" | "admin" | undefined;
+    if (isAdmin) {
+      senderRole = "admin";
+    } else if (role === "instructor") {
+      senderRole = "instructor";
+    } else {
+      senderRole = "student";
+    }
+
+    await ctx.db.insert("workspaceMessages", {
+      workspaceId: args.workspaceId,
+      userId: user.subject,
+      content: imageUrl,
+      type: "image",
+      senderRole,
+    });
+
+    return imageId;
+  },
+});
+
 /** Returns workspace notes and images for export. Requires auth. */
 export const getWorkspaceExportData = query({
   args: { workspaceId: v.id("workspaces") },
