@@ -18,6 +18,7 @@ import type * as crons from "../crons.js";
 import type * as discordActionQueue from "../discordActionQueue.js";
 import type * as hdInvitations from "../hdInvitations.js";
 import type * as http from "../http.js";
+import type * as instructorResources from "../instructorResources.js";
 import type * as instructorUploads from "../instructorUploads.js";
 import type * as instructors from "../instructors.js";
 import type * as legacyMappings from "../legacyMappings.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   discordActionQueue: typeof discordActionQueue;
   hdInvitations: typeof hdInvitations;
   http: typeof http;
+  instructorResources: typeof instructorResources;
   instructorUploads: typeof instructorUploads;
   instructors: typeof instructors;
   legacyMappings: typeof legacyMappings;

@@ -72,14 +72,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const clerkResult = await createHdClerkInvitation({
       emailAddress: invitation.email,
       role: invitation.role,
+      expiresInDays: expiresInDays ?? 7,
+      ignoreExisting: true,
     });
 
     if (!clerkResult.success) {
       console.error("Failed to create Clerk invitation:", clerkResult.error);
+      const status = clerkResult.status === 409 ? 409 : 502;
       return NextResponse.json({
         success: false,
-        error: "Failed to create invitation",
-      }, { status: 502 });
+        error: clerkResult.error,
+      }, { status });
     }
 
     newClerkInvitationId = clerkResult.invitationId;

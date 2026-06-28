@@ -287,6 +287,24 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               )}
               Cancel
             </Button>
+          ) : latestExport?.status === 'failed' ? (
+            <>
+              <p className="text-sm text-destructive">Export failed — try again</p>
+              <Select value={exportFormat} onValueChange={(v: ExportFormat) => setExportFormat(v)}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="Format" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="zip">ZIP</SelectItem>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="markdown">Markdown</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
+                {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Export {formatLabel}
+              </Button>
+            </>
           ) : (
             <>
               <Select value={exportFormat} onValueChange={(v: ExportFormat) => setExportFormat(v)}>
@@ -299,16 +317,8 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                   <SelectItem value="markdown">Markdown</SelectItem>
                 </SelectContent>
               </Select>
-              <Button
-                variant="outline"
-                onClick={handleExport}
-                disabled={createExport.isPending}
-              >
-                {createExport.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  formatIcon
-                )}
+              <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
+                {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Export {formatLabel}
               </Button>
             </>

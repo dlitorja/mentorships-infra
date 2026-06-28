@@ -277,6 +277,7 @@ export default defineSchema({
     createdBy: v.string(),
     updatedAt: v.number(),
     deletedAt: v.optional(v.number()),
+    imageUrl: v.optional(v.string()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_createdBy", ["createdBy"]),
 
@@ -306,6 +307,7 @@ export default defineSchema({
     type: v.union(v.literal("image"), v.literal("file")),
     createdBy: v.string(),
     deletedAt: v.optional(v.number()),
+    createdAt: v.number(),
   }).index("by_instructorId", ["instructorId"])
     .index("by_workspaceId", ["workspaceId"])
     .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"]),

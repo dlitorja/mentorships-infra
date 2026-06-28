@@ -31,17 +31,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    if (expiresInDays !== undefined && expiresInDays !== null) {
+      if (typeof expiresInDays !== "number" || !Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 30) {
+        return NextResponse.json(
+          { error: "expiresInDays must be an integer between 1 and 30" },
+          { status: 400 }
+        );
+      }
+    }
+
     const clerkResult = await createHdClerkInvitation({
       emailAddress: email,
       role,
+      expiresInDays: expiresInDays ?? 7,
     });
 
     if (!clerkResult.success) {
+      const status = clerkResult.status === 409 ? 409 : 502;
       return NextResponse.json({
         success: false,
         invitationSent: false,
         invitationError: clerkResult.error,
-      }, { status: 502 });
+      }, { status });
     }
 
     clerkInvitationId = clerkResult.invitationId;

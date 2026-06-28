@@ -6,11 +6,13 @@ export interface CreateHdClerkInvitationOptions {
   emailAddress: string;
   role: "student" | "instructor" | "admin" | "video_editor";
   redirectUrl?: string;
+  expiresInDays?: number;
+  ignoreExisting?: boolean;
 }
 
 export type ClerkInvitationResult =
   | { success: true; invitationId: string }
-  | { success: false; error: string };
+  | { success: false; error: string; status?: number };
 
 export type RevokeClerkInvitationResult =
   | { success: true }
@@ -20,6 +22,16 @@ interface ClerkAPIError {
   status: number;
   message: string;
   code?: string;
+  errors?: Array<{ message?: string; longMessage?: string; code?: string }>;
+}
+
+function formatClerkAPIError(error: ClerkAPIError): string {
+  const details = error.errors
+    ?.map((item) => item.longMessage ?? item.message ?? item.code)
+    .filter(Boolean)
+    .join("; ");
+
+  return details || error.message;
 }
 
 function isClerkAPIError(error: unknown): error is ClerkAPIError {
@@ -38,7 +50,7 @@ async function getClerkApi() {
 export async function createHdClerkInvitation(
   options: CreateHdClerkInvitationOptions
 ): Promise<ClerkInvitationResult> {
-  const { emailAddress, role, redirectUrl = `${APP_URL}/sign-up` } = options;
+  const { emailAddress, role, redirectUrl = `${APP_URL}/sign-up`, expiresInDays, ignoreExisting } = options;
 
   try {
     const client = await getClerkApi();
@@ -46,6 +58,8 @@ export async function createHdClerkInvitation(
     const invitation = await client.invitations.createInvitation({
       emailAddress,
       redirectUrl,
+      expiresInDays,
+      ignoreExisting,
       publicMetadata: { role },
     });
 
@@ -57,15 +71,18 @@ export async function createHdClerkInvitation(
     console.error("Failed to create Clerk invitation:", error);
 
     if (isClerkAPIError(error)) {
+      const message = formatClerkAPIError(error);
       if (error.status === 409) {
         return {
           success: false,
           error: "User with this email already exists or has been invited",
+          status: error.status,
         };
       }
       return {
         success: false,
-        error: `Clerk API error (${error.status}): ${error.message}`,
+        error: `Clerk API error (${error.status}): ${message}`,
+        status: error.status,
       };
     }
 
