@@ -126,7 +126,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
 
     const newFailedUploads: FailedUpload[] = [];
     const previewImagesCopy = [...previewImages];
-    const imageFilesCopy = [...imageFiles];
 
     for (let i = 0; i < imageFiles.length; i++) {
       const file = imageFiles[i];
@@ -179,30 +178,31 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     setFailedUploads([]);
     setIsUploading(true);
     setUploadProgress({ current: 0, total: failed.length });
+    const stillFailed: FailedUpload[] = [];
 
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
       const result = await uploadSingleImage(workspaceId, failed[i].file, generateUploadUrl, createImage.mutateAsync);
 
       if (!result.success) {
-        failed[i] = { ...failed[i], error: (result as UploadError).error };
+        stillFailed.push({ ...failed[i], error: (result as UploadError).error });
       }
     }
 
     setIsUploading(false);
     setUploadProgress(null);
 
-    const stillFailed = failed.filter(f => f.error !== 'Upload failed');
     if (stillFailed.length > 0) {
       setFailedUploads(stillFailed);
       setPreviewImages(stillFailed.map(f => f.preview));
       setImageFiles(stillFailed.map(f => f.file));
+      toast.error(`${stillFailed.length} image${stillFailed.length !== 1 ? 's' : ''} still failed to upload`);
     } else {
       setFailedUploads([]);
       setPreviewImages([]);
       setImageFiles([]);
+      toast.success('All images uploaded successfully');
     }
-    toast.success('All images uploaded successfully');
   };
 
   const removeImage = (index: number) => {

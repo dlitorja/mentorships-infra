@@ -520,7 +520,9 @@ export const createWorkspaceImage = mutation({
     const studentCount = (workspace as any).studentImageCount ?? 0;
     const currentCount = isStudent
       ? studentCount
-      : (workspace.instructorImageCount ?? 0);
+      : isAdmin
+        ? 0
+        : (workspace.instructorImageCount ?? 0);
     const cap = isStudent
       ? WORKSPACE_IMAGE_CAPS.student
       : isAdmin
@@ -543,7 +545,7 @@ export const createWorkspaceImage = mutation({
     const nextStudentCount = isStudent ? studentCount + 1 : studentCount;
     await ctx.db.patch(args.workspaceId, {
       studentImageCount: nextStudentCount,
-      instructorImageCount: !isStudent
+      instructorImageCount: role === "instructor"
         ? (workspace.instructorImageCount ?? 0) + 1
         : workspace.instructorImageCount ?? 0,
     });
@@ -579,7 +581,9 @@ export const createWorkspaceImageAndMessage = mutation({
     const studentCount = (workspace as any).studentImageCount ?? 0;
     const currentCount = isStudent
       ? studentCount
-      : (workspace.instructorImageCount ?? 0);
+      : isAdmin
+        ? 0
+        : (workspace.instructorImageCount ?? 0);
     const cap = isStudent
       ? WORKSPACE_IMAGE_CAPS.student
       : isAdmin
@@ -602,7 +606,7 @@ export const createWorkspaceImageAndMessage = mutation({
     const nextStudentCount = isStudent ? studentCount + 1 : studentCount;
     await ctx.db.patch(args.workspaceId, {
       studentImageCount: nextStudentCount,
-      instructorImageCount: !isStudent
+      instructorImageCount: role === "instructor"
         ? (workspace.instructorImageCount ?? 0) + 1
         : workspace.instructorImageCount ?? 0,
     });
