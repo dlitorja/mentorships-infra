@@ -138,7 +138,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       const previewIndex = i;
       setUploadProgress({ current: i + 1, total: imageFiles.length });
 
-      const uploadResult = await uploadImageForChat(workspaceId, file, generateUploadUrl);
+const uploadResult = await uploadImageForChat(workspaceId, file, generateUploadUrl);
 
       if (!uploadResult.success) {
         newFailedUploads.push({
@@ -211,7 +211,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     setIsUploading(true);
     setUploadProgress({ current: 0, total: failed.length });
 
-    const stillFailed: FailedUpload[] = [];
+const stillFailed: FailedUpload[] = [];
 
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
