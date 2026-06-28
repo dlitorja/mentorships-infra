@@ -208,6 +208,23 @@ export function useDeleteWorkspaceImage() {
 }
 
 /**
+ * Mutation hook for creating an image AND a chat message in one call.
+ * Used for uploading images directly to chat.
+ */
+export function useCreateWorkspaceImageAndMessage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workspaceImages"] });
+      queryClient.invalidateQueries({ queryKey: ["workspaceMessages"] });
+      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+    },
+  });
+}
+
+/**
  * Mutation hook for creating a new workspace.
  * Invalidates workspaces queries on success to refresh list.
  */

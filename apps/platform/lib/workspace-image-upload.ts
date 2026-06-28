@@ -81,6 +81,30 @@ export async function uploadSingleImage(
   }
 }
 
+export async function uploadImageForChat(
+  workspaceId: Id<'workspaces'>,
+  file: File,
+  generateUploadUrl: (args: { workspaceId: Id<'workspaces'> }) => Promise<string>
+): Promise<UploadResponse> {
+  try {
+    const uploadUrl = await generateUploadUrl({ workspaceId });
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type },
+      body: file,
+    });
+
+    if (!response.ok) {
+      return { success: false, error: 'Upload failed' };
+    }
+
+    const { storageId } = await response.json();
+    return { success: true, storageId };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Upload failed' };
+  }
+}
+
 export function createImagePreviews(files: File[]): Promise<string[]> {
   return Promise.all(
     files.map(

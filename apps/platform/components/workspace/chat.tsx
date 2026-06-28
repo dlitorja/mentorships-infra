@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImage, useWorkspaceImages } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useWorkspaceImages } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Send, Image as ImageIcon, X, Upload, AlertCircle, RefreshCw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
-import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
+import { validateImageFiles, createImagePreviews, uploadImageForChat, type UploadError } from '@/lib/workspace-image-upload';
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const PER_UPLOAD_CAP = 5;
@@ -51,7 +51,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const { data: messages, isLoading } = useWorkspaceMessages(workspaceId);
   const { data: existingImages } = useWorkspaceImages(workspaceId);
   const createMessage = useCreateWorkspaceMessage();
-  const createImage = useCreateWorkspaceImage();
+  const createImageAndMessage = useCreateWorkspaceImageAndMessage();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const isAdmin = role === 'admin';
@@ -138,13 +138,27 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       const previewIndex = i;
       setUploadProgress({ current: i + 1, total: imageFiles.length });
 
-      const result = await uploadSingleImage(workspaceId, file, generateUploadUrl, createImage.mutateAsync);
+      const uploadResult = await uploadImageForChat(workspaceId, file, generateUploadUrl);
 
-      if (!result.success) {
+      if (!uploadResult.success) {
         newFailedUploads.push({
           file,
           preview: previewImagesCopy[previewIndex],
-          error: (result as UploadError).error,
+          error: (uploadResult as UploadError).error,
+        });
+        continue;
+      }
+
+      try {
+        await createImageAndMessage.mutateAsync({
+          workspaceId,
+          storageId: uploadResult.storageId,
+        });
+      } catch (err) {
+        newFailedUploads.push({
+          file,
+          preview: previewImagesCopy[previewIndex],
+          error: err instanceof Error ? err.message : 'Failed to create message',
         });
       }
     }
@@ -166,16 +180,27 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const handleRetryUpload = async (failedUpload: FailedUpload, index: number) => {
-    const result = await uploadSingleImage(workspaceId, failedUpload.file, generateUploadUrl, createImage.mutateAsync);
+    const uploadResult = await uploadImageForChat(workspaceId, failedUpload.file, generateUploadUrl);
 
-    if (result.success) {
+    if (!uploadResult.success) {
+      setFailedUploads((prev) =>
+        prev.map((f, i) => (i === index ? { ...f, error: uploadResult.error } : f))
+      );
+      return;
+    }
+
+    try {
+      await createImageAndMessage.mutateAsync({
+        workspaceId,
+        storageId: uploadResult.storageId,
+      });
       setFailedUploads((prev) => prev.filter((_, i) => i !== index));
       setPreviewImages((prev) => prev.filter((_, i) => i !== index));
       setImageFiles((prev) => prev.filter((_, i) => i !== index));
       toast.success('Image uploaded successfully');
-    } else {
+    } catch (err) {
       setFailedUploads((prev) =>
-        prev.map((f, i) => (i === index ? { ...f, error: result.error } : f))
+        prev.map((f, i) => (i === index ? { ...f, error: err instanceof Error ? err.message : 'Failed' } : f))
       );
     }
   };
@@ -186,22 +211,32 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     setIsUploading(true);
     setUploadProgress({ current: 0, total: failed.length });
 
+    const stillFailed: FailedUpload[] = [];
+
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
-      const result = await uploadSingleImage(workspaceId, failed[i].file, generateUploadUrl, createImage.mutateAsync);
+      const uploadResult = await uploadImageForChat(workspaceId, failed[i].file, generateUploadUrl);
 
-      if (result.success) {
-        previewImages.splice(previewImages.indexOf(failed[i].preview), 1);
-        imageFiles.splice(imageFiles.indexOf(failed[i].file), 1);
-      } else {
-        failed[i] = { ...failed[i], error: (result as UploadError).error };
+      if (!uploadResult.success) {
+        failed[i] = { ...failed[i], error: uploadResult.error };
+        stillFailed.push(failed[i]);
+        continue;
+      }
+
+      try {
+        await createImageAndMessage.mutateAsync({
+          workspaceId,
+          storageId: uploadResult.storageId,
+        });
+      } catch (err) {
+        failed[i] = { ...failed[i], error: err instanceof Error ? err.message : 'Failed' };
+        stillFailed.push(failed[i]);
       }
     }
 
     setIsUploading(false);
     setUploadProgress(null);
 
-    const stillFailed = failed.filter(f => f.error !== 'Upload failed');
     if (stillFailed.length > 0) {
       setFailedUploads(stillFailed);
       setPreviewImages(stillFailed.map(f => f.preview));
@@ -210,6 +245,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       setFailedUploads([]);
       setPreviewImages([]);
       setImageFiles([]);
+      toast.success('All images uploaded successfully');
     }
   };
 
