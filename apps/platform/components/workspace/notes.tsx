@@ -17,7 +17,7 @@ import {
   useDeleteNoteComment,
   type NoteComment,
 } from '@/lib/queries/convex/use-workspaces';
-import { uploadImageForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
+import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -70,6 +70,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [commentAttachment, setCommentAttachment] = useState<File | null>(null);
+  const [commentAttachmentPreview, setCommentAttachmentPreview] = useState<string | null>(null);
+  const [isUploadingCommentAttachment, setIsUploadingCommentAttachment] = useState(false);
+  const commentAttachmentInputRef = useRef<HTMLInputElement>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -367,18 +371,61 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   };
 
   const handleCreateComment = async () => {
-    if (!newComment.trim() || !selectedNoteId) return;
+    if (!newComment.trim() && !commentAttachment || !selectedNoteId) return;
 
     try {
+      let storageId: string | undefined;
+
+      if (commentAttachment) {
+        setIsUploadingCommentAttachment(true);
+        const uploadResult = await uploadFileForChat(workspaceId, commentAttachment, generateUploadUrl);
+        setIsUploadingCommentAttachment(false);
+
+        if (!uploadResult.success) {
+          toast.error(uploadResult.error || 'Upload failed');
+          return;
+        }
+        storageId = uploadResult.storageId;
+      }
+
       await createComment.mutateAsync({
         noteId: selectedNoteId,
         content: newComment.trim(),
+        storageId,
       });
       setNewComment('');
+      setCommentAttachment(null);
+      setCommentAttachmentPreview(null);
     } catch (error) {
       console.error('Failed to create comment:', error);
       toast.error('Failed to add comment');
     }
+  };
+
+  const handleCommentAttachmentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > MAX_CHAT_FILE_BYTES) {
+      toast.error('File is too large. Maximum size is 50MB.');
+      return;
+    }
+
+    setCommentAttachment(file);
+
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setCommentAttachmentPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setCommentAttachmentPreview(null);
+    }
+    e.target.value = '';
+  };
+
+  const clearCommentAttachment = () => {
+    setCommentAttachment(null);
+    setCommentAttachmentPreview(null);
   };
 
   const handleDeleteComment = async (commentId: Id<'workspaceNoteComments'>) => {
@@ -696,6 +743,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
+                    if (!editor) {
+                      setIsDragOver(false);
+                      return;
+                    }
                     const files = e.dataTransfer?.files;
                     if (!files || files.length === 0) {
                       setIsDragOver(false);

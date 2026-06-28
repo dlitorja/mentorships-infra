@@ -402,6 +402,7 @@ export const createNoteComment = mutation({
   args: {
     noteId: v.id("workspaceNotes"),
     content: v.string(),
+    storageId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -429,6 +430,7 @@ export const createNoteComment = mutation({
       content: args.content,
       createdBy: user.subject,
       createdAt: Date.now(),
+      storageId: args.storageId,
     });
 
     return commentId;
