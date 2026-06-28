@@ -346,6 +346,12 @@ export default defineSchema({
     .index("by_adminId", ["adminId"])
     .index("by_timestamp", ["timestamp"]),
 
+  instructorResources: defineTable({
+    instructorId: v.optional(v.string()),
+    workspaceId: v.optional(v.id("workspaces")),
+  }).index("by_instructorId", ["instructorId"])
+    .index("by_workspaceId", ["workspaceId"]),
+
   marketingWaitlist: defineTable({
     email: v.string(),
     instructorSlug: v.string(),
