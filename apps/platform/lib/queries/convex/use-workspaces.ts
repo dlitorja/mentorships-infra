@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { convexQueryClient } from "@/lib/providers/query-provider";
 
 /**
  * Fetches a single workspace by ID.
@@ -88,24 +87,11 @@ export function useWorkspaceImages(workspaceId: string) {
 
 /**
  * Mutation hook for creating a new chat message in a workspace.
- * Invalidates and refetches workspace messages queries on success.
+ * Creates a new chat message. Convex subscriptions update matching queries.
  */
 export function useCreateWorkspaceMessage() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceMessage),
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery"],
-      });
-      queryClient.refetchQueries({
-        queryKey: ["convexQuery"],
-      });
-      setTimeout(() => {
-        convexQueryClient?.onUpdate();
-      }, 100);
-    },
   });
 }
 
@@ -196,47 +182,21 @@ export function useDeleteWorkspaceLink() {
 
 /**
  * Mutation hook for uploading an image to a workspace.
- * Invalidates workspace images and workspace queries on success.
+ * Convex subscriptions update matching image queries.
  */
 export function useCreateWorkspaceImage() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImage),
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery"],
-      });
-      queryClient.refetchQueries({
-        queryKey: ["convexQuery"],
-      });
-      setTimeout(() => {
-        convexQueryClient?.onUpdate();
-      }, 100);
-    },
   });
 }
 
 /**
  * Mutation hook for deleting an image from a workspace.
- * Invalidates workspace images and workspace queries on success.
+ * Convex subscriptions update matching image queries.
  */
 export function useDeleteWorkspaceImage() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceImage),
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery"],
-      });
-      queryClient.refetchQueries({
-        queryKey: ["convexQuery"],
-      });
-      setTimeout(() => {
-        convexQueryClient?.onUpdate();
-      }, 100);
-    },
   });
 }
 
@@ -245,21 +205,8 @@ export function useDeleteWorkspaceImage() {
  * Used for uploading images directly to chat.
  */
 export function useCreateWorkspaceImageAndMessage() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
-    onSettled: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["convexQuery"],
-      });
-      queryClient.refetchQueries({
-        queryKey: ["convexQuery"],
-      });
-      setTimeout(() => {
-        convexQueryClient?.onUpdate();
-      }, 100);
-    },
   });
 }
 
