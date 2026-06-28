@@ -359,3 +359,108 @@ export function useAcknowledgeRetentionNotification() {
     },
   });
 }
+
+/**
+ * Mutation hook for embedding an image in a workspace note.
+ * Creates a workspaceImage record and updates the note's imageUrl.
+ * Enforces instructor image caps.
+ */
+export function useEmbedImageInNote() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.embedImageInNote),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"] });
+    },
+  });
+}
+
+export interface InstructorResource {
+  _id: Id<"instructorResources">;
+  instructorId: Id<"instructors">;
+  workspaceId: Id<"workspaces">;
+  storageId: Id<"_storage">;
+  fileName: string;
+  contentType: string;
+  size: number;
+  type: "image" | "file";
+  createdAt: number;
+  url: string | null;
+}
+
+/**
+ * Fetches all instructor resources for a workspace.
+ * Only returns resources for the current user's instructor in that workspace.
+ */
+export function useInstructorResources(workspaceId: string) {
+  return useQuery({
+    ...convexQuery(api.instructorResources.getInstructorResources, { workspaceId: workspaceId as Id<"workspaces"> }),
+    enabled: !!workspaceId,
+  });
+}
+
+/**
+ * Mutation hook for uploading a new instructor resource.
+ * The caller should first get a signed upload URL from Convex storage
+ * and upload the file before calling this mutation.
+ */
+export function useUploadInstructorResource() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructorResources.uploadInstructorResource),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
+    },
+  });
+}
+
+/**
+ * Mutation hook for deleting an instructor resource.
+ */
+export function useDeleteInstructorResource() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructorResources.deleteInstructorResource),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
+    },
+  });
+}
+
+/**
+ * Mutation hook for sharing an instructor image resource to the workspace chat.
+ * Also creates a workspaceImage record so it appears in the Images tab.
+ */
+export function useShareResourceToChat() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructorResources.shareResourceToChat),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
+    },
+  });
+}
+
+/**
+ * Mutation hook for embedding an instructor image resource in a workspace note.
+ * Also creates a workspaceImage record and updates the note's imageUrl.
+ */
+export function useEmbedResourceInNote() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructorResources.embedResourceInNote),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"] });
+    },
+  });
+}

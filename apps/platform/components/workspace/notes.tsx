@@ -4,18 +4,23 @@ import { useState, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import Image from '@tiptap/extension-image';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { 
   useWorkspaceNotes, 
   useUpdateWorkspaceNote, 
-  useDeleteWorkspaceNote 
+  useDeleteWorkspaceNote,
+  useEmbedImageInNote,
 } from '@/lib/queries/convex/use-workspaces';
+import { uploadImageForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
+import { api } from '@/convex/_generated/api';
+import { useConvexAction } from '@convex-dev/react-query';
 
 interface Note {
   _id: Id<'workspaceNotes'>;
@@ -54,10 +59,13 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
   const deleteNote = useDeleteWorkspaceNote();
+  const embedImageInNote = useEmbedImageInNote();
+  const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
   const updateNoteRef = useRef(updateNote);
 
   const selectedNote = notes?.find(n => n._id === selectedNoteId);
@@ -128,6 +136,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       StarterKit,
       Placeholder.configure({
         placeholder: 'Start writing your note...',
+      }),
+      Image.configure({
+        inline: true,
+        allowBase64: false,
       }),
     ],
     content: selectedNote?.content || '',
@@ -234,6 +246,47 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     } catch (error) {
       console.error('Failed to update title:', error);
       toast.error('Failed to update note title');
+    }
+  };
+
+  const handleImageEmbed = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedNoteId) return;
+
+    if (file.size > MAX_CHAT_FILE_BYTES) {
+      toast.error('Image is too large. Maximum size is 50MB.');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > LARGE_CHAT_FILE_BYTES) {
+      toast.warning('Large file detected. This image will count toward your image limit.');
+    }
+
+    try {
+      const uploadResult = await uploadImageForChat(
+        workspaceId as Id<'workspaces'>,
+        file,
+        (args) => (generateUploadUrl as (args: { workspaceId: Id<'workspaces'> }) => Promise<string>)(args)
+      );
+
+      if (!uploadResult.success) {
+        toast.error(uploadResult.error || 'Upload failed');
+        return;
+      }
+
+      const imageUrl = await embedImageInNote.mutateAsync({
+        noteId: selectedNoteId,
+        storageId: uploadResult.storageId as Id<"_storage">,
+      });
+
+      if (imageUrl && editor) {
+        editor.chain().focus().setImage({ src: imageUrl }).run();
+      }
+    } catch (error) {
+      console.error('Failed to embed image:', error);
+      toast.error('Failed to embed image');
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -360,11 +413,37 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
         {selectedNote ? (
           <Card className="h-full">
             <CardContent className="p-0 h-full overflow-hidden flex flex-col">
-              <div className="p-3 border-b shrink-0">
-                <h2 className="text-lg font-semibold">{selectedNote.title}</h2>
-                <p className="text-xs text-muted-foreground">
-                  Last updated: {new Date(selectedNote.updatedAt).toLocaleString()}
-                </p>
+              <div className="p-3 border-b shrink-0 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold truncate">{selectedNote.title}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Last updated: {new Date(selectedNote.updatedAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageEmbed}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={embedImageInNote.isPending}
+                    title="Embed image in note"
+                  >
+                    {embedImageInNote.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ImageIcon className="h-4 w-4" />
+                    )}
+                    <span className="ml-1 text-xs">Embed image</span>
+                  </Button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <EditorContent editor={editor} />

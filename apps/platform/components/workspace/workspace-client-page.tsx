@@ -4,11 +4,12 @@ import { useState, useEffect } from "react";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X } from "lucide-react";
+import { MessageSquare, FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X, FolderArchive } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
 import WorkspaceLinks from "@/components/workspace/links";
+import WorkspaceResources from "@/components/workspace/resources";
 import { RetentionWarningBanner } from "@/components/workspace/retention-warning-banner";
 import type { UserRole } from "@/lib/auth-helpers";
 
@@ -133,6 +134,12 @@ function WorkspaceContent({
                       <LinkIcon className="h-4 w-4" />
                       Links
                     </TabsTrigger>
+                    {userRole !== 'student' && (
+                      <TabsTrigger value="resources" className="gap-2">
+                        <FolderArchive className="h-4 w-4" />
+                        My Resources
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   <TabsContent value="chat" className="flex-1 min-h-0 mt-4">
@@ -161,6 +168,15 @@ function WorkspaceContent({
                       currentUserId={clerkUserId}
                     />
                   </TabsContent>
+                  {userRole !== 'student' && (
+                    <TabsContent value="resources" className="flex-1 min-h-0 mt-4">
+                      <WorkspaceResources
+                        workspaceId={selectedWorkspace._id}
+                        currentUserId={clerkUserId}
+                        role={userRole}
+                      />
+                    </TabsContent>
+                  )}
                 </Tabs>
               </CardContent>
             </Card>

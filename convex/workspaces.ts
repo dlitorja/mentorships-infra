@@ -397,6 +397,76 @@ export const deleteWorkspaceNote = mutation({
   },
 });
 
+/** Embeds an image into a workspace note. Creates a workspaceImage record and updates the note's imageUrl field. Enforces instructor image caps. Requires instructor or admin role. */
+export const embedImageInNote = mutation({
+  args: {
+    noteId: v.id("workspaceNotes"),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const note = await ctx.db.get(args.noteId);
+    if (!note) {
+      throw new Error("Note not found");
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (role !== "instructor" && role !== "admin") {
+      throw new Error("Only instructors and admins can embed images in notes");
+    }
+
+    const storageMeta = await ctx.db.system.get("_storage", args.storageId);
+    if (!storageMeta) {
+      throw new Error("Storage file not found");
+    }
+    if (storageMeta.size > MAX_WORKSPACE_FILE_BYTES) {
+      throw new Error("Image exceeds 50MB size limit");
+    }
+
+    const isAdmin = role === "admin";
+    const currentCount = isAdmin
+      ? await countActiveWorkspaceImages(ctx, note.workspaceId)
+      : (workspace.instructorImageCount ?? 0);
+    const cap = isAdmin ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
+
+    if (currentCount >= cap) {
+      throw new Error(`Image limit reached (${cap} images allowed)`);
+    }
+
+    const imageUrl = await ctx.storage.getUrl(args.storageId);
+    if (!imageUrl) {
+      throw new Error("Failed to get image URL");
+    }
+
+    await ctx.db.insert("workspaceImages", {
+      workspaceId: note.workspaceId,
+      imageUrl,
+      storageId: args.storageId,
+      createdBy: user.subject,
+    });
+
+    await ctx.db.patch(note.workspaceId, {
+      instructorImageCount: (workspace.instructorImageCount ?? 0) + 1,
+    });
+
+    await ctx.db.patch(args.noteId, {
+      imageUrl,
+      updatedAt: Date.now(),
+    });
+
+    return imageUrl;
+  },
+});
+
 /** Returns all links for a workspace. Requires auth. */
 export const getWorkspaceLinks = query({
   args: { workspaceId: v.id("workspaces") },
