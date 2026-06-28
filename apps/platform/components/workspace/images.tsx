@@ -93,7 +93,8 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const formatIcon = exportFormat === 'pdf' ? <FileText className="h-4 w-4" /> : exportFormat === 'markdown' ? <FileText className="h-4 w-4" /> : <FileArchive className="h-4 w-4" />;
 
   const processFiles = useCallback(async (files: File[]) => {
-    const { valid, invalid } = validateImageFiles(files, remainingSlots, isAdmin);
+    const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
+    const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
 
     for (const { file, error } of invalid) {
       toast.error(`${file.name}: ${error}`);
@@ -104,7 +105,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     const previews = await createImagePreviews(valid);
     setPreviewImages((prev) => [...prev, ...previews]);
     setImageFiles((prev) => [...prev, ...valid]);
-  }, [remainingSlots]);
+  }, [remainingSlots, isAdmin, imageFiles.length]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     await processFiles(acceptedFiles);
@@ -114,6 +115,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     const files = Array.from(e.target.files || []);
     if (files.length === 0 || !workspaceId) return;
     await processFiles(files);
+    e.currentTarget.value = '';
   };
 
   const handleSendImages = async () => {

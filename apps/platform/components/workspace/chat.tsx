@@ -86,7 +86,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const processFiles = useCallback(async (files: File[]) => {
-    const { valid, invalid } = validateImageFiles(files, remainingSlots, isAdmin);
+    const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
+    const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
 
     for (const { file, error } of invalid) {
       toast.error(`${file.name}: ${error}`);
@@ -97,7 +98,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     const previews = await createImagePreviews(valid);
     setPreviewImages((prev) => [...prev, ...previews]);
     setImageFiles((prev) => [...prev, ...valid]);
-  }, [remainingSlots, isAdmin]);
+  }, [remainingSlots, isAdmin, imageFiles.length]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     await processFiles(acceptedFiles);
