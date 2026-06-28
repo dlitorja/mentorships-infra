@@ -211,6 +211,16 @@ export function useCreateWorkspaceImageAndMessage() {
 }
 
 /**
+ * Mutation hook for creating a file chat message from an uploaded storage ID.
+ * Used for uploading non-image files directly to chat.
+ */
+export function useCreateWorkspaceFileMessage() {
+  return useMutation({
+    mutationFn: useConvexMutation(api.workspaces.createWorkspaceFileMessage),
+  });
+}
+
+/**
  * Mutation hook for creating a new workspace.
  * Invalidates workspaces queries on success to refresh list.
  */

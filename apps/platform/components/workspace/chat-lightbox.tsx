@@ -1,0 +1,124 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { ArrowLeft, ArrowRight, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+
+interface ChatImageLightboxProps {
+  images: string[];
+  initialIndex: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function ChatImageLightbox({
+  images,
+  initialIndex,
+  open,
+  onOpenChange,
+}: ChatImageLightboxProps) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setCurrentIndex(initialIndex);
+    }
+  }, [initialIndex, open]);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [currentIndex, open]);
+
+  useEffect(() => {
+    if (!open || images.length === 0) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        setCurrentIndex((prev) => (prev + 1) % images.length);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [images.length, open]);
+
+  const goToPrevious = () => {
+    setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
+  };
+
+  const goToNext = () => {
+    setCurrentIndex((prev) => (prev + 1) % images.length);
+  };
+
+  const currentImage = images[currentIndex];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[100vw] w-screen h-screen max-h-screen p-0 gap-0 bg-black/95 border-none rounded-none [&>button]:hidden">
+        <DialogTitle className="sr-only">
+          Chat image {currentIndex + 1} of {images.length}
+        </DialogTitle>
+        <div className="relative h-full w-full flex items-center justify-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-4 right-4 z-50 h-10 w-10 text-white hover:bg-white/20 hover:text-white"
+            onClick={() => onOpenChange(false)}
+          >
+            <X className="h-6 w-6" />
+            <span className="sr-only">Close</span>
+          </Button>
+
+          {images.length > 1 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute left-4 z-50 h-12 w-12 text-white hover:bg-white/20 hover:text-white"
+              onClick={goToPrevious}
+              aria-label="Previous image"
+            >
+              <ArrowLeft className="h-6 w-6" />
+            </Button>
+          )}
+
+          <div className="h-full w-full p-4 md:p-8 flex items-center justify-center">
+            {currentImage && !imageError ? (
+              <img
+                src={currentImage}
+                alt={`Chat attachment ${currentIndex + 1}`}
+                className="max-h-full max-w-full object-contain"
+                onError={() => setImageError(true)}
+              />
+            ) : (
+              <p className="text-white/70">Image unavailable</p>
+            )}
+          </div>
+
+          {images.length > 1 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-4 z-50 h-12 w-12 text-white hover:bg-white/20 hover:text-white"
+              onClick={goToNext}
+              aria-label="Next image"
+            >
+              <ArrowRight className="h-6 w-6" />
+            </Button>
+          )}
+
+          {images.length > 1 && (
+            <div className="absolute bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/70 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm">
+              {currentIndex + 1} / {images.length}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

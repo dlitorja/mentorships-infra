@@ -3,19 +3,23 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useWorkspaceImages } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Send, Image as ImageIcon, X, Upload, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
-import { validateImageFiles, createImagePreviews, uploadImageForChat, type UploadError } from '@/lib/workspace-image-upload';
+import { createImagePreviews, uploadImageForChat, uploadFileForChat, LARGE_CHAT_FILE_BYTES, MAX_CHAT_FILE_BYTES, type UploadError } from '@/lib/workspace-image-upload';
+import { ChatImageLightbox } from './chat-lightbox';
 
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const PER_UPLOAD_CAP = 5;
+const MAX_CHAT_IMAGES_PER_UPLOAD = 5;
+
+const WORKSPACE_FILE_CAPS = {
+  student: 25,
+  instructor: 50,
+} as const;
 
 interface Message {
   _id: Id<'workspaceMessages'>;
@@ -23,12 +27,14 @@ interface Message {
   userId: string;
   content: string;
   type: 'text' | 'image' | 'file';
+  senderRole?: 'student' | 'instructor' | 'admin';
 }
 
-interface FailedUpload {
+interface PendingAttachment {
   file: File;
-  preview: string;
-  error: string;
+  isImage: boolean;
+  preview?: string;
+  error?: string;
 }
 
 interface WorkspaceChatProps {
@@ -37,14 +43,35 @@ interface WorkspaceChatProps {
   role?: 'student' | 'instructor' | 'admin';
 }
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function parseFileMessage(content: string) {
+  const separatorIndex = content.indexOf('|');
+  if (separatorIndex === -1) {
+    return { fileName: 'Download file', url: content };
+  }
+
+  const encodedFileName = content.slice(0, separatorIndex);
+  const url = content.slice(separatorIndex + 1);
+
+  try {
+    return { fileName: decodeURIComponent(encodedFileName), url };
+  } catch {
+    return { fileName: encodedFileName || 'Download file', url };
+  }
+}
+
 export default function WorkspaceChat({ workspaceId, currentUserId, role = 'student' }: WorkspaceChatProps) {
   const [message, setMessage] = useState('');
-  const [previewImages, setPreviewImages] = useState<string[]>([]);
-  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
-  const [failedUploads, setFailedUploads] = useState<FailedUpload[]>([]);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,11 +79,22 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const { data: existingImages } = useWorkspaceImages(workspaceId);
   const createMessage = useCreateWorkspaceMessage();
   const createImageAndMessage = useCreateWorkspaceImageAndMessage();
+  const createFileMessage = useCreateWorkspaceFileMessage();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const isAdmin = role === 'admin';
   const currentCount = existingImages?.filter((img: any) => !img.deletedAt).length || 0;
   const remainingSlots = isAdmin ? 999 : (role === 'instructor' ? 150 : 75) - currentCount;
+  const currentFileCount = (messages as Message[] | undefined)?.filter(
+    (msg) => msg.type === 'file' && msg.senderRole === role
+  ).length || 0;
+  const pendingFileCount = attachments.filter((attachment) => !attachment.isImage).length;
+  const remainingFileSlots = isAdmin
+    ? Number.MAX_SAFE_INTEGER
+    : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
+  const imageMessages = ((messages as Message[] | undefined) ?? []).filter((msg) => msg.type === 'image');
+  const chatImages = imageMessages.map((msg) => msg.content);
+  const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -86,19 +124,71 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const processFiles = useCallback(async (files: File[]) => {
-    const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
-    const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
+    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
+    const otherFiles = files.filter((file) => !file.type.startsWith('image/'));
+    const newAttachments: PendingAttachment[] = [];
 
-    for (const { file, error } of invalid) {
-      toast.error(`${file.name}: ${error}`);
+    if (imageFiles.length > 0) {
+      const validImages: File[] = [];
+      let availableImageSlots = isAdmin ? 9999 : remainingSlots - attachments.filter((attachment) => attachment.isImage).length;
+
+      for (const file of imageFiles) {
+        if (file.size > MAX_CHAT_FILE_BYTES) {
+          toast.error(`${file.name}: Image is too large. Maximum size is 50MB.`);
+          continue;
+        }
+
+        if (!isAdmin && validImages.length >= MAX_CHAT_IMAGES_PER_UPLOAD) {
+          toast.error(`${file.name}: You can only upload up to ${MAX_CHAT_IMAGES_PER_UPLOAD} images at a time.`);
+          continue;
+        }
+
+        if (availableImageSlots <= 0) {
+          toast.error(`${file.name}: You only have ${Math.max(0, remainingSlots)} image slots remaining.`);
+          continue;
+        }
+
+        if (file.size > LARGE_CHAT_FILE_BYTES) {
+          toast.warning(`${file.name} is large (${formatBytes(file.size)}). Upload may take longer.`);
+        }
+
+        validImages.push(file);
+        availableImageSlots -= 1;
+      }
+
+      const previews = await createImagePreviews(validImages);
+      newAttachments.push(...validImages.map((file, index) => ({
+        file,
+        isImage: true,
+        preview: previews[index],
+      })));
     }
 
-    if (valid.length === 0) return;
+    let availableFileSlots = remainingFileSlots;
+    for (const file of otherFiles) {
+      if (file.size > MAX_CHAT_FILE_BYTES) {
+        toast.error(`${file.name}: File is too large. Maximum size is 50MB.`);
+        continue;
+      }
 
-    const previews = await createImagePreviews(valid);
-    setPreviewImages((prev) => [...prev, ...previews]);
-    setImageFiles((prev) => [...prev, ...valid]);
-  }, [remainingSlots, isAdmin, imageFiles.length]);
+      if (availableFileSlots <= 0) {
+        const cap = role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student;
+        toast.error(`${file.name}: File limit reached (${cap} ${role} files allowed per workspace).`);
+        continue;
+      }
+
+      if (file.size > LARGE_CHAT_FILE_BYTES) {
+        toast.warning(`${file.name} is large (${formatBytes(file.size)}). Upload may take longer.`);
+      }
+
+      newAttachments.push({ file, isImage: false });
+      availableFileSlots -= 1;
+    }
+
+    if (newAttachments.length > 0) {
+      setAttachments((prev) => [...prev, ...newAttachments]);
+    }
+  }, [attachments, isAdmin, remainingFileSlots, remainingSlots, role]);
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     await processFiles(acceptedFiles);
@@ -106,9 +196,6 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp']
-    },
     noClick: true,
     noKeyboard: true,
   });
@@ -122,115 +209,95 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     }
   };
 
-  const handleSendImages = async () => {
-    if (imageFiles.length === 0 || !workspaceId) return;
+  const uploadAttachment = async (attachment: PendingAttachment): Promise<PendingAttachment | null> => {
+    const uploadResult = attachment.isImage
+      ? await uploadImageForChat(workspaceId, attachment.file, generateUploadUrl)
+      : await uploadFileForChat(workspaceId, attachment.file, generateUploadUrl);
 
-    setIsUploading(true);
-    setUploadError(null);
-    setUploadProgress({ current: 0, total: imageFiles.length });
+    if (!uploadResult.success) {
+      return {
+        ...attachment,
+        error: (uploadResult as UploadError).error,
+      };
+    }
 
-    const newFailedUploads: FailedUpload[] = [];
-    const previewImagesCopy = [...previewImages];
-    const imageFilesCopy = [...imageFiles];
-
-    for (let i = 0; i < imageFiles.length; i++) {
-      const file = imageFiles[i];
-      const previewIndex = i;
-      setUploadProgress({ current: i + 1, total: imageFiles.length });
-
-const uploadResult = await uploadImageForChat(workspaceId, file, generateUploadUrl);
-
-      if (!uploadResult.success) {
-        newFailedUploads.push({
-          file,
-          preview: previewImagesCopy[previewIndex],
-          error: (uploadResult as UploadError).error,
-        });
-        continue;
-      }
-
-      try {
+    try {
+      if (attachment.isImage) {
         await createImageAndMessage.mutateAsync({
           workspaceId,
           storageId: uploadResult.storageId,
         });
-      } catch (err) {
-        newFailedUploads.push({
-          file,
-          preview: previewImagesCopy[previewIndex],
-          error: err instanceof Error ? err.message : 'Failed to create message',
+      } else {
+        await createFileMessage.mutateAsync({
+          workspaceId,
+          storageId: uploadResult.storageId as Id<'_storage'>,
+          fileName: attachment.file.name,
         });
+      }
+      return null;
+    } catch (err) {
+      return {
+        ...attachment,
+        error: err instanceof Error ? err.message : 'Failed to create message',
+      };
+    }
+  };
+
+  const handleSendAttachments = async () => {
+    if (attachments.length === 0 || !workspaceId) return;
+
+    setIsUploading(true);
+    setUploadProgress({ current: 0, total: attachments.length });
+
+    const failedAttachments: PendingAttachment[] = [];
+
+    for (let i = 0; i < attachments.length; i++) {
+      setUploadProgress({ current: i + 1, total: attachments.length });
+      const failedAttachment = await uploadAttachment(attachments[i]);
+      if (failedAttachment) {
+        failedAttachments.push(failedAttachment);
       }
     }
 
     setIsUploading(false);
     setUploadProgress(null);
 
-    const successfulPreviews = imageFiles.length - newFailedUploads.length;
-    if (newFailedUploads.length > 0) {
-      setFailedUploads(newFailedUploads);
-      setPreviewImages(newFailedUploads.map(f => f.preview));
-      setImageFiles(newFailedUploads.map(f => f.file));
-      toast.error(`${newFailedUploads.length} of ${imageFiles.length} images failed to upload. Tap to retry.`);
+    const successfulCount = attachments.length - failedAttachments.length;
+    if (failedAttachments.length > 0) {
+      setAttachments(failedAttachments);
+      toast.error(`${failedAttachments.length} of ${attachments.length} attachments failed to upload. Tap to retry.`);
     } else {
-      setPreviewImages([]);
-      setImageFiles([]);
-      toast.success(`${successfulPreviews} image${successfulPreviews !== 1 ? 's' : ''} sent`);
+      setAttachments([]);
+      toast.success(`${successfulCount} attachment${successfulCount !== 1 ? 's' : ''} sent`);
     }
   };
 
-  const handleRetryUpload = async (failedUpload: FailedUpload, index: number) => {
-    const uploadResult = await uploadImageForChat(workspaceId, failedUpload.file, generateUploadUrl);
+  const handleRetryUpload = async (attachment: PendingAttachment, index: number) => {
+    const failedAttachment = await uploadAttachment({ ...attachment, error: undefined });
 
-    if (!uploadResult.success) {
-      setFailedUploads((prev) =>
-        prev.map((f, i) => (i === index ? { ...f, error: uploadResult.error } : f))
-      );
+    if (failedAttachment) {
+      setAttachments((prev) => prev.map((item, itemIndex) => (
+        itemIndex === index ? failedAttachment : item
+      )));
       return;
     }
 
-    try {
-      await createImageAndMessage.mutateAsync({
-        workspaceId,
-        storageId: uploadResult.storageId,
-      });
-      setFailedUploads((prev) => prev.filter((_, i) => i !== index));
-      setPreviewImages((prev) => prev.filter((_, i) => i !== index));
-      setImageFiles((prev) => prev.filter((_, i) => i !== index));
-      toast.success('Image uploaded successfully');
-    } catch (err) {
-      setFailedUploads((prev) =>
-        prev.map((f, i) => (i === index ? { ...f, error: err instanceof Error ? err.message : 'Failed' } : f))
-      );
-    }
+    setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+    toast.success('Attachment uploaded successfully');
   };
 
   const handleRetryAll = async () => {
-    const failed = [...failedUploads];
-    setFailedUploads([]);
+    const failed = [...attachments];
     setIsUploading(true);
     setUploadProgress({ current: 0, total: failed.length });
 
-const stillFailed: FailedUpload[] = [];
+    const stillFailed: PendingAttachment[] = [];
 
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
-      const uploadResult = await uploadImageForChat(workspaceId, failed[i].file, generateUploadUrl);
-
-      if (!uploadResult.success) {
-        failed[i] = { ...failed[i], error: uploadResult.error };
-        stillFailed.push(failed[i]);
-        continue;
-      }
-
-      try {
-        await createImageAndMessage.mutateAsync({
-          workspaceId,
-          storageId: uploadResult.storageId,
-        });
-      } catch (err) {
-        failed[i] = { ...failed[i], error: err instanceof Error ? err.message : 'Failed' };
-        stillFailed.push(failed[i]);
+      const failedAttachment = await uploadAttachment({ ...failed[i], error: undefined });
+      if (failedAttachment) {
+        stillFailed.push(failedAttachment);
       }
     }
 
@@ -238,21 +305,21 @@ const stillFailed: FailedUpload[] = [];
     setUploadProgress(null);
 
     if (stillFailed.length > 0) {
-      setFailedUploads(stillFailed);
-      setPreviewImages(stillFailed.map(f => f.preview));
-      setImageFiles(stillFailed.map(f => f.file));
+      setAttachments(stillFailed);
     } else {
-      setFailedUploads([]);
-      setPreviewImages([]);
-      setImageFiles([]);
-      toast.success('All images uploaded successfully');
+      setAttachments([]);
+      toast.success('All attachments uploaded successfully');
     }
   };
 
-  const removeImage = (index: number) => {
-    setPreviewImages((prev) => prev.filter((_, i) => i !== index));
-    setImageFiles((prev) => prev.filter((_, i) => i !== index));
-    setFailedUploads((prev) => prev.filter((_, i) => i !== index));
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const openImageLightbox = (messageId: Id<'workspaceMessages'>) => {
+    const index = imageMessages.findIndex((msg) => msg._id === messageId);
+    setLightboxIndex(index === -1 ? 0 : index);
+    setLightboxOpen(true);
   };
 
   if (isLoading) {
@@ -265,8 +332,8 @@ const stillFailed: FailedUpload[] = [];
 
   return (
     <div {...getRootProps()} className={clsx(
-      "h-full flex flex-col rounded-lg border-2 transition-colors",
-      isDragActive ? "border-primary bg-primary/5" : "border-transparent"
+      'relative h-full flex flex-col rounded-lg border-2 transition-colors',
+      isDragActive ? 'border-primary bg-primary/5' : 'border-transparent'
     )}>
       <input {...getInputProps()} />
 
@@ -274,7 +341,7 @@ const stillFailed: FailedUpload[] = [];
         <div className="absolute inset-0 flex items-center justify-center bg-background/90 rounded-lg z-10">
           <div className="text-center">
             <Upload className="h-12 w-12 mx-auto mb-2 text-primary" />
-            <p className="text-lg font-medium">Drop images here</p>
+            <p className="text-lg font-medium">Drop files here</p>
             <p className="text-sm text-muted-foreground">Release to attach</p>
           </div>
         </div>
@@ -283,40 +350,78 @@ const stillFailed: FailedUpload[] = [];
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto min-h-0 space-y-3 p-2">
         {messages && messages.length > 0 ? (
-          messages.map((msg: Message) => (
-            <div
-              key={msg._id}
-              className={clsx(
-                "flex",
-                msg.userId === currentUserId ? "justify-end" : "justify-start"
-              )}
-            >
-              <div className={clsx(
-                "max-w-[80%] rounded-lg px-3 py-2",
-                msg.userId === currentUserId
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              )}>
-                {msg.type === 'image' ? (
-                  <img
-                    src={msg.content}
-                    alt="Shared image"
-                    className="max-w-full rounded-md"
-                  />
-                ) : (
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+          (messages as Message[]).map((msg) => {
+            const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
+
+            return (
+              <div
+                key={msg._id}
+                className={clsx(
+                  'flex',
+                  msg.userId === currentUserId ? 'justify-end' : 'justify-start'
                 )}
-                <p className={clsx(
-                  "text-xs mt-1",
+              >
+                <div className={clsx(
+                  'max-w-[80%] rounded-lg px-3 py-2',
                   msg.userId === currentUserId
-                    ? "text-primary-foreground/70"
-                    : "text-muted-foreground"
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted'
                 )}>
-                  {msg.userId === currentUserId ? 'You' : msg.userId.slice(0, 8)}
-                </p>
+                  {msg.type === 'image' ? (
+                    <button
+                      type="button"
+                      className="block overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() => openImageLightbox(msg._id)}
+                    >
+                      <img
+                        src={msg.content}
+                        alt="Shared image"
+                        className="max-w-full rounded-md transition-opacity hover:opacity-90"
+                      />
+                    </button>
+                  ) : msg.type === 'file' && fileMessage ? (
+                    <div className={clsx(
+                      'flex min-w-0 items-center gap-2 rounded-md border p-2',
+                      msg.userId === currentUserId
+                        ? 'border-primary-foreground/20 bg-primary-foreground/10'
+                        : 'border-border bg-background/70'
+                    )}>
+                      <FileText className="h-5 w-5 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{fileMessage.fileName}</p>
+                        <p className={clsx(
+                          'text-xs',
+                          msg.userId === currentUserId ? 'text-primary-foreground/70' : 'text-muted-foreground'
+                        )}>
+                          File attachment
+                        </p>
+                      </div>
+                      <Button
+                        asChild
+                        size="icon"
+                        variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                        className="h-8 w-8 shrink-0"
+                      >
+                        <a href={fileMessage.url} download={fileMessage.fileName} target="_blank" rel="noopener noreferrer" aria-label={`Download ${fileMessage.fileName}`}>
+                          <Download className="h-4 w-4" />
+                        </a>
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                  )}
+                  <p className={clsx(
+                    'text-xs mt-1',
+                    msg.userId === currentUserId
+                      ? 'text-primary-foreground/70'
+                      : 'text-muted-foreground'
+                  )}>
+                    {msg.userId === currentUserId ? 'You' : msg.userId.slice(0, 8)}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
@@ -334,7 +439,7 @@ const stillFailed: FailedUpload[] = [];
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span className="text-sm">
-              Uploading: {uploadProgress.current} of {uploadProgress.total} images
+              Uploading: {uploadProgress.current} of {uploadProgress.total} attachments
             </span>
           </div>
           <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
@@ -346,14 +451,14 @@ const stillFailed: FailedUpload[] = [];
         </div>
       )}
 
-      {/* Image Previews */}
-      {(previewImages.length > 0 || failedUploads.length > 0) && !isUploading && (
+      {/* Attachment Previews */}
+      {attachments.length > 0 && !isUploading && (
         <div className="p-3 border-t bg-muted/50">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium">
-              {failedUploads.length > 0 ? `${failedUploads.length} failed` : `${previewImages.length} image${previewImages.length !== 1 ? 's' : ''} ready`}
+              {failedCount > 0 ? `${failedCount} failed` : `${attachments.length} attachment${attachments.length !== 1 ? 's' : ''} ready`}
             </span>
-            {failedUploads.length > 1 && (
+            {failedCount > 1 && (
               <Button size="sm" variant="outline" onClick={handleRetryAll}>
                 <RefreshCw className="h-3 w-3 mr-1" />
                 Retry All
@@ -361,56 +466,62 @@ const stillFailed: FailedUpload[] = [];
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            {previewImages.map((preview, index) => {
-              const failed = failedUploads.find((_, i) => i === index);
-              return (
-                <div key={index} className="relative group">
+            {attachments.map((attachment, index) => (
+              <div key={`${attachment.file.name}-${index}`} className="relative group" title={attachment.error}>
+                {attachment.isImage && attachment.preview ? (
                   <img
-                    src={preview}
+                    src={attachment.preview}
                     alt={`Preview ${index + 1}`}
                     className={clsx(
-                      "h-20 w-20 object-cover rounded-md border",
-                      failed ? "border-red-500" : "border-muted"
+                      'h-20 w-20 object-cover rounded-md border',
+                      attachment.error ? 'border-red-500' : 'border-muted'
                     )}
                   />
-                  {failed ? (
-                    <>
-                      <div className="absolute inset-0 bg-black/50 rounded-md flex items-center justify-center">
-                        <AlertCircle className="h-6 w-6 text-red-500" />
-                      </div>
-                      <Button
-                        size="icon"
-                        variant="secondary"
-                        className="h-6 w-6 absolute -top-2 -right-2"
-                        onClick={() => handleRetryUpload(failed, index)}
-                      >
-                        <RefreshCw className="h-3 w-3" />
-                      </Button>
-                    </>
-                  ) : (
+                ) : (
+                  <div className={clsx(
+                    'h-20 w-44 rounded-md border bg-background p-2 flex items-center gap-2',
+                    attachment.error ? 'border-red-500' : 'border-muted'
+                  )}>
+                    <FileText className="h-6 w-6 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium">{attachment.file.name}</p>
+                      <p className="text-xs text-muted-foreground">{formatBytes(attachment.file.size)}</p>
+                    </div>
+                  </div>
+                )}
+                {attachment.error ? (
+                  <>
+                    <div className="absolute inset-0 bg-black/50 rounded-md flex items-center justify-center">
+                      <AlertCircle className="h-6 w-6 text-red-500" />
+                    </div>
                     <Button
                       size="icon"
-                      variant="destructive"
-                      className="h-6 w-6 absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => removeImage(index)}
+                      variant="secondary"
+                      className="h-6 w-6 absolute -top-2 -right-2"
+                      onClick={() => handleRetryUpload(attachment, index)}
                     >
-                      <X className="h-3 w-3" />
+                      <RefreshCw className="h-3 w-3" />
                     </Button>
-                  )}
-                </div>
-              );
-            })}
+                  </>
+                ) : (
+                  <Button
+                    size="icon"
+                    variant="destructive"
+                    className="h-6 w-6 absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => removeAttachment(index)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <Button size="sm" onClick={handleSendImages} disabled={isUploading}>
+            <Button size="sm" onClick={handleSendAttachments} disabled={isUploading}>
               <Send className="h-4 w-4 mr-1" />
-              Send {previewImages.length} Image{previewImages.length !== 1 ? 's' : ''}
+              Send {attachments.length} Attachment{attachments.length !== 1 ? 's' : ''}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => {
-              setPreviewImages([]);
-              setImageFiles([]);
-              setFailedUploads([]);
-            }}>
+            <Button size="sm" variant="outline" onClick={() => setAttachments([])}>
               Cancel
             </Button>
           </div>
@@ -423,7 +534,6 @@ const stillFailed: FailedUpload[] = [];
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
             multiple
             onChange={handleFileSelect}
             className="hidden"
@@ -438,7 +548,7 @@ const stillFailed: FailedUpload[] = [];
             {isUploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <ImageIcon className="h-4 w-4" />
+              <Paperclip className="h-4 w-4" />
             )}
           </Button>
           <Textarea
@@ -454,9 +564,16 @@ const stillFailed: FailedUpload[] = [];
           </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2 text-center">
-          Drag and drop images directly into the chat
+          Drag and drop images or files directly into the chat
         </p>
       </div>
+
+      <ChatImageLightbox
+        images={chatImages}
+        initialIndex={lightboxIndex}
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+      />
     </div>
   );
 }
