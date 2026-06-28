@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSignUp } from "@clerk/nextjs";
+import { useSignUp, useUser } from "@clerk/nextjs";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export default function SignUpPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signUp, isLoaded, setActive } = useSignUp();
+  const { signUp } = useSignUp();
+  const { user, isLoaded: userLoaded } = useUser();
 
   const ticket = searchParams.get("__clerk_ticket");
   const [firstName, setFirstName] = useState("");
@@ -17,20 +18,18 @@ export default function SignUpPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    if (userLoaded && user) {
+      router.push("/dashboard");
+    }
+  }, [userLoaded, user, router]);
+
+  useEffect(() => {
     if (signUp?.status === "complete") {
       router.push("/dashboard");
     }
   }, [signUp?.status, router]);
 
-  if (!isLoaded) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-900">
-        <p className="text-slate-400">Loading...</p>
-      </div>
-    );
-  }
-
-  if (!ticket) {
+  if (!userLoaded || !ticket) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900">
         <div className="text-center">
@@ -66,7 +65,6 @@ export default function SignUpPage() {
       });
 
       if (signUp.status === "complete") {
-        await setActive({ session: signUp.createdSessionId });
         router.push("/dashboard");
       }
     } catch (err) {
