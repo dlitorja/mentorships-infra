@@ -7,7 +7,6 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { 
   useWorkspaceNotes, 
-  useCreateWorkspaceNote, 
   useUpdateWorkspaceNote, 
   useDeleteWorkspaceNote 
 } from '@/lib/queries/convex/use-workspaces';
@@ -16,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Plus, Trash2, Edit2, Save, X, FileText } from 'lucide-react';
 import { clsx } from 'clsx';
+import { toast } from 'sonner';
 
 interface Note {
   _id: Id<'workspaceNotes'>;
@@ -45,8 +45,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [newTitle, setNewTitle] = useState('');
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
 
-  const { data: notes, isLoading } = useWorkspaceNotes(workspaceId);
-  const createNote = useCreateWorkspaceNote();
+  const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
   const deleteNote = useDeleteWorkspaceNote();
 
@@ -100,16 +99,29 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     if (!newTitle.trim() || !workspaceId) return;
 
     try {
-      const result = await createNote.mutateAsync({
-        workspaceId,
-        title: newTitle.trim(),
-        content: '',
+      const response = await fetch('/api/workspace/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          title: newTitle.trim(),
+          content: '',
+        }),
       });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create note');
+      }
+
+      const { noteId } = await response.json();
       setNewTitle('');
       setIsCreating(false);
-      setSelectedNoteId(result);
+      setSelectedNoteId(noteId as Id<'workspaceNotes'>);
+      await refetch();
     } catch (error) {
       console.error('Failed to create note:', error);
+      toast.error('Failed to create note');
     }
   };
 
@@ -119,6 +131,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       if (selectedNoteId === noteId) {
         setSelectedNoteId(null);
       }
+      await refetch();
     } catch (error) {
       console.error('Failed to delete note:', error);
     }

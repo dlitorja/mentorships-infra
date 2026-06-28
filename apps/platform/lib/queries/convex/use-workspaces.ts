@@ -102,7 +102,7 @@ export function useCreateWorkspaceMessage() {
 
 /**
  * Mutation hook for creating a new note in a workspace.
- * Invalidates workspace notes queries on success to refresh note list.
+ * Refetches workspace notes queries on success to refresh note list.
  */
 export function useCreateWorkspaceNote() {
   const queryClient = useQueryClient();
@@ -110,14 +110,14 @@ export function useCreateWorkspaceNote() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceNote),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceNotes"] });
+      queryClient.refetchQueries({ queryKey: ["workspaceNotes"] });
     },
   });
 }
 
 /**
  * Mutation hook for updating an existing workspace note.
- * Invalidates workspace notes queries on success to refresh data.
+ * Refetches workspace notes queries on success to refresh data.
  */
 export function useUpdateWorkspaceNote() {
   const queryClient = useQueryClient();
@@ -125,14 +125,14 @@ export function useUpdateWorkspaceNote() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.updateWorkspaceNote),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceNotes"] });
+      queryClient.refetchQueries({ queryKey: ["workspaceNotes"] });
     },
   });
 }
 
 /**
  * Mutation hook for deleting a workspace note.
- * Invalidates workspace notes queries on success to refresh list.
+ * Refetches workspace notes queries on success to refresh list.
  */
 export function useDeleteWorkspaceNote() {
   const queryClient = useQueryClient();
@@ -140,7 +140,7 @@ export function useDeleteWorkspaceNote() {
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.deleteWorkspaceNote),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workspaceNotes"] });
+      queryClient.refetchQueries({ queryKey: ["workspaceNotes"] });
     },
   });
 }
