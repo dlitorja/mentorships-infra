@@ -5,18 +5,23 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
+import Underline from '@tiptap/extension-underline';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { 
   useWorkspaceNotes, 
   useUpdateWorkspaceNote, 
   useDeleteWorkspaceNote,
   useEmbedImageInNote,
+  useNoteComments,
+  useCreateNoteComment,
+  useDeleteNoteComment,
+  type NoteComment,
 } from '@/lib/queries/convex/use-workspaces';
 import { uploadImageForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
@@ -60,6 +65,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [newComment, setNewComment] = useState('');
+  const newCommentRef = useRef<HTMLInputElement>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -67,6 +74,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const embedImageInNote = useEmbedImageInNote();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
   const updateNoteRef = useRef(updateNote);
+
+  const { data: comments } = useNoteComments(selectedNoteId || '');
+  const createComment = useCreateNoteComment();
+  const deleteComment = useDeleteNoteComment();
 
   const selectedNote = notes?.find(n => n._id === selectedNoteId);
 
@@ -134,6 +145,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const editor = useEditor({
     extensions: [
       StarterKit,
+      Underline,
       Placeholder.configure({
         placeholder: 'Start writing your note...',
       }),
@@ -287,6 +299,30 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       toast.error('Failed to embed image');
     } finally {
       e.target.value = '';
+    }
+  };
+
+  const handleCreateComment = async () => {
+    if (!newComment.trim() || !selectedNoteId) return;
+
+    try {
+      await createComment.mutateAsync({
+        noteId: selectedNoteId,
+        content: newComment.trim(),
+      });
+      setNewComment('');
+    } catch (error) {
+      console.error('Failed to create comment:', error);
+      toast.error('Failed to add comment');
+    }
+  };
+
+  const handleDeleteComment = async (commentId: Id<'workspaceNoteComments'>) => {
+    try {
+      await deleteComment.mutateAsync({ id: commentId });
+    } catch (error) {
+      console.error('Failed to delete comment:', error);
+      toast.error('Failed to delete comment');
     }
   };
 
@@ -445,8 +481,175 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                   </Button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto">
-                <EditorContent editor={editor} />
+              {editor && (
+                <div className="flex items-center gap-1 px-3 py-2 border-b bg-muted/30 shrink-0 flex-wrap">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('bold') && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleBold().run()}
+                    title="Bold (Ctrl+B)"
+                  >
+                    <Bold className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('italic') && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleItalic().run()}
+                    title="Italic (Ctrl+I)"
+                  >
+                    <Italic className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('underline') && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleUnderline().run()}
+                    title="Underline (Ctrl+U)"
+                  >
+                    <UnderlineIcon className="h-4 w-4" />
+                  </Button>
+                  <div className="w-px h-6 bg-border mx-1" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('heading', { level: 1 }) && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                    title="Heading 1"
+                  >
+                    <span className="text-xs font-bold">H1</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('heading', { level: 2 }) && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                    title="Heading 2"
+                  >
+                    <span className="text-xs font-bold">H2</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('heading', { level: 3 }) && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+                    title="Heading 3"
+                  >
+                    <span className="text-xs font-bold">H3</span>
+                  </Button>
+                  <div className="w-px h-6 bg-border mx-1" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('bulletList') && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleBulletList().run()}
+                    title="Bullet List"
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('orderedList') && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                    title="Numbered List"
+                  >
+                    <ListOrdered className="h-4 w-4" />
+                  </Button>
+                  <div className="w-px h-6 bg-border mx-1" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('codeBlock') && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+                    title="Code Block"
+                  >
+                    <Code className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={clsx('h-8 w-8 p-0', editor.isActive('blockquote') && 'bg-muted')}
+                    onClick={() => editor.chain().focus().toggleBlockquote().run()}
+                    title="Blockquote"
+                  >
+                    <Quote className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              <div className="flex-1 overflow-y-auto flex flex-col">
+                <div className="flex-1 overflow-y-auto">
+                  <EditorContent editor={editor} />
+                </div>
+                <div className="border-t shrink-0 max-h-48 overflow-y-auto bg-muted/30">
+                  <div className="px-3 py-2 flex items-center justify-between">
+                    <h4 className="text-sm font-medium flex items-center gap-1">
+                      <MessageCircle className="h-4 w-4" />
+                      Comments {comments && comments.length > 0 && `(${comments.length})`}
+                    </h4>
+                  </div>
+                  <div className="px-3 pb-2 space-y-2">
+                    {comments && comments.length > 0 ? (
+                      comments.map((comment: NoteComment) => (
+                        <div key={comment._id} className="text-sm bg-background rounded p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-xs text-muted-foreground">
+                              {comment.createdBy === currentUserId ? 'You' : comment.createdBy.slice(0, 8)}
+                              {' · '}
+                              {new Date(comment.createdAt).toLocaleDateString()}
+                            </p>
+                            {comment.createdBy === currentUserId && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5"
+                                onClick={() => handleDeleteComment(comment._id)}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                          <p className="mt-1">{comment.content}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-muted-foreground text-center py-2">No comments yet</p>
+                    )}
+                  </div>
+                  <div className="px-3 pb-3 flex gap-2">
+                    <Input
+                      ref={newCommentRef}
+                      placeholder="Add a comment..."
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleCreateComment();
+                        }
+                      }}
+                      className="h-8 text-sm"
+                    />
+                    <Button size="sm" onClick={handleCreateComment} disabled={!newComment.trim() || createComment.isPending}>
+                      {createComment.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

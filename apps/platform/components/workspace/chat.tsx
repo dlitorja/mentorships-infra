@@ -3,12 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages } from '@/lib/queries/convex/use-workspaces';
+import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download } from 'lucide-react';
+import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download, Link as LinkIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { createImagePreviews, uploadImageForChat, uploadFileForChat, LARGE_CHAT_FILE_BYTES, MAX_CHAT_FILE_BYTES, type UploadError } from '@/lib/workspace-image-upload';
@@ -77,6 +77,80 @@ function parseFileMessage(content: string): ParsedFileMessage {
   } catch {
     return { fileName: encodedFileName || 'Download file', url };
   }
+}
+
+const URL_REGEX = /(https?:\/\/[^\s<]+)/g;
+
+function extractUrls(content: string): string[] {
+  const matches = content.match(URL_REGEX);
+  return matches ? [...new Set(matches)] : [];
+}
+
+function renderMessageWithLinks(content: string): React.ReactNode {
+  const parts = content.split(URL_REGEX);
+  return parts.map((part, index) => {
+    if (URL_REGEX.test(part)) {
+      return (
+        <a
+          key={index}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary underline hover:opacity-80 break-all"
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+}
+
+interface ShareLinkButtonProps {
+  urls: string[];
+  workspaceId: Id<'workspaces'>;
+}
+
+function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
+  const createLink = useCreateWorkspaceLink();
+  const [sharedUrls, setSharedUrls] = useState<Set<string>>(new Set());
+
+  const handleShare = async (url: string) => {
+    try {
+      await createLink.mutateAsync({
+        workspaceId,
+        url,
+      });
+      setSharedUrls((prev) => new Set(prev).add(url));
+      toast.success('Link shared to Links tab');
+    } catch (error) {
+      console.error('Failed to share link:', error);
+      toast.error('Failed to share link');
+    }
+  };
+
+  if (urls.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {urls.map((url, index) => {
+        const isShared = sharedUrls.has(url);
+        return (
+          <Button
+            key={index}
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs py-0 px-1.5"
+            onClick={() => handleShare(url)}
+            disabled={isShared || createLink.isPending}
+          >
+            <LinkIcon className="h-3 w-3 mr-0.5" />
+            {isShared ? 'Shared' : 'Share to Links'}
+          </Button>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function WorkspaceChat({ workspaceId, currentUserId, role = 'student' }: WorkspaceChatProps) {
@@ -460,7 +534,10 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                       </Button>
                     </div>
                   ) : (
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    <>
+                      <p className="whitespace-pre-wrap">{renderMessageWithLinks(msg.content)}</p>
+                      {msg.type === 'text' && <ShareLinkButton urls={extractUrls(msg.content)} workspaceId={workspaceId} />}
+                    </>
                   )}
                   <p className={clsx(
                     'text-xs mt-1',

@@ -281,6 +281,14 @@ export default defineSchema({
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_createdBy", ["createdBy"]),
 
+  workspaceNoteComments: defineTable({
+    noteId: v.id("workspaceNotes"),
+    content: v.string(),
+    createdBy: v.string(),
+    createdAt: v.number(),
+    deletedAt: v.optional(v.number()),
+  }).index("by_noteId", ["noteId"]),
+
   workspaceLinks: defineTable({
     workspaceId: v.id("workspaces"),
     url: v.string(),
