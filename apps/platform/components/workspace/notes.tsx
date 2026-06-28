@@ -31,6 +31,13 @@ interface WorkspaceNotesProps {
   currentUserId: string;
 }
 
+interface AutosaveEntry {
+  timeout?: ReturnType<typeof setTimeout>;
+  content: string;
+  sequence: number;
+  inFlight: boolean;
+}
+
 /**
  * Rich text note-taking component for a workspace.
  * Uses TipTap editor with auto-save on content changes.
@@ -44,19 +51,77 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
-  const autosaveTimeoutsRef = useRef(new Map<Id<'workspaceNotes'>, ReturnType<typeof setTimeout>>());
+  const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
   const deleteNote = useDeleteWorkspaceNote();
+  const updateNoteRef = useRef(updateNote);
 
   const selectedNote = notes?.find(n => n._id === selectedNoteId);
 
   useEffect(() => {
+    updateNoteRef.current = updateNote;
+  }, [updateNote]);
+
+  useEffect(() => {
     selectedNoteIdRef.current = selectedNoteId;
   }, [selectedNoteId]);
+
+  async function flushAutosave(noteId: Id<'workspaceNotes'>) {
+    const entry = autosavesRef.current.get(noteId);
+    if (!entry || entry.inFlight) return;
+
+    entry.inFlight = true;
+    entry.timeout = undefined;
+    const content = entry.content;
+    const sequence = entry.sequence;
+
+    try {
+      await updateNoteRef.current.mutateAsync({ id: noteId, content });
+    } catch (error) {
+      console.error('Failed to auto-save note:', error);
+    } finally {
+      const current = autosavesRef.current.get(noteId);
+      if (!current) return;
+
+      current.inFlight = false;
+      if (current.sequence !== sequence) {
+        void flushAutosave(noteId);
+      } else if (!current.timeout) {
+        autosavesRef.current.delete(noteId);
+      }
+    }
+  }
+
+  function scheduleAutosave(noteId: Id<'workspaceNotes'>, content: string) {
+    const existing = autosavesRef.current.get(noteId);
+    if (existing?.timeout) {
+      clearTimeout(existing.timeout);
+    }
+
+    const entry: AutosaveEntry = existing ?? {
+      content,
+      sequence: 0,
+      inFlight: false,
+    };
+    entry.content = content;
+    entry.sequence += 1;
+    entry.timeout = setTimeout(() => {
+      void flushAutosave(noteId);
+    }, 1000);
+    autosavesRef.current.set(noteId, entry);
+  }
+
+  function clearAutosave(noteId: Id<'workspaceNotes'>) {
+    const entry = autosavesRef.current.get(noteId);
+    if (entry?.timeout) {
+      clearTimeout(entry.timeout);
+    }
+    autosavesRef.current.delete(noteId);
+  }
 
   const editor = useEditor({
     extensions: [
@@ -74,27 +139,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     onUpdate: ({ editor }) => {
       const noteId = selectedNoteIdRef.current;
       if (noteId) {
-        const existingTimeout = autosaveTimeoutsRef.current.get(noteId);
-        if (existingTimeout) {
-          clearTimeout(existingTimeout);
-        }
-
-        const content = editor.getHTML();
-        const timeout = setTimeout(async () => {
-          try {
-            await updateNote.mutateAsync({
-              id: noteId,
-              content,
-            });
-          } catch (error) {
-            console.error('Failed to auto-save note:', error);
-          } finally {
-            if (autosaveTimeoutsRef.current.get(noteId) === timeout) {
-              autosaveTimeoutsRef.current.delete(noteId);
-            }
-          }
-        }, 1000);
-        autosaveTimeoutsRef.current.set(noteId, timeout);
+        scheduleAutosave(noteId, editor.getHTML());
       }
     },
   });
@@ -107,16 +152,23 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
         editor.commands.setContent(selectedNote.content || '', { emitUpdate: false });
         loadedNoteIdRef.current = selectedNote._id;
       }
-    } else {
+    } else if (!selectedNoteId) {
       editor.commands.setContent('', { emitUpdate: false });
       loadedNoteIdRef.current = null;
     }
-  }, [editor, selectedNote]);
+  }, [editor, selectedNote, selectedNoteId]);
 
   useEffect(() => {
     return () => {
-      autosaveTimeoutsRef.current.forEach((timeout) => clearTimeout(timeout));
-      autosaveTimeoutsRef.current.clear();
+      autosavesRef.current.forEach((entry, noteId) => {
+        if (entry.timeout) {
+          clearTimeout(entry.timeout);
+          entry.timeout = undefined;
+        }
+        if (!entry.inFlight) {
+          void flushAutosave(noteId);
+        }
+      });
     };
   }, []);
 
@@ -158,6 +210,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
 
   const handleDeleteNote = async (noteId: Id<'workspaceNotes'>) => {
     try {
+      clearAutosave(noteId);
       await deleteNote.mutateAsync({ id: noteId });
       if (selectedNoteId === noteId) {
         setSelectedNoteId(null);
