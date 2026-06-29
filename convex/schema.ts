@@ -287,6 +287,7 @@ export default defineSchema({
     createdBy: v.string(),
     createdAt: v.number(),
     deletedAt: v.optional(v.number()),
+    storageId: v.optional(v.string()),
   }).index("by_noteId", ["noteId"]),
 
   workspaceLinks: defineTable({

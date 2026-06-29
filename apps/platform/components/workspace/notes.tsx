@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -17,11 +17,11 @@ import {
   useDeleteNoteComment,
   type NoteComment,
 } from '@/lib/queries/convex/use-workspaces';
-import { uploadImageForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
+import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle, Paperclip, File } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
@@ -70,6 +70,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [commentAttachment, setCommentAttachment] = useState<File | null>(null);
+  const [commentAttachmentPreview, setCommentAttachmentPreview] = useState<string | null>(null);
+  const [isUploadingCommentAttachment, setIsUploadingCommentAttachment] = useState(false);
+  const commentAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const headerTitleInputRef = useRef<HTMLInputElement>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -155,10 +161,14 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       Image.configure({
         inline: false,
         allowBase64: false,
+        HTMLAttributes: {
+          class: 'note-image',
+        },
         resize: {
           enabled: true,
           minWidth: 50,
           minHeight: 50,
+          alwaysPreserveAspectRatio: true,
         },
       }),
     ],
@@ -235,6 +245,15 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     }
   }, [notes, selectedNoteId]);
 
+  useEffect(() => {
+    if (editingNoteId && titleInputRef.current) {
+      setTimeout(() => titleInputRef.current?.focus(), 0);
+    }
+    if (editingNoteId && headerTitleInputRef.current) {
+      setTimeout(() => headerTitleInputRef.current?.focus(), 0);
+    }
+  }, [editingNoteId]);
+
   const handleCreateNote = async () => {
     if (!newTitle.trim() || !workspaceId) return;
 
@@ -309,7 +328,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     e.target.value = '';
   };
 
-  const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Promise<string | null> => {
+const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Promise<string | null> => {
     const noteIdForUpload = noteId;
     if (!noteIdForUpload) {
       toast.error('No note selected');
@@ -367,18 +386,61 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   };
 
   const handleCreateComment = async () => {
-    if (!newComment.trim() || !selectedNoteId) return;
+    if (!newComment.trim() && !commentAttachment || !selectedNoteId) return;
 
     try {
+      let storageId: string | undefined;
+
+      if (commentAttachment) {
+        setIsUploadingCommentAttachment(true);
+        const uploadResult = await uploadFileForChat(workspaceId, commentAttachment, generateUploadUrl);
+        setIsUploadingCommentAttachment(false);
+
+        if (!uploadResult.success) {
+          toast.error(uploadResult.error || 'Upload failed');
+          return;
+        }
+        storageId = uploadResult.storageId;
+      }
+
       await createComment.mutateAsync({
         noteId: selectedNoteId,
         content: newComment.trim(),
+        storageId,
       });
       setNewComment('');
+      setCommentAttachment(null);
+      setCommentAttachmentPreview(null);
     } catch (error) {
       console.error('Failed to create comment:', error);
       toast.error('Failed to add comment');
     }
+  };
+
+  const handleCommentAttachmentSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > MAX_CHAT_FILE_BYTES) {
+      toast.error('File is too large. Maximum size is 50MB.');
+      return;
+    }
+
+    setCommentAttachment(file);
+
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setCommentAttachmentPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setCommentAttachmentPreview(null);
+    }
+    e.target.value = '';
+  };
+
+  const clearCommentAttachment = () => {
+    setCommentAttachment(null);
+    setCommentAttachmentPreview(null);
   };
 
   const handleDeleteComment = async (commentId: Id<'workspaceNoteComments'>) => {
@@ -450,11 +512,20 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                 {editingNoteId === note._id ? (
                   <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <Input
+                      ref={titleInputRef}
                       value={editingTitleValue}
                       onChange={(e) => setEditingTitleValue(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(note._id)}
+                      onBlur={() => {
+                        setTimeout(() => {
+                          if (editingTitleValue?.trim()) {
+                            handleTitleUpdate(note._id);
+                          } else {
+                            setEditingNoteId(null);
+                          }
+                        }, 50);
+                      }}
                       className="h-6 text-sm"
-                      autoFocus
                     />
                     <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleTitleUpdate(note._id)}>
                       <Save className="h-3 w-3" />
@@ -518,11 +589,20 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                   {editingNoteId === selectedNote._id ? (
                     <div className="flex items-center gap-1">
                       <Input
+                        ref={headerTitleInputRef}
                         value={editingTitleValue}
                         onChange={(e) => setEditingTitleValue(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(selectedNote._id)}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            if (editingTitleValue?.trim()) {
+                              handleTitleUpdate(selectedNote._id);
+                            } else {
+                              setEditingNoteId(null);
+                            }
+                          }, 50);
+                        }}
                         className="h-8 text-sm"
-                        autoFocus
                       />
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleTitleUpdate(selectedNote._id)}>
                         <Save className="h-4 w-4" />
@@ -696,6 +776,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
+                    if (!editor) {
+                      setIsDragOver(false);
+                      return;
+                    }
                     const files = e.dataTransfer?.files;
                     if (!files || files.length === 0) {
                       setIsDragOver(false);
@@ -753,34 +837,84 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                               </Button>
                             )}
                           </div>
-                          <p className="mt-1">{comment.content}</p>
+                          {comment.content && <p className="mt-1">{comment.content}</p>}
+                          {comment.storageId && (
+                            <div className="mt-2">
+                              <a
+                                href={`${process.env.NEXT_PUBLIC_CONVEX_URL}/api/storage/${comment.storageId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 text-xs text-primary bg-muted/50 rounded p-1.5 hover:underline"
+                              >
+                                <File className="h-4 w-4" />
+                                <span>Download attachment</span>
+                              </a>
+                            </div>
+                          )}
                         </div>
                       ))
                     ) : (
                       <p className="text-xs text-muted-foreground text-center py-2">No comments yet</p>
                     )}
                   </div>
-                  <div className="px-3 pb-3 flex gap-2">
-                    <Input
-                      ref={newCommentRef}
-                      placeholder="Add a comment..."
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleCreateComment();
-                        }
-                      }}
-                      className="h-8 text-sm"
-                    />
-                    <Button size="sm" onClick={handleCreateComment} disabled={!newComment.trim() || createComment.isPending}>
-                      {createComment.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Plus className="h-4 w-4" />
-                      )}
-                    </Button>
+                  <div className="px-3 pb-3 flex flex-col gap-2">
+                    {commentAttachment && (
+                      <div className="flex items-center gap-2 bg-muted/50 rounded p-2">
+                        {commentAttachmentPreview ? (
+                          <div className="relative w-10 h-10 rounded overflow-hidden">
+                            <img src={commentAttachmentPreview} alt="Preview" className="w-full h-full object-cover" />
+                          </div>
+                        ) : (
+                          <File className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="text-xs truncate flex-1">{commentAttachment.name}</span>
+                        <Button size="icon" variant="ghost" className="h-5 w-5" onClick={clearCommentAttachment}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        type="file"
+                        ref={commentAttachmentInputRef}
+                        onChange={handleCommentAttachmentSelect}
+                        className="hidden"
+                        accept="image/*,application/pdf,text/*"
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 px-2"
+                        onClick={() => commentAttachmentInputRef.current?.click()}
+                        disabled={isUploadingCommentAttachment}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                      <Input
+                        ref={newCommentRef}
+                        placeholder="Add a comment..."
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleCreateComment();
+                          }
+                        }}
+                        className="h-8 text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleCreateComment}
+                        disabled={(!newComment.trim() && !commentAttachment) || createComment.isPending || isUploadingCommentAttachment}
+                      >
+                        {createComment.isPending || isUploadingCommentAttachment ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

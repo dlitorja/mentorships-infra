@@ -68,8 +68,13 @@
 
 .ProseMirror img {
   max-width: 100%;
-  height: auto;
   display: block;
+  /* Let explicit width/height attributes control size, no auto height */
+}
+
+.ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 /* Resizable image wrapper */

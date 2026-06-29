@@ -35,6 +35,22 @@ function getDashboardHref(user: UserLike): "/admin" | "/instructor/dashboard" | 
   return "/dashboard";
 }
 
+function canViewMyFiles(user: UserLike): boolean {
+  const role = typeof user?.publicMetadata?.role === "string" ? user.publicMetadata.role.toLowerCase() : "";
+  return role === "instructor" || role === "admin";
+}
+
+function MyFilesButton(): ReactElement | null {
+  const { user, isLoaded } = useUser();
+  if (!isLoaded || !user) return null;
+  if (!canViewMyFiles(user)) return null;
+  return (
+    <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
+      <Link href="https://drive.huckleberry.art" target="_blank" rel="noopener noreferrer">My Files</Link>
+    </Button>
+  );
+}
+
 function DashboardButton(): ReactElement {
   const { user, isLoaded } = useUser();
   const href = getDashboardHref(user);
@@ -49,9 +65,27 @@ function MobileDashboardButton(): ReactElement {
   const { user, isLoaded } = useUser();
   const href = getDashboardHref(user);
   return (
-    <Button asChild disabled={!isLoaded} variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
+    <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white w-full justify-start uppercase tracking-wide">
       <Link href={href}>Dashboard</Link>
     </Button>
+  );
+}
+
+function MobileMyFilesLink(): ReactElement | null {
+  const { user, isLoaded } = useUser();
+  if (!isLoaded || !user) return null;
+  if (!canViewMyFiles(user)) return null;
+  return (
+    <SheetClose asChild>
+      <a
+        href="https://drive.huckleberry.art"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-base font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-white"
+      >
+        My Files
+      </a>
+    </SheetClose>
   );
 }
 
@@ -116,16 +150,7 @@ function MobileNavContent({ hasClerk = true }: { hasClerk?: boolean }): ReactEle
             </Show>
             <Show when="signed-in">
               <MobileDashboardButton />
-              <SheetClose asChild>
-                <a
-                  href="https://drive.huckleberry.art"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-base font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-white"
-                >
-                  My Files
-                </a>
-              </SheetClose>
+              <MobileMyFilesLink />
               <div className="flex items-center justify-start">
                 <UserButton />
               </div>
@@ -188,9 +213,7 @@ export function Header({ hasClerk = true }: HeaderProps): ReactElement {
               </Show>
               <Show when="signed-in">
                 <DashboardButton />
-                <Button asChild variant="ghost" size="sm" className="text-muted-foreground hover:text-white hover:bg-white/10 uppercase tracking-wide text-xs">
-                  <Link href="https://drive.huckleberry.art" target="_blank" rel="noopener noreferrer">My Files</Link>
-                </Button>
+                <MyFilesButton />
                 <UserButton />
               </Show>
             </>
