@@ -116,7 +116,9 @@
     "vitest": "2.1.9"
   },
   "overrides": {
-    "esbuild": ">=0.25.0"
+    "esbuild": ">=0.25.0",
+    "react": "$react",
+    "react-dom": "$react-dom"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [
