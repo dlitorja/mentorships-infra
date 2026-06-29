@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
 
   // Fix monorepo workspace root for Turbopack
   experimental: {
+    // @ts-ignore - turbopack.root is valid in Next.js 16 but missing from TypeScript types
     turbopack: {
       root: path.resolve(__dirname),
     },
