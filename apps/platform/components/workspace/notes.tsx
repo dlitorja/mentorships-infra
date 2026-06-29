@@ -300,6 +300,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   };
 
   const uploadImageForNote = async (file: File): Promise<string | null> => {
+    const noteIdForUpload = selectedNoteId;
+    if (!noteIdForUpload) {
+      toast.error('No note selected');
+      return null;
+    }
+
     if (file.size > MAX_CHAT_FILE_BYTES) {
       toast.error('Image is too large. Maximum size is 50MB.');
       return null;
@@ -322,13 +328,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
         return null;
       }
 
-      if (!selectedNoteId) {
-        toast.error('No note selected', { id: toastId });
-        return null;
-      }
-
       const imageUrl = await embedImageInNote.mutateAsync({
-        noteId: selectedNoteId,
+        noteId: noteIdForUpload,
         storageId: uploadResult.storageId as Id<"_storage">,
       });
 
@@ -342,7 +343,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   };
 
   const handleDroppedImage = async (file: File, pos: number) => {
-    if (!selectedNoteId || !editor) return;
+    const noteIdForUpload = selectedNoteId;
+    if (!noteIdForUpload || !editor) return;
 
     const imageUrl = await uploadImageForNote(file);
     if (imageUrl && editor) {
@@ -656,7 +658,30 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     }
                   }}
                   onDrop={(e) => {
-                    e.preventDefault();
+                    const files = e.dataTransfer?.files;
+                    if (!files || files.length === 0) {
+                      setIsDragOver(false);
+                      return;
+                    }
+
+                    const file = files[0];
+                    if (!file.type.startsWith('image/')) {
+                      setIsDragOver(false);
+                      return;
+                    }
+
+                    const editorRect = editor.view.dom.getBoundingClientRect();
+                    const isInsideEditor = 
+                      e.clientX >= editorRect.left &&
+                      e.clientX <= editorRect.right &&
+                      e.clientY >= editorRect.top &&
+                      e.clientY <= editorRect.bottom;
+
+                    if (!isInsideEditor) {
+                      e.preventDefault();
+                      toast.error('Drop image inside the editor area');
+                    }
+
                     setIsDragOver(false);
                   }}
                 >
