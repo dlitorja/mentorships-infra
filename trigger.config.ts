@@ -20,10 +20,22 @@ export default defineConfig({
   build: {
     extensions: [
       additionalFiles({
-        files: ["packages/storage/**", "packages/db/**"],
+        files: [
+          "packages/storage/**",
+          "packages/db/**",
+          "packages/emails/**",
+          "packages/schemas/**",
+          "packages/payments/**",
+        ],
       }),
     ],
-    external: ["archiver", "@aws-sdk/client-s3", "pdfkit"],
+    external: [
+      "archiver",
+      "@aws-sdk/client-s3",
+      "@aws-sdk/s3-request-presigner",
+      "pdfkit",
+      "@react-email/render",
+    ],
     autoDetectExternal: true,
     keepNames: true,
     minify: false,
