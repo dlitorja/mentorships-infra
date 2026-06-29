@@ -11,12 +11,35 @@ const WORKSPACE_IMAGE_CAPS = {
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
 
-async function getWorkspaceRole(ctx: any, workspaceId: Id<"workspaces">, userId: string): Promise<WorkspaceRole> {
-  const membership = await ctx.db
-    .query("workspaceMemberships")
-    .withIndex("by_workspace_and_user", (q: any) => q.eq("workspaceId", workspaceId).eq("userId", userId))
+async function isAdmin(ctx: any, userId: string): Promise<boolean> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q: any) => q.eq("userId", userId))
     .first();
-  return membership?.role ?? null;
+  return user?.role === "admin";
+}
+
+async function getWorkspaceRole(
+  ctx: any,
+  workspace: { instructorId?: Id<"instructors">; ownerId: string; type?: string },
+  userId: string
+): Promise<WorkspaceRole> {
+  const userIsAdmin = await isAdmin(ctx, userId);
+  if (userIsAdmin) {
+    return "admin";
+  }
+
+  if (workspace.instructorId) {
+    const instructor = await ctx.db
+      .query("instructors")
+      .withIndex("by_userId", (q: any) => q.eq("userId", userId))
+      .first();
+    if (instructor && instructor._id === workspace.instructorId) {
+      return "instructor";
+    }
+  }
+
+  return null;
 }
 
 async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces">): Promise<number> {
@@ -94,7 +117,7 @@ export const uploadInstructorResource = mutation({
       throw new Error("Workspace not found");
     }
 
-    const role = await getWorkspaceRole(ctx, args.workspaceId, user.subject);
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
     if (role !== "instructor" && role !== "admin") {
       throw new Error("Only instructors and admins can upload resources");
     }
@@ -195,7 +218,12 @@ export const shareResourceToChat = mutation({
       throw new Error("Unauthorized");
     }
 
-    const role = await getWorkspaceRole(ctx, args.workspaceId, user.subject);
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
     if (role !== "instructor" && role !== "admin") {
       throw new Error("Only instructors and admins can share resources");
     }
@@ -214,11 +242,6 @@ export const shareResourceToChat = mutation({
     const imageUrl = await ctx.storage.getUrl(resource.storageId);
     if (!imageUrl) {
       throw new Error("Failed to get image URL");
-    }
-
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace) {
-      throw new Error("Workspace not found");
     }
 
     const isAdmin = role === "admin";
@@ -275,7 +298,12 @@ export const embedResourceInNote = mutation({
       throw new Error("Note not found");
     }
 
-    const role = await getWorkspaceRole(ctx, note.workspaceId, user.subject);
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
     if (role !== "instructor" && role !== "admin") {
       throw new Error("Only instructors and admins can embed resources in notes");
     }
@@ -287,11 +315,6 @@ export const embedResourceInNote = mutation({
     const imageUrl = await ctx.storage.getUrl(resource.storageId);
     if (!imageUrl) {
       throw new Error("Failed to get image URL");
-    }
-
-    const workspace = await ctx.db.get(note.workspaceId);
-    if (!workspace) {
-      throw new Error("Workspace not found");
     }
 
     const isAdmin = role === "admin";
