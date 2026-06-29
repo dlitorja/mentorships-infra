@@ -60,10 +60,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'workspaceNotes'> | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [editingTitle, setEditingTitle] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<Id<'workspaceNotes'> | null>(null);
+  const [editingTitleValue, setEditingTitleValue] = useState('');
   const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
+  const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
@@ -76,7 +78,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
   const updateNoteRef = useRef(updateNote);
 
-  const { data: comments } = useNoteComments(selectedNoteId || '');
+  const { data: comments } = useNoteComments(selectedNoteId ?? null);
   const createComment = useCreateNoteComment();
   const deleteComment = useDeleteNoteComment();
 
@@ -196,6 +198,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   });
 
   useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
+
+  useEffect(() => {
     if (!editor) return;
 
     if (selectedNote) {
@@ -274,14 +280,14 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   };
 
   const handleTitleUpdate = async (noteId: Id<'workspaceNotes'>) => {
-    if (!editingTitle?.trim()) return;
+    if (!editingTitleValue?.trim()) return;
     
     try {
       await updateNote.mutateAsync({
         id: noteId,
-        title: editingTitle.trim(),
+        title: editingTitleValue.trim(),
       });
-      setEditingTitle(null);
+      setEditingNoteId(null);
     } catch (error) {
       console.error('Failed to update title:', error);
       toast.error('Failed to update note title');
@@ -292,15 +298,19 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     const file = e.target.files?.[0];
     if (!file || !selectedNoteId) return;
 
-    const imageUrl = await uploadImageForNote(file);
-    if (imageUrl && editor) {
-      editor.chain().focus().setImage({ src: imageUrl }).run();
+    const noteId = selectedNoteId;
+    if (!noteId) return;
+    
+    const imageUrl = await uploadImageForNote(noteId, file);
+    const currentEditor = editorRef.current;
+    if (imageUrl && currentEditor && selectedNoteIdRef.current === noteId) {
+      currentEditor.chain().focus().setImage({ src: imageUrl }).run();
     }
     e.target.value = '';
   };
 
-  const uploadImageForNote = async (file: File): Promise<string | null> => {
-    const noteIdForUpload = selectedNoteId;
+  const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Promise<string | null> => {
+    const noteIdForUpload = noteId;
     if (!noteIdForUpload) {
       toast.error('No note selected');
       return null;
@@ -318,9 +328,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
 
     try {
       const uploadResult = await uploadImageForChat(
-        workspaceId as Id<'workspaces'>,
+        workspaceId,
         file,
-        (args) => (generateUploadUrl as (args: { workspaceId: Id<'workspaces'> }) => Promise<string>)(args)
+        generateUploadUrl
       );
 
       if (!uploadResult.success) {
@@ -344,11 +354,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
 
   const handleDroppedImage = async (file: File, pos: number) => {
     const noteIdForUpload = selectedNoteId;
-    if (!noteIdForUpload || !editor) return;
+    const currentEditor = editorRef.current;
+    if (!noteIdForUpload || !currentEditor) return;
 
-    const imageUrl = await uploadImageForNote(file);
-    if (imageUrl && editor) {
-      editor.chain().focus().insertContentAt(pos, {
+    const imageUrl = await uploadImageForNote(noteIdForUpload, file);
+    if (imageUrl && currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
+      currentEditor.chain().focus().insertContentAt(pos, {
         type: 'image',
         attrs: { src: imageUrl },
       }).run();
@@ -436,11 +447,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                 )}
                 onClick={() => setSelectedNoteId(note._id)}
               >
-                {editingTitle === note._id ? (
+                {editingNoteId === note._id ? (
                   <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <Input
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
+                      value={editingTitleValue}
+                      onChange={(e) => setEditingTitleValue(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(note._id)}
                       className="h-6 text-sm"
                       autoFocus
@@ -448,7 +459,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleTitleUpdate(note._id)}>
                       <Save className="h-3 w-3" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingTitle(null)}>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingNoteId(null)}>
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
@@ -463,7 +474,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                         size="icon"
                         variant="ghost"
                         className="h-6 w-6"
-                        onClick={(e) => { e.stopPropagation(); setEditingTitle(note.title); }}
+                        onClick={(e) => { e.stopPropagation(); setEditingNoteId(note._id); setEditingTitleValue(note.title); }}
                       >
                         <Edit2 className="h-3 w-3" />
                       </Button>
@@ -503,11 +514,37 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
           <Card className="h-full">
             <CardContent className="p-0 h-full overflow-hidden flex flex-col">
               <div className="p-3 border-b shrink-0 flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <h2 className="text-lg font-semibold truncate">{selectedNote.title}</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Last updated: {new Date(selectedNote.updatedAt).toLocaleString()}
-                  </p>
+                <div className="min-w-0 flex-1">
+                  {editingNoteId === selectedNote._id ? (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        value={editingTitleValue}
+                        onChange={(e) => setEditingTitleValue(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(selectedNote._id)}
+                        className="h-8 text-sm"
+                        autoFocus
+                      />
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleTitleUpdate(selectedNote._id)}>
+                        <Save className="h-4 w-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingNoteId(null)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div
+                      className="cursor-pointer hover:text-primary transition-colors"
+                      onClick={() => {
+                        setEditingNoteId(selectedNote._id);
+                        setEditingTitleValue(selectedNote.title);
+                      }}
+                    >
+                      <h2 className="text-lg font-semibold truncate">{selectedNote.title}</h2>
+                      <p className="text-xs text-muted-foreground">
+                        Last updated: {new Date(selectedNote.updatedAt).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <input
@@ -658,6 +695,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     }
                   }}
                   onDrop={(e) => {
+                    e.preventDefault();
                     const files = e.dataTransfer?.files;
                     if (!files || files.length === 0) {
                       setIsDragOver(false);
@@ -678,7 +716,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                       e.clientY <= editorRect.bottom;
 
                     if (!isInsideEditor) {
-                      e.preventDefault();
                       toast.error('Drop image inside the editor area');
                     }
 

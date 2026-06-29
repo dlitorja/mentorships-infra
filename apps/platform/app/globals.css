@@ -59,3 +59,87 @@
     @apply bg-white/10;
   }
 }
+
+/* TipTap Image Resize Handles */
+.ProseMirror {
+  /* Ensure images don't overflow */
+  min-height: 100px;
+}
+
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Resizable image wrapper */
+.ProseMirror .image-wrapper {
+  display: inline-block;
+  max-width: 100%;
+  position: relative;
+}
+
+/* Make the image the resizable element */
+.ProseMirror img[data-node-view-wrapper] {
+  cursor: default;
+}
+
+/* Resize handle styling - bottom-right corner handle */
+[data-resize-state="resize"] img,
+.ProseMirror .image-wrapper[data-resize-state="resize"] {
+  cursor: se-resize;
+}
+
+/* Show resize handles on hover */
+.ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Resize handle appearance */
+.ProseMirror [data-resize-handle] {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--primary);
+  border: 2px solid var(--background);
+  border-radius: 2px;
+  z-index: 10;
+}
+
+/* Bottom-right handle */
+.ProseMirror [data-resize-handle][data-direction="bottom-right"] {
+  bottom: -6px;
+  right: -6px;
+  cursor: se-resize;
+}
+
+/* Other corner handles */
+.ProseMirror [data-resize-handle][data-direction="bottom-left"] {
+  bottom: -6px;
+  left: -6px;
+  cursor: sw-resize;
+}
+
+.ProseMirror [data-resize-handle][data-direction="top-right"] {
+  top: -6px;
+  right: -6px;
+  cursor: ne-resize;
+}
+
+.ProseMirror [data-resize-handle][data-direction="top-left"] {
+  top: -6px;
+  left: -6px;
+  cursor: nw-resize;
+}
+
+/* Show handles when image is selected */
+.ProseMirror .image-wrapper:hover [data-resize-handle],
+.ProseMirror .image-wrapper[data-resize-state="resize"] [data-resize-handle] {
+  opacity: 1;
+}
+
+/* Resizing state */
+.ProseMirror [data-resize-state="resizing"] img {
+  opacity: 0.8;
+}
