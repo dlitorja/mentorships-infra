@@ -302,7 +302,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     const file = e.target.files?.[0];
     if (!file || !selectedNoteId) return;
 
-const noteId = selectedNoteId;
+    const noteId = selectedNoteId;
     if (!noteId) return;
     
     const imageUrl = await uploadImageForNote(noteId, file);
