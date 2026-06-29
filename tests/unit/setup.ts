@@ -22,6 +22,18 @@ vi.mock("next/navigation", () => ({
 }));
 
 // Mock Clerk
+vi.mock("@clerk/shared", () => ({
+  useUser: () => ({
+    user: {
+      id: "user_test_123",
+      emailAddresses: [{ emailAddress: "test@example.com" }],
+    },
+    isLoaded: true,
+    isSignedIn: true,
+  }),
+  useAssertWrappedByClerkProvider: () => {},
+}));
+
 vi.mock("@clerk/nextjs", () => ({
   useUser: () => ({
     user: {
@@ -29,6 +41,7 @@ vi.mock("@clerk/nextjs", () => ({
       emailAddresses: [{ emailAddress: "test@example.com" }],
     },
     isLoaded: true,
+    isSignedIn: true,
   }),
   useAuth: () => ({
     userId: "user_test_123",
