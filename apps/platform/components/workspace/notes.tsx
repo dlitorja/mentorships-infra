@@ -298,16 +298,19 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     const file = e.target.files?.[0];
     if (!file || !selectedNoteId) return;
 
-    const imageUrl = await uploadImageForNote(file);
+    const noteId = selectedNoteId;
+    if (!noteId) return;
+    
+    const imageUrl = await uploadImageForNote(noteId, file);
     const currentEditor = editorRef.current;
-    if (imageUrl && currentEditor) {
+    if (imageUrl && currentEditor && selectedNoteIdRef.current === noteId) {
       currentEditor.chain().focus().setImage({ src: imageUrl }).run();
     }
     e.target.value = '';
   };
 
-  const uploadImageForNote = async (file: File): Promise<string | null> => {
-    const noteIdForUpload = selectedNoteId;
+  const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Promise<string | null> => {
+    const noteIdForUpload = noteId;
     if (!noteIdForUpload) {
       toast.error('No note selected');
       return null;
@@ -325,9 +328,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
 
     try {
       const uploadResult = await uploadImageForChat(
-        workspaceId as Id<'workspaces'>,
+        workspaceId,
         file,
-        (args) => (generateUploadUrl as (args: { workspaceId: Id<'workspaces'> }) => Promise<string>)(args)
+        generateUploadUrl
       );
 
       if (!uploadResult.success) {
@@ -354,8 +357,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     const currentEditor = editorRef.current;
     if (!noteIdForUpload || !currentEditor) return;
 
-    const imageUrl = await uploadImageForNote(file);
-    if (imageUrl && currentEditor) {
+    const imageUrl = await uploadImageForNote(noteIdForUpload, file);
+    if (imageUrl && currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
       currentEditor.chain().focus().insertContentAt(pos, {
         type: 'image',
         attrs: { src: imageUrl },
@@ -692,6 +695,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     }
                   }}
                   onDrop={(e) => {
+                    e.preventDefault();
                     const files = e.dataTransfer?.files;
                     if (!files || files.length === 0) {
                       setIsDragOver(false);
@@ -712,7 +716,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                       e.clientY <= editorRect.bottom;
 
                     if (!isInsideEditor) {
-                      e.preventDefault();
                       toast.error('Drop image inside the editor area');
                     }
 

@@ -263,8 +263,13 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             onClick={async () => {
               const toastId = toast.loading('Refreshing...');
               try {
-                await Promise.all([refetchImages(), refetchExports()]);
-                toast.success('Refreshed', { id: toastId });
+                const [imagesResult, exportsResult] = await Promise.all([refetchImages(), refetchExports()]);
+                const hasError = imagesResult?.isError || exportsResult?.isError;
+                if (hasError) {
+                  toast.error('Refresh failed', { id: toastId });
+                } else {
+                  toast.success('Refreshed', { id: toastId });
+                }
               } catch {
                 toast.error('Refresh failed', { id: toastId });
               }
