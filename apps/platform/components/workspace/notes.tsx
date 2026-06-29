@@ -527,10 +527,10 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                       }}
                       className="h-6 text-sm"
                     />
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleTitleUpdate(note._id)}>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => e.preventDefault()} onClick={() => handleTitleUpdate(note._id)}>
                       <Save className="h-3 w-3" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingNoteId(null)}>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditingNoteId(null)}>
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
@@ -604,10 +604,10 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                         }}
                         className="h-8 text-sm"
                       />
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleTitleUpdate(selectedNote._id)}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => e.preventDefault()} onClick={() => handleTitleUpdate(selectedNote._id)}>
                         <Save className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingNoteId(null)}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditingNoteId(null)}>
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
