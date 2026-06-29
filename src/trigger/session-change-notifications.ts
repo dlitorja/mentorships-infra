@@ -1,6 +1,6 @@
 import { logger, schedules, task } from "@trigger.dev/sdk";
-import { sendEmail } from "@mentorships/emails/send";
-import { buildSessionCanceledEmail, buildSessionRescheduledEmail, buildStudentCanceledEmail, buildSessionReminderEmail, buildInstructorReminderEmail } from "@mentorships/emails/session-changes";
+import { sendEmail } from "../../packages/emails/src/send";
+import { buildSessionCanceledEmail, buildSessionRescheduledEmail, buildStudentCanceledEmail, buildSessionReminderEmail, buildInstructorReminderEmail } from "../../packages/emails/src/session-changes";
 import { db } from "../../packages/db/src/lib/drizzle";
 import { sessions, users, instructors, sessionPacks } from "../../packages/db/src/schema";
 import { eq, and, gte, lt } from "drizzle-orm";
