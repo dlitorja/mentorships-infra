@@ -1078,7 +1078,7 @@ export const createWorkspaceExport = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     userId: v.string(),
-    format: v.union(v.literal("pdf"), v.literal("markdown"), v.literal("zip")),
+    format: v.literal("zip"),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
