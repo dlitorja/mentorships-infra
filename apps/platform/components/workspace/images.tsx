@@ -59,6 +59,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [failedUploads, setFailedUploads] = useState<FailedUpload[]>([]);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const { data: images, isLoading, refetch: refetchImages } = useWorkspaceImages(workspaceId);
   const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
@@ -261,17 +262,20 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             variant="ghost"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={async () => {
-              const toastId = toast.loading('Refreshing...');
+              setIsRefreshing(true);
+              const toastId = toast.loading('Refreshing images and exports...');
               try {
                 const [imagesResult, exportsResult] = await Promise.all([refetchImages(), refetchExports()]);
                 const hasError = imagesResult?.isError || exportsResult?.isError;
+                setIsRefreshing(false);
                 if (hasError) {
-                  toast.error('Refresh failed', { id: toastId });
+                  toast.error('Failed to refresh', { id: toastId });
                 } else {
-                  toast.success('Refreshed', { id: toastId });
+                  toast.success('Images and exports refreshed', { id: toastId });
                 }
               } catch {
-                toast.error('Refresh failed', { id: toastId });
+                setIsRefreshing(false);
+                toast.error('Failed to refresh', { id: toastId });
               }
             }}
             title="Refresh images and exports"
@@ -494,42 +498,55 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       )}
 
       {/* Image Grid */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto relative">
+        {isRefreshing && (
+          <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <span className="text-sm text-muted-foreground">Refreshing images...</span>
+            </div>
+          </div>
+        )}
         {activeImages.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {activeImages.map((img: Image) => (
-              <div
-                key={img._id}
-                className="group relative aspect-square rounded-lg overflow-hidden border bg-muted"
-              >
-                <img
-                  src={img.imageUrl}
-                  alt="Workspace image"
-                  className="w-full h-full object-cover cursor-pointer"
-                  onClick={() => setSelectedImage(img.imageUrl)}
-                />
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    className="h-8 w-8"
+            {activeImages.map((img: Image) => {
+              const canDelete = role === 'admin' || 
+                (role === 'instructor' && img.createdBy !== currentUserId) || 
+                img.createdBy === currentUserId;
+              return (
+                <div
+                  key={img._id}
+                  className="group relative aspect-square rounded-lg overflow-hidden border bg-muted"
+                >
+                  <img
+                    src={img.imageUrl}
+                    alt="Workspace image"
+                    className="w-full h-full object-cover cursor-pointer"
                     onClick={() => setSelectedImage(img.imageUrl)}
-                  >
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                  {img.createdBy === currentUserId && (
+                  />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <Button
                       size="icon"
-                      variant="destructive"
+                      variant="secondary"
                       className="h-8 w-8"
-                      onClick={() => handleDeleteImage(img._id)}
+                      onClick={() => setSelectedImage(img.imageUrl)}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <ZoomIn className="h-4 w-4" />
                     </Button>
-                  )}
+                    {canDelete && (
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="h-8 w-8"
+                        onClick={() => handleDeleteImage(img._id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="flex items-center justify-center h-full">

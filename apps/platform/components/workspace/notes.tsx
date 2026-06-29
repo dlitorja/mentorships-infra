@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -159,6 +159,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       Image.configure({
         inline: false,
         allowBase64: false,
+        HTMLAttributes: {
+          class: 'note-image',
+        },
         resize: {
           enabled: true,
           minWidth: 50,
