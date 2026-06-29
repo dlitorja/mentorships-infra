@@ -13,8 +13,11 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@mentorships/db", "@mentorships/payments", "@mentorships/ui"],
 
   // Fix monorepo workspace root for Turbopack
-  turbopack: {
-    root: path.resolve(__dirname),
+  experimental: {
+    // @ts-ignore - turbopack.root is valid in Next.js 16 but missing from TypeScript types
+    turbopack: {
+      root: path.resolve(__dirname),
+    },
   },
 };
 

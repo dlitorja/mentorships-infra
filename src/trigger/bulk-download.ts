@@ -2,7 +2,7 @@ import { task, logger } from "@trigger.dev/sdk";
 import archiver from "archiver";
 import { PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { getB2Client, B2_BUCKET_NAME } from "@mentorships/storage/src/client";
+import { getB2Client, B2_BUCKET_NAME } from "../../packages/storage/src/client";
 import { createWriteStream, createReadStream, mkdir, rm } from "fs";
 import { pipeline } from "stream/promises";
 import { tmpdir } from "os";

@@ -1,6 +1,6 @@
 import { task } from "@trigger.dev/sdk";
-import { sendEmail } from "@mentorships/emails/send";
-import { buildBookingConfirmationEmail, buildInstructorNotificationEmail } from "@mentorships/emails/booking";
+import { sendEmail } from "../../packages/emails/src/send";
+import { buildBookingConfirmationEmail, buildInstructorNotificationEmail } from "../../packages/emails/src/booking";
 
 type Payload = {
   studentEmail: string;
