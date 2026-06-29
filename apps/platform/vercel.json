@@ -1,5 +1,5 @@
 {
   "framework": "nextjs",
-  "buildCommand": "NODE_OPTIONS='--max-old-space-size=4096' pnpm --filter @mentorships/platform build",
+  "buildCommand": "NODE_OPTIONS='--max-old-space-size=4096' pnpm build",
   "installCommand": "pnpm install --ignore-scripts"
 }
