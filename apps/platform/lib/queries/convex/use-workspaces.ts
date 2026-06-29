@@ -156,6 +156,7 @@ export interface NoteComment {
   createdBy: string;
   createdAt: number;
   deletedAt?: number;
+  storageId?: string;
 }
 
 /**

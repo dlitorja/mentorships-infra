@@ -21,7 +21,7 @@ import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle, Paperclip, File } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
@@ -837,34 +837,84 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                               </Button>
                             )}
                           </div>
-                          <p className="mt-1">{comment.content}</p>
+                          {comment.content && <p className="mt-1">{comment.content}</p>}
+                          {comment.storageId && (
+                            <div className="mt-2">
+                              <a
+                                href={`${process.env.NEXT_PUBLIC_CONVEX_URL}/api/storage/${comment.storageId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2 text-xs text-primary bg-muted/50 rounded p-1.5 hover:underline"
+                              >
+                                <File className="h-4 w-4" />
+                                <span>Download attachment</span>
+                              </a>
+                            </div>
+                          )}
                         </div>
                       ))
                     ) : (
                       <p className="text-xs text-muted-foreground text-center py-2">No comments yet</p>
                     )}
                   </div>
-                  <div className="px-3 pb-3 flex gap-2">
-                    <Input
-                      ref={newCommentRef}
-                      placeholder="Add a comment..."
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          handleCreateComment();
-                        }
-                      }}
-                      className="h-8 text-sm"
-                    />
-                    <Button size="sm" onClick={handleCreateComment} disabled={!newComment.trim() || createComment.isPending}>
-                      {createComment.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Plus className="h-4 w-4" />
-                      )}
-                    </Button>
+                  <div className="px-3 pb-3 flex flex-col gap-2">
+                    {commentAttachment && (
+                      <div className="flex items-center gap-2 bg-muted/50 rounded p-2">
+                        {commentAttachmentPreview ? (
+                          <div className="relative w-10 h-10 rounded overflow-hidden">
+                            <img src={commentAttachmentPreview} alt="Preview" className="w-full h-full object-cover" />
+                          </div>
+                        ) : (
+                          <File className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        <span className="text-xs truncate flex-1">{commentAttachment.name}</span>
+                        <Button size="icon" variant="ghost" className="h-5 w-5" onClick={clearCommentAttachment}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        type="file"
+                        ref={commentAttachmentInputRef}
+                        onChange={handleCommentAttachmentSelect}
+                        className="hidden"
+                        accept="image/*,application/pdf,text/*"
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 px-2"
+                        onClick={() => commentAttachmentInputRef.current?.click()}
+                        disabled={isUploadingCommentAttachment}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                      <Input
+                        ref={newCommentRef}
+                        placeholder="Add a comment..."
+                        value={newComment}
+                        onChange={(e) => setNewComment(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleCreateComment();
+                          }
+                        }}
+                        className="h-8 text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleCreateComment}
+                        disabled={(!newComment.trim() && !commentAttachment) || createComment.isPending || isUploadingCommentAttachment}
+                      >
+                        {createComment.isPending || isUploadingCommentAttachment ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

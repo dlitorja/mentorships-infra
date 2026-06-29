@@ -60,6 +60,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
 
   const { data: images, isLoading, refetch: refetchImages } = useWorkspaceImages(workspaceId);
   const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
@@ -81,15 +82,21 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   useEffect(() => {
     if (latestExport?.status === 'completed' && latestExport.downloadUrl) {
       setDownloadUrl(latestExport.downloadUrl);
+      if (!hasShownExportCompleteToast) {
+        toast.success('Your export is ready! Click to download.');
+        setHasShownExportCompleteToast(true);
+      }
     }
-  }, [latestExport]);
+  }, [latestExport, hasShownExportCompleteToast]);
 
   useEffect(() => {
     setDownloadUrl(null);
+    setHasShownExportCompleteToast(false);
   }, [exportFormat]);
 
   const handleExport = async () => {
     setDownloadUrl(null);
+    setHasShownExportCompleteToast(false);
     toast.promise(
       createExport.mutateAsync({
         workspaceId,
@@ -295,38 +302,44 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               </a>
             </Button>
           ) : isProcessing ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span className="text-sm text-muted-foreground">Creating {formatLabel.toLowerCase()}...</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
-                disabled={cancelExport.isPending}
-              >
-                {cancelExport.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <X className="h-4 w-4" />
-                )}
-              </Button>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="text-sm text-primary">Creating {formatLabel.toLowerCase()}...</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
+                  disabled={cancelExport.isPending}
+                >
+                  {cancelExport.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <X className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              <span className="text-xs text-muted-foreground">You can leave this page and return later</span>
             </div>
           ) : isPending ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Export queued...</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
-                disabled={cancelExport.isPending}
-              >
-                {cancelExport.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <X className="h-4 w-4" />
-                )}
-              </Button>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Export queued...</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
+                  disabled={cancelExport.isPending}
+                >
+                  {cancelExport.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <X className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              <span className="text-xs text-muted-foreground">You can leave this page and return later</span>
             </div>
           ) : latestExport?.status === 'failed' ? (
             <>
