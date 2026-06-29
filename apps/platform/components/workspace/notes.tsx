@@ -313,7 +313,7 @@ const noteId = selectedNoteId;
     e.target.value = '';
   };
 
-  const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Promise<string | null> => {
+const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Promise<string | null> => {
     const noteIdForUpload = noteId;
     if (!noteIdForUpload) {
       toast.error('No note selected');
@@ -741,7 +741,7 @@ const noteId = selectedNoteId;
                       setIsDragOver(false);
                     }
                   }}
-onDrop={(e) => {
+                  onDrop={(e) => {
                     e.preventDefault();
                     if (!editor) {
                       setIsDragOver(false);
