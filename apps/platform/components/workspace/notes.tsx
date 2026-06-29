@@ -163,6 +163,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
           enabled: true,
           minWidth: 50,
           minHeight: 50,
+          alwaysPreserveAspectRatio: true,
         },
       }),
     ],
