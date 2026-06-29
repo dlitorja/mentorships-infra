@@ -67,6 +67,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -150,14 +151,40 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
         placeholder: 'Start writing your note...',
       }),
       Image.configure({
-        inline: true,
+        inline: false,
         allowBase64: false,
+        resize: {
+          enabled: true,
+          minWidth: 50,
+          minHeight: 50,
+        },
       }),
     ],
     content: selectedNote?.content || '',
     editorProps: {
       attributes: {
         class: 'prose prose-sm sm:prose-base max-w-none focus:outline-none min-h-[200px] p-4',
+      },
+      handleDrop: (view, event, slice, moved) => {
+        if (moved) return false;
+        const files = event.dataTransfer?.files;
+        if (!files || files.length === 0) return false;
+        
+        const file = files[0];
+        if (!file.type.startsWith('image/')) return false;
+        
+        event.preventDefault();
+        
+        const pos = view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY,
+        });
+        
+        if (pos) {
+          void handleDroppedImage(file, pos.pos);
+        }
+        
+        return true;
       },
     },
     onUpdate: ({ editor }) => {
@@ -265,14 +292,29 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     const file = e.target.files?.[0];
     if (!file || !selectedNoteId) return;
 
+    const imageUrl = await uploadImageForNote(file);
+    if (imageUrl && editor) {
+      editor.chain().focus().setImage({ src: imageUrl }).run();
+    }
+    e.target.value = '';
+  };
+
+  const uploadImageForNote = async (file: File): Promise<string | null> => {
+    const noteIdForUpload = selectedNoteId;
+    if (!noteIdForUpload) {
+      toast.error('No note selected');
+      return null;
+    }
+
     if (file.size > MAX_CHAT_FILE_BYTES) {
       toast.error('Image is too large. Maximum size is 50MB.');
-      e.target.value = '';
-      return;
+      return null;
     }
     if (file.size > LARGE_CHAT_FILE_BYTES) {
       toast.warning('Large file detected. This image will count toward your image limit.');
     }
+
+    const toastId = toast.loading('Uploading image...');
 
     try {
       const uploadResult = await uploadImageForChat(
@@ -282,23 +324,34 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       );
 
       if (!uploadResult.success) {
-        toast.error(uploadResult.error || 'Upload failed');
-        return;
+        toast.error(uploadResult.error || 'Upload failed', { id: toastId });
+        return null;
       }
 
       const imageUrl = await embedImageInNote.mutateAsync({
-        noteId: selectedNoteId,
+        noteId: noteIdForUpload,
         storageId: uploadResult.storageId as Id<"_storage">,
       });
 
-      if (imageUrl && editor) {
-        editor.chain().focus().setImage({ src: imageUrl }).run();
-      }
+      toast.success('Image inserted', { id: toastId });
+      return imageUrl;
     } catch (error) {
       console.error('Failed to embed image:', error);
-      toast.error('Failed to embed image');
-    } finally {
-      e.target.value = '';
+      toast.error('Failed to embed image', { id: toastId });
+      return null;
+    }
+  };
+
+  const handleDroppedImage = async (file: File, pos: number) => {
+    const noteIdForUpload = selectedNoteId;
+    if (!noteIdForUpload || !editor) return;
+
+    const imageUrl = await uploadImageForNote(file);
+    if (imageUrl && editor) {
+      editor.chain().focus().insertContentAt(pos, {
+        type: 'image',
+        attrs: { src: imageUrl },
+      }).run();
     }
   };
 
@@ -588,10 +641,53 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                   </Button>
                 </div>
               )}
-              <div className="flex-1 overflow-y-auto flex flex-col">
-                <div className="flex-1 overflow-y-auto">
-                  <EditorContent editor={editor} />
-                </div>
+              <div 
+                  className={clsx(
+                    "flex-1 overflow-y-auto flex flex-col transition-colors",
+                    isDragOver && "bg-primary/5 ring-2 ring-primary ring-inset"
+                  )}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.types.includes('Files')) {
+                      setIsDragOver(true);
+                    }
+                  }}
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      setIsDragOver(false);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    const files = e.dataTransfer?.files;
+                    if (!files || files.length === 0) {
+                      setIsDragOver(false);
+                      return;
+                    }
+
+                    const file = files[0];
+                    if (!file.type.startsWith('image/')) {
+                      setIsDragOver(false);
+                      return;
+                    }
+
+                    const editorRect = editor.view.dom.getBoundingClientRect();
+                    const isInsideEditor = 
+                      e.clientX >= editorRect.left &&
+                      e.clientX <= editorRect.right &&
+                      e.clientY >= editorRect.top &&
+                      e.clientY <= editorRect.bottom;
+
+                    if (!isInsideEditor) {
+                      e.preventDefault();
+                      toast.error('Drop image inside the editor area');
+                    }
+
+                    setIsDragOver(false);
+                  }}
+                >
+                  <div className="flex-1 overflow-y-auto">
+                    <EditorContent editor={editor} />
+                  </div>
                 <div className="border-t shrink-0 max-h-48 overflow-y-auto bg-muted/30">
                   <div className="px-3 py-2 flex items-center justify-between">
                     <h4 className="text-sm font-medium flex items-center gap-1">
