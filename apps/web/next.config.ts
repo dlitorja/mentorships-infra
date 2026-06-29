@@ -13,8 +13,10 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@mentorships/db", "@mentorships/payments", "@mentorships/ui"],
 
   // Fix monorepo workspace root for Turbopack
-  turbopack: {
-    root: path.resolve(__dirname),
+  experimental: {
+    turbopack: {
+      root: path.resolve(__dirname),
+    },
   },
 };
 
