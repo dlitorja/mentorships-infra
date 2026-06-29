@@ -162,7 +162,7 @@ export interface NoteComment {
  * Fetches all comments for a specific note.
  * Returns comments ordered by creation time.
  */
-export function useNoteComments(noteId: string) {
+export function useNoteComments(noteId: string | null) {
   return useQuery({
     ...convexQuery(api.workspaces.getNoteComments, { noteId: noteId as Id<"workspaceNotes"> }),
     enabled: !!noteId,
@@ -333,6 +333,10 @@ export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId }),
     enabled: !!workspaceId,
+    refetchInterval: ((queryResult: { 0?: { status: string } } | undefined) => {
+      const latest = queryResult?.[0];
+      return latest?.status === 'pending' || latest?.status === 'processing' ? 2000 : false;
+    }) as (data: unknown) => number | false,
   });
 }
 
