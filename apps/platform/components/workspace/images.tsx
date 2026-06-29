@@ -290,22 +290,43 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                 Download {formatLabel}
               </a>
             </Button>
-          ) : isProcessing || isPending ? (
-            <Button
-              variant="outline"
-              onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
-              disabled={cancelExport.isPending}
-            >
-              {cancelExport.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <X className="h-4 w-4 mr-2" />
-              )}
-              Cancel
-            </Button>
+          ) : isProcessing ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="text-sm text-muted-foreground">Creating {formatLabel.toLowerCase()}...</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
+                disabled={cancelExport.isPending}
+              >
+                {cancelExport.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <X className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          ) : isPending ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Export queued...</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => latestExport && cancelExport.mutateAsync({ id: latestExport._id })}
+                disabled={cancelExport.isPending}
+              >
+                {cancelExport.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <X className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
           ) : latestExport?.status === 'failed' ? (
             <>
-              <p className="text-sm text-destructive">Export failed — try again</p>
+              <p className="text-sm text-destructive">Export failed</p>
               <Select value={exportFormat} onValueChange={(v: ExportFormat) => setExportFormat(v)}>
                 <SelectTrigger className="w-[120px]">
                   <SelectValue placeholder="Format" />
@@ -318,7 +339,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               </Select>
               <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Export {formatLabel}
+                Retry
               </Button>
             </>
           ) : (

@@ -164,7 +164,11 @@ export interface NoteComment {
  */
 export function useNoteComments(noteId: string | null) {
   return useQuery({
-    ...convexQuery(api.workspaces.getNoteComments, { noteId: noteId as Id<"workspaceNotes"> }),
+    // Use a fake but valid-looking ID when noteId is null to satisfy the validator
+    // The enabled flag ensures this query never actually runs when noteId is falsy
+    ...convexQuery(api.workspaces.getNoteComments, { 
+      noteId: noteId ? noteId as Id<"workspaceNotes"> : "00000000000000000000000000" as Id<"workspaceNotes">
+    }),
     enabled: !!noteId,
   });
 }
