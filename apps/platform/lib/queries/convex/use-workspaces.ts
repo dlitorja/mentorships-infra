@@ -163,10 +163,10 @@ export interface NoteComment {
  * Fetches all comments for a specific note.
  * Returns comments ordered by creation time.
  */
-export function useNoteComments(noteId: string | null) {
+export function useNoteComments(noteId: Id<"workspaceNotes"> | null) {
   return useQuery({
     ...convexQuery(api.workspaces.getNoteComments, { 
-      noteId: noteId ? noteId as Id<"workspaceNotes"> : "00000000000000000000000001" as Id<"workspaceNotes">,
+      noteId: noteId ?? "00000000000000000000000001" as Id<"workspaceNotes">,
     }),
     enabled: !!noteId,
   });

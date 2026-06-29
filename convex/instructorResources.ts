@@ -244,11 +244,11 @@ export const shareResourceToChat = mutation({
       throw new Error("Failed to get image URL");
     }
 
-    const isAdmin = role === "admin";
-    const currentCount = isAdmin
+    const isAdminRole = role === "admin";
+    const currentCount = isAdminRole
       ? await countActiveWorkspaceImages(ctx, args.workspaceId)
       : (workspace.instructorImageCount ?? 0);
-    const cap = isAdmin ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
+    const cap = isAdminRole ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
     if (currentCount >= cap) {
       throw new Error(`Image limit reached (${cap} images allowed)`);
     }
@@ -317,11 +317,11 @@ export const embedResourceInNote = mutation({
       throw new Error("Failed to get image URL");
     }
 
-    const isAdmin = role === "admin";
-    const currentCount = isAdmin
+    const isAdminRole = role === "admin";
+    const currentCount = isAdminRole
       ? await countActiveWorkspaceImages(ctx, note.workspaceId)
       : (workspace.instructorImageCount ?? 0);
-    const cap = isAdmin ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
+    const cap = isAdminRole ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
     if (currentCount >= cap) {
       throw new Error(`Image limit reached (${cap} images allowed)`);
     }
