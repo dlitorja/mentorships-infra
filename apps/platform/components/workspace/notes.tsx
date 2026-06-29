@@ -504,6 +504,13 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                       value={editingTitleValue}
                       onChange={(e) => setEditingTitleValue(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(note._id)}
+                      onBlur={() => {
+                        if (editingTitleValue?.trim()) {
+                          handleTitleUpdate(note._id);
+                        } else {
+                          setEditingNoteId(null);
+                        }
+                      }}
                       className="h-6 text-sm"
                       autoFocus
                     />
@@ -572,6 +579,13 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                         value={editingTitleValue}
                         onChange={(e) => setEditingTitleValue(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(selectedNote._id)}
+                        onBlur={() => {
+                          if (editingTitleValue?.trim()) {
+                            handleTitleUpdate(selectedNote._id);
+                          } else {
+                            setEditingNoteId(null);
+                          }
+                        }}
                         className="h-8 text-sm"
                         autoFocus
                       />
