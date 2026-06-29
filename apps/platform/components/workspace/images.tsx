@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
@@ -61,9 +60,8 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
 
-  const queryClient = useQueryClient();
-  const { data: images, isLoading } = useWorkspaceImages(workspaceId);
-  const { data: exports } = useWorkspaceExports(workspaceId);
+  const { data: images, isLoading, refetch: refetchImages } = useWorkspaceImages(workspaceId);
+  const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
   const createImage = useCreateWorkspaceImage();
   const deleteImage = useDeleteWorkspaceImage();
   const createExport = useCreateWorkspaceExport();
@@ -91,15 +89,20 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
 
   const handleExport = async () => {
     setDownloadUrl(null);
-    try {
-      await createExport.mutateAsync({
+    toast.promise(
+      createExport.mutateAsync({
         workspaceId,
         userId: currentUserId,
         format: exportFormat,
-      });
-    } catch (error) {
-      toast.error('Failed to create export. Please try again.');
-    }
+      }),
+      {
+        loading: 'Creating export...',
+        success: () => {
+          return 'Export started!';
+        },
+        error: 'Failed to create export. Please try again.',
+      }
+    );
   };
 
   const formatLabel = exportFormat === 'pdf' ? 'PDF' : exportFormat === 'markdown' ? 'Markdown' : 'ZIP';
@@ -257,9 +260,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             size="icon"
             variant="ghost"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
-              queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceExports"] });
+            onClick={async () => {
+              const toastId = toast.loading('Refreshing...');
+              try {
+                await Promise.all([refetchImages(), refetchExports()]);
+                toast.success('Refreshed', { id: toastId });
+              } catch {
+                toast.error('Refresh failed', { id: toastId });
+              }
             }}
             title="Refresh images and exports"
           >
