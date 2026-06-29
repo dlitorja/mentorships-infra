@@ -74,6 +74,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [commentAttachmentPreview, setCommentAttachmentPreview] = useState<string | null>(null);
   const [isUploadingCommentAttachment, setIsUploadingCommentAttachment] = useState(false);
   const commentAttachmentInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const headerTitleInputRef = useRef<HTMLInputElement>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -242,6 +244,15 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       setSelectedNoteId(notes[0]._id);
     }
   }, [notes, selectedNoteId]);
+
+  useEffect(() => {
+    if (editingNoteId && titleInputRef.current) {
+      setTimeout(() => titleInputRef.current?.focus(), 0);
+    }
+    if (editingNoteId && headerTitleInputRef.current) {
+      setTimeout(() => headerTitleInputRef.current?.focus(), 0);
+    }
+  }, [editingNoteId]);
 
   const handleCreateNote = async () => {
     if (!newTitle.trim() || !workspaceId) return;
@@ -501,18 +512,20 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                 {editingNoteId === note._id ? (
                   <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <Input
+                      ref={titleInputRef}
                       value={editingTitleValue}
                       onChange={(e) => setEditingTitleValue(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(note._id)}
                       onBlur={() => {
-                        if (editingTitleValue?.trim()) {
-                          handleTitleUpdate(note._id);
-                        } else {
-                          setEditingNoteId(null);
-                        }
+                        setTimeout(() => {
+                          if (editingTitleValue?.trim()) {
+                            handleTitleUpdate(note._id);
+                          } else {
+                            setEditingNoteId(null);
+                          }
+                        }, 50);
                       }}
                       className="h-6 text-sm"
-                      autoFocus
                     />
                     <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => handleTitleUpdate(note._id)}>
                       <Save className="h-3 w-3" />
@@ -576,18 +589,20 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                   {editingNoteId === selectedNote._id ? (
                     <div className="flex items-center gap-1">
                       <Input
+                        ref={headerTitleInputRef}
                         value={editingTitleValue}
                         onChange={(e) => setEditingTitleValue(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(selectedNote._id)}
                         onBlur={() => {
-                          if (editingTitleValue?.trim()) {
-                            handleTitleUpdate(selectedNote._id);
-                          } else {
-                            setEditingNoteId(null);
-                          }
+                          setTimeout(() => {
+                            if (editingTitleValue?.trim()) {
+                              handleTitleUpdate(selectedNote._id);
+                            } else {
+                              setEditingNoteId(null);
+                            }
+                          }, 50);
                         }}
                         className="h-8 text-sm"
-                        autoFocus
                       />
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => handleTitleUpdate(selectedNote._id)}>
                         <Save className="h-4 w-4" />
