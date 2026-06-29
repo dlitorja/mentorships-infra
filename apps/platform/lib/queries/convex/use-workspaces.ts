@@ -333,10 +333,10 @@ export function useWorkspaceExports(workspaceId: Id<"workspaces">) {
   return useQuery({
     ...convexQuery(api.workspaces.getWorkspaceExports, { workspaceId }),
     enabled: !!workspaceId,
-    refetchInterval: ((queryResult: { 0?: { status: string } } | undefined) => {
-      const latest = queryResult?.[0];
+    refetchInterval: ((queryResult: { data?: { status: string }[] }) => {
+      const latest = queryResult.data?.[0];
       return latest?.status === 'pending' || latest?.status === 'processing' ? 2000 : false;
-    }) as (data: unknown) => number | false,
+    }) as unknown as (query: unknown) => number | false,
   });
 }
 

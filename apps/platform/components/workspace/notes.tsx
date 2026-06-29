@@ -65,6 +65,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
+  const editorRef = useRef<ReturnType<typeof useEditor>>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
@@ -197,6 +198,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   });
 
   useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
+
+  useEffect(() => {
     if (!editor) return;
 
     if (selectedNote) {
@@ -294,8 +299,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     if (!file || !selectedNoteId) return;
 
     const imageUrl = await uploadImageForNote(file);
-    if (imageUrl && editor) {
-      editor.chain().focus().setImage({ src: imageUrl }).run();
+    const currentEditor = editorRef.current;
+    if (imageUrl && currentEditor) {
+      currentEditor.chain().focus().setImage({ src: imageUrl }).run();
     }
     e.target.value = '';
   };
@@ -345,11 +351,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
 
   const handleDroppedImage = async (file: File, pos: number) => {
     const noteIdForUpload = selectedNoteId;
-    if (!noteIdForUpload || !editor) return;
+    const currentEditor = editorRef.current;
+    if (!noteIdForUpload || !currentEditor) return;
 
     const imageUrl = await uploadImageForNote(file);
-    if (imageUrl && editor) {
-      editor.chain().focus().insertContentAt(pos, {
+    if (imageUrl && currentEditor) {
+      currentEditor.chain().focus().insertContentAt(pos, {
         type: 'image',
         attrs: { src: imageUrl },
       }).run();
