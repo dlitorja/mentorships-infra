@@ -187,16 +187,16 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
   useEffect(() => {
     const timeout = setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 50);
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+    }, 0);
     return () => clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
     if (!isLoading && messages) {
       const timeout = setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
+        messagesEndRef.current?.scrollIntoView({ block: "end" });
+      }, 0);
       return () => clearTimeout(timeout);
     }
   }, [messages, isLoading]);

@@ -550,9 +550,11 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                         <Edit2 className="h-3 w-3" />
                       </Button>
                       <Button
+                        type="button"
                         size="icon"
                         variant="ghost"
                         className="h-6 w-6 text-destructive"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={(e) => { e.stopPropagation(); handleDeleteNote(note._id); }}
                       >
                         <Trash2 className="h-3 w-3" />
@@ -760,7 +762,7 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
               )}
               <div 
                   className={clsx(
-                    "flex-1 overflow-y-auto flex flex-col transition-colors",
+                    "flex-1 flex flex-col transition-colors min-h-0",
                     isDragOver && "bg-primary/5 ring-2 ring-primary ring-inset"
                   )}
                   onDragOver={(e) => {
@@ -806,10 +808,26 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                     setIsDragOver(false);
                   }}
                 >
-                  <div className="flex-1 overflow-y-auto">
+                  <div className={clsx(
+                    "m-3 border-2 border-dashed rounded-lg transition-colors flex items-center justify-center",
+                    isDragOver ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/20"
+                  )}
+                  style={{ minHeight: '120px' }}
+                  >
+                    <div className="text-center">
+                      <ImageIcon className={clsx("h-8 w-8 mx-auto mb-2", isDragOver ? "text-primary" : "text-muted-foreground")} />
+                      <p className="text-sm font-medium">
+                        {isDragOver ? "Drop image here" : "Drag and drop an image"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        or click the Embed image button above
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto px-3">
                     <EditorContent editor={editor} />
                   </div>
-                <div className="border-t shrink-0 max-h-48 overflow-y-auto bg-muted/30">
+                <div className="border-t shrink-0 bg-muted/30">
                   <div className="px-3 py-2 flex items-center justify-between">
                     <h4 className="text-sm font-medium flex items-center gap-1">
                       <MessageCircle className="h-4 w-4" />

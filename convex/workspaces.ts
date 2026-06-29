@@ -1101,24 +1101,21 @@ export const createWorkspaceExport = mutation({
       status: "pending",
     });
 
-    const triggerApiKey = process.env.TRIGGER_API_KEY;
-    const triggerProjectRef = process.env.NEXT_PUBLIC_TRIGGER_PROJECT_REF || "proj_fvyorgaijayllujsxzgb";
+    const triggerSecretKey = process.env.TRIGGER_SECRET_KEY;
 
     const taskMap: Record<string, string> = {
       zip: "process-workspace-export",
-      pdf: "process-workspace-pdf-export",
-      markdown: "process-workspace-markdown-export",
     };
 
     const taskName = taskMap[args.format];
 
-    if (triggerApiKey && taskName) {
+    if (triggerSecretKey && taskName) {
       try {
-        const response = await fetch(`https://app.trigger.dev/api/v1/projects/${triggerProjectRef}/tasks/${taskName}/trigger`, {
+        const response = await fetch(`https://api.trigger.dev/api/v1/tasks/${taskName}/trigger`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${triggerApiKey}`,
+            "Authorization": `Bearer ${triggerSecretKey}`,
           },
           body: JSON.stringify({
             payload: {
