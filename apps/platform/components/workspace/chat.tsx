@@ -107,7 +107,12 @@ async function downloadFile(url: string, fileName: string) {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
   } catch (error) {
     console.error('Failed to download file:', error);
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (opened) {
+      toast.info('Opened file in a new tab');
+    } else {
+      toast.error('Download failed. Please try again.');
+    }
   }
 }
 
