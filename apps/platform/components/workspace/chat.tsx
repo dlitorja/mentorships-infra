@@ -209,10 +209,10 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
   useEffect(() => {
     if (messages && messages.length > 0) {
-      const frameId = requestAnimationFrame(() => {
+      const timeout = setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ block: "end" });
-      });
-      return () => cancelAnimationFrame(frameId);
+      }, 100);
+      return () => clearTimeout(timeout);
     }
   }, [messages]);
 

@@ -76,6 +76,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const titleInputRef = useRef<HTMLInputElement>(null);
   const headerTitleInputRef = useRef<HTMLInputElement>(null);
   const dottedLineFileInputRef = useRef<HTMLInputElement>(null);
+  const titleEditGuardRef = useRef(false);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -485,6 +486,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                       onChange={(e) => setEditingTitleValue(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(note._id)}
                       onBlur={() => {
+                        if (titleEditGuardRef.current) {
+                          titleEditGuardRef.current = false;
+                          return;
+                        }
                         setTimeout(() => {
                           if (editingTitleValue?.trim()) {
                             handleTitleUpdate(note._id);
@@ -495,10 +500,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                       }}
                       className="h-6 text-sm"
                     />
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => e.preventDefault()} onClick={() => handleTitleUpdate(note._id)}>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => handleTitleUpdate(note._id)}>
                       <Save className="h-3 w-3" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditingNoteId(null)}>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => setEditingNoteId(null)}>
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
@@ -522,7 +527,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                         size="icon"
                         variant="ghost"
                         className="h-6 w-6 text-destructive"
-                        onMouseDown={(e) => e.preventDefault()}
                         onClick={(e) => { e.stopPropagation(); handleDeleteNote(note._id); }}
                       >
                         <Trash2 className="h-3 w-3" />
@@ -564,6 +568,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                         onChange={(e) => setEditingTitleValue(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(selectedNote._id)}
                         onBlur={() => {
+                          if (titleEditGuardRef.current) {
+                            titleEditGuardRef.current = false;
+                            return;
+                          }
                           setTimeout(() => {
                             if (editingTitleValue?.trim()) {
                               handleTitleUpdate(selectedNote._id);
@@ -574,10 +582,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                         }}
                         className="h-8 text-sm"
                       />
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => e.preventDefault()} onClick={() => handleTitleUpdate(selectedNote._id)}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => handleTitleUpdate(selectedNote._id)}>
                         <Save className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditingNoteId(null)}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => setEditingNoteId(null)}>
                         <X className="h-4 w-4" />
                       </Button>
                     </div>

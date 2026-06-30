@@ -465,7 +465,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       )}
 
       {/* Image Grid */}
-      <div className="flex-1 min-h-0 relative overflow-y-auto">
+      <div className="flex-1 min-h-0 relative">
         {isRefreshing && (
           <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2">
@@ -491,21 +491,13 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                     className="w-full h-full object-cover cursor-pointer"
                     onClick={() => setSelectedImage(img.imageUrl)}
                   />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      className="h-8 w-8"
-                      onClick={() => setSelectedImage(img.imageUrl)}
-                    >
-                      <ZoomIn className="h-4 w-4" />
-                    </Button>
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                     {canDelete && (
                       <Button
                         size="icon"
                         variant="destructive"
                         className="h-8 w-8"
-                        onClick={() => handleDeleteImage(img._id)}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteImage(img._id); }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
