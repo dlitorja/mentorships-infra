@@ -710,7 +710,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     isDragOver && "bg-primary/5 ring-2 ring-primary ring-inset"
                   )}
                 >
-                  <input
+<input
                     ref={dottedLineFileInputRef}
                     type="file"
                     accept="image/*"
