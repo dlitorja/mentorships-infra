@@ -245,7 +245,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const activeImages = images?.filter((img: Image) => !img.deletedAt) || [];
 
   return (
-    <div className="flex flex-col">
+    <div className="h-full flex flex-col">
       {/* Header with upload */}
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-2">
@@ -465,7 +465,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       )}
 
       {/* Image Grid */}
-      <div className="relative">
+      <div className="flex-1 min-h-0 relative">
         {isRefreshing && (
           <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2">
