@@ -71,15 +71,6 @@ function decodeFileName(encodedFileName: string, fallback: string): string {
   }
 }
 
-function parseFileMessageName(content: string): string {
-  const separatorIndex = content.indexOf('|');
-  if (separatorIndex === -1) {
-    return 'Download file';
-  }
-
-  return decodeFileName(content.slice(0, separatorIndex), 'Download file');
-}
-
 function parseFileMessage(content: string): ParsedFileMessage {
   const separatorIndex = content.indexOf('|');
   if (separatorIndex === -1) {
@@ -104,8 +95,11 @@ function isImageFileName(fileName: string): boolean {
 }
 
 async function downloadFile(url: string, fileName: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
       throw new Error('Download failed');
     }
@@ -126,6 +120,8 @@ async function downloadFile(url: string, fileName: string) {
     } else {
       toast.error('Download failed. Please try again.');
     }
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -301,7 +297,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const imageMessages = useMemo(() => ((messages as Message[] | undefined) ?? []).filter((msg) => {
     if (msg.type === 'image') return true;
     if (msg.type !== 'file') return false;
-    return isImageFileName(parseFileMessageName(msg.content));
+    return isImageFileName(parseFileMessage(msg.content).fileName);
   }), [messages]);
   const chatImages = useMemo(() => imageMessages.map((msg) => (
     msg.type === 'image' ? parseImageMessage(msg.content) : parseFileMessage(msg.content)
