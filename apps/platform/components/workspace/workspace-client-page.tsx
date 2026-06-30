@@ -53,8 +53,8 @@ function WorkspaceContent({
   const selectedWorkspace = workspaces?.find((w: UserWorkspace) => w._id === selectedWorkspaceId);
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
-      <div className="flex flex-col md:flex-row gap-6">
+    <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-64px)]">
+      <div className="flex flex-col md:flex-row gap-6 h-full">
         <div className="w-full md:w-64 shrink-0">
           <Card className="h-full">
             <CardHeader className="pb-3">
@@ -95,7 +95,7 @@ function WorkspaceContent({
 
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
-            <Card className="flex flex-col">
+            <Card className="h-full flex flex-col">
               <CardHeader className="pb-3 shrink-0">
                 <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
                 {selectedWorkspace.description && (
@@ -115,7 +115,7 @@ function WorkspaceContent({
                 <Tabs
                   value={activeTab}
                   onValueChange={setActiveTab}
-                  className="flex flex-col"
+                  className="h-full flex flex-col"
                 >
                   <TabsList className="shrink-0">
                     <TabsTrigger value="chat" className="gap-2">
@@ -149,13 +149,13 @@ function WorkspaceContent({
                       role={userRole}
                     />
                   </TabsContent>
-                  <TabsContent value="notes" className="flex-1 min-h-0 mt-4">
+                  <TabsContent value="notes" className="flex-1 mt-4">
                     <WorkspaceNotes
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
                     />
                   </TabsContent>
-                  <TabsContent value="images" className="flex-1 min-h-0 mt-4">
+                  <TabsContent value="images" className="flex-1 mt-4">
                     <WorkspaceImages
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
