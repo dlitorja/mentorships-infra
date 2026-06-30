@@ -63,6 +63,23 @@ interface ParsedFileMessage {
   url: string;
 }
 
+function decodeFileName(encodedFileName: string, fallback: string): string {
+  try {
+    return decodeURIComponent(encodedFileName) || fallback;
+  } catch {
+    return encodedFileName || fallback;
+  }
+}
+
+function parseFileMessageName(content: string): string {
+  const separatorIndex = content.indexOf('|');
+  if (separatorIndex === -1) {
+    return 'Download file';
+  }
+
+  return decodeFileName(content.slice(0, separatorIndex), 'Download file');
+}
+
 function parseFileMessage(content: string): ParsedFileMessage {
   const separatorIndex = content.indexOf('|');
   if (separatorIndex === -1) {
@@ -72,11 +89,7 @@ function parseFileMessage(content: string): ParsedFileMessage {
   const encodedFileName = content.slice(0, separatorIndex);
   const url = content.slice(separatorIndex + 1);
 
-  try {
-    return { fileName: decodeURIComponent(encodedFileName), url };
-  } catch {
-    return { fileName: encodedFileName || 'Download file', url };
-  }
+  return { fileName: decodeFileName(encodedFileName, 'Download file'), url };
 }
 
 function parseImageMessage(content: string): ParsedFileMessage {
@@ -288,7 +301,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const imageMessages = useMemo(() => ((messages as Message[] | undefined) ?? []).filter((msg) => {
     if (msg.type === 'image') return true;
     if (msg.type !== 'file') return false;
-    return isImageFileName(parseFileMessage(msg.content).fileName);
+    return isImageFileName(parseFileMessageName(msg.content));
   }), [messages]);
   const chatImages = useMemo(() => imageMessages.map((msg) => (
     msg.type === 'image' ? parseImageMessage(msg.content) : parseFileMessage(msg.content)

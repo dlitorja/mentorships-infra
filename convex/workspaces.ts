@@ -331,7 +331,7 @@ export const deleteWorkspace = mutation({
 export const getWorkspaceNotes = query({
   args: {
     workspaceId: v.id("workspaces"),
-    includeDeleted: v.optional(v.boolean()),
+    deletedOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -349,14 +349,16 @@ export const getWorkspaceNotes = query({
       return [];
     }
 
-    if (args.includeDeleted) {
+    if (args.deletedOnly) {
       if (role !== "instructor" && role !== "admin") {
         return [];
       }
 
       return await ctx.db
         .query("workspaceNotes")
-        .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+        .withIndex("by_workspaceId_and_deletedAt", (q) =>
+          q.eq("workspaceId", args.workspaceId).gt("deletedAt", 0)
+        )
         .collect();
     }
 
