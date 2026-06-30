@@ -403,8 +403,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       toast.success('Image inserted', { id: toastId });
 
       if (imageUrl && currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
-        const docSize = currentEditor.state.doc.content.size;
-        currentEditor.chain().focus().setTextSelection(docSize).setImage({ src: imageUrl }).run();
+        currentEditor.chain().focus().setImage({ src: imageUrl }).run();
       }
     } catch (error) {
       console.error('Failed to embed image:', error);

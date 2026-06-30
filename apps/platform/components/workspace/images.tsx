@@ -51,7 +51,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
-  const [lastExportAttemptAt, setLastExportAttemptAt] = useState<number>(0);
+  const [lastExportAttemptId, setLastExportAttemptId] = useState<Id<'workspaceExports'> | null>(null);
 
   const { data: images, isLoading, refetch: refetchImages } = useWorkspaceImages(workspaceId);
   const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
@@ -81,23 +81,27 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   }, [latestExport, hasShownExportCompleteToast]);
 
   const handleExport = async () => {
-    setLastExportAttemptAt(Date.now());
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
-    toast.promise(
-      createExport.mutateAsync({
-        workspaceId,
-        userId: currentUserId,
-        format: 'zip',
-      }),
-      {
-        loading: 'Creating export...',
-        success: () => {
-          return 'Export started!';
-        },
-        error: 'Failed to create export. Please try again.',
-      }
-    );
+    const exportPromise = createExport.mutateAsync({
+      workspaceId,
+      userId: currentUserId,
+      format: 'zip',
+    });
+
+    toast.promise(exportPromise, {
+      loading: 'Creating export...',
+      success: () => {
+        return 'Export started!';
+      },
+      error: 'Failed to create export. Please try again.',
+    });
+
+    try {
+      setLastExportAttemptId(await exportPromise);
+    } catch {
+      setLastExportAttemptId(null);
+    }
   };
 
   const formatLabel = 'ZIP';
@@ -327,7 +331,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               </div>
               <span className="text-xs text-muted-foreground">You can leave this page and return later</span>
             </div>
-          ) : latestExport?.status === 'failed' && latestExport._creationTime >= lastExportAttemptAt && lastExportAttemptAt > 0 ? (
+          ) : latestExport?.status === 'failed' && latestExport._id === lastExportAttemptId ? (
             <>
               <p className="text-sm text-destructive">Export failed</p>
               <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
