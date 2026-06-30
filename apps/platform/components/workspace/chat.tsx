@@ -306,6 +306,14 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const chatImages = useMemo(() => imageMessages.map((msg) => (
     msg.type === 'image' ? parseImageMessage(msg.content) : parseFileMessage(msg.content)
   ).url), [imageMessages]);
+  const chatImageDownloads = useMemo(() => imageMessages.map((msg) => {
+    if (msg.type !== 'file') return null;
+    const parsed = parseFileMessage(msg.content);
+    return {
+      ...parsed,
+      isDownloading: downloadingFiles.has(parsed.url),
+    };
+  }), [downloadingFiles, imageMessages]);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
@@ -861,9 +869,11 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
       <ChatImageLightbox
         images={chatImages}
+        downloadItems={chatImageDownloads}
         initialIndex={lightboxIndex}
         open={lightboxOpen}
         onOpenChange={setLightboxOpen}
+        onDownload={(url, fileName) => void handleDownloadFile(url, fileName)}
       />
     </div>
   );
