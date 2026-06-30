@@ -337,7 +337,9 @@ export const getWorkspaceNotes = query({
     }
     return await ctx.db
       .query("workspaceNotes")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
       .collect();
   },
 });

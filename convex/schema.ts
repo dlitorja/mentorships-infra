@@ -279,6 +279,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     imageUrl: v.optional(v.string()),
   }).index("by_workspaceId", ["workspaceId"])
+    .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_createdBy", ["createdBy"]),
 
   workspaceNoteComments: defineTable({

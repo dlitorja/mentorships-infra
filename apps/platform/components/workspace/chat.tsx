@@ -86,6 +86,10 @@ function parseImageMessage(content: string): ParsedFileMessage {
     : parsed;
 }
 
+function isImageFileName(fileName: string): boolean {
+  return /\.(avif|gif|jpe?g|png|webp|svg)$/i.test(fileName);
+}
+
 const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b(?:[/?#][^\s<]*)?/gi;
 const TRAILING_URL_PUNCTUATION_REGEX = /[.,!?:;]+$/;
 
@@ -254,8 +258,14 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const remainingFileSlots = isAdmin
     ? Number.MAX_SAFE_INTEGER
     : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
-  const imageMessages = ((messages as Message[] | undefined) ?? []).filter((msg) => msg.type === 'image');
-  const chatImages = imageMessages.map((msg) => parseImageMessage(msg.content).url);
+  const imageMessages = ((messages as Message[] | undefined) ?? []).filter((msg) => {
+    if (msg.type === 'image') return true;
+    if (msg.type !== 'file') return false;
+    return isImageFileName(parseFileMessage(msg.content).fileName);
+  });
+  const chatImages = imageMessages.map((msg) => (
+    msg.type === 'image' ? parseImageMessage(msg.content) : parseFileMessage(msg.content)
+  ).url);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
@@ -545,6 +555,9 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
             const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
+            const displayImageMessage = imageMessage ?? (
+              fileMessage && isImageFileName(fileMessage.fileName) ? fileMessage : null
+            );
 
             return (
               <div
@@ -560,7 +573,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted'
                 )}>
-                  {imageMessage ? (
+                  {displayImageMessage ? (
                     <div className="space-y-1">
                       <button
                         type="button"
@@ -568,13 +581,13 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                         onClick={() => openImageLightbox(msg._id)}
                       >
                         <img
-                          src={imageMessage.url}
-                          alt={imageMessage.fileName}
+                          src={displayImageMessage.url}
+                          alt={displayImageMessage.fileName}
                           className="max-w-full rounded-md transition-opacity hover:opacity-90"
                         />
                       </button>
-                      {imageMessage.fileName !== 'Shared image' && (
-                        <p className="truncate text-xs opacity-80">{imageMessage.fileName}</p>
+                      {displayImageMessage.fileName !== 'Shared image' && (
+                        <p className="truncate text-xs opacity-80">{displayImageMessage.fileName}</p>
                       )}
                     </div>
                   ) : msg.type === 'file' && fileMessage ? (
