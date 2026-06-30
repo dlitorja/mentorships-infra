@@ -32,7 +32,7 @@ interface Message {
 
 interface ImageMessageEntry {
   msg: Message;
-  parsed: ParsedFileMessage | null;
+  parsed: ParsedFileMessage;
 }
 
 interface PendingAttachment {
@@ -137,7 +137,7 @@ async function downloadFile(url: string, fileName: string) {
     }
 
     window.open(url, '_blank', 'noopener,noreferrer');
-    toast.info('Opened file in a new tab');
+    toast.info('File opened in a new tab if your browser allowed it');
   } finally {
     clearTimeout(timeout);
   }
@@ -316,7 +316,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     const result: ImageMessageEntry[] = [];
     for (const msg of (messages as Message[] | undefined) ?? []) {
       if (msg.type === 'image') {
-        result.push({ msg, parsed: null });
+        result.push({ msg, parsed: parseImageMessage(msg.content) });
       } else if (msg.type === 'file') {
         const parsed = parseFileMessage(msg.content);
         if (isImageFileName(parsed.fileName)) {
@@ -326,9 +326,9 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     }
     return result;
   }, [messages]);
-  const chatImages = useMemo(() => imageMessages.map(({ msg, parsed }) => (
-    msg.type === 'image' ? parseImageMessage(msg.content) : parsed
-  )?.url ?? ''), [imageMessages]);
+  const chatImages = useMemo(() => imageMessages.map(({ parsed }) => (
+    parsed.url
+  )), [imageMessages]);
   const chatImageDownloadBases = useMemo(() => imageMessages.map(({ msg, parsed }) => {
     if (msg.type !== 'file') return null;
     return parsed;
