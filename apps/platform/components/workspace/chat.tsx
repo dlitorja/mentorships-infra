@@ -299,6 +299,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [retryingIndices, setRetryingIndices] = useState<Set<number>>(new Set());
   const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
+  const downloadingFilesRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -599,19 +600,21 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const handleDownloadFile = useCallback(async (url: string, fileName: string) => {
-    if (downloadingFiles.has(url)) return;
+    if (downloadingFilesRef.current.has(url)) return;
 
-    setDownloadingFiles((prev) => new Set(prev).add(url));
+    downloadingFilesRef.current = new Set(downloadingFilesRef.current).add(url);
+    setDownloadingFiles(downloadingFilesRef.current);
     try {
       await downloadFile(url, fileName);
     } finally {
       setDownloadingFiles((prev) => {
         const next = new Set(prev);
         next.delete(url);
+        downloadingFilesRef.current = next;
         return next;
       });
     }
-  }, [downloadingFiles]);
+  }, []);
 
   if (isLoading) {
     return (
