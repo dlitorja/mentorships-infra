@@ -245,7 +245,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const activeImages = images?.filter((img: Image) => !img.deletedAt) || [];
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex flex-col">
       {/* Header with upload */}
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-2">
@@ -491,7 +491,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                     className="w-full h-full object-cover cursor-pointer"
                     onClick={() => setSelectedImage(img.imageUrl)}
                   />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                     {canDelete && (
                       <Button
                         size="icon"

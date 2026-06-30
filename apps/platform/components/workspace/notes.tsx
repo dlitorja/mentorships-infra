@@ -556,8 +556,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       {/* Editor */}
       <div className="flex-1 min-w-0">
         {selectedNote ? (
-          <Card className="h-full">
-            <CardContent className="p-0 h-full overflow-hidden flex flex-col">
+          <Card className="h-auto min-h-0">
+            <CardContent className="p-0 flex flex-col">
               <div className="p-3 border-b shrink-0 flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   {editingNoteId === selectedNote._id ? (
