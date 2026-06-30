@@ -22,8 +22,8 @@ interface Image {
 }
 
 const IMAGE_CAPS = {
-  student: 75,
-  instructor: 150,
+  student: 500,
+  instructor: 500,
 } as const;
 
 interface WorkspaceImagesProps {

@@ -94,23 +94,37 @@ function extractUrls(content: string): string[] {
 }
 
 function renderMessageWithLinks(content: string): React.ReactNode {
-  const parts = content.split(URL_REGEX);
-  return parts.map((part, index) => {
-    if (URL_REGEX.test(part)) {
-      return (
-        <a
-          key={index}
-          href={normalizeUrl(part)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-foreground underline hover:opacity-80 break-all"
-        >
-          {part}
-        </a>
-      );
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of content.matchAll(URL_REGEX)) {
+    const url = match[0];
+    const index = match.index ?? 0;
+
+    if (index > lastIndex) {
+      nodes.push(content.slice(lastIndex, index));
     }
-    return part;
-  });
+
+    nodes.push(
+      <a
+        key={`${url}-${index}`}
+        href={normalizeUrl(url)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-foreground underline hover:opacity-80 break-all"
+      >
+        {url}
+      </a>
+    );
+
+    lastIndex = index + url.length;
+  }
+
+  if (lastIndex < content.length) {
+    nodes.push(content.slice(lastIndex));
+  }
+
+  return nodes;
 }
 
 interface ShareLinkButtonProps {

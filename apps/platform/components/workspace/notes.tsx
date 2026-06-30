@@ -75,6 +75,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const commentAttachmentInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const headerTitleInputRef = useRef<HTMLInputElement>(null);
+  const dottedLineFileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -349,6 +350,23 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     setCommentAttachmentPreview(null);
   };
 
+  const handleDottedLineClick = () => {
+    dottedLineFileInputRef.current?.click();
+  };
+
+  const handleDottedLineFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Only image files are supported');
+      return;
+    }
+
+    void handleDottedLineDrop(file);
+    e.target.value = '';
+  };
+
   const handleDottedLineDrop = async (file: File) => {
     const noteIdForUpload = selectedNoteId;
     const currentEditor = editorRef.current;
@@ -384,7 +402,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       toast.success('Image inserted', { id: toastId });
 
       if (currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
-        currentEditor.chain().focus().setImage({ src: imageUrl }).run();
+        const docSize = currentEditor.state.doc.content.size;
+        currentEditor.chain().focus().setTextSelection(docSize).setImage({ src: imageUrl }).run();
       }
     } catch (error) {
       console.error('Failed to embed image:', error);
@@ -691,11 +710,25 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     isDragOver && "bg-primary/5 ring-2 ring-primary ring-inset"
                   )}
                 >
+                  <input
+                    ref={dottedLineFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleDottedLineFileSelect}
+                  />
                   <div className={clsx(
                     "m-3 border-2 border-dashed rounded-lg transition-colors flex items-center justify-center cursor-pointer",
                     isDragOver ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/20"
                   )}
                   style={{ minHeight: '120px' }}
+                  onClick={handleDottedLineClick}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleDottedLineClick();
+                    }
+                  }}
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -705,7 +738,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                   }}
                   onDragLeave={(e) => {
                     e.stopPropagation();
-                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    const related = e.relatedTarget;
+                    if (!related || (related instanceof Node && !e.currentTarget.contains(related))) {
                       setIsDragOver(false);
                     }
                   }}
