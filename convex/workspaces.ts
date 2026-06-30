@@ -83,9 +83,11 @@ async function getWorkspaceRole(
 async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces">): Promise<number> {
   const images = await ctx.db
     .query("workspaceImages")
-    .withIndex("by_workspaceId", (q: any) => q.eq("workspaceId", workspaceId))
+    .withIndex("by_workspaceId_and_deletedAt", (q: any) =>
+      q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
+    )
     .collect();
-  return images.filter((image: any) => !image.deletedAt).length;
+  return images.length;
 }
 
 async function countWorkspaceFilesByRole(
