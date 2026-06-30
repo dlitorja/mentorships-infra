@@ -11,16 +11,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Upload, Trash2, Image as ImageIcon, X, ZoomIn, Download, FileArchive, FileText, AlertCircle, RefreshCw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
-
-type ExportFormat = 'zip' | 'pdf' | 'markdown';
 
 interface Image {
   _id: Id<'workspaceImages'>;
@@ -58,7 +49,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [failedUploads, setFailedUploads] = useState<FailedUpload[]>([]);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
 
@@ -89,11 +79,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   }, [latestExport, hasShownExportCompleteToast]);
 
-  useEffect(() => {
-    setDownloadUrl(null);
-    setHasShownExportCompleteToast(false);
-  }, [exportFormat]);
-
   const handleExport = async () => {
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
@@ -101,7 +86,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       createExport.mutateAsync({
         workspaceId,
         userId: currentUserId,
-        format: exportFormat,
+        format: 'zip',
       }),
       {
         loading: 'Creating export...',
@@ -113,8 +98,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     );
   };
 
-  const formatLabel = exportFormat === 'pdf' ? 'PDF' : exportFormat === 'markdown' ? 'Markdown' : 'ZIP';
-  const formatIcon = exportFormat === 'pdf' ? <FileText className="h-4 w-4" /> : exportFormat === 'markdown' ? <FileText className="h-4 w-4" /> : <FileArchive className="h-4 w-4" />;
+  const formatLabel = 'ZIP';
 
   const processFiles = useCallback(async (files: File[]) => {
     const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
@@ -344,36 +328,16 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
           ) : latestExport?.status === 'failed' ? (
             <>
               <p className="text-sm text-destructive">Export failed</p>
-              <Select value={exportFormat} onValueChange={(v: ExportFormat) => setExportFormat(v)}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="Format" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="zip">ZIP</SelectItem>
-                  <SelectItem value="pdf">PDF</SelectItem>
-                  <SelectItem value="markdown">Markdown</SelectItem>
-                </SelectContent>
-              </Select>
               <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Retry
+                Retry image export
               </Button>
             </>
           ) : (
             <>
-              <Select value={exportFormat} onValueChange={(v: ExportFormat) => setExportFormat(v)}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="Format" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="zip">ZIP</SelectItem>
-                  <SelectItem value="pdf">PDF</SelectItem>
-                  <SelectItem value="markdown">Markdown</SelectItem>
-                </SelectContent>
-              </Select>
               <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Export {formatLabel}
+                Export ZIP
               </Button>
             </>
           )}
@@ -511,7 +475,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       )}
 
       {/* Image Grid */}
-      <div className="flex-1 overflow-y-auto relative">
+      <div className="flex-1 min-h-0 relative">
         {isRefreshing && (
           <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2">
