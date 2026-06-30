@@ -306,14 +306,14 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const chatImages = useMemo(() => imageMessages.map((msg) => (
     msg.type === 'image' ? parseImageMessage(msg.content) : parseFileMessage(msg.content)
   ).url), [imageMessages]);
-  const chatImageDownloads = useMemo(() => imageMessages.map((msg) => {
+  const chatImageDownloadBases = useMemo(() => imageMessages.map((msg) => {
     if (msg.type !== 'file') return null;
-    const parsed = parseFileMessage(msg.content);
-    return {
-      ...parsed,
-      isDownloading: downloadingFiles.has(parsed.url),
-    };
-  }), [downloadingFiles, imageMessages]);
+    return parseFileMessage(msg.content);
+  }), [imageMessages]);
+  const chatImageDownloads = useMemo(() => chatImageDownloadBases.map((base) => {
+    if (!base) return null;
+    return { ...base, isDownloading: downloadingFiles.has(base.url) };
+  }), [chatImageDownloadBases, downloadingFiles]);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {

@@ -359,6 +359,7 @@ export const getWorkspaceNotes = query({
         .withIndex("by_workspaceId_and_deletedAt", (q) =>
           q.eq("workspaceId", args.workspaceId).gte("deletedAt", 0)
         )
+        .order("desc")
         .collect();
     }
 
