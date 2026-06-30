@@ -48,6 +48,8 @@ interface AutosaveEntry {
   inFlight: boolean;
 }
 
+type TitleEditSurface = 'list' | 'header' | null;
+
 /**
  * Rich text note-taking component for a workspace.
  * Uses TipTap editor with auto-save on content changes.
@@ -61,6 +63,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [editingNoteId, setEditingNoteId] = useState<Id<'workspaceNotes'> | null>(null);
+  const [editingTitleSurface, setEditingTitleSurface] = useState<TitleEditSurface>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const autosavesRef = useRef(new Map<Id<'workspaceNotes'>, AutosaveEntry>());
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
@@ -78,6 +81,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const dottedLineFileInputRef = useRef<HTMLInputElement>(null);
   const titleEditGuardRef = useRef(false);
   const editingNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
+  const editingTitleSurfaceRef = useRef<TitleEditSurface>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -103,6 +107,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   useEffect(() => {
     editingNoteIdRef.current = editingNoteId;
   }, [editingNoteId]);
+
+  useEffect(() => {
+    editingTitleSurfaceRef.current = editingTitleSurface;
+  }, [editingTitleSurface]);
 
   async function flushAutosave(noteId: Id<'workspaceNotes'>) {
     const entry = autosavesRef.current.get(noteId);
@@ -284,7 +292,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   };
 
   const handleTitleUpdate = async (noteId: Id<'workspaceNotes'>) => {
-    if (!editingTitleValue?.trim()) return;
+    if (!editingTitleValue?.trim()) {
+      setEditingNoteId(null);
+      setEditingTitleSurface(null);
+      return;
+    }
     
     try {
       await updateNote.mutateAsync({
@@ -292,6 +304,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
         title: editingTitleValue.trim(),
       });
       setEditingNoteId(null);
+      setEditingTitleSurface(null);
     } catch (error) {
       console.error('Failed to update title:', error);
       toast.error('Failed to update note title');
@@ -482,7 +495,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                 )}
                 onClick={() => setSelectedNoteId(note._id)}
               >
-                {editingNoteId === note._id ? (
+                {editingNoteId === note._id && editingTitleSurface === 'list' ? (
                   <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                     <Input
                       ref={titleInputRef}
@@ -496,7 +509,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                         }
                         const blurredNoteId = note._id;
                         setTimeout(() => {
-                          if (editingNoteIdRef.current !== blurredNoteId) return;
+                          if (editingNoteIdRef.current !== blurredNoteId || editingTitleSurfaceRef.current !== 'list') return;
                           if (editingTitleValue?.trim()) {
                             handleTitleUpdate(blurredNoteId);
                           } else {
@@ -509,7 +522,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; handleTitleUpdate(note._id); }}>
                       <Save className="h-3 w-3" />
                     </Button>
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; setEditingNoteId(null); }}>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; setEditingNoteId(null); setEditingTitleSurface(null); }}>
                       <X className="h-3 w-3" />
                     </Button>
                   </div>
@@ -524,7 +537,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                         size="icon"
                         variant="ghost"
                         className="h-6 w-6"
-                        onClick={(e) => { e.stopPropagation(); titleEditGuardRef.current = false; setEditingNoteId(note._id); setEditingTitleValue(note.title); }}
+                        onClick={(e) => { e.stopPropagation(); titleEditGuardRef.current = false; setEditingTitleSurface('list'); setEditingNoteId(note._id); setEditingTitleValue(note.title); }}
                       >
                         <Edit2 className="h-3 w-3" />
                       </Button>
@@ -566,7 +579,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
             <CardContent className="p-0 flex flex-col">
               <div className="p-3 border-b shrink-0 flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  {editingNoteId === selectedNote._id ? (
+                  {editingNoteId === selectedNote._id && editingTitleSurface === 'header' ? (
                     <div className="flex items-center gap-1">
                       <Input
                         ref={headerTitleInputRef}
@@ -580,7 +593,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                           }
                           const blurredNoteId = selectedNote._id;
                           setTimeout(() => {
-                            if (editingNoteIdRef.current !== blurredNoteId) return;
+                            if (editingNoteIdRef.current !== blurredNoteId || editingTitleSurfaceRef.current !== 'header') return;
                             if (editingTitleValue?.trim()) {
                               handleTitleUpdate(blurredNoteId);
                             } else {
@@ -593,7 +606,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                       <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; handleTitleUpdate(selectedNote._id); }}>
                         <Save className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; setEditingNoteId(null); }}>
+                      <Button size="icon" variant="ghost" className="h-8 w-8" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; setEditingNoteId(null); setEditingTitleSurface(null); }}>
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
@@ -602,6 +615,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                       className="cursor-pointer hover:text-primary transition-colors"
                       onClick={() => {
                         titleEditGuardRef.current = false;
+                        setEditingTitleSurface('header');
                         setEditingNoteId(selectedNote._id);
                         setEditingTitleValue(selectedNote.title);
                       }}

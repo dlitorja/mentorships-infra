@@ -80,7 +80,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
-  const handleExport = async () => {
+  const handleExport = async (): Promise<void> => {
     setLastExportAttemptId(null);
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
@@ -105,7 +105,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const processFiles = useCallback(async (files: File[]) => {
+  const processFiles = useCallback(async (files: File[]): Promise<void> => {
     const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
     const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
 
@@ -120,11 +120,11 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     setImageFiles((prev) => [...prev, ...valid]);
   }, [remainingSlots, isAdmin, imageFiles.length]);
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  const onDrop = useCallback(async (acceptedFiles: File[]): Promise<void> => {
     await processFiles(acceptedFiles);
   }, [processFiles]);
 
-  const handleSendImages = async () => {
+  const handleSendImages = async (): Promise<void> => {
     if (imageFiles.length === 0 || !workspaceId) return;
 
     setIsUploading(true);
@@ -165,7 +165,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const handleRetryUpload = async (failedUpload: FailedUpload, index: number) => {
+  const handleRetryUpload = async (failedUpload: FailedUpload, index: number): Promise<void> => {
     const result = await uploadSingleImage(workspaceId, failedUpload.file, generateUploadUrl, createImage.mutateAsync);
 
     if (result.success) {
@@ -180,7 +180,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const handleRetryAll = async () => {
+  const handleRetryAll = async (): Promise<void> => {
     const failed = [...failedUploads];
     setFailedUploads([]);
     setIsUploading(true);
@@ -218,7 +218,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     setFailedUploads((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleDeleteImage = async (imageId: Id<'workspaceImages'>) => {
+  const handleDeleteImage = async (imageId: Id<'workspaceImages'>): Promise<void> => {
     try {
       await deleteImage.mutateAsync({ id: imageId });
       setSelectedImage(null);
@@ -488,19 +488,26 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                   key={img._id}
                   className="group relative aspect-square rounded-lg overflow-hidden border bg-muted"
                 >
-                  <img
-                    src={img.imageUrl}
-                    alt="Workspace image"
-                    loading="lazy"
-                    className="w-full h-full object-cover cursor-pointer"
+                  <button
+                    type="button"
+                    className="block h-full w-full cursor-pointer border-0 bg-transparent p-0"
                     onClick={() => setSelectedImage(img.imageUrl)}
-                  />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                    aria-label="Open workspace image preview"
+                  >
+                    <img
+                      src={img.imageUrl}
+                      alt="Workspace image"
+                      loading="lazy"
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                     {canDelete && (
                       <Button
                         size="icon"
                         variant="destructive"
                         className="h-8 w-8 pointer-events-auto"
+                        aria-label="Delete workspace image"
                         onClick={(e) => { e.stopPropagation(); handleDeleteImage(img._id); }}
                       >
                         <Trash2 className="h-4 w-4" />

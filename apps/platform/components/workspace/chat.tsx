@@ -80,13 +80,37 @@ function parseFileMessage(content: string): ParsedFileMessage {
 }
 
 const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b(?:[/?#][^\s<]*)?/gi;
-const TRAILING_URL_PUNCTUATION_REGEX = /[),.!?:;]+$/;
+const TRAILING_URL_PUNCTUATION_REGEX = /[.,!?:;]+$/;
 
 function splitUrlTrailingPunctuation(url: string): { cleanUrl: string; trailingText: string } {
-  const trailingText = url.match(TRAILING_URL_PUNCTUATION_REGEX)?.[0] ?? '';
-  return trailingText
-    ? { cleanUrl: url.slice(0, -trailingText.length), trailingText }
-    : { cleanUrl: url, trailingText: '' };
+  let cleanUrl = url;
+  let trailingText = '';
+
+  while (cleanUrl.length > 0) {
+    const punctuation = cleanUrl.match(TRAILING_URL_PUNCTUATION_REGEX)?.[0];
+    if (punctuation) {
+      cleanUrl = cleanUrl.slice(0, -punctuation.length);
+      trailingText = punctuation + trailingText;
+      continue;
+    }
+
+    const lastChar = cleanUrl.at(-1);
+    if (lastChar === ')' && (cleanUrl.match(/\)/g)?.length ?? 0) > (cleanUrl.match(/\(/g)?.length ?? 0)) {
+      cleanUrl = cleanUrl.slice(0, -1);
+      trailingText = ')' + trailingText;
+      continue;
+    }
+
+    if (lastChar === ']' && (cleanUrl.match(/\]/g)?.length ?? 0) > (cleanUrl.match(/\[/g)?.length ?? 0)) {
+      cleanUrl = cleanUrl.slice(0, -1);
+      trailingText = ']' + trailingText;
+      continue;
+    }
+
+    break;
+  }
+
+  return { cleanUrl, trailingText };
 }
 
 function isEmailDomainMatch(content: string, index: number): boolean {
