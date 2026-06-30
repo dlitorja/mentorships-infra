@@ -1101,7 +1101,7 @@ export const createWorkspaceExport = mutation({
       status: "pending",
     });
 
-    const triggerSecretKey = process.env.TRIGGER_SECRET_KEY;
+    const triggerSecretKey = process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
 
     const taskMap: Record<string, string> = {
       zip: "process-workspace-export",

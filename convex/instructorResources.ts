@@ -267,7 +267,7 @@ export const shareResourceToChat = mutation({
     await ctx.db.insert("workspaceMessages", {
       workspaceId: args.workspaceId,
       userId: user.subject,
-      content: imageUrl,
+      content: `${encodeURIComponent(resource.fileName)}|${imageUrl}`,
       type: "image",
     });
   },

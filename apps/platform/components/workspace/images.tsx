@@ -8,7 +8,7 @@ import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Upload, Trash2, Image as ImageIcon, X, ZoomIn, Download, FileArchive, FileText, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, RefreshCw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
@@ -51,7 +51,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
-  const [lastExportAttemptAt, setLastExportAttemptAt] = useState<number>(0);
+  const [lastExportAttemptId, setLastExportAttemptId] = useState<Id<'workspaceExports'> | null>(null);
 
   const { data: images, isLoading, refetch: refetchImages } = useWorkspaceImages(workspaceId);
   const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
@@ -71,38 +71,41 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const isPending = latestExport?.status === 'pending';
 
   useEffect(() => {
-    if (latestExport?.status === 'completed' && latestExport.downloadUrl) {
+    if (latestExport?._id === lastExportAttemptId && latestExport.status === 'completed' && latestExport.downloadUrl) {
       setDownloadUrl(latestExport.downloadUrl);
       if (!hasShownExportCompleteToast) {
         toast.success('Your export is ready! Click to download.');
         setHasShownExportCompleteToast(true);
       }
     }
-  }, [latestExport, hasShownExportCompleteToast]);
+  }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
-  const handleExport = async () => {
-    setLastExportAttemptAt(Date.now());
+  const handleExport = async (): Promise<void> => {
+    setLastExportAttemptId(null);
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
-    toast.promise(
-      createExport.mutateAsync({
-        workspaceId,
-        userId: currentUserId,
-        format: 'zip',
-      }),
-      {
-        loading: 'Creating export...',
-        success: () => {
-          return 'Export started!';
-        },
-        error: 'Failed to create export. Please try again.',
-      }
-    );
+    const exportPromise = createExport.mutateAsync({
+      workspaceId,
+      userId: currentUserId,
+      format: 'zip',
+    });
+
+    toast.promise(exportPromise, {
+      loading: 'Creating export...',
+      success: () => {
+        return 'Export started!';
+      },
+      error: 'Failed to create export. Please try again.',
+    });
+
+    try {
+      setLastExportAttemptId(await exportPromise);
+    } catch {
+      setLastExportAttemptId(null);
+    }
   };
 
-  const formatLabel = 'ZIP';
-
-  const processFiles = useCallback(async (files: File[]) => {
+  const processFiles = useCallback(async (files: File[]): Promise<void> => {
     const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
     const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
 
@@ -117,11 +120,11 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     setImageFiles((prev) => [...prev, ...valid]);
   }, [remainingSlots, isAdmin, imageFiles.length]);
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+  const onDrop = useCallback(async (acceptedFiles: File[]): Promise<void> => {
     await processFiles(acceptedFiles);
   }, [processFiles]);
 
-  const handleSendImages = async () => {
+  const handleSendImages = async (): Promise<void> => {
     if (imageFiles.length === 0 || !workspaceId) return;
 
     setIsUploading(true);
@@ -162,7 +165,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const handleRetryUpload = async (failedUpload: FailedUpload, index: number) => {
+  const handleRetryUpload = async (failedUpload: FailedUpload, index: number): Promise<void> => {
     const result = await uploadSingleImage(workspaceId, failedUpload.file, generateUploadUrl, createImage.mutateAsync);
 
     if (result.success) {
@@ -177,7 +180,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const handleRetryAll = async () => {
+  const handleRetryAll = async (): Promise<void> => {
     const failed = [...failedUploads];
     setFailedUploads([]);
     setIsUploading(true);
@@ -215,7 +218,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     setFailedUploads((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleDeleteImage = async (imageId: Id<'workspaceImages'>) => {
+  const handleDeleteImage = async (imageId: Id<'workspaceImages'>): Promise<void> => {
     try {
       await deleteImage.mutateAsync({ id: imageId });
       setSelectedImage(null);
@@ -245,7 +248,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const activeImages = images?.filter((img: Image) => !img.deletedAt) || [];
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex flex-col">
       {/* Header with upload */}
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-2">
@@ -284,14 +287,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             <Button variant="default" asChild>
               <a href={downloadUrl} download>
                 <Download className="h-4 w-4 mr-2" />
-                Download {formatLabel}
+                Download ZIP
               </a>
             </Button>
           ) : isProcessing ? (
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-primary">Creating {formatLabel.toLowerCase()}...</span>
+                <span className="text-sm text-primary">Creating zip...</span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -327,7 +330,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               </div>
               <span className="text-xs text-muted-foreground">You can leave this page and return later</span>
             </div>
-          ) : latestExport?.status === 'failed' && latestExport._creationTime >= lastExportAttemptAt && lastExportAttemptAt > 0 ? (
+          ) : latestExport?.status === 'failed' && latestExport._id === lastExportAttemptId ? (
             <>
               <p className="text-sm text-destructive">Export failed</p>
               <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
@@ -465,7 +468,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       )}
 
       {/* Image Grid */}
-      <div className="flex-1 min-h-0 relative overflow-y-auto">
+      <div className="relative">
         {isRefreshing && (
           <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2">
@@ -485,27 +488,27 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                   key={img._id}
                   className="group relative aspect-square rounded-lg overflow-hidden border bg-muted"
                 >
-                  <img
-                    src={img.imageUrl}
-                    alt="Workspace image"
-                    className="w-full h-full object-cover cursor-pointer"
+                  <button
+                    type="button"
+                    className="block h-full w-full cursor-pointer border-0 bg-transparent p-0"
                     onClick={() => setSelectedImage(img.imageUrl)}
-                  />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      className="h-8 w-8"
-                      onClick={() => setSelectedImage(img.imageUrl)}
-                    >
-                      <ZoomIn className="h-4 w-4" />
-                    </Button>
+                    aria-label="Open workspace image preview"
+                  >
+                    <img
+                      src={img.imageUrl}
+                      alt="Workspace image"
+                      loading="lazy"
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                     {canDelete && (
                       <Button
                         size="icon"
                         variant="destructive"
-                        className="h-8 w-8"
-                        onClick={() => handleDeleteImage(img._id)}
+                        className="h-8 w-8 pointer-events-auto"
+                        aria-label="Delete workspace image"
+                        onClick={(e) => { e.stopPropagation(); handleDeleteImage(img._id); }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

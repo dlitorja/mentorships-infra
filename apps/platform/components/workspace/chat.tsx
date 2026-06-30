@@ -79,7 +79,50 @@ function parseFileMessage(content: string): ParsedFileMessage {
   }
 }
 
-const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|zip|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b/gi;
+function parseImageMessage(content: string): ParsedFileMessage {
+  const parsed = parseFileMessage(content);
+  return parsed.fileName === 'Download file'
+    ? { fileName: 'Shared image', url: parsed.url }
+    : parsed;
+}
+
+const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b(?:[/?#][^\s<]*)?/gi;
+const TRAILING_URL_PUNCTUATION_REGEX = /[.,!?:;]+$/;
+
+function splitUrlTrailingPunctuation(url: string): { cleanUrl: string; trailingText: string } {
+  let cleanUrl = url;
+  let trailingText = '';
+
+  while (cleanUrl.length > 0) {
+    const punctuation = cleanUrl.match(TRAILING_URL_PUNCTUATION_REGEX)?.[0];
+    if (punctuation) {
+      cleanUrl = cleanUrl.slice(0, -punctuation.length);
+      trailingText = punctuation + trailingText;
+      continue;
+    }
+
+    const lastChar = cleanUrl.at(-1);
+    if (lastChar === ')' && (cleanUrl.match(/\)/g)?.length ?? 0) > (cleanUrl.match(/\(/g)?.length ?? 0)) {
+      cleanUrl = cleanUrl.slice(0, -1);
+      trailingText = ')' + trailingText;
+      continue;
+    }
+
+    if (lastChar === ']' && (cleanUrl.match(/\]/g)?.length ?? 0) > (cleanUrl.match(/\[/g)?.length ?? 0)) {
+      cleanUrl = cleanUrl.slice(0, -1);
+      trailingText = ']' + trailingText;
+      continue;
+    }
+
+    break;
+  }
+
+  return { cleanUrl, trailingText };
+}
+
+function isEmailDomainMatch(content: string, index: number): boolean {
+  return index > 0 && content[index - 1] === '@';
+}
 
 function normalizeUrl(url: string): string {
   if (!url.match(/^(https?|ftp):\/\//i)) {
@@ -89,8 +132,10 @@ function normalizeUrl(url: string): string {
 }
 
 function extractUrls(content: string): string[] {
-  const matches = content.match(URL_REGEX);
-  return matches ? [...new Set(matches)] : [];
+  const matches = [...content.matchAll(URL_REGEX)]
+    .filter((match) => !isEmailDomainMatch(content, match.index ?? 0))
+    .map((match) => splitUrlTrailingPunctuation(match[0]).cleanUrl);
+  return [...new Set(matches)];
 }
 
 function renderMessageWithLinks(content: string): React.ReactNode {
@@ -98,8 +143,11 @@ function renderMessageWithLinks(content: string): React.ReactNode {
   let lastIndex = 0;
 
   for (const match of content.matchAll(URL_REGEX)) {
-    const url = match[0];
+    const { cleanUrl, trailingText } = splitUrlTrailingPunctuation(match[0]);
     const index = match.index ?? 0;
+    if (isEmailDomainMatch(content, index)) {
+      continue;
+    }
 
     if (index > lastIndex) {
       nodes.push(content.slice(lastIndex, index));
@@ -107,17 +155,20 @@ function renderMessageWithLinks(content: string): React.ReactNode {
 
     nodes.push(
       <a
-        key={`${url}-${index}`}
-        href={normalizeUrl(url)}
+        key={`${cleanUrl}-${index}`}
+        href={normalizeUrl(cleanUrl)}
         target="_blank"
         rel="noopener noreferrer"
         className="text-foreground underline hover:opacity-80 break-all"
       >
-        {url}
+        {cleanUrl}
       </a>
     );
+    if (trailingText) {
+      nodes.push(trailingText);
+    }
 
-    lastIndex = index + url.length;
+    lastIndex = index + match[0].length;
   }
 
   if (lastIndex < content.length) {
@@ -143,7 +194,7 @@ function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
         workspaceId,
         url: normalizedUrl,
       });
-      setSharedUrls((prev) => new Set(prev).add(url));
+      setSharedUrls((prev) => new Set(prev).add(normalizedUrl));
       toast.success('Link shared to Links tab');
     } catch (error) {
       console.error('Failed to share link:', error);
@@ -156,7 +207,7 @@ function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {urls.map((url, index) => {
-        const isShared = sharedUrls.has(url);
+        const isShared = sharedUrls.has(normalizeUrl(url));
         return (
           <Button
             key={index}
@@ -204,15 +255,15 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     ? Number.MAX_SAFE_INTEGER
     : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
   const imageMessages = ((messages as Message[] | undefined) ?? []).filter((msg) => msg.type === 'image');
-  const chatImages = imageMessages.map((msg) => msg.content);
+  const chatImages = imageMessages.map((msg) => parseImageMessage(msg.content).url);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
     if (messages && messages.length > 0) {
-      const frameId = requestAnimationFrame(() => {
+      const timeout = setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ block: "end" });
-      });
-      return () => cancelAnimationFrame(frameId);
+      }, 100);
+      return () => clearTimeout(timeout);
     }
   }, [messages]);
 
@@ -493,6 +544,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
         {messages && messages.length > 0 ? (
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
+            const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
 
             return (
               <div
@@ -508,18 +560,23 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted'
                 )}>
-                  {msg.type === 'image' ? (
-                    <button
-                      type="button"
-                      className="block overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => openImageLightbox(msg._id)}
-                    >
-                      <img
-                        src={msg.content}
-                        alt="Shared image"
-                        className="max-w-full rounded-md transition-opacity hover:opacity-90"
-                      />
-                    </button>
+                  {imageMessage ? (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        className="block overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => openImageLightbox(msg._id)}
+                      >
+                        <img
+                          src={imageMessage.url}
+                          alt={imageMessage.fileName}
+                          className="max-w-full rounded-md transition-opacity hover:opacity-90"
+                        />
+                      </button>
+                      {imageMessage.fileName !== 'Shared image' && (
+                        <p className="truncate text-xs opacity-80">{imageMessage.fileName}</p>
+                      )}
+                    </div>
                   ) : msg.type === 'file' && fileMessage ? (
                     <div className={clsx(
                       'flex min-w-0 items-center gap-2 rounded-md border p-2',

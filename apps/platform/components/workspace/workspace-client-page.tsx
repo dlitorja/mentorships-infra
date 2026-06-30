@@ -51,12 +51,13 @@ function WorkspaceContent({
   }
 
   const selectedWorkspace = workspaces?.find((w: UserWorkspace) => w._id === selectedWorkspaceId);
+  const isChatTab = activeTab === "chat";
 
   return (
-    <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-64px)]">
-      <div className="flex flex-col md:flex-row gap-6 h-full">
+    <div className={`container mx-auto p-4 md:p-6 ${isChatTab ? "h-[calc(100dvh-64px)]" : ""}`}>
+      <div className={`flex flex-col md:flex-row gap-6 ${isChatTab ? "h-full" : ""}`}>
         <div className="w-full md:w-64 shrink-0">
-          <Card className="h-full">
+          <Card className={isChatTab ? "h-full" : ""}>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Workspaces</CardTitle>
             </CardHeader>
@@ -95,7 +96,7 @@ function WorkspaceContent({
 
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
-            <Card className="h-full flex flex-col">
+            <Card className={`flex flex-col ${isChatTab ? "h-full" : ""}`}>
               <CardHeader className="pb-3 shrink-0">
                 <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
                 {selectedWorkspace.description && (
@@ -104,7 +105,7 @@ function WorkspaceContent({
                   </p>
                 )}
               </CardHeader>
-              <CardContent className="flex-1 min-h-0 pt-0">
+              <CardContent className={isChatTab ? "flex-1 min-h-0 pt-0" : "pt-0"}>
                 <WorkspacePolicyBanner />
                 {selectedWorkspace.endedAt && (
                   <RetentionWarningBanner
@@ -115,7 +116,7 @@ function WorkspaceContent({
                 <Tabs
                   value={activeTab}
                   onValueChange={setActiveTab}
-                  className="h-full flex flex-col"
+                  className={`flex flex-col ${isChatTab ? "h-full" : ""}`}
                 >
                   <TabsList className="shrink-0">
                     <TabsTrigger value="chat" className="gap-2">
@@ -149,13 +150,13 @@ function WorkspaceContent({
                       role={userRole}
                     />
                   </TabsContent>
-                  <TabsContent value="notes" className="flex-1 min-h-0 mt-4">
+                  <TabsContent value="notes" className="mt-4">
                     <WorkspaceNotes
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
                     />
                   </TabsContent>
-                  <TabsContent value="images" className="flex-1 min-h-0 mt-4">
+                  <TabsContent value="images" className="mt-4">
                     <WorkspaceImages
                       workspaceId={selectedWorkspace._id}
                       currentUserId={clerkUserId}
