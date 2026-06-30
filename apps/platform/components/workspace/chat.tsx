@@ -79,6 +79,13 @@ function parseFileMessage(content: string): ParsedFileMessage {
   }
 }
 
+function parseImageMessage(content: string): ParsedFileMessage {
+  const parsed = parseFileMessage(content);
+  return parsed.fileName === 'Download file'
+    ? { fileName: 'Shared image', url: parsed.url }
+    : parsed;
+}
+
 const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b(?:[/?#][^\s<]*)?/gi;
 const TRAILING_URL_PUNCTUATION_REGEX = /[.,!?:;]+$/;
 
@@ -248,7 +255,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     ? Number.MAX_SAFE_INTEGER
     : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
   const imageMessages = ((messages as Message[] | undefined) ?? []).filter((msg) => msg.type === 'image');
-  const chatImages = imageMessages.map((msg) => msg.content);
+  const chatImages = imageMessages.map((msg) => parseImageMessage(msg.content).url);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
@@ -537,6 +544,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
         {messages && messages.length > 0 ? (
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
+            const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
 
             return (
               <div
@@ -552,18 +560,23 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted'
                 )}>
-                  {msg.type === 'image' ? (
-                    <button
-                      type="button"
-                      className="block overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => openImageLightbox(msg._id)}
-                    >
-                      <img
-                        src={msg.content}
-                        alt="Shared image"
-                        className="max-w-full rounded-md transition-opacity hover:opacity-90"
-                      />
-                    </button>
+                  {imageMessage ? (
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        className="block overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => openImageLightbox(msg._id)}
+                      >
+                        <img
+                          src={imageMessage.url}
+                          alt={imageMessage.fileName}
+                          className="max-w-full rounded-md transition-opacity hover:opacity-90"
+                        />
+                      </button>
+                      {imageMessage.fileName !== 'Shared image' && (
+                        <p className="truncate text-xs opacity-80">{imageMessage.fileName}</p>
+                      )}
+                    </div>
                   ) : msg.type === 'file' && fileMessage ? (
                     <div className={clsx(
                       'flex min-w-0 items-center gap-2 rounded-md border p-2',

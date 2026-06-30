@@ -799,7 +799,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                         {isDragOver ? "Drop image here" : "Drag and drop an image"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Drop an image to add it to your note
+                        Drop an image here or click to browse
                       </p>
                     </div>
                   </div>
@@ -813,7 +813,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                       Comments {comments && comments.length > 0 && `(${comments.length})`}
                     </h4>
                   </div>
-                  <div className="px-3 pb-2 space-y-2">
+                  <div className="px-3 pb-2 space-y-2 max-h-48 overflow-y-auto">
                     {comments && comments.length > 0 ? (
                       comments.map((comment: NoteComment) => (
                         <div key={comment._id} className="text-sm bg-background rounded p-2">
