@@ -555,9 +555,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
             const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
-            const displayImageMessage = imageMessage ?? (
-              fileMessage && isImageFileName(fileMessage.fileName) ? fileMessage : null
-            );
+            const fileImageMessage = fileMessage && isImageFileName(fileMessage.fileName) ? fileMessage : null;
+            const displayImageMessage = imageMessage ?? fileImageMessage;
 
             return (
               <div
@@ -587,7 +586,21 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                         />
                       </button>
                       {displayImageMessage.fileName !== 'Shared image' && (
-                        <p className="truncate text-xs opacity-80">{displayImageMessage.fileName}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="min-w-0 flex-1 truncate text-xs opacity-80">{displayImageMessage.fileName}</p>
+                          {fileImageMessage && (
+                            <Button
+                              asChild
+                              size="icon"
+                              variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                              className="h-6 w-6 shrink-0"
+                            >
+                              <a href={fileImageMessage.url} download={fileImageMessage.fileName} target="_blank" rel="noopener noreferrer" aria-label={`Download ${fileImageMessage.fileName}`}>
+                                <Download className="h-3 w-3" />
+                              </a>
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : msg.type === 'file' && fileMessage ? (
