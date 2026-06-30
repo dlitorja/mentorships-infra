@@ -116,6 +116,7 @@ async function downloadFile(url: string, fileName: string) {
       throw error;
     }
 
+    clearTimeout(timeout);
     responseStarted = true;
     const objectUrl = URL.createObjectURL(await response.blob());
     const link = document.createElement('a');
