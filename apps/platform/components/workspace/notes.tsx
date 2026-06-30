@@ -66,7 +66,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const loadedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const selectedNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -176,27 +175,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     editorProps: {
       attributes: {
         class: 'prose prose-sm sm:prose-base max-w-none focus:outline-none min-h-[200px] p-4',
-      },
-      handleDrop: (view, event, slice, moved) => {
-        if (moved) return false;
-        const files = event.dataTransfer?.files;
-        if (!files || files.length === 0) return false;
-        
-        const file = files[0];
-        if (!file.type.startsWith('image/')) return false;
-        
-        event.preventDefault();
-        
-        const pos = view.posAtCoords({
-          left: event.clientX,
-          top: event.clientY,
-        });
-        
-        if (pos) {
-          void handleDroppedImage(file, pos.pos);
-        }
-        
-        return true;
       },
     },
     onUpdate: ({ editor }) => {
@@ -313,78 +291,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     }
   };
 
-  const handleImageEmbed = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !selectedNoteId) return;
-
-    const noteId = selectedNoteId;
-    if (!noteId) return;
-    
-    const imageUrl = await uploadImageForNote(noteId, file);
-    const currentEditor = editorRef.current;
-    if (imageUrl && currentEditor && selectedNoteIdRef.current === noteId) {
-      currentEditor.chain().focus().setImage({ src: imageUrl }).run();
-    }
-    e.target.value = '';
-  };
-
-const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Promise<string | null> => {
-    const noteIdForUpload = noteId;
-    if (!noteIdForUpload) {
-      toast.error('No note selected');
-      return null;
-    }
-
-    if (file.size > MAX_CHAT_FILE_BYTES) {
-      toast.error('Image is too large. Maximum size is 50MB.');
-      return null;
-    }
-    if (file.size > LARGE_CHAT_FILE_BYTES) {
-      toast.warning('Large file detected. This image will count toward your image limit.');
-    }
-
-    const toastId = toast.loading('Uploading image...');
-
-    try {
-      const uploadResult = await uploadImageForChat(
-        workspaceId,
-        file,
-        generateUploadUrl
-      );
-
-      if (!uploadResult.success) {
-        toast.error(uploadResult.error || 'Upload failed', { id: toastId });
-        return null;
-      }
-
-      const imageUrl = await embedImageInNote.mutateAsync({
-        noteId: noteIdForUpload,
-        storageId: uploadResult.storageId as Id<"_storage">,
-      });
-
-      toast.success('Image inserted', { id: toastId });
-      return imageUrl;
-    } catch (error) {
-      console.error('Failed to embed image:', error);
-      toast.error('Failed to embed image', { id: toastId });
-      return null;
-    }
-  };
-
-  const handleDroppedImage = async (file: File, pos: number) => {
-    const noteIdForUpload = selectedNoteId;
-    const currentEditor = editorRef.current;
-    if (!noteIdForUpload || !currentEditor) return;
-
-    const imageUrl = await uploadImageForNote(noteIdForUpload, file);
-    if (imageUrl && currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
-      currentEditor.chain().focus().insertContentAt(pos, {
-        type: 'image',
-        attrs: { src: imageUrl },
-      }).run();
-    }
-  };
-
   const handleCreateComment = async () => {
     if (!newComment.trim() && !commentAttachment || !selectedNoteId) return;
 
@@ -441,6 +347,49 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
   const clearCommentAttachment = () => {
     setCommentAttachment(null);
     setCommentAttachmentPreview(null);
+  };
+
+  const handleDottedLineDrop = async (file: File) => {
+    const noteIdForUpload = selectedNoteId;
+    const currentEditor = editorRef.current;
+    if (!noteIdForUpload || !currentEditor) return;
+
+    if (file.size > MAX_CHAT_FILE_BYTES) {
+      toast.error('Image is too large. Maximum size is 50MB.');
+      return;
+    }
+    if (file.size > LARGE_CHAT_FILE_BYTES) {
+      toast.warning('Large file detected. This image will count toward your image limit.');
+    }
+
+    const toastId = toast.loading('Uploading image...');
+
+    try {
+      const uploadResult = await uploadImageForChat(
+        workspaceId,
+        file,
+        generateUploadUrl
+      );
+
+      if (!uploadResult.success) {
+        toast.error(uploadResult.error || 'Upload failed', { id: toastId });
+        return;
+      }
+
+      const imageUrl = await embedImageInNote.mutateAsync({
+        noteId: noteIdForUpload,
+        storageId: uploadResult.storageId as Id<"_storage">,
+      });
+
+      toast.success('Image inserted', { id: toastId });
+
+      if (currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
+        currentEditor.chain().focus().setImage({ src: imageUrl }).run();
+      }
+    } catch (error) {
+      console.error('Failed to embed image:', error);
+      toast.error('Failed to embed image', { id: toastId });
+    }
   };
 
   const handleDeleteComment = async (commentId: Id<'workspaceNoteComments'>) => {
@@ -628,30 +577,6 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleImageEmbed}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={embedImageInNote.isPending}
-                    title="Embed image in note"
-                  >
-                    {embedImageInNote.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <ImageIcon className="h-4 w-4" />
-                    )}
-                    <span className="ml-1 text-xs">Embed image</span>
-                  </Button>
-                </div>
               </div>
               {editor && (
                 <div className="flex items-center gap-1 px-3 py-2 border-b bg-muted/30 shrink-0 flex-wrap">
@@ -765,54 +690,41 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                     "flex-1 flex flex-col transition-colors min-h-0",
                     isDragOver && "bg-primary/5 ring-2 ring-primary ring-inset"
                   )}
+                >
+                  <div className={clsx(
+                    "m-3 border-2 border-dashed rounded-lg transition-colors flex items-center justify-center cursor-pointer",
+                    isDragOver ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/20"
+                  )}
+                  style={{ minHeight: '120px' }}
                   onDragOver={(e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     if (e.dataTransfer.types.includes('Files')) {
                       setIsDragOver(true);
                     }
                   }}
                   onDragLeave={(e) => {
+                    e.stopPropagation();
                     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                       setIsDragOver(false);
                     }
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
-                    if (!editor) {
-                      setIsDragOver(false);
-                      return;
-                    }
+                    e.stopPropagation();
+                    setIsDragOver(false);
+
                     const files = e.dataTransfer?.files;
-                    if (!files || files.length === 0) {
-                      setIsDragOver(false);
-                      return;
-                    }
+                    if (!files || files.length === 0) return;
 
                     const file = files[0];
                     if (!file.type.startsWith('image/')) {
-                      setIsDragOver(false);
+                      toast.error('Only image files are supported');
                       return;
                     }
 
-                    const editorRect = editor.view.dom.getBoundingClientRect();
-                    const isInsideEditor = 
-                      e.clientX >= editorRect.left &&
-                      e.clientX <= editorRect.right &&
-                      e.clientY >= editorRect.top &&
-                      e.clientY <= editorRect.bottom;
-
-                    if (!isInsideEditor) {
-                      toast.error('Drop image inside the editor area');
-                    }
-
-                    setIsDragOver(false);
+                    void handleDottedLineDrop(file);
                   }}
-                >
-                  <div className={clsx(
-                    "m-3 border-2 border-dashed rounded-lg transition-colors flex items-center justify-center",
-                    isDragOver ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/20"
-                  )}
-                  style={{ minHeight: '120px' }}
                   >
                     <div className="text-center">
                       <ImageIcon className={clsx("h-8 w-8 mx-auto mb-2", isDragOver ? "text-primary" : "text-muted-foreground")} />
@@ -820,7 +732,7 @@ const uploadImageForNote = async (noteId: Id<'workspaceNotes'>, file: File): Pro
                         {isDragOver ? "Drop image here" : "Drag and drop an image"}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        or click the Embed image button above
+                        Drop an image to add it to your note
                       </p>
                     </div>
                   </div>
