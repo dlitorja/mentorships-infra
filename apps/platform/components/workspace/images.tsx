@@ -29,8 +29,8 @@ interface FailedUpload {
 }
 
 const IMAGE_CAPS = {
-  student: 75,
-  instructor: 150,
+  student: 500,
+  instructor: 500,
 } as const;
 
 const PER_UPLOAD_CAP = 5;
@@ -51,6 +51,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasShownExportCompleteToast, setHasShownExportCompleteToast] = useState(false);
+  const [lastExportAttemptAt, setLastExportAttemptAt] = useState<number>(0);
 
   const { data: images, isLoading, refetch: refetchImages } = useWorkspaceImages(workspaceId);
   const { data: exports, refetch: refetchExports } = useWorkspaceExports(workspaceId);
@@ -80,6 +81,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   }, [latestExport, hasShownExportCompleteToast]);
 
   const handleExport = async () => {
+    setLastExportAttemptAt(Date.now());
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
     toast.promise(
@@ -325,7 +327,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               </div>
               <span className="text-xs text-muted-foreground">You can leave this page and return later</span>
             </div>
-          ) : latestExport?.status === 'failed' ? (
+          ) : latestExport?.status === 'failed' && latestExport._creationTime >= lastExportAttemptAt && lastExportAttemptAt > 0 ? (
             <>
               <p className="text-sm text-destructive">Export failed</p>
               <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
@@ -341,19 +343,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
               </Button>
             </>
           )}
-          <Button
-            disabled={remainingSlots <= 0 || isUploading}
-            variant="outline"
-            onClick={open}
-          >
-            {isUploading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Upload className="h-4 w-4 mr-2" />
-            )}
-            {imageFiles.length > 0 ? `Add More (${imageFiles.length})` : 'Upload Images'}
-          </Button>
-        </div>
+          </div>
       </div>
 
       {/* Drop Area */}
@@ -475,7 +465,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       )}
 
       {/* Image Grid */}
-      <div className="flex-1 min-h-0 relative">
+      <div className="flex-1 min-h-0 relative overflow-y-auto">
         {isRefreshing && (
           <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2">

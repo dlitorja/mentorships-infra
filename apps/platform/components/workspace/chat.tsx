@@ -79,7 +79,14 @@ function parseFileMessage(content: string): ParsedFileMessage {
   }
 }
 
-const URL_REGEX = /(https?:\/\/[^\s<]+)/g;
+const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|zip|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b/gi;
+
+function normalizeUrl(url: string): string {
+  if (!url.match(/^(https?|ftp):\/\//i)) {
+    return 'https://' + url;
+  }
+  return url;
+}
 
 function extractUrls(content: string): string[] {
   const matches = content.match(URL_REGEX);
@@ -87,23 +94,37 @@ function extractUrls(content: string): string[] {
 }
 
 function renderMessageWithLinks(content: string): React.ReactNode {
-  const parts = content.split(URL_REGEX);
-  return parts.map((part, index) => {
-    if (URL_REGEX.test(part)) {
-      return (
-        <a
-          key={index}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline hover:opacity-80 break-all"
-        >
-          {part}
-        </a>
-      );
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  for (const match of content.matchAll(URL_REGEX)) {
+    const url = match[0];
+    const index = match.index ?? 0;
+
+    if (index > lastIndex) {
+      nodes.push(content.slice(lastIndex, index));
     }
-    return part;
-  });
+
+    nodes.push(
+      <a
+        key={`${url}-${index}`}
+        href={normalizeUrl(url)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-foreground underline hover:opacity-80 break-all"
+      >
+        {url}
+      </a>
+    );
+
+    lastIndex = index + url.length;
+  }
+
+  if (lastIndex < content.length) {
+    nodes.push(content.slice(lastIndex));
+  }
+
+  return nodes;
 }
 
 interface ShareLinkButtonProps {
@@ -117,9 +138,10 @@ function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
 
   const handleShare = async (url: string) => {
     try {
+      const normalizedUrl = normalizeUrl(url);
       await createLink.mutateAsync({
         workspaceId,
-        url,
+        url: normalizedUrl,
       });
       setSharedUrls((prev) => new Set(prev).add(url));
       toast.success('Link shared to Links tab');
@@ -173,7 +195,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
   const isAdmin = role === 'admin';
   const currentCount = (existingImages as WorkspaceImageDoc[] | undefined)?.filter((img) => !img.deletedAt).length || 0;
-  const remainingSlots = isAdmin ? 999 : (role === 'instructor' ? 150 : 75) - currentCount;
+  const remainingSlots = isAdmin ? 999 : 500 - currentCount;
   const currentFileCount = (messages as Message[] | undefined)?.filter(
     (msg) => msg.type === 'file' && (msg.senderRole === role || msg.senderRole === undefined)
   ).length || 0;
@@ -186,20 +208,13 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ block: "end" });
-    }, 0);
-    return () => clearTimeout(timeout);
-  }, []);
-
-  useEffect(() => {
-    if (!isLoading && messages) {
-      const timeout = setTimeout(() => {
+    if (messages && messages.length > 0) {
+      const frameId = requestAnimationFrame(() => {
         messagesEndRef.current?.scrollIntoView({ block: "end" });
-      }, 0);
-      return () => clearTimeout(timeout);
+      });
+      return () => cancelAnimationFrame(frameId);
     }
-  }, [messages, isLoading]);
+  }, [messages]);
 
   const handleSendMessage = async () => {
     if (!message.trim() || !workspaceId) return;
