@@ -125,6 +125,12 @@ async function downloadFile(url: string, fileName: string) {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
   } catch (error) {
     console.error('Failed to download file:', error);
+    const isAbort = error instanceof DOMException && error.name === 'AbortError';
+    if (isAbort) {
+      toast.error('Download timed out. Please try again.');
+      return;
+    }
+
     if (error instanceof Error && (error as DownloadError).skipFallback) {
       toast.error('Download failed. Please try again.');
       return;
