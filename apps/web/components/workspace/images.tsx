@@ -71,8 +71,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const formatLabel = 'ZIP';
-
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (!file || !workspaceId) return;
@@ -160,7 +158,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             <Button variant="default" asChild>
               <a href={downloadUrl} download>
                 <Download className="h-4 w-4 mr-2" />
-                Download {formatLabel}
+                Download ZIP
               </a>
             </Button>
           ) : (

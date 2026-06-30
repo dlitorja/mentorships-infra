@@ -105,8 +105,6 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
     }
   };
 
-  const formatLabel = 'ZIP';
-
   const processFiles = useCallback(async (files: File[]) => {
     const availableSlots = isAdmin ? 9999 : remainingSlots - imageFiles.length;
     const { valid, invalid } = validateImageFiles(files, availableSlots, isAdmin);
@@ -289,14 +287,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
             <Button variant="default" asChild>
               <a href={downloadUrl} download>
                 <Download className="h-4 w-4 mr-2" />
-                Download {formatLabel}
+                Download ZIP
               </a>
             </Button>
           ) : isProcessing ? (
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-primary">Creating {formatLabel.toLowerCase()}...</span>
+                <span className="text-sm text-primary">Creating zip...</span>
                 <Button
                   variant="ghost"
                   size="sm"
