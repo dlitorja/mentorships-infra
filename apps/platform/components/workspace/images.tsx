@@ -465,7 +465,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       )}
 
       {/* Image Grid */}
-      <div className="flex-1 min-h-0 relative">
+      <div className="relative">
         {isRefreshing && (
           <div className="absolute inset-0 bg-background/80 z-10 flex items-center justify-center">
             <div className="flex flex-col items-center gap-2">
