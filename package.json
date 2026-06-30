@@ -116,10 +116,6 @@
     "typescript": "5.9.3",
     "vitest": "2.1.9"
   },
-  "overrides": {
-    "react": "$react",
-    "react-dom": "$react-dom"
-  },
   "pnpm": {
     "overrides": {
       "esbuild": ">=0.25.0",
