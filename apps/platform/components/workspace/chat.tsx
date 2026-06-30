@@ -89,6 +89,10 @@ function splitUrlTrailingPunctuation(url: string): { cleanUrl: string; trailingT
     : { cleanUrl: url, trailingText: '' };
 }
 
+function isEmailDomainMatch(content: string, index: number): boolean {
+  return index > 0 && content[index - 1] === '@';
+}
+
 function normalizeUrl(url: string): string {
   if (!url.match(/^(https?|ftp):\/\//i)) {
     return 'https://' + url;
@@ -97,7 +101,9 @@ function normalizeUrl(url: string): string {
 }
 
 function extractUrls(content: string): string[] {
-  const matches = [...content.matchAll(URL_REGEX)].map((match) => splitUrlTrailingPunctuation(match[0]).cleanUrl);
+  const matches = [...content.matchAll(URL_REGEX)]
+    .filter((match) => !isEmailDomainMatch(content, match.index ?? 0))
+    .map((match) => splitUrlTrailingPunctuation(match[0]).cleanUrl);
   return [...new Set(matches)];
 }
 
@@ -108,6 +114,9 @@ function renderMessageWithLinks(content: string): React.ReactNode {
   for (const match of content.matchAll(URL_REGEX)) {
     const { cleanUrl, trailingText } = splitUrlTrailingPunctuation(match[0]);
     const index = match.index ?? 0;
+    if (isEmailDomainMatch(content, index)) {
+      continue;
+    }
 
     if (index > lastIndex) {
       nodes.push(content.slice(lastIndex, index));
