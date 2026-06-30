@@ -130,12 +130,8 @@ async function downloadFile(url: string, fileName: string) {
       return;
     }
 
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
-    if (opened) {
-      toast.info('Opened file in a new tab');
-    } else {
-      toast.error('Download failed. Please try again.');
-    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+    toast.info('Opened file in a new tab');
   } finally {
     clearTimeout(timeout);
   }
