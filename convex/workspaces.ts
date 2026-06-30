@@ -350,6 +350,10 @@ export const getWorkspaceNotes = query({
     }
 
     if (args.includeDeleted) {
+      if (role !== "instructor" && role !== "admin") {
+        return [];
+      }
+
       return await ctx.db
         .query("workspaceNotes")
         .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
