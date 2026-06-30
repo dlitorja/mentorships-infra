@@ -77,6 +77,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const headerTitleInputRef = useRef<HTMLInputElement>(null);
   const dottedLineFileInputRef = useRef<HTMLInputElement>(null);
   const titleEditGuardRef = useRef(false);
+  const editingNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const updateNote = useUpdateWorkspaceNote();
@@ -98,6 +99,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   useEffect(() => {
     selectedNoteIdRef.current = selectedNoteId;
   }, [selectedNoteId]);
+
+  useEffect(() => {
+    editingNoteIdRef.current = editingNoteId;
+  }, [editingNoteId]);
 
   async function flushAutosave(noteId: Id<'workspaceNotes'>) {
     const entry = autosavesRef.current.get(noteId);
@@ -489,9 +494,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                           titleEditGuardRef.current = false;
                           return;
                         }
+                        const blurredNoteId = note._id;
                         setTimeout(() => {
+                          if (editingNoteIdRef.current !== blurredNoteId) return;
                           if (editingTitleValue?.trim()) {
-                            handleTitleUpdate(note._id);
+                            handleTitleUpdate(blurredNoteId);
                           } else {
                             setEditingNoteId(null);
                           }
@@ -571,9 +578,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                             titleEditGuardRef.current = false;
                             return;
                           }
+                          const blurredNoteId = selectedNote._id;
                           setTimeout(() => {
+                            if (editingNoteIdRef.current !== blurredNoteId) return;
                             if (editingTitleValue?.trim()) {
-                              handleTitleUpdate(selectedNote._id);
+                              handleTitleUpdate(blurredNoteId);
                             } else {
                               setEditingNoteId(null);
                             }

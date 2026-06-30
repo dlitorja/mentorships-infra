@@ -80,6 +80,14 @@ function parseFileMessage(content: string): ParsedFileMessage {
 }
 
 const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b(?:[/?#][^\s<]*)?/gi;
+const TRAILING_URL_PUNCTUATION_REGEX = /[),.!?:;]+$/;
+
+function splitUrlTrailingPunctuation(url: string): { cleanUrl: string; trailingText: string } {
+  const trailingText = url.match(TRAILING_URL_PUNCTUATION_REGEX)?.[0] ?? '';
+  return trailingText
+    ? { cleanUrl: url.slice(0, -trailingText.length), trailingText }
+    : { cleanUrl: url, trailingText: '' };
+}
 
 function normalizeUrl(url: string): string {
   if (!url.match(/^(https?|ftp):\/\//i)) {
@@ -89,8 +97,8 @@ function normalizeUrl(url: string): string {
 }
 
 function extractUrls(content: string): string[] {
-  const matches = content.match(URL_REGEX);
-  return matches ? [...new Set(matches)] : [];
+  const matches = [...content.matchAll(URL_REGEX)].map((match) => splitUrlTrailingPunctuation(match[0]).cleanUrl);
+  return [...new Set(matches)];
 }
 
 function renderMessageWithLinks(content: string): React.ReactNode {
@@ -98,7 +106,7 @@ function renderMessageWithLinks(content: string): React.ReactNode {
   let lastIndex = 0;
 
   for (const match of content.matchAll(URL_REGEX)) {
-    const url = match[0];
+    const { cleanUrl, trailingText } = splitUrlTrailingPunctuation(match[0]);
     const index = match.index ?? 0;
 
     if (index > lastIndex) {
@@ -107,17 +115,20 @@ function renderMessageWithLinks(content: string): React.ReactNode {
 
     nodes.push(
       <a
-        key={`${url}-${index}`}
-        href={normalizeUrl(url)}
+        key={`${cleanUrl}-${index}`}
+        href={normalizeUrl(cleanUrl)}
         target="_blank"
         rel="noopener noreferrer"
         className="text-foreground underline hover:opacity-80 break-all"
       >
-        {url}
+        {cleanUrl}
       </a>
     );
+    if (trailingText) {
+      nodes.push(trailingText);
+    }
 
-    lastIndex = index + url.length;
+    lastIndex = index + match[0].length;
   }
 
   if (lastIndex < content.length) {
@@ -143,7 +154,7 @@ function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
         workspaceId,
         url: normalizedUrl,
       });
-      setSharedUrls((prev) => new Set(prev).add(url));
+      setSharedUrls((prev) => new Set(prev).add(normalizedUrl));
       toast.success('Link shared to Links tab');
     } catch (error) {
       console.error('Failed to share link:', error);
@@ -156,7 +167,7 @@ function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {urls.map((url, index) => {
-        const isShared = sharedUrls.has(url);
+        const isShared = sharedUrls.has(normalizeUrl(url));
         return (
           <Button
             key={index}

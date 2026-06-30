@@ -71,16 +71,17 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   const isPending = latestExport?.status === 'pending';
 
   useEffect(() => {
-    if (latestExport?.status === 'completed' && latestExport.downloadUrl) {
+    if (latestExport?._id === lastExportAttemptId && latestExport.status === 'completed' && latestExport.downloadUrl) {
       setDownloadUrl(latestExport.downloadUrl);
       if (!hasShownExportCompleteToast) {
         toast.success('Your export is ready! Click to download.');
         setHasShownExportCompleteToast(true);
       }
     }
-  }, [latestExport, hasShownExportCompleteToast]);
+  }, [latestExport, hasShownExportCompleteToast, lastExportAttemptId]);
 
   const handleExport = async () => {
+    setLastExportAttemptId(null);
     setDownloadUrl(null);
     setHasShownExportCompleteToast(false);
     const exportPromise = createExport.mutateAsync({
@@ -492,6 +493,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                   <img
                     src={img.imageUrl}
                     alt="Workspace image"
+                    loading="lazy"
                     className="w-full h-full object-cover cursor-pointer"
                     onClick={() => setSelectedImage(img.imageUrl)}
                   />

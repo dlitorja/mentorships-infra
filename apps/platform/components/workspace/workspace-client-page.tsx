@@ -54,7 +54,7 @@ function WorkspaceContent({
   const isChatTab = activeTab === "chat";
 
   return (
-    <div className={`container mx-auto p-4 md:p-6 ${isChatTab ? "h-[calc(100vh-64px)]" : ""}`}>
+    <div className={`container mx-auto p-4 md:p-6 ${isChatTab ? "h-[calc(100dvh-64px)]" : ""}`}>
       <div className={`flex flex-col md:flex-row gap-6 ${isChatTab ? "h-full" : ""}`}>
         <div className="w-full md:w-64 shrink-0">
           <Card className={isChatTab ? "h-full" : ""}>
