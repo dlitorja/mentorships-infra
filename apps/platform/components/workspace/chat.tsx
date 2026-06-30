@@ -122,7 +122,7 @@ async function downloadFile(url: string, fileName: string) {
     document.body.append(link);
     link.click();
     link.remove();
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
   } catch (error) {
     console.error('Failed to download file:', error);
     const isAbort = error instanceof DOMException && error.name === 'AbortError';
