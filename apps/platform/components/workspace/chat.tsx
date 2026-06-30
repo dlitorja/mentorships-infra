@@ -106,6 +106,7 @@ function isImageFileName(fileName: string): boolean {
 async function downloadFile(url: string, fileName: string) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
+  let responseStarted = false;
 
   try {
     const response = await fetch(url, { signal: controller.signal });
@@ -115,6 +116,7 @@ async function downloadFile(url: string, fileName: string) {
       throw error;
     }
 
+    responseStarted = true;
     const objectUrl = URL.createObjectURL(await response.blob());
     const link = document.createElement('a');
     link.href = objectUrl;
@@ -133,6 +135,11 @@ async function downloadFile(url: string, fileName: string) {
 
     if (error instanceof Error && (error as DownloadError).skipFallback) {
       toast.error('Download failed. Please try again.');
+      return;
+    }
+
+    if (responseStarted) {
+      toast.error('Download was interrupted. Please try again.');
       return;
     }
 

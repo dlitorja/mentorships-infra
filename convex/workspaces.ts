@@ -370,6 +370,7 @@ export const getWorkspaceNotes = query({
       .withIndex("by_workspaceId_and_deletedAt", (q) =>
         q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
       )
+      .order("asc")
       .collect();
   },
 });
