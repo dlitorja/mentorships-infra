@@ -402,7 +402,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
 
       toast.success('Image inserted', { id: toastId });
 
-      if (currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
+      if (imageUrl && currentEditor && selectedNoteIdRef.current === noteIdForUpload) {
         const docSize = currentEditor.state.doc.content.size;
         currentEditor.chain().focus().setTextSelection(docSize).setImage({ src: imageUrl }).run();
       }
