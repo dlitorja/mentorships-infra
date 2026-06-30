@@ -729,6 +729,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
                     "m-3 border-2 border-dashed rounded-lg transition-colors flex items-center justify-center cursor-pointer",
                     isDragOver ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/20"
                   )}
+                  role="button"
+                  tabIndex={0}
                   style={{ minHeight: '120px' }}
                   onClick={handleDottedLineClick}
                   onKeyDown={(e) => {
