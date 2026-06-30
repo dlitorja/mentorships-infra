@@ -53,10 +53,10 @@ function WorkspaceContent({
   const selectedWorkspace = workspaces?.find((w: UserWorkspace) => w._id === selectedWorkspaceId);
 
   return (
-    <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-64px)]">
-      <div className="flex flex-col md:flex-row gap-6 h-full">
+    <div className="container mx-auto p-4 md:p-6">
+      <div className="flex flex-col md:flex-row gap-6">
         <div className="w-full md:w-64 shrink-0">
-          <Card className="h-full">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Workspaces</CardTitle>
             </CardHeader>
@@ -95,7 +95,7 @@ function WorkspaceContent({
 
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
-            <Card className="h-full flex flex-col">
+            <Card className="flex flex-col">
               <CardHeader className="pb-3 shrink-0">
                 <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
                 {selectedWorkspace.description && (
