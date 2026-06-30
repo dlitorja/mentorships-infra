@@ -338,6 +338,17 @@ export const getWorkspaceNotes = query({
     if (!user) {
       return [];
     }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return [];
+    }
+
     if (args.includeDeleted) {
       return await ctx.db
         .query("workspaceNotes")

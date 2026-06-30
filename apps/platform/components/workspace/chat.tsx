@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
@@ -284,14 +284,14 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const remainingFileSlots = isAdmin
     ? Number.MAX_SAFE_INTEGER
     : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
-  const imageMessages = ((messages as Message[] | undefined) ?? []).filter((msg) => {
+  const imageMessages = useMemo(() => ((messages as Message[] | undefined) ?? []).filter((msg) => {
     if (msg.type === 'image') return true;
     if (msg.type !== 'file') return false;
     return isImageFileName(parseFileMessage(msg.content).fileName);
-  });
-  const chatImages = imageMessages.map((msg) => (
+  }), [messages]);
+  const chatImages = useMemo(() => imageMessages.map((msg) => (
     msg.type === 'image' ? parseImageMessage(msg.content) : parseFileMessage(msg.content)
-  ).url);
+  ).url), [imageMessages]);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
