@@ -87,7 +87,7 @@ function parseImageMessage(content: string): ParsedFileMessage {
 }
 
 function isImageFileName(fileName: string): boolean {
-  return /\.(avif|gif|jpe?g|png|webp|svg)$/i.test(fileName);
+  return /\.(avif|gif|jpe?g|png|webp)$/i.test(fileName);
 }
 
 async function downloadFile(url: string, fileName: string) {
@@ -104,7 +104,7 @@ async function downloadFile(url: string, fileName: string) {
     document.body.append(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(objectUrl);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
   } catch (error) {
     console.error('Failed to download file:', error);
     window.open(url, '_blank', 'noopener,noreferrer');
