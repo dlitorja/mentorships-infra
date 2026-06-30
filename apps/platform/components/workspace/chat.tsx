@@ -264,6 +264,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [retryingIndices, setRetryingIndices] = useState<Set<number>>(new Set());
+  const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -550,6 +551,21 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     setLightboxOpen(true);
   };
 
+  const handleDownloadFile = async (url: string, fileName: string) => {
+    if (downloadingFiles.has(url)) return;
+
+    setDownloadingFiles((prev) => new Set(prev).add(url));
+    try {
+      await downloadFile(url, fileName);
+    } finally {
+      setDownloadingFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(url);
+        return next;
+      });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -583,6 +599,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
             const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
             const fileImageMessage = fileMessage && isImageFileName(fileMessage.fileName) ? fileMessage : null;
             const displayImageMessage = imageMessage ?? fileImageMessage;
+            const isFileImageDownloading = fileImageMessage ? downloadingFiles.has(fileImageMessage.url) : false;
 
             return (
               <div
@@ -620,10 +637,15 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                               size="icon"
                               variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
                               className="h-6 w-6 shrink-0"
-                              onClick={() => downloadFile(fileImageMessage.url, fileImageMessage.fileName)}
+                              onClick={() => void handleDownloadFile(fileImageMessage.url, fileImageMessage.fileName)}
+                              disabled={isFileImageDownloading}
                               aria-label={`Download ${fileImageMessage.fileName}`}
                             >
-                              <Download className="h-3 w-3" />
+                              {isFileImageDownloading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Download className="h-3 w-3" />
+                              )}
                             </Button>
                           )}
                         </div>
