@@ -336,14 +336,10 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const chatImages = useMemo(() => imageMessages.map(({ parsed }) => (
     parsed.url
   )), [imageMessages]);
-  const chatImageDownloadBases = useMemo(() => imageMessages.map(({ msg, parsed }) => {
+  const chatImageDownloads = useMemo(() => imageMessages.map(({ msg, parsed }) => {
     if (msg.type !== 'file') return null;
-    return parsed;
-  }), [imageMessages]);
-  const chatImageDownloads = useMemo(() => chatImageDownloadBases.map((base) => {
-    if (!base) return null;
-    return { ...base, isDownloading: downloadingFiles.has(base.url) };
-  }), [chatImageDownloadBases, downloadingFiles]);
+    return { ...parsed, isDownloading: downloadingFiles.has(parsed.url) };
+  }), [downloadingFiles, imageMessages]);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
