@@ -8,7 +8,7 @@ import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Upload, Trash2, Image as ImageIcon, X, ZoomIn, Download, FileArchive, FileText, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, RefreshCw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
