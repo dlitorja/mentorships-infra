@@ -30,6 +30,11 @@ interface Message {
   senderRole?: 'student' | 'instructor' | 'admin';
 }
 
+interface ImageMessageEntry {
+  msg: Message;
+  parsed: ParsedFileMessage | null;
+}
+
 interface PendingAttachment {
   file: File;
   isImage: boolean;
@@ -294,17 +299,26 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const remainingFileSlots = isAdmin
     ? Number.MAX_SAFE_INTEGER
     : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
-  const imageMessages = useMemo(() => ((messages as Message[] | undefined) ?? []).filter((msg) => {
-    if (msg.type === 'image') return true;
-    if (msg.type !== 'file') return false;
-    return isImageFileName(parseFileMessage(msg.content).fileName);
-  }), [messages]);
-  const chatImages = useMemo(() => imageMessages.map((msg) => (
-    msg.type === 'image' ? parseImageMessage(msg.content) : parseFileMessage(msg.content)
-  ).url), [imageMessages]);
-  const chatImageDownloadBases = useMemo(() => imageMessages.map((msg) => {
+  const imageMessages = useMemo<ImageMessageEntry[]>(() => {
+    const result: ImageMessageEntry[] = [];
+    for (const msg of (messages as Message[] | undefined) ?? []) {
+      if (msg.type === 'image') {
+        result.push({ msg, parsed: null });
+      } else if (msg.type === 'file') {
+        const parsed = parseFileMessage(msg.content);
+        if (isImageFileName(parsed.fileName)) {
+          result.push({ msg, parsed });
+        }
+      }
+    }
+    return result;
+  }, [messages]);
+  const chatImages = useMemo(() => imageMessages.map(({ msg, parsed }) => (
+    msg.type === 'image' ? parseImageMessage(msg.content) : parsed
+  )?.url ?? ''), [imageMessages]);
+  const chatImageDownloadBases = useMemo(() => imageMessages.map(({ msg, parsed }) => {
     if (msg.type !== 'file') return null;
-    return parseFileMessage(msg.content);
+    return parsed;
   }), [imageMessages]);
   const chatImageDownloads = useMemo(() => chatImageDownloadBases.map((base) => {
     if (!base) return null;
@@ -563,12 +577,12 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const openImageLightbox = (messageId: Id<'workspaceMessages'>) => {
-    const index = imageMessages.findIndex((msg) => msg._id === messageId);
+    const index = imageMessages.findIndex(({ msg }) => msg._id === messageId);
     setLightboxIndex(index === -1 ? 0 : index);
     setLightboxOpen(true);
   };
 
-  const handleDownloadFile = async (url: string, fileName: string) => {
+  const handleDownloadFile = useCallback(async (url: string, fileName: string) => {
     if (downloadingFiles.has(url)) return;
 
     setDownloadingFiles((prev) => new Set(prev).add(url));
@@ -581,7 +595,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
         return next;
       });
     }
-  };
+  }, [downloadingFiles]);
 
   if (isLoading) {
     return (
