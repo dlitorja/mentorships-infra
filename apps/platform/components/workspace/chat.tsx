@@ -90,6 +90,27 @@ function isImageFileName(fileName: string): boolean {
   return /\.(avif|gif|jpe?g|png|webp|svg)$/i.test(fileName);
 }
 
+async function downloadFile(url: string, fileName: string) {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Download failed');
+    }
+
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    console.error('Failed to download file:', error);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
 const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b(?:[/?#][^\s<]*)?/gi;
 const TRAILING_URL_PUNCTUATION_REGEX = /[.,!?:;]+$/;
 
@@ -590,14 +611,14 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                           <p className="min-w-0 flex-1 truncate text-xs opacity-80">{displayImageMessage.fileName}</p>
                           {fileImageMessage && (
                             <Button
-                              asChild
+                              type="button"
                               size="icon"
                               variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
                               className="h-6 w-6 shrink-0"
+                              onClick={() => downloadFile(fileImageMessage.url, fileImageMessage.fileName)}
+                              aria-label={`Download ${fileImageMessage.fileName}`}
                             >
-                              <a href={fileImageMessage.url} download={fileImageMessage.fileName} target="_blank" rel="noopener noreferrer" aria-label={`Download ${fileImageMessage.fileName}`}>
-                                <Download className="h-3 w-3" />
-                              </a>
+                              <Download className="h-3 w-3" />
                             </Button>
                           )}
                         </div>

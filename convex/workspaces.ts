@@ -329,12 +329,22 @@ export const deleteWorkspace = mutation({
 
 /** Returns all notes for a workspace. Requires auth. */
 export const getWorkspaceNotes = query({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    includeDeleted: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       return [];
     }
+    if (args.includeDeleted) {
+      return await ctx.db
+        .query("workspaceNotes")
+        .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+        .collect();
+    }
+
     return await ctx.db
       .query("workspaceNotes")
       .withIndex("by_workspaceId_and_deletedAt", (q) =>
