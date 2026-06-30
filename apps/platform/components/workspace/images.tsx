@@ -496,7 +496,7 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
                       <Button
                         size="icon"
                         variant="destructive"
-                        className="h-8 w-8"
+                        className="h-8 w-8 pointer-events-auto"
                         onClick={(e) => { e.stopPropagation(); handleDeleteImage(img._id); }}
                       >
                         <Trash2 className="h-4 w-4" />
