@@ -357,7 +357,7 @@ export const getWorkspaceNotes = query({
       return await ctx.db
         .query("workspaceNotes")
         .withIndex("by_workspaceId_and_deletedAt", (q) =>
-          q.eq("workspaceId", args.workspaceId).gte("deletedAt", 0)
+          q.eq("workspaceId", args.workspaceId).gte("deletedAt", 1)
         )
         .order("desc")
         .collect();

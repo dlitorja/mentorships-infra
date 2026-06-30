@@ -657,7 +657,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted'
                 )}>
-                  {displayImageMessage ? (
+                  {displayImageMessage?.url ? (
                     <div className="space-y-1">
                       <button
                         type="button"
