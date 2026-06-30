@@ -894,7 +894,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
         initialIndex={lightboxIndex}
         open={lightboxOpen}
         onOpenChange={setLightboxOpen}
-        onDownload={(url, fileName) => void handleDownloadFile(url, fileName)}
+        onDownload={handleDownloadFile}
       />
     </div>
   );
