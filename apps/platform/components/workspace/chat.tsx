@@ -68,6 +68,10 @@ interface ParsedFileMessage {
   url: string;
 }
 
+interface DownloadError extends Error {
+  skipFallback?: boolean;
+}
+
 function decodeFileName(encodedFileName: string, fallback: string): string {
   try {
     return decodeURIComponent(encodedFileName) || fallback;
@@ -106,7 +110,9 @@ async function downloadFile(url: string, fileName: string) {
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) {
-      throw new Error('Download failed');
+      const error: DownloadError = new Error('Download failed');
+      error.skipFallback = true;
+      throw error;
     }
 
     const objectUrl = URL.createObjectURL(await response.blob());
@@ -119,6 +125,11 @@ async function downloadFile(url: string, fileName: string) {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 100);
   } catch (error) {
     console.error('Failed to download file:', error);
+    if (error instanceof Error && (error as DownloadError).skipFallback) {
+      toast.error('Download failed. Please try again.');
+      return;
+    }
+
     const opened = window.open(url, '_blank', 'noopener,noreferrer');
     if (opened) {
       toast.info('Opened file in a new tab');
