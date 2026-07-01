@@ -309,7 +309,9 @@ export const useSession = mutation({
     }
     
     const newRemaining = pack.remainingSessions - 1;
-    const newStatus = newRemaining <= 0 ? "depleted" : pack.status;
+    const newStatus = newRemaining <= 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status;
     
     await ctx.db.patch(args.id, {
       remainingSessions: newRemaining,
