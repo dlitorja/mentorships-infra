@@ -444,11 +444,20 @@ export const restoreSessionCounts = mutation({
     id: v.id("sessionPacks"),
     totalSessions: v.number(),
     remainingSessions: v.number(),
+    expectedTotalSessions: v.number(),
+    expectedRemainingSessions: v.number(),
   },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
     if (!pack) {
       return null;
+    }
+
+    if (
+      pack.totalSessions !== args.expectedTotalSessions ||
+      pack.remainingSessions !== args.expectedRemainingSessions
+    ) {
+      throw new Error("Session pack changed before undo could be applied");
     }
 
     const totalSessions = Math.max(0, args.totalSessions);

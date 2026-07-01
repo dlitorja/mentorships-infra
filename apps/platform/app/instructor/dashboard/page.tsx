@@ -7,19 +7,10 @@ import { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
+import type { FunctionReturnType } from "convex/server";
 
-type StudentSessionRow = {
-  userId: string;
-  seatId: Id<"seatReservations">;
-  sessionPackId: Id<"sessionPacks">;
-  studentEmail: string | null;
-  studentFirstName: string | null;
-  studentLastName: string | null;
-  totalSessions: number;
-  remainingSessions: number;
-  seatExpiresAt: number;
-  status: "active" | "grace";
-};
+type StudentSessionRows = FunctionReturnType<typeof api.seatReservations.getInstructorStudentsWithRemainingSessions>;
+type StudentSessionRow = StudentSessionRows[number];
 
 function formatDate(date: Date | string | null | number): string {
   if (!date) return "N/A";
@@ -40,6 +31,14 @@ function getSessionBadgeVariant(remainingSessions: number): "default" | "seconda
   if (remainingSessions === 0) return "destructive";
   if (remainingSessions <= 1) return "secondary";
   return "default";
+}
+
+async function fetchStudentSessionRows(instructorId: Id<"instructors">, token: string | null): Promise<StudentSessionRows> {
+  return await fetchQuery(
+    api.seatReservations.getInstructorStudentsWithRemainingSessions,
+    { instructorId },
+    { token: token ?? undefined }
+  );
 }
 
 /** Instructor dashboard focused on active students and remaining session counts. */
@@ -69,14 +68,12 @@ export default async function InstructorDashboardPage() {
   }
 
   let studentRows: StudentSessionRow[] = [];
+  let studentRowsError: string | null = null;
   try {
-    studentRows = (await fetchQuery(
-      api.seatReservations.getInstructorStudentsWithRemainingSessions,
-      { instructorId: instructorRecord._id as Id<"instructors"> },
-      { token: token ?? undefined }
-    )) as StudentSessionRow[];
+    studentRows = await fetchStudentSessionRows(instructorRecord._id as Id<"instructors">, token);
   } catch (e) {
     console.error("Failed to load instructor student session counts", e);
+    studentRowsError = e instanceof Error ? e.message : "Failed to load student session counts";
   }
 
   return (
@@ -97,7 +94,11 @@ export default async function InstructorDashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {studentRows.length === 0 ? (
+            {studentRowsError ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-8 text-center text-destructive">
+                {studentRowsError}
+              </div>
+            ) : studentRows.length === 0 ? (
               <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
                 No active students yet.
               </div>

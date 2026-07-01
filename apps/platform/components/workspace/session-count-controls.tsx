@@ -25,16 +25,17 @@ type SessionPackPatchResponse = {
 
 type AdjustmentAction = "increment" | "decrement";
 type PendingAction = AdjustmentAction | "restore";
+type SessionCountSnapshot = {
+  remainingSessions: number;
+  totalSessions: number;
+};
 
 export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
   const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingRef = useRef(false);
-  const latestCountRef = useRef({ remainingSessions: 0, totalSessions: 0 });
-  const [optimisticCount, setOptimisticCount] = useState<{
-    remainingSessions: number;
-    totalSessions: number;
-  } | null>(null);
+  const latestCountRef = useRef<SessionCountSnapshot>({ remainingSessions: 0, totalSessions: 0 });
+  const [optimisticCount, setOptimisticCount] = useState<SessionCountSnapshot | null>(null);
 
   useEffect(() => {
     setOptimisticCount(null);
@@ -47,13 +48,27 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     latestCountRef.current = { remainingSessions, totalSessions };
   }, [remainingSessions, totalSessions]);
 
-  const restoreSessions = useCallback(async (count: { remainingSessions: number; totalSessions: number }) => {
+  const syncFromServer = useCallback(async () => {
+    const result = await refetch();
+    if (result.data) {
+      const serverCount = {
+        remainingSessions: result.data.remainingSessions,
+        totalSessions: result.data.totalSessions,
+      };
+      setOptimisticCount(serverCount);
+      latestCountRef.current = serverCount;
+    } else {
+      setOptimisticCount(null);
+    }
+  }, [refetch]);
+
+  const restoreSessions = useCallback(async (target: SessionCountSnapshot, expected: SessionCountSnapshot) => {
     if (pendingRef.current) return;
 
     pendingRef.current = true;
     setPendingAction("restore");
-    setOptimisticCount(count);
-    latestCountRef.current = count;
+    setOptimisticCount(target);
+    latestCountRef.current = target;
 
     try {
       const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
@@ -61,8 +76,10 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "restore",
-          remainingSessions: count.remainingSessions,
-          totalSessions: count.totalSessions,
+          remainingSessions: target.remainingSessions,
+          totalSessions: target.totalSessions,
+          expectedRemainingSessions: expected.remainingSessions,
+          expectedTotalSessions: expected.totalSessions,
         }),
       });
       let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
@@ -86,12 +103,12 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       toast.success("Session change undone.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to restore sessions");
-      void refetch();
+      await syncFromServer();
     } finally {
       pendingRef.current = false;
       setPendingAction(null);
     }
-  }, [refetch, sessionPackId]);
+  }, [refetch, sessionPackId, syncFromServer]);
 
   const adjustSessions = useCallback(async (action: AdjustmentAction, showUndo = true) => {
     if (pendingRef.current) return;
@@ -140,19 +157,18 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         action: showUndo
           ? {
               label: "Undo",
-              onClick: () => void restoreSessions(previousCount),
+              onClick: () => void restoreSessions(previousCount, updatedCount),
             }
           : undefined,
       });
     } catch (error) {
-      setOptimisticCount(previousCount);
-      latestCountRef.current = previousCount;
       toast.error(error instanceof Error ? error.message : "Failed to update sessions");
+      await syncFromServer();
     } finally {
       pendingRef.current = false;
       setPendingAction(null);
     }
-  }, [refetch, restoreSessions, sessionPackId]);
+  }, [refetch, restoreSessions, sessionPackId, syncFromServer]);
 
   if (isLoading) {
     return (
