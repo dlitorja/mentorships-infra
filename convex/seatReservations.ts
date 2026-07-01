@@ -213,12 +213,14 @@ export const getInstructorStudentsWithRemainingSessions = query({
       workspaceOwners.map(async (userId) => {
         const packs = await ctx.db
           .query("sessionPacks")
-          .withIndex("by_userId_status_expiresAt", (q) => q.eq("userId", userId).eq("status", "active"))
+          .withIndex("by_userId_instructorId_status", (q) =>
+            q.eq("userId", userId).eq("instructorId", args.instructorId).eq("status", "active")
+          )
           .collect();
         return {
           userId,
           sessionPack: packs
-            .filter((pack) => pack.instructorId === args.instructorId && !pack.deletedAt)
+            .filter((pack) => !pack.deletedAt)
             .sort((a, b) => b._creationTime - a._creationTime)[0] ?? null,
         };
       })

@@ -120,6 +120,7 @@ export default defineSchema({
     .index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
     .index("by_expiresAt", ["expiresAt"])
+    .index("by_userId_instructorId_status", ["userId", "instructorId", "status"])
     .index("by_paymentId", ["paymentId"])
     .index("by_userId_status_expiresAt", ["userId", "status", "expiresAt"]),
 
