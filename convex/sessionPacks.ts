@@ -464,10 +464,13 @@ export const restoreSessionCounts = mutation({
 
     const totalSessions = Math.max(0, args.totalSessions);
     const remainingSessions = Math.max(0, Math.min(args.remainingSessions, totalSessions));
+    const status = remainingSessions === 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status === "depleted" ? "active" : pack.status;
     await ctx.db.patch(args.id, {
       totalSessions,
       remainingSessions,
-      status: remainingSessions === 0 ? "depleted" : pack.status === "depleted" ? "active" : pack.status,
+      status,
     });
 
     return await ctx.db.get(args.id);
