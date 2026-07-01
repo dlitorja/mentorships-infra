@@ -330,7 +330,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     for (const msg of (messages as Message[] | undefined) ?? []) {
       if (msg.type === 'image') {
         result.push({ msg, parsed: parseImageMessage(msg.content) });
-      } else if (msg.type === 'file') {
+      } else if (msg.type === 'file' && !failedInlineImages.has(msg._id)) {
         const parsed = parseFileMessage(msg.content);
         if (isImageFileName(parsed.fileName)) {
           result.push({ msg, parsed });
@@ -338,7 +338,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       }
     }
     return result;
-  }, [messages]);
+  }, [failedInlineImages, messages]);
   const chatImages = useMemo(() => imageMessages.map(({ parsed }) => (
     parsed.url
   )), [imageMessages]);
