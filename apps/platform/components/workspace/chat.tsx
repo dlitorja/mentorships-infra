@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
@@ -12,7 +12,7 @@ import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, 
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { createImagePreviews, uploadImageForChat, uploadFileForChat, LARGE_CHAT_FILE_BYTES, MAX_CHAT_FILE_BYTES, type UploadError } from '@/lib/workspace-image-upload';
-import { ChatImageLightbox } from './chat-lightbox';
+import { ChatImageLightbox, type ChatImageDownloadItem } from './chat-lightbox';
 
 const MAX_CHAT_IMAGES_PER_UPLOAD = 5;
 
@@ -28,6 +28,11 @@ interface Message {
   content: string;
   type: 'text' | 'image' | 'file';
   senderRole?: 'student' | 'instructor' | 'admin';
+}
+
+interface ImageMessageEntry {
+  msg: Message;
+  parsed: ParsedFileMessage;
 }
 
 interface PendingAttachment {
@@ -63,6 +68,22 @@ interface ParsedFileMessage {
   url: string;
 }
 
+interface DownloadError extends Error {
+  skipFallback?: boolean;
+}
+
+function shouldSkipDownloadFallback(error: unknown): error is DownloadError {
+  return error instanceof Error && 'skipFallback' in error && error.skipFallback === true;
+}
+
+function decodeFileName(encodedFileName: string, fallback: string): string {
+  try {
+    return decodeURIComponent(encodedFileName) || fallback;
+  } catch {
+    return encodedFileName || fallback;
+  }
+}
+
 function parseFileMessage(content: string): ParsedFileMessage {
   const separatorIndex = content.indexOf('|');
   if (separatorIndex === -1) {
@@ -72,11 +93,7 @@ function parseFileMessage(content: string): ParsedFileMessage {
   const encodedFileName = content.slice(0, separatorIndex);
   const url = content.slice(separatorIndex + 1);
 
-  try {
-    return { fileName: decodeURIComponent(encodedFileName), url };
-  } catch {
-    return { fileName: encodedFileName || 'Download file', url };
-  }
+  return { fileName: decodeFileName(encodedFileName, 'Download file'), url };
 }
 
 function parseImageMessage(content: string): ParsedFileMessage {
@@ -84,6 +101,57 @@ function parseImageMessage(content: string): ParsedFileMessage {
   return parsed.fileName === 'Download file'
     ? { fileName: 'Shared image', url: parsed.url }
     : parsed;
+}
+
+function isImageFileName(fileName: string): boolean {
+  return /\.(avif|gif|jpe?g|png|webp)$/i.test(fileName);
+}
+
+async function downloadFile(url: string, fileName: string): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  let responseStarted = false;
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      const error: DownloadError = new Error('Download failed');
+      error.skipFallback = true;
+      throw error;
+    }
+
+    responseStarted = true;
+    const objectUrl = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    console.error('Failed to download file:', error);
+    const isAbort = error instanceof DOMException && error.name === 'AbortError';
+    if (isAbort) {
+      toast.error('Download timed out. Please try again.');
+      return;
+    }
+
+    if (shouldSkipDownloadFallback(error)) {
+      toast.error('Download failed. Please try again.');
+      return;
+    }
+
+    if (responseStarted) {
+      toast.error('Download was interrupted. Please try again.');
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
+    toast.info('File opened in a new tab if your browser allowed it');
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 const URL_REGEX = /(?:(?:https?|ftp):\/\/)?(?:www\.)?(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+(?:com|net|org|edu|gov|mil|io|co|app|dev|xyz|gg|info|biz|me|pro|site|online|store|tech|ai|cloud|sh|vc|fm|ly|to|cm|nu|kiwi|work|life|homes|systems|group|fyi|day|cool|world|top|zone|blog|chat|mail|email|center|shop|market|media|news|press|pub|space|team|live|plus|web)\b(?:[/?#][^\s<]*)?/gi;
@@ -234,6 +302,9 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [retryingIndices, setRetryingIndices] = useState<Set<number>>(new Set());
+  const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
+  const [failedInlineImages, setFailedInlineImages] = useState<Set<Id<'workspaceMessages'>>>(new Set());
+  const downloadingFilesRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -254,9 +325,37 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const remainingFileSlots = isAdmin
     ? Number.MAX_SAFE_INTEGER
     : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
-  const imageMessages = ((messages as Message[] | undefined) ?? []).filter((msg) => msg.type === 'image');
-  const chatImages = imageMessages.map((msg) => parseImageMessage(msg.content).url);
+  const imageMessages = useMemo<ImageMessageEntry[]>(() => {
+    const result: ImageMessageEntry[] = [];
+    for (const msg of (messages as Message[] | undefined) ?? []) {
+      if (msg.type === 'image') {
+        result.push({ msg, parsed: parseImageMessage(msg.content) });
+      } else if (msg.type === 'file' && !failedInlineImages.has(msg._id)) {
+        const parsed = parseFileMessage(msg.content);
+        if (isImageFileName(parsed.fileName)) {
+          result.push({ msg, parsed });
+        }
+      }
+    }
+    return result;
+  }, [failedInlineImages, messages]);
+  const chatImages = useMemo(() => imageMessages.map(({ parsed }) => (
+    parsed.url
+  )), [imageMessages]);
+  const imageMessageIds = useMemo(() => new Set(imageMessages.map(({ msg }) => msg._id)), [imageMessages]);
+  const chatImageDownloads = useMemo<Array<ChatImageDownloadItem | null>>(() => imageMessages.map(({ msg, parsed }) => {
+    if (msg.type !== 'file') return null;
+    return { ...parsed, isDownloading: downloadingFiles.has(parsed.url) };
+  }), [downloadingFiles, imageMessages]);
   const failedCount = attachments.filter((attachment) => attachment.error).length;
+
+  useEffect(() => {
+    const currentMessageIds = new Set(((messages as Message[] | undefined) ?? []).map((msg) => msg._id));
+    setFailedInlineImages((prev) => {
+      const next = new Set([...prev].filter((id) => currentMessageIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [messages]);
 
   useEffect(() => {
     if (messages && messages.length > 0) {
@@ -509,10 +608,23 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   };
 
   const openImageLightbox = (messageId: Id<'workspaceMessages'>) => {
-    const index = imageMessages.findIndex((msg) => msg._id === messageId);
+    const index = imageMessages.findIndex(({ msg }) => msg._id === messageId);
     setLightboxIndex(index === -1 ? 0 : index);
     setLightboxOpen(true);
   };
+
+  const handleDownloadFile = useCallback(async (url: string, fileName: string): Promise<void> => {
+    if (downloadingFilesRef.current.has(url)) return;
+
+    downloadingFilesRef.current.add(url);
+    setDownloadingFiles(new Set(downloadingFilesRef.current));
+    try {
+      await downloadFile(url, fileName);
+    } finally {
+      downloadingFilesRef.current.delete(url);
+      setDownloadingFiles(new Set(downloadingFilesRef.current));
+    }
+  }, []);
 
   if (isLoading) {
     return (
@@ -545,6 +657,10 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
             const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
+            const hasInlineImageFailed = failedInlineImages.has(msg._id);
+            const fileImageMessage = fileMessage && imageMessageIds.has(msg._id) && !hasInlineImageFailed ? fileMessage : null;
+            const displayImageMessage = imageMessage ?? fileImageMessage;
+            const isFileImageDownloading = fileImageMessage ? downloadingFiles.has(fileImageMessage.url) : false;
 
             return (
               <div
@@ -560,7 +676,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                     ? 'bg-primary text-primary-foreground'
                     : 'bg-muted'
                 )}>
-                  {imageMessage ? (
+                  {displayImageMessage?.url ? (
                     <div className="space-y-1">
                       <button
                         type="button"
@@ -568,13 +684,38 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                         onClick={() => openImageLightbox(msg._id)}
                       >
                         <img
-                          src={imageMessage.url}
-                          alt={imageMessage.fileName}
+                          src={displayImageMessage.url}
+                          alt={displayImageMessage.fileName}
+                          loading="lazy"
                           className="max-w-full rounded-md transition-opacity hover:opacity-90"
+                          onError={() => {
+                            if (fileImageMessage) {
+                              setFailedInlineImages((prev) => new Set(prev).add(msg._id));
+                            }
+                          }}
                         />
                       </button>
-                      {imageMessage.fileName !== 'Shared image' && (
-                        <p className="truncate text-xs opacity-80">{imageMessage.fileName}</p>
+                      {displayImageMessage.fileName !== 'Shared image' && (
+                        <div className="flex items-center gap-2">
+                          <p className="min-w-0 flex-1 truncate text-xs opacity-80">{displayImageMessage.fileName}</p>
+                          {fileImageMessage && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant={msg.userId === currentUserId ? 'secondary' : 'outline'}
+                              className="h-6 w-6 shrink-0"
+                              onClick={() => void handleDownloadFile(fileImageMessage.url, fileImageMessage.fileName)}
+                              disabled={isFileImageDownloading}
+                              aria-label={`Download ${fileImageMessage.fileName}`}
+                            >
+                              {isFileImageDownloading ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Download className="h-3 w-3" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       )}
                     </div>
                   ) : msg.type === 'file' && fileMessage ? (
@@ -774,9 +915,11 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
       <ChatImageLightbox
         images={chatImages}
+        downloadItems={chatImageDownloads}
         initialIndex={lightboxIndex}
         open={lightboxOpen}
         onOpenChange={setLightboxOpen}
+        onDownload={handleDownloadFile}
       />
     </div>
   );

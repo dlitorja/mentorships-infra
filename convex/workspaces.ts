@@ -83,9 +83,11 @@ async function getWorkspaceRole(
 async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces">): Promise<number> {
   const images = await ctx.db
     .query("workspaceImages")
-    .withIndex("by_workspaceId", (q: any) => q.eq("workspaceId", workspaceId))
+    .withIndex("by_workspaceId_and_deletedAt", (q: any) =>
+      q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
+    )
     .collect();
-  return images.filter((image: any) => !image.deletedAt).length;
+  return images.length;
 }
 
 async function countWorkspaceFilesByRole(
@@ -329,15 +331,47 @@ export const deleteWorkspace = mutation({
 
 /** Returns all notes for a workspace. Requires auth. */
 export const getWorkspaceNotes = query({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    deletedOnly: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
     if (!user) {
       return [];
     }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return [];
+    }
+
+    if (args.deletedOnly) {
+      if (role !== "instructor" && role !== "admin") {
+        return [];
+      }
+
+      return await ctx.db
+        .query("workspaceNotes")
+        // deletedAt is set with Date.now(); gte(1) selects only defined soft deletes.
+        .withIndex("by_workspaceId_and_deletedAt", (q) =>
+          q.eq("workspaceId", args.workspaceId).gte("deletedAt", 1)
+        )
+        .order("desc")
+        .collect();
+    }
+
     return await ctx.db
       .query("workspaceNotes")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
+      .order("asc")
       .collect();
   },
 });
@@ -879,14 +913,16 @@ export const getWorkspaceExportData = query({
 
     const notes = await ctx.db
       .query("workspaceNotes")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
       .collect();
 
     const images = await ctx.db
       .query("workspaceImages")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("deletedAt", undefined)
+      )
       .collect();
 
     const imagesWithUrls = await Promise.all(

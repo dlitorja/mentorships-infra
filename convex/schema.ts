@@ -279,6 +279,7 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     imageUrl: v.optional(v.string()),
   }).index("by_workspaceId", ["workspaceId"])
+    .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_createdBy", ["createdBy"]),
 
   workspaceNoteComments: defineTable({
@@ -304,7 +305,8 @@ export default defineSchema({
     storageId: v.optional(v.string()),
     createdBy: v.string(),
     deletedAt: v.optional(v.number()),
-  }).index("by_workspaceId", ["workspaceId"]),
+  }).index("by_workspaceId", ["workspaceId"])
+    .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"]),
 
   instructorResources: defineTable({
     instructorId: v.id("instructors"),

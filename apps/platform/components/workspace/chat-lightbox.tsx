@@ -1,22 +1,32 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Download, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
+export interface ChatImageDownloadItem {
+  url: string;
+  fileName: string;
+  isDownloading?: boolean;
+}
+
 interface ChatImageLightboxProps {
   images: string[];
+  downloadItems?: Array<ChatImageDownloadItem | null>;
   initialIndex: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onDownload?: (url: string, fileName: string) => void;
 }
 
 export function ChatImageLightbox({
   images,
+  downloadItems = [],
   initialIndex,
   open,
   onOpenChange,
+  onDownload,
 }: ChatImageLightboxProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [imageError, setImageError] = useState(false);
@@ -30,6 +40,12 @@ export function ChatImageLightbox({
   useEffect(() => {
     setImageError(false);
   }, [currentIndex, open]);
+
+  useEffect(() => {
+    if (images.length > 0) {
+      setCurrentIndex((prev) => Math.min(prev, images.length - 1));
+    }
+  }, [images.length]);
 
   useEffect(() => {
     if (!open || images.length === 0) return;
@@ -57,6 +73,7 @@ export function ChatImageLightbox({
   };
 
   const currentImage = images[currentIndex];
+  const currentDownload = downloadItems[currentIndex];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -65,15 +82,33 @@ export function ChatImageLightbox({
           Chat image {currentIndex + 1} of {images.length}
         </DialogTitle>
         <div className="relative h-full w-full flex items-center justify-center">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute top-4 right-4 z-50 h-10 w-10 text-white hover:bg-white/20 hover:text-white"
-            onClick={() => onOpenChange(false)}
-          >
-            <X className="h-6 w-6" />
-            <span className="sr-only">Close</span>
-          </Button>
+          <div className="absolute top-4 right-4 z-50 flex gap-2">
+            {currentDownload && onDownload && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 text-white hover:bg-white/20 hover:text-white"
+                onClick={() => onDownload(currentDownload.url, currentDownload.fileName)}
+                disabled={currentDownload.isDownloading}
+                aria-label={`Download ${currentDownload.fileName}`}
+              >
+                {currentDownload.isDownloading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Download className="h-5 w-5" />
+                )}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 text-white hover:bg-white/20 hover:text-white"
+              onClick={() => onOpenChange(false)}
+            >
+              <X className="h-6 w-6" />
+              <span className="sr-only">Close</span>
+            </Button>
+          </div>
 
           {images.length > 1 && (
             <Button
@@ -91,7 +126,7 @@ export function ChatImageLightbox({
             {currentImage && !imageError ? (
               <img
                 src={currentImage}
-                alt={`Chat attachment ${currentIndex + 1}`}
+                alt={currentDownload?.fileName ?? `Chat attachment ${currentIndex + 1}`}
                 className="max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] md:max-w-[calc(100vw-4rem)] md:max-h-[calc(100vh-4rem)] object-contain"
                 onError={() => setImageError(true)}
               />
