@@ -426,7 +426,7 @@ export const setRemainingSessions = mutation({
   },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       return null;
     }
 

@@ -142,6 +142,10 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
+    if (error instanceof Error && error.message.includes("changed before undo")) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+
     console.error("Error updating session count:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to update session count" },
