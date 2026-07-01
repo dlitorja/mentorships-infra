@@ -358,6 +358,7 @@ export const getWorkspaceNotes = query({
 
       return await ctx.db
         .query("workspaceNotes")
+        // deletedAt is set with Date.now(); gte(1) selects only defined soft deletes.
         .withIndex("by_workspaceId_and_deletedAt", (q) =>
           q.eq("workspaceId", args.workspaceId).gte("deletedAt", 1)
         )

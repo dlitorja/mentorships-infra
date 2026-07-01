@@ -120,7 +120,7 @@ export function ChatImageLightbox({
             {currentImage && !imageError ? (
               <img
                 src={currentImage}
-                alt={`Chat attachment ${currentIndex + 1}`}
+                alt={currentDownload?.fileName ?? `Chat attachment ${currentIndex + 1}`}
                 className="max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] md:max-w-[calc(100vw-4rem)] md:max-h-[calc(100vh-4rem)] object-contain"
                 onError={() => setImageError(true)}
               />
