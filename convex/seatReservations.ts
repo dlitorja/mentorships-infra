@@ -207,21 +207,24 @@ export const getInstructorStudentsWithRemainingSessions = query({
       }
     }
 
-    const instructorPacks = await ctx.db
-      .query("sessionPacks")
-      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
-      .collect();
-    const latestActivePackByUserId = new Map<string, (typeof instructorPacks)[number]>();
-    for (const pack of instructorPacks) {
-      if (pack.status !== "active" || pack.deletedAt) {
-        continue;
-      }
-
-      const existing = latestActivePackByUserId.get(pack.userId);
-      if (!existing || pack._creationTime > existing._creationTime) {
-        latestActivePackByUserId.set(pack.userId, pack);
-      }
-    }
+    const workspaceOwners = Array.from(workspaceByOwnerId.keys());
+    const activePacksByOwner = await Promise.all(
+      workspaceOwners.map(async (userId) => {
+        const packs = await ctx.db
+          .query("sessionPacks")
+          .withIndex("by_userId_status_expiresAt", (q) => q.eq("userId", userId).eq("status", "active"))
+          .collect();
+        return {
+          userId,
+          sessionPack: packs
+            .filter((pack) => pack.instructorId === args.instructorId && !pack.deletedAt)
+            .sort((a, b) => b._creationTime - a._creationTime)[0] ?? null,
+        };
+      })
+    );
+    const latestActivePackByUserId = new Map(
+      activePacksByOwner.map(({ userId, sessionPack }) => [userId, sessionPack])
+    );
 
     const workspaceRows = await Promise.all(
       Array.from(workspaceByOwnerId.values()).map(async (workspace) => {
