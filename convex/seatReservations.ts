@@ -187,13 +187,14 @@ export const getInstructorStudentsWithRemainingSessions = query({
     const userIdsWithSeats = new Set(dedupedSeatRows.map((row) => row.userId));
     const workspaces = await ctx.db
       .query("workspaces")
-      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .withIndex("by_instructorId_deletedAt", (q) =>
+        q.eq("instructorId", args.instructorId).eq("deletedAt", undefined)
+      )
       .collect();
 
     const workspaceByOwnerId = new Map<string, (typeof workspaces)[number]>();
     for (const workspace of workspaces) {
       if (
-        workspace.deletedAt ||
         workspace.endedAt ||
         workspace.seatReservationId ||
         userIdsWithSeats.has(workspace.ownerId)

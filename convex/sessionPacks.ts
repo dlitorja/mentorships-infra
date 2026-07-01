@@ -300,7 +300,7 @@ export const useSession = mutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       throw new Error("Session pack not found");
     }
     
@@ -377,7 +377,7 @@ export const addSessionsToPack = mutation({
   },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       throw new Error("Session pack not found");
     }
     

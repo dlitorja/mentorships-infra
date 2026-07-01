@@ -142,7 +142,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
-    if (error instanceof Error && error.message.includes("changed before undo")) {
+    if (error instanceof Error && error.message === "Session pack changed before undo could be applied") {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
 

@@ -266,6 +266,7 @@ export default defineSchema({
     type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_student"), v.literal("admin_instructor"))),
   }).index("by_ownerId", ["ownerId"])
     .index("by_instructorId", ["instructorId"])
+    .index("by_instructorId_deletedAt", ["instructorId", "deletedAt"])
     .index("by_seatReservationId", ["seatReservationId"])
     .index("by_endedAt", ["endedAt"])
     .index("by_type", ["type"]),
