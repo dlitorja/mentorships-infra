@@ -124,7 +124,7 @@ export default async function InstructorDashboardPage() {
                       <Badge variant={getSessionBadgeVariant(row.remainingSessions)}>
                         {row.remainingSessions} / {row.totalSessions} sessions left
                       </Badge>
-                      {row.status !== "active" && <Badge variant="outline">{row.status}</Badge>}
+                      {row.status === "grace" && <Badge variant="outline">{row.status}</Badge>}
                     </div>
                   </Link>
                 ))}
