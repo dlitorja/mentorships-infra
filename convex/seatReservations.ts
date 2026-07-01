@@ -101,6 +101,54 @@ export const getInstructorActiveSeats = query({
   },
 });
 
+/** Returns active students for an instructor with session pack counts. */
+export const getInstructorStudentsWithRemainingSessions = query({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== user.subject) {
+      return [];
+    }
+
+    const seats = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_instructorId_status", (q) =>
+        q.eq("instructorId", args.instructorId).eq("status", "active")
+      )
+      .collect();
+
+    const rows = await Promise.all(
+      seats.map(async (seat) => {
+        const student = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", seat.userId))
+          .first();
+        const sessionPack = await ctx.db.get(seat.sessionPackId);
+
+        return {
+          userId: seat.userId,
+          seatId: seat._id,
+          sessionPackId: seat.sessionPackId,
+          studentEmail: student?.email ?? null,
+          studentFirstName: student?.firstName ?? null,
+          studentLastName: student?.lastName ?? null,
+          totalSessions: sessionPack?.totalSessions ?? 0,
+          remainingSessions: sessionPack?.remainingSessions ?? 0,
+          seatExpiresAt: seat.seatExpiresAt,
+          status: seat.status,
+        };
+      })
+    );
+
+    return rows.sort((a, b) => a.remainingSessions - b.remainingSessions);
+  },
+});
+
 /** Returns the seat reservation for a specific user-instructor pair, or null if unauthenticated. */
 export const getUserInstructorSeat = query({
   args: { userId: v.string(), instructorId: v.id("instructors") },
