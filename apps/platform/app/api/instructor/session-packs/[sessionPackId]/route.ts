@@ -67,6 +67,13 @@ export async function PATCH(
       );
     }
 
+    if (sessionPack.deletedAt) {
+      return NextResponse.json(
+        { error: "Session pack not found" },
+        { status: 404 }
+      );
+    }
+
     if (sessionPack.instructorId !== instructor._id) {
       return NextResponse.json(
         { error: "You do not have permission to modify this session pack" },

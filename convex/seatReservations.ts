@@ -172,14 +172,16 @@ export const getInstructorStudentsWithRemainingSessions = query({
         continue;
       }
 
-      if (existing.status === "grace" && row.status === "active") {
-        seatRowByUserId.set(row.userId, row);
-        continue;
-      }
-
-      if (existing.status === row.status && row.remainingSessions < existing.remainingSessions) {
-        seatRowByUserId.set(row.userId, row);
-      }
+      seatRowByUserId.set(row.userId, {
+        ...existing,
+        totalSessions: existing.totalSessions + row.totalSessions,
+        remainingSessions: existing.remainingSessions + row.remainingSessions,
+        expiresAt:
+          existing.expiresAt && row.expiresAt
+            ? Math.max(existing.expiresAt, row.expiresAt)
+            : existing.expiresAt ?? row.expiresAt,
+        status: existing.status === "active" || row.status === "active" ? "active" : "grace",
+      });
     }
 
     const dedupedSeatRows = Array.from(seatRowByUserId.values());
