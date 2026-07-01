@@ -198,7 +198,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
           .withIndex("by_userId", (q) => q.eq("userId", workspace.ownerId))
           .collect();
         const sessionPack = packs
-          .filter((pack) => pack.instructorId === args.instructorId && pack.status === "active")
+          .filter((pack) => pack.instructorId === args.instructorId && pack.status === "active" && !pack.deletedAt)
           .sort((a, b) => b._creationTime - a._creationTime)[0] ?? null;
 
         return {
