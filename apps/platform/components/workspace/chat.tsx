@@ -606,7 +606,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const handleDownloadFile = useCallback(async (url: string, fileName: string): Promise<void> => {
     if (downloadingFilesRef.current.has(url)) return;
 
-    downloadingFilesRef.current = new Set(downloadingFilesRef.current).add(url);
+    downloadingFilesRef.current.add(url);
     setDownloadingFiles(new Set(downloadingFilesRef.current));
     try {
       await downloadFile(url, fileName);
