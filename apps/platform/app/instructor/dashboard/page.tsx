@@ -73,7 +73,7 @@ export default async function InstructorDashboardPage() {
     studentRows = await fetchStudentSessionRows(instructorRecord._id as Id<"instructors">, token);
   } catch (e) {
     console.error("Failed to load instructor student session counts", e);
-    studentRowsError = e instanceof Error ? e.message : "Failed to load student session counts";
+    studentRowsError = "We could not load student session counts. Please refresh or try again later.";
   }
 
   return (
