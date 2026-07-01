@@ -185,6 +185,10 @@ export const getUserWorkspaces = query({
       return true;
     });
 
+    if (!instructor) {
+      return visibleWorkspaces;
+    }
+
     return await Promise.all(
       visibleWorkspaces.map(async (workspace) => {
         if (!workspace.seatReservationId) {
