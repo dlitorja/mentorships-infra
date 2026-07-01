@@ -153,6 +153,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
           seatId: seat._id,
           workspaceId: null,
           sessionPackId: seat.sessionPackId,
+          hasSessionPack: sessionPack !== undefined,
           studentEmail: student?.email ?? null,
           studentFirstName: student?.firstName ?? null,
           studentLastName: student?.lastName ?? null,
@@ -178,7 +179,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
         remainingSessions: existing.remainingSessions + row.remainingSessions,
         expiresAt:
           existing.expiresAt && row.expiresAt
-            ? Math.max(existing.expiresAt, row.expiresAt)
+            ? Math.min(existing.expiresAt, row.expiresAt)
             : existing.expiresAt ?? row.expiresAt,
         status: existing.status === "active" || row.status === "active" ? "active" : "grace",
       });
@@ -242,9 +243,10 @@ export const getInstructorStudentsWithRemainingSessions = query({
         return {
           userId: workspace.ownerId,
           seatId: null,
-          workspaceId: workspace._id,
-          sessionPackId: sessionPack?._id ?? null,
-          studentEmail: student?.email ?? null,
+            workspaceId: workspace._id,
+            sessionPackId: sessionPack?._id ?? null,
+            hasSessionPack: sessionPack !== null,
+            studentEmail: student?.email ?? null,
           studentFirstName: student?.firstName ?? null,
           studentLastName: student?.lastName ?? null,
           totalSessions: sessionPack?.totalSessions ?? 0,

@@ -121,9 +121,13 @@ export default async function InstructorDashboardPage() {
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      <Badge variant={getSessionBadgeVariant(row.remainingSessions)}>
-                        {row.remainingSessions} / {row.totalSessions} sessions left
-                      </Badge>
+                      {row.hasSessionPack ? (
+                        <Badge variant={getSessionBadgeVariant(row.remainingSessions)}>
+                          {row.remainingSessions} / {row.totalSessions} sessions left
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">No active pack</Badge>
+                      )}
                       {row.status === "grace" && <Badge variant="outline">{row.status}</Badge>}
                     </div>
                   </Link>
