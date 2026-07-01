@@ -201,6 +201,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
       if (
         workspace.endedAt ||
         workspace.seatReservationId ||
+        (workspace.type !== undefined && workspace.type !== "mentorship") ||
         userIdsWithSeats.has(workspace.ownerId)
       ) {
         continue;
