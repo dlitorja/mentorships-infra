@@ -42,6 +42,12 @@ export function ChatImageLightbox({
   }, [currentIndex, open]);
 
   useEffect(() => {
+    if (images.length > 0) {
+      setCurrentIndex((prev) => Math.min(prev, images.length - 1));
+    }
+  }, [images.length]);
+
+  useEffect(() => {
     if (!open || images.length === 0) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
