@@ -24,10 +24,11 @@ type SessionPackPatchResponse = {
 };
 
 type AdjustmentAction = "increment" | "decrement";
+type PendingAction = AdjustmentAction | "restore";
 
 export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
   const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
-  const [pendingAction, setPendingAction] = useState<AdjustmentAction | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const pendingRef = useRef(false);
   const latestCountRef = useRef({ remainingSessions: 0, totalSessions: 0 });
   const [optimisticCount, setOptimisticCount] = useState<{
@@ -50,7 +51,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     if (pendingRef.current) return;
 
     pendingRef.current = true;
-    setPendingAction(null);
+    setPendingAction("restore");
     setOptimisticCount(count);
     latestCountRef.current = count;
 
@@ -88,6 +89,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       void refetch();
     } finally {
       pendingRef.current = false;
+      setPendingAction(null);
     }
   }, [refetch, sessionPackId]);
 

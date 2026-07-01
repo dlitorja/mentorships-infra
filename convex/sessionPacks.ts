@@ -456,7 +456,7 @@ export const restoreSessionCounts = mutation({
     await ctx.db.patch(args.id, {
       totalSessions,
       remainingSessions,
-      status: remainingSessions === 0 ? "depleted" : "active",
+      status: remainingSessions === 0 ? "depleted" : pack.status === "depleted" ? "active" : pack.status,
     });
 
     return await ctx.db.get(args.id);
