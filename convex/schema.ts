@@ -120,6 +120,7 @@ export default defineSchema({
     .index("by_instructorId", ["instructorId"])
     .index("by_status", ["status"])
     .index("by_expiresAt", ["expiresAt"])
+    .index("by_userId_instructorId_status", ["userId", "instructorId", "status"])
     .index("by_paymentId", ["paymentId"])
     .index("by_userId_status_expiresAt", ["userId", "status", "expiresAt"]),
 
@@ -266,6 +267,7 @@ export default defineSchema({
     type: v.optional(v.union(v.literal("mentorship"), v.literal("admin_student"), v.literal("admin_instructor"))),
   }).index("by_ownerId", ["ownerId"])
     .index("by_instructorId", ["instructorId"])
+    .index("by_instructorId_deletedAt", ["instructorId", "deletedAt"])
     .index("by_seatReservationId", ["seatReservationId"])
     .index("by_endedAt", ["endedAt"])
     .index("by_type", ["type"]),

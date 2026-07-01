@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
@@ -7,6 +8,10 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
 const sessionPackIdSchema = z.string().min(1, "Session pack ID is required");
+const sessionPackErrorSchema = z.object({
+  code: z.literal("SESSION_PACK_UNDO_CONFLICT"),
+  message: z.string(),
+});
 const updateSessionCountSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("increment"), amount: z.number().int().min(1).default(1) }),
   z.object({ action: z.literal("decrement"), amount: z.number().int().min(1).default(1) }),
@@ -28,6 +33,21 @@ const updateSessionCountSchema = z.discriminatedUnion("action", [
       path: ["expectedRemainingSessions"],
     }),
 ]);
+
+function getSessionPackError(error: unknown): z.infer<typeof sessionPackErrorSchema> | null {
+  if (error instanceof ConvexError) {
+    const parsed = sessionPackErrorSchema.safeParse(error.data);
+    return parsed.success ? parsed.data : null;
+  }
+
+  if (!(error instanceof Error)) return null;
+
+  try {
+    return sessionPackErrorSchema.parse(JSON.parse(error.message));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * PATCH /api/instructor/session-packs/[sessionPackId]
@@ -61,6 +81,13 @@ export async function PATCH(
     });
 
     if (!sessionPack) {
+      return NextResponse.json(
+        { error: "Session pack not found" },
+        { status: 404 }
+      );
+    }
+
+    if (sessionPack.deletedAt) {
       return NextResponse.json(
         { error: "Session pack not found" },
         { status: 404 }
@@ -140,6 +167,11 @@ export async function PATCH(
     }
     if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
+    }
+
+    const sessionPackError = getSessionPackError(error);
+    if (sessionPackError?.code === "SESSION_PACK_UNDO_CONFLICT") {
+      return NextResponse.json({ error: sessionPackError.message }, { status: 409 });
     }
 
     console.error("Error updating session count:", error);

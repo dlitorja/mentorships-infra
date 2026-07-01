@@ -136,11 +136,11 @@ export const getInstructorStudentsWithRemainingSessions = query({
     );
     const sessionPackById = new Map(
       sessionPacks
-        .filter((pack): pack is NonNullable<typeof pack> => pack !== null)
+        .filter((pack): pack is NonNullable<typeof pack> => pack !== null && !pack.deletedAt)
         .map((pack) => [pack._id, pack])
     );
 
-    const rows = await Promise.all(
+    const seatRows = await Promise.all(
       seats.map(async (seat) => {
         const student = await ctx.db
           .query("users")
@@ -151,19 +151,125 @@ export const getInstructorStudentsWithRemainingSessions = query({
         return {
           userId: seat.userId,
           seatId: seat._id,
+          workspaceId: null,
           sessionPackId: seat.sessionPackId,
+          hasSessionPack: sessionPack !== undefined,
           studentEmail: student?.email ?? null,
           studentFirstName: student?.firstName ?? null,
           studentLastName: student?.lastName ?? null,
           totalSessions: sessionPack?.totalSessions ?? 0,
           remainingSessions: sessionPack?.remainingSessions ?? 0,
-          seatExpiresAt: seat.seatExpiresAt,
+          expiresAt: sessionPack?.expiresAt ?? seat.seatExpiresAt,
           status: seat.status as "active" | "grace",
         };
       })
     );
 
-    return rows.sort((a, b) => a.remainingSessions - b.remainingSessions);
+    const seatRowByUserId = new Map<string, (typeof seatRows)[number]>();
+    for (const row of seatRows) {
+      const existing = seatRowByUserId.get(row.userId);
+      if (!existing) {
+        seatRowByUserId.set(row.userId, row);
+        continue;
+      }
+
+      seatRowByUserId.set(row.userId, {
+        ...existing,
+        sessionPackId: existing.hasSessionPack ? existing.sessionPackId : row.sessionPackId,
+        hasSessionPack: existing.hasSessionPack || row.hasSessionPack,
+        totalSessions: existing.totalSessions + row.totalSessions,
+        remainingSessions: existing.remainingSessions + row.remainingSessions,
+        expiresAt:
+          existing.expiresAt && row.expiresAt
+            ? Math.min(existing.expiresAt, row.expiresAt)
+            : existing.expiresAt ?? row.expiresAt,
+        status: existing.status === "active" || row.status === "active" ? "active" : "grace",
+      });
+    }
+
+    const dedupedSeatRows = Array.from(seatRowByUserId.values());
+
+    const userIdsWithSeats = new Set(dedupedSeatRows.map((row) => row.userId));
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId_deletedAt", (q) =>
+        q.eq("instructorId", args.instructorId).eq("deletedAt", undefined)
+      )
+      .collect();
+
+    const workspaceByOwnerId = new Map<string, (typeof workspaces)[number]>();
+    for (const workspace of workspaces) {
+      if (
+        workspace.endedAt ||
+        workspace.seatReservationId ||
+        (workspace.type !== undefined && workspace.type !== "mentorship") ||
+        userIdsWithSeats.has(workspace.ownerId)
+      ) {
+        continue;
+      }
+
+      const existing = workspaceByOwnerId.get(workspace.ownerId);
+      if (!existing || workspace._creationTime > existing._creationTime) {
+        workspaceByOwnerId.set(workspace.ownerId, workspace);
+      }
+    }
+
+    const workspaceOwners = Array.from(workspaceByOwnerId.keys());
+    const activePacksByOwner = await Promise.all(
+      workspaceOwners.map(async (userId) => {
+        const packs = await ctx.db
+          .query("sessionPacks")
+          .withIndex("by_userId_instructorId_status", (q) =>
+            q.eq("userId", userId).eq("instructorId", args.instructorId).eq("status", "active")
+          )
+          .collect();
+        return {
+          userId,
+          sessionPack: packs
+            .filter((pack) => !pack.deletedAt)
+            .sort((a, b) => b._creationTime - a._creationTime)[0] ?? null,
+        };
+      })
+    );
+    const latestActivePackByUserId = new Map(
+      activePacksByOwner.map(({ userId, sessionPack }) => [userId, sessionPack])
+    );
+
+    const workspaceOwnerUsers = await Promise.all(
+      workspaceOwners.map((ownerId) =>
+        ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", ownerId))
+          .first()
+      )
+    );
+    const userByOwnerId = new Map(
+      workspaceOwners.map((ownerId, index) => [ownerId, workspaceOwnerUsers[index]])
+    );
+
+    const workspaceRows = await Promise.all(
+      Array.from(workspaceByOwnerId.values()).map(async (workspace) => {
+        const student = userByOwnerId.get(workspace.ownerId) ?? null;
+        const sessionPack = latestActivePackByUserId.get(workspace.ownerId) ?? null;
+
+        return {
+          userId: workspace.ownerId,
+          seatId: null,
+          workspaceId: workspace._id,
+          sessionPackId: sessionPack?._id ?? null,
+          hasSessionPack: sessionPack !== null,
+          studentEmail: student?.email ?? null,
+          studentFirstName: student?.firstName ?? null,
+          studentLastName: student?.lastName ?? null,
+          totalSessions: sessionPack?.totalSessions ?? 0,
+          remainingSessions: sessionPack?.remainingSessions ?? 0,
+          expiresAt: sessionPack?.expiresAt ?? null,
+          status: "workspace" as const,
+        };
+      })
+    );
+
+    return [...dedupedSeatRows, ...workspaceRows].sort((a, b) => a.remainingSessions - b.remainingSessions);
   },
 });
 

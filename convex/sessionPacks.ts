@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation, action } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 /** Returns a session pack by its ID, or null if not authenticated. */
@@ -300,7 +300,7 @@ export const useSession = mutation({
   args: { id: v.id("sessionPacks") },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       throw new Error("Session pack not found");
     }
     
@@ -309,7 +309,9 @@ export const useSession = mutation({
     }
     
     const newRemaining = pack.remainingSessions - 1;
-    const newStatus = newRemaining <= 0 ? "depleted" : pack.status;
+    const newStatus = newRemaining <= 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status;
     
     await ctx.db.patch(args.id, {
       remainingSessions: newRemaining,
@@ -377,13 +379,15 @@ export const addSessionsToPack = mutation({
   },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       throw new Error("Session pack not found");
     }
     
+    const newRemaining = pack.remainingSessions + args.amount;
     await ctx.db.patch(args.id, {
       totalSessions: pack.totalSessions + args.amount,
-      remainingSessions: pack.remainingSessions + args.amount,
+      remainingSessions: newRemaining,
+      status: pack.status === "depleted" && newRemaining > 0 ? "active" : pack.status,
     });
     
     return await ctx.db.get(args.id);
@@ -398,7 +402,7 @@ export const removeSessionsFromPack = mutation({
   },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       throw new Error("Session pack not found");
     }
 
@@ -407,9 +411,12 @@ export const removeSessionsFromPack = mutation({
       throw new Error("Cannot remove more sessions than remaining");
     }
 
+    const status = newRemaining === 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status;
     await ctx.db.patch(args.id, {
       remainingSessions: newRemaining,
-      status: newRemaining === 0 ? "depleted" : pack.status,
+      status,
     });
 
     return await ctx.db.get(args.id);
@@ -424,14 +431,17 @@ export const setRemainingSessions = mutation({
   },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       return null;
     }
 
     const newRemaining = Math.max(0, Math.min(args.amount, pack.totalSessions));
+    const status = newRemaining === 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status === "depleted" ? "active" : pack.status;
     await ctx.db.patch(args.id, {
       remainingSessions: newRemaining,
-      status: newRemaining === 0 ? "depleted" : newRemaining === pack.totalSessions ? "active" : pack.status,
+      status,
     });
 
     return await ctx.db.get(args.id);
@@ -449,7 +459,7 @@ export const restoreSessionCounts = mutation({
   },
   handler: async (ctx, args) => {
     const pack = await ctx.db.get(args.id);
-    if (!pack) {
+    if (!pack || pack.deletedAt) {
       return null;
     }
 
@@ -457,15 +467,21 @@ export const restoreSessionCounts = mutation({
       pack.totalSessions !== args.expectedTotalSessions ||
       pack.remainingSessions !== args.expectedRemainingSessions
     ) {
-      throw new Error("Session pack changed before undo could be applied");
+      throw new ConvexError({
+        code: "SESSION_PACK_UNDO_CONFLICT",
+        message: "Session pack changed before undo could be applied",
+      });
     }
 
     const totalSessions = Math.max(0, args.totalSessions);
     const remainingSessions = Math.max(0, Math.min(args.remainingSessions, totalSessions));
+    const status = remainingSessions === 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status === "depleted" ? "active" : pack.status;
     await ctx.db.patch(args.id, {
       totalSessions,
       remainingSessions,
-      status: remainingSessions === 0 ? "depleted" : pack.status === "depleted" ? "active" : pack.status,
+      status,
     });
 
     return await ctx.db.get(args.id);
