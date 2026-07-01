@@ -381,9 +381,11 @@ export const addSessionsToPack = mutation({
       throw new Error("Session pack not found");
     }
     
+    const newRemaining = pack.remainingSessions + args.amount;
     await ctx.db.patch(args.id, {
       totalSessions: pack.totalSessions + args.amount,
-      remainingSessions: pack.remainingSessions + args.amount,
+      remainingSessions: newRemaining,
+      status: pack.status === "depleted" && newRemaining > 0 ? "active" : pack.status,
     });
     
     return await ctx.db.get(args.id);
