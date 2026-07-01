@@ -18,7 +18,7 @@ type StudentSessionRow = {
   totalSessions: number;
   remainingSessions: number;
   seatExpiresAt: number;
-  status: "active" | "grace" | "released";
+  status: "active" | "grace";
 };
 
 function formatDate(date: Date | string | null | number): string {

@@ -77,12 +77,21 @@ export const getInstructorActiveSeats = query({
       return [];
     }
 
-    const seats = await ctx.db
-      .query("seatReservations")
-      .withIndex("by_instructorId_status", (q) =>
-        q.eq("instructorId", args.instructorId).eq("status", "active")
-      )
-      .collect();
+    const [activeSeats, graceSeats] = await Promise.all([
+      ctx.db
+        .query("seatReservations")
+        .withIndex("by_instructorId_status", (q) =>
+          q.eq("instructorId", args.instructorId).eq("status", "active")
+        )
+        .collect(),
+      ctx.db
+        .query("seatReservations")
+        .withIndex("by_instructorId_status", (q) =>
+          q.eq("instructorId", args.instructorId).eq("status", "grace")
+        )
+        .collect(),
+    ]);
+    const seats = [...activeSeats, ...graceSeats];
 
     return Promise.all(
       seats.map(async (seat) => {

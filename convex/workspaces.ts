@@ -177,13 +177,27 @@ export const getUserWorkspaces = query({
     // Merge and deduplicate by workspace ID, excluding soft-deleted workspaces
     const allWorkspaces = [...ownedWorkspaces, ...instructorWorkspaces];
     const seen = new Set<string>();
-    return allWorkspaces.filter((w) => {
+    const visibleWorkspaces = allWorkspaces.filter((w) => {
       if (seen.has(w._id)) return false;
       seen.add(w._id);
       // Exclude soft-deleted workspaces
-      if ((w as any).deletedAt) return false;
+      if (w.deletedAt) return false;
       return true;
     });
+
+    return await Promise.all(
+      visibleWorkspaces.map(async (workspace) => {
+        if (!workspace.seatReservationId) {
+          return workspace;
+        }
+
+        const seatReservation = await ctx.db.get(workspace.seatReservationId);
+        return {
+          ...workspace,
+          sessionPackId: seatReservation?.sessionPackId,
+        };
+      })
+    );
   },
 });
 
