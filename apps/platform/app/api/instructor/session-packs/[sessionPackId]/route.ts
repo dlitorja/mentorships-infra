@@ -11,6 +11,22 @@ const updateSessionCountSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("increment"), amount: z.number().int().min(1).default(1) }),
   z.object({ action: z.literal("decrement"), amount: z.number().int().min(1).default(1) }),
   z.object({ action: z.literal("set"), amount: z.number().int().min(0) }),
+  z
+    .object({
+      action: z.literal("restore"),
+      totalSessions: z.number().int().min(0),
+      remainingSessions: z.number().int().min(0),
+      expectedTotalSessions: z.number().int().min(0),
+      expectedRemainingSessions: z.number().int().min(0),
+    })
+    .refine((data) => data.remainingSessions <= data.totalSessions, {
+      message: "remainingSessions must be less than or equal to totalSessions",
+      path: ["remainingSessions"],
+    })
+    .refine((data) => data.expectedRemainingSessions <= data.expectedTotalSessions, {
+      message: "expectedRemainingSessions must be less than or equal to expectedTotalSessions",
+      path: ["expectedRemainingSessions"],
+    }),
 ]);
 
 /**
@@ -68,23 +84,31 @@ export async function PATCH(
       );
     }
 
-    const { action, amount } = validationResult.data;
+    const { action } = validationResult.data;
 
     let updatedPack: typeof sessionPack | null = sessionPack;
     if (action === "increment") {
       updatedPack = await convex.mutation(api.sessionPacks.addSessionsToPack, {
         id: sessionPackId,
-        amount,
+        amount: validationResult.data.amount,
       });
     } else if (action === "decrement") {
       updatedPack = await convex.mutation(api.sessionPacks.removeSessionsFromPack, {
         id: sessionPackId,
-        amount,
+        amount: validationResult.data.amount,
       });
     } else if (action === "set") {
       updatedPack = await convex.mutation(api.sessionPacks.setRemainingSessions, {
         id: sessionPackId,
-        amount,
+        amount: validationResult.data.amount,
+      });
+    } else if (action === "restore") {
+      updatedPack = await convex.mutation(api.sessionPacks.restoreSessionCounts, {
+        id: sessionPackId,
+        totalSessions: validationResult.data.totalSessions,
+        remainingSessions: validationResult.data.remainingSessions,
+        expectedTotalSessions: validationResult.data.expectedTotalSessions,
+        expectedRemainingSessions: validationResult.data.expectedRemainingSessions,
       });
     }
 

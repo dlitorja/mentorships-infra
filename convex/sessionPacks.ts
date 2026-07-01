@@ -438,6 +438,40 @@ export const setRemainingSessions = mutation({
   },
 });
 
+/** Restores the total and remaining session counts for a session pack. */
+export const restoreSessionCounts = mutation({
+  args: {
+    id: v.id("sessionPacks"),
+    totalSessions: v.number(),
+    remainingSessions: v.number(),
+    expectedTotalSessions: v.number(),
+    expectedRemainingSessions: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const pack = await ctx.db.get(args.id);
+    if (!pack) {
+      return null;
+    }
+
+    if (
+      pack.totalSessions !== args.expectedTotalSessions ||
+      pack.remainingSessions !== args.expectedRemainingSessions
+    ) {
+      throw new Error("Session pack changed before undo could be applied");
+    }
+
+    const totalSessions = Math.max(0, args.totalSessions);
+    const remainingSessions = Math.max(0, Math.min(args.remainingSessions, totalSessions));
+    await ctx.db.patch(args.id, {
+      totalSessions,
+      remainingSessions,
+      status: remainingSessions === 0 ? "depleted" : pack.status === "depleted" ? "active" : pack.status,
+    });
+
+    return await ctx.db.get(args.id);
+  },
+});
+
 export const migrateSessionPack = mutation({
   args: {
     id: v.string(),

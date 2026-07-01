@@ -1,50 +1,20 @@
-import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
-import { UserButton } from "@clerk/nextjs";
+import Link from "next/link";
 
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { api } from "@/convex/_generated/api";
 import { fetchQuery } from "convex/nextjs";
-import { Id, Doc } from "@/convex/_generated/dataModel";
+import { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Users, BookOpen, CheckCircle2 } from "lucide-react";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
-import Link from "next/link";
-import { InstructorBookingsList } from "@/components/instructor/bookings-list";
-import { GoogleCalendarAlertBanner } from "@/components/instructor/google-calendar-status";
-import { UpcomingSessionCard, PastSessionCard } from "@/components/instructor/session-cards";
+import type { FunctionReturnType } from "convex/server";
 
-type UpcomingSession = {
-  id: Id<"sessions">;
-  scheduledAt: number;
-  status: string;
-  studentEmail: string | null;
-  remainingSessions: number | null;
-};
+type StudentSessionRows = FunctionReturnType<typeof api.seatReservations.getInstructorStudentsWithRemainingSessions>;
+type StudentSessionRow = StudentSessionRows[number];
 
-type PastSession = {
-  id: Id<"sessions">;
-  scheduledAt: number;
-  completedAt: number | null;
-  canceledAt: number | null;
-  status: string;
-  studentEmail: string | null;
-  notes: string | null;
-};
-
-type SeatReservation = Doc<"seatReservations"> & {
-  studentEmail: string | null;
-  studentFirstName: string | null;
-  studentLastName: string | null;
-};
-
-/**
- * Format a date for display in the dashboard.
- * @param date - The date to format (can be Date, string, number, or null)
- * @returns A formatted date string like "Jun 1, 2026" or "N/A" if null
- */
 function formatDate(date: Date | string | null | number): string {
   if (!date) return "N/A";
-  const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
+  const d = typeof date === "number" ? new Date(date) : typeof date === "string" ? new Date(date) : date;
   return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -52,32 +22,34 @@ function formatDate(date: Date | string | null | number): string {
   });
 }
 
-/**
- * Format a date and time for display in the dashboard.
- * @param date - The date to format (can be Date, string, or number from Unix timestamp)
- * @returns A formatted date-time string like "Jun 1, 2026 at 2:30 PM"
- */
-function formatDateTime(date: Date | string | number): string {
-  const d = typeof date === "number" ? new Date(date) : (typeof date === "string" ? new Date(date) : date);
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function getDisplayName(row: StudentSessionRow): string {
+  const fullName = [row.studentFirstName, row.studentLastName].filter(Boolean).join(" ");
+  return fullName || row.studentEmail || row.userId;
 }
 
-/**
- * Instructor dashboard page displaying active students, upcoming sessions,
- * available seats, and Google Calendar connection status.
- * Fetches real-time data from Convex including active seat reservations,
- * upcoming sessions, and instructor profile information.
- */
+function getSessionBadgeVariant(remainingSessions: number): "default" | "secondary" | "destructive" | "outline" {
+  if (remainingSessions === 0) return "destructive";
+  if (remainingSessions <= 1) return "secondary";
+  return "default";
+}
+
+async function fetchStudentSessionRows(instructorId: Id<"instructors">, token: string | null): Promise<StudentSessionRows> {
+  return await fetchQuery(
+    api.seatReservations.getInstructorStudentsWithRemainingSessions,
+    { instructorId },
+    { token: token ?? undefined }
+  );
+}
+
+/** Instructor dashboard focused on active students and remaining session counts. */
 export default async function InstructorDashboardPage() {
   const user = await requireRole("instructor");
   const token = await getConvexAuthToken();
-  const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId: user.id }, { token: token ?? undefined });
+  const instructorRecord = await fetchQuery(
+    api.instructors.getInstructorByUserId,
+    { userId: user.id },
+    { token: token ?? undefined }
+  );
 
   if (!instructorRecord) {
     return (
@@ -95,257 +67,69 @@ export default async function InstructorDashboardPage() {
     );
   }
 
-  // Using Convex for all instructor data
-  // Session data comes from Convex queries
-  let upcomingSessions: UpcomingSession[] = [];
-  let pastSessions: PastSession[] = [];
-  let activeSeatsData: SeatReservation[] = [];
-  let maxSeats = 0;
-  let activeStudentsCount = 0;
-
-if (instructorRecord?._id) {
-    try {
-      // Get active seats and calculate unique students
-      activeSeatsData = await fetchQuery(api.seatReservations.getInstructorActiveSeats, { instructorId: instructorRecord._id as Id<"instructors"> });
-      const uniqueStudentIds = new Set(activeSeatsData.map((seat) => seat.userId));
-      activeStudentsCount = uniqueStudentIds.size;
-
-      // Calculate max seats from instructor inventory
-      const oneOnOne = (instructorRecord as Doc<"instructors">)?.oneOnOneInventory ?? 0;
-      const group = (instructorRecord as Doc<"instructors">)?.groupInventory ?? 0;
-      maxSeats = oneOnOne + group;
-
-      // Get upcoming sessions with student info
-      const sessionsResult = await fetchQuery(api.sessions.getInstructorUpcomingSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
-      upcomingSessions = sessionsResult as UpcomingSession[];
-
-      // Get past sessions with student info
-      const pastSessionsResult = await fetchQuery(api.sessions.getInstructorPastSessions, { instructorId: instructorRecord._id as Id<"instructors">, limit: 5 });
-      pastSessions = pastSessionsResult as PastSession[];
-    } catch (e) {
-      console.error("Failed to load instructor dashboard stats", e);
-    }
-  }
-
-  const remainingSeats = Math.max(0, maxSeats - activeSeatsData.length);
-
-  // Bookings created via Google Calendar integration
-  let bookings: Array<{ id: string; startUtc: number; endUtc: number; studentEmail: string; status: string }> = [];
-  if (instructorRecord?._id) {
-    try {
-      bookings = await fetchQuery(api.bookings.listInstructorBookings, { instructorId: instructorRecord._id as any, limit: 10 });
-    } catch (e) {
-      console.error("Failed to load instructor bookings", e);
-    }
+  let studentRows: StudentSessionRow[] = [];
+  let studentRowsError: string | null = null;
+  try {
+    studentRows = await fetchStudentSessionRows(instructorRecord._id as Id<"instructors">, token);
+  } catch (e) {
+    console.error("Failed to load instructor student session counts", e);
+    studentRowsError = "We could not load student session counts. Please refresh or try again later.";
   }
 
   return (
     <ProtectedLayout currentPath="/instructor/dashboard">
       <div className="container mx-auto p-4 md:p-8 space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold">Instructor Dashboard</h1>
-            <p className="text-muted-foreground mt-1">
-              Welcome back, {instructorRecord.name || "Instructor"}
-            </p>
-          </div>
-          <UserButton />
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold">Instructor Dashboard</h1>
+          <p className="text-muted-foreground mt-1">
+            Welcome back, {instructorRecord.name || "Instructor"}
+          </p>
         </div>
 
-        <GoogleCalendarAlertBanner
-          isCalendarConnected={!!(instructorRecord as any)?.googleRefreshToken}
-          hasTimeZone={!!instructorRecord.timeZone}
-          hasWorkingHours={!!instructorRecord.workingHours && Object.keys(instructorRecord.workingHours).length > 0}
-        />
-
-        {/* Stats Overview */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Active Students
-              </CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {activeStudentsCount}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                of {maxSeats} seats filled
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Upcoming Sessions
-              </CardTitle>
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{upcomingSessions.length}</div>
-              <p className="text-xs text-muted-foreground">
-                {upcomingSessions.length === 1 ? "session" : "sessions"} scheduled
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Available Seats</CardTitle>
-              <BookOpen className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {remainingSeats}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {remainingSeats === 1
-                  ? "seat"
-                  : "seats"}{" "}
-                available
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-<div className="grid gap-6 md:grid-cols-2">
-          {/* Calendar Bookings */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Calendar Bookings</CardTitle>
-              <CardDescription>Bookings created via Google Calendar</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <InstructorBookingsList initial={bookings} />
-            </CardContent>
-          </Card>
-          
-          {/* Upcoming Sessions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Upcoming Sessions</CardTitle>
-              <CardDescription>
-                Your scheduled mentorship sessions
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {upcomingSessions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="mb-2">No upcoming sessions</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {upcomingSessions.map((session) => (
-                    <UpcomingSessionCard key={session.id} session={session} />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Recent Sessions */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Sessions</CardTitle>
-              <CardDescription>Your completed mentorship sessions</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {pastSessions.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <CheckCircle2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No completed sessions yet</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {pastSessions.map((session) => (
-                    <PastSessionCard key={session.id} session={session} />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Active Students */}
-        {activeSeatsData.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Active Students</CardTitle>
-              <CardDescription>
-                Students with active session packs ({activeSeatsData.length} of {maxSeats})
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {activeSeatsData.map((seat) => (
-                  <div
-                    key={seat._id}
-                    className="border rounded-lg p-4 space-y-2"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <Link
-                          href={`/instructor/students/${seat.userId}`}
-                          className="hover:underline"
-                        >
-                          <p className="font-semibold">
-                            {seat.studentFirstName || seat.studentLastName
-                              ? `${seat.studentFirstName ?? ""} ${seat.studentLastName ?? ""}`.trim()
-                              : seat.studentEmail ?? seat.userId}
-                          </p>
-                          {(seat.studentFirstName || seat.studentLastName) && seat.studentEmail && (
-                            <p className="text-sm text-muted-foreground">
-                              {seat.studentEmail}
-                            </p>
-                          )}
-                        </Link>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Seat expires {formatDate(new Date(seat.seatExpiresAt))}
-                        </p>
-                        {seat.gracePeriodEndsAt && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Grace period ends {formatDate(new Date(seat.gracePeriodEndsAt))}
-                          </p>
-                        )}
-                      </div>
-                      <Badge
-                        variant={
-                          seat.status === "active"
-                            ? "default"
-                            : seat.status === "grace"
-                            ? "secondary"
-                            : "outline"
-                        }
-                      >
-                        {seat.status}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Quick Actions */}
         <Card>
           <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
+            <CardTitle>Students & Remaining Sessions</CardTitle>
+            <CardDescription>
+              Active student session packs, sorted by lowest remaining sessions first.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-4">
-              <Link
-                href="/instructor/sessions"
-                className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-              >
-                View All Sessions
-              </Link>
-            </div>
+            {studentRowsError ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-8 text-center text-destructive">
+                {studentRowsError}
+              </div>
+            ) : studentRows.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+                No active students yet.
+              </div>
+            ) : (
+              <div className="divide-y rounded-lg border">
+                {studentRows.map((row) => (
+                  <Link
+                    key={row.seatId}
+                    href={`/instructor/students/${row.userId}`}
+                    className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium">{getDisplayName(row)}</p>
+                      {row.studentEmail && getDisplayName(row) !== row.studentEmail && (
+                        <p className="truncate text-sm text-muted-foreground">{row.studentEmail}</p>
+                      )}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Pack expires {formatDate(row.seatExpiresAt)}
+                      </p>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Badge variant={getSessionBadgeVariant(row.remainingSessions)}>
+                        {row.remainingSessions} / {row.totalSessions} sessions left
+                      </Badge>
+                      {row.status !== "active" && <Badge variant="outline">{row.status}</Badge>}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

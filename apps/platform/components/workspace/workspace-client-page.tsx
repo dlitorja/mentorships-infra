@@ -11,6 +11,7 @@ import WorkspaceImages from "@/components/workspace/images";
 import WorkspaceLinks from "@/components/workspace/links";
 import WorkspaceResources from "@/components/workspace/resources";
 import { RetentionWarningBanner } from "@/components/workspace/retention-warning-banner";
+import { SessionCountControls } from "@/components/workspace/session-count-controls";
 import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
@@ -86,7 +87,7 @@ function WorkspaceContent({
                   <MessageSquare className="h-10 w-10 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">No workspaces yet</p>
                   <p className="text-xs mt-1">
-                    Workspaces are created when you purchase a mentorship pack
+                    Workspaces are created when you purchase a session pack
                   </p>
                 </div>
               )}
@@ -98,12 +99,19 @@ function WorkspaceContent({
           {selectedWorkspace ? (
             <Card className={`flex flex-col ${isChatTab ? "h-full" : ""}`}>
               <CardHeader className="pb-3 shrink-0">
-                <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
-                {selectedWorkspace.description && (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {selectedWorkspace.description}
-                  </p>
-                )}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <CardTitle className="text-xl">{selectedWorkspace.name}</CardTitle>
+                    {selectedWorkspace.description && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {selectedWorkspace.description}
+                      </p>
+                    )}
+                  </div>
+                  {userRole === "instructor" && selectedWorkspace.sessionPackId && (
+                    <SessionCountControls sessionPackId={selectedWorkspace.sessionPackId} />
+                  )}
+                </div>
               </CardHeader>
               <CardContent className={isChatTab ? "flex-1 min-h-0 pt-0" : "pt-0"}>
                 <WorkspacePolicyBanner />

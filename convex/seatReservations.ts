@@ -101,6 +101,72 @@ export const getInstructorActiveSeats = query({
   },
 });
 
+/** Returns active students for an instructor with session pack counts. */
+export const getInstructorStudentsWithRemainingSessions = query({
+  args: { instructorId: v.id("instructors") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || instructor.userId !== user.subject) {
+      return [];
+    }
+
+    const [activeSeats, graceSeats] = await Promise.all([
+      ctx.db
+        .query("seatReservations")
+        .withIndex("by_instructorId_status", (q) =>
+          q.eq("instructorId", args.instructorId).eq("status", "active")
+        )
+        .collect(),
+      ctx.db
+        .query("seatReservations")
+        .withIndex("by_instructorId_status", (q) =>
+          q.eq("instructorId", args.instructorId).eq("status", "grace")
+        )
+        .collect(),
+    ]);
+    const seats = [...activeSeats, ...graceSeats];
+
+    const sessionPacks = await Promise.all(
+      seats.map((seat) => ctx.db.get(seat.sessionPackId))
+    );
+    const sessionPackById = new Map(
+      sessionPacks
+        .filter((pack): pack is NonNullable<typeof pack> => pack !== null)
+        .map((pack) => [pack._id, pack])
+    );
+
+    const rows = await Promise.all(
+      seats.map(async (seat) => {
+        const student = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", seat.userId))
+          .first();
+        const sessionPack = sessionPackById.get(seat.sessionPackId);
+
+        return {
+          userId: seat.userId,
+          seatId: seat._id,
+          sessionPackId: seat.sessionPackId,
+          studentEmail: student?.email ?? null,
+          studentFirstName: student?.firstName ?? null,
+          studentLastName: student?.lastName ?? null,
+          totalSessions: sessionPack?.totalSessions ?? 0,
+          remainingSessions: sessionPack?.remainingSessions ?? 0,
+          seatExpiresAt: seat.seatExpiresAt,
+          status: seat.status as "active" | "grace",
+        };
+      })
+    );
+
+    return rows.sort((a, b) => a.remainingSessions - b.remainingSessions);
+  },
+});
+
 /** Returns the seat reservation for a specific user-instructor pair, or null if unauthenticated. */
 export const getUserInstructorSeat = query({
   args: { userId: v.string(), instructorId: v.id("instructors") },
