@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,8 +26,7 @@ type SessionPackPatchResponse = {
 type AdjustmentAction = "increment" | "decrement";
 
 export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
-  const sessionPackQuery = useSessionPack(sessionPackId);
-  const sessionPack = sessionPackQuery.data;
+  const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
   const [pendingAction, setPendingAction] = useState<AdjustmentAction | null>(null);
   const pendingRef = useRef(false);
   const latestCountRef = useRef({ remainingSessions: 0, totalSessions: 0 });
@@ -40,23 +39,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     setOptimisticCount(null);
   }, [sessionPack?._id, sessionPack?.remainingSessions, sessionPack?.totalSessions]);
 
-  if (sessionPackQuery.isLoading) {
-    return (
-      <div className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-sm text-muted-foreground">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Loading sessions
-      </div>
-    );
-  }
-
-  if (!sessionPack) return null;
-
-  const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack.remainingSessions;
-  const totalSessions = optimisticCount?.totalSessions ?? sessionPack.totalSessions;
-  const isPending = pendingAction !== null;
-  latestCountRef.current = { remainingSessions, totalSessions };
-
-  async function adjustSessions(action: AdjustmentAction, showUndo = true) {
+  const adjustSessions = useCallback(async (action: AdjustmentAction, showUndo = true) => {
     if (pendingRef.current) return;
 
     const currentCount = latestCountRef.current;
@@ -91,7 +74,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       };
       setOptimisticCount(updatedCount);
       latestCountRef.current = updatedCount;
-      void sessionPackQuery.refetch();
+      void refetch();
 
       const message = action === "increment" ? "Added 1 session" : "Removed 1 session";
       const oppositeAction: AdjustmentAction = action === "increment" ? "decrement" : "increment";
@@ -111,7 +94,23 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       pendingRef.current = false;
       setPendingAction(null);
     }
+  }, [refetch, sessionPackId]);
+
+  if (isLoading) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-sm text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading sessions
+      </div>
+    );
   }
+
+  if (!sessionPack) return null;
+
+  const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack.remainingSessions;
+  const totalSessions = optimisticCount?.totalSessions ?? sessionPack.totalSessions;
+  const isPending = pendingAction !== null;
+  latestCountRef.current = { remainingSessions, totalSessions };
 
   return (
     <div
