@@ -12,7 +12,7 @@ import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, 
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { createImagePreviews, uploadImageForChat, uploadFileForChat, LARGE_CHAT_FILE_BYTES, MAX_CHAT_FILE_BYTES, type UploadError } from '@/lib/workspace-image-upload';
-import { ChatImageLightbox } from './chat-lightbox';
+import { ChatImageLightbox, type ChatImageDownloadItem } from './chat-lightbox';
 
 const MAX_CHAT_IMAGES_PER_UPLOAD = 5;
 
@@ -72,6 +72,10 @@ interface DownloadError extends Error {
   skipFallback?: boolean;
 }
 
+function shouldSkipDownloadFallback(error: unknown): error is DownloadError {
+  return error instanceof Error && 'skipFallback' in error && error.skipFallback === true;
+}
+
 function decodeFileName(encodedFileName: string, fallback: string): string {
   try {
     return decodeURIComponent(encodedFileName) || fallback;
@@ -103,7 +107,7 @@ function isImageFileName(fileName: string): boolean {
   return /\.(avif|gif|jpe?g|png|webp)$/i.test(fileName);
 }
 
-async function downloadFile(url: string, fileName: string) {
+async function downloadFile(url: string, fileName: string): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   let responseStarted = false;
@@ -116,7 +120,6 @@ async function downloadFile(url: string, fileName: string) {
       throw error;
     }
 
-    clearTimeout(timeout);
     responseStarted = true;
     const objectUrl = URL.createObjectURL(await response.blob());
     const link = document.createElement('a');
@@ -134,7 +137,7 @@ async function downloadFile(url: string, fileName: string) {
       return;
     }
 
-    if (error instanceof Error && (error as DownloadError).skipFallback) {
+    if (shouldSkipDownloadFallback(error)) {
       toast.error('Download failed. Please try again.');
       return;
     }
@@ -338,7 +341,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const chatImages = useMemo(() => imageMessages.map(({ parsed }) => (
     parsed.url
   )), [imageMessages]);
-  const chatImageDownloads = useMemo(() => imageMessages.map(({ msg, parsed }) => {
+  const chatImageDownloads = useMemo<Array<ChatImageDownloadItem | null>>(() => imageMessages.map(({ msg, parsed }) => {
     if (msg.type !== 'file') return null;
     return { ...parsed, isDownloading: downloadingFiles.has(parsed.url) };
   }), [downloadingFiles, imageMessages]);
@@ -600,20 +603,17 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     setLightboxOpen(true);
   };
 
-  const handleDownloadFile = useCallback(async (url: string, fileName: string) => {
+  const handleDownloadFile = useCallback(async (url: string, fileName: string): Promise<void> => {
     if (downloadingFilesRef.current.has(url)) return;
 
     downloadingFilesRef.current = new Set(downloadingFilesRef.current).add(url);
-    setDownloadingFiles(downloadingFilesRef.current);
+    setDownloadingFiles(new Set(downloadingFilesRef.current));
     try {
       await downloadFile(url, fileName);
     } finally {
-      setDownloadingFiles((prev) => {
-        const next = new Set(prev);
-        next.delete(url);
-        downloadingFilesRef.current = next;
-        return next;
-      });
+      downloadingFilesRef.current = new Set(downloadingFilesRef.current);
+      downloadingFilesRef.current.delete(url);
+      setDownloadingFiles(new Set(downloadingFilesRef.current));
     }
   }, []);
 
@@ -676,6 +676,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                         <img
                           src={displayImageMessage.url}
                           alt={displayImageMessage.fileName}
+                          loading="lazy"
                           className="max-w-full rounded-md transition-opacity hover:opacity-90"
                         />
                       </button>

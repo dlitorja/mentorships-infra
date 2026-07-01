@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Download, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
-interface ChatImageDownloadItem {
+export interface ChatImageDownloadItem {
   url: string;
   fileName: string;
   isDownloading?: boolean;
