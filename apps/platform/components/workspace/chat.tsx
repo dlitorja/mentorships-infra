@@ -611,7 +611,6 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     try {
       await downloadFile(url, fileName);
     } finally {
-      downloadingFilesRef.current = new Set(downloadingFilesRef.current);
       downloadingFilesRef.current.delete(url);
       setDownloadingFiles(new Set(downloadingFilesRef.current));
     }
