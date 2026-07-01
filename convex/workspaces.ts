@@ -186,19 +186,25 @@ export const getUserWorkspaces = query({
     });
 
     if (!instructor) {
-      return visibleWorkspaces;
+      return visibleWorkspaces.map((workspace) => ({
+        ...workspace,
+        sessionPackId: undefined as Id<"sessionPacks"> | undefined,
+      }));
     }
 
     return await Promise.all(
       visibleWorkspaces.map(async (workspace) => {
         if (!workspace.seatReservationId) {
-          return workspace;
+          return {
+            ...workspace,
+            sessionPackId: undefined as Id<"sessionPacks"> | undefined,
+          };
         }
 
         const seatReservation = await ctx.db.get(workspace.seatReservationId);
         return {
           ...workspace,
-          sessionPackId: seatReservation?.sessionPackId,
+          sessionPackId: seatReservation?.sessionPackId ?? undefined,
         };
       })
     );

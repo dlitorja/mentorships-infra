@@ -158,7 +158,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
           totalSessions: sessionPack?.totalSessions ?? 0,
           remainingSessions: sessionPack?.remainingSessions ?? 0,
           seatExpiresAt: seat.seatExpiresAt,
-          status: seat.status,
+          status: seat.status as "active" | "grace",
         };
       })
     );
