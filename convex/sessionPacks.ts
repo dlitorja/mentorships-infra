@@ -459,7 +459,10 @@ export const restoreSessionCounts = mutation({
       pack.totalSessions !== args.expectedTotalSessions ||
       pack.remainingSessions !== args.expectedRemainingSessions
     ) {
-      throw new Error("Session pack changed before undo could be applied");
+      throw new Error(JSON.stringify({
+        code: "SESSION_PACK_UNDO_CONFLICT",
+        message: "Session pack changed before undo could be applied",
+      }));
     }
 
     const totalSessions = Math.max(0, args.totalSessions);
