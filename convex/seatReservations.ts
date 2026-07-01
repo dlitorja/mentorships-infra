@@ -122,11 +122,12 @@ export const getInstructorStudentsWithRemainingSessions = query({
       )
       .collect();
 
-    const sessionPacks = await ctx.db
-      .query("sessionPacks")
-      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
-      .collect();
-    const sessionPackById = new Map(sessionPacks.map((pack) => [pack._id, pack]));
+    const sessionPacks = await Promise.all(
+      seats.map((seat) => ctx.db.get(seat.sessionPackId))
+    );
+    const sessionPackById = new Map(
+      sessionPacks.filter((pack) => pack !== null).map((pack) => [pack._id, pack])
+    );
 
     const rows = await Promise.all(
       seats.map(async (seat) => {

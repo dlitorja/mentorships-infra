@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,13 +39,20 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     setOptimisticCount(null);
   }, [sessionPack?._id, sessionPack?.remainingSessions, sessionPack?.totalSessions]);
 
+  const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack?.remainingSessions ?? 0;
+  const totalSessions = optimisticCount?.totalSessions ?? sessionPack?.totalSessions ?? 0;
+
+  useLayoutEffect(() => {
+    latestCountRef.current = { remainingSessions, totalSessions };
+  }, [remainingSessions, totalSessions]);
+
   const adjustSessions = useCallback(async (action: AdjustmentAction, showUndo = true) => {
     if (pendingRef.current) return;
 
     const currentCount = latestCountRef.current;
     if (action === "decrement" && currentCount.remainingSessions <= 0) return;
 
-    const previousCount = currentCount;
+    const previousCount = { ...currentCount };
     const nextCount = {
       remainingSessions: action === "increment" ? currentCount.remainingSessions + 1 : currentCount.remainingSessions - 1,
       totalSessions: action === "increment" ? currentCount.totalSessions + 1 : currentCount.totalSessions,
@@ -107,10 +114,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
 
   if (!sessionPack) return null;
 
-  const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack.remainingSessions;
-  const totalSessions = optimisticCount?.totalSessions ?? sessionPack.totalSessions;
   const isPending = pendingAction !== null;
-  latestCountRef.current = { remainingSessions, totalSessions };
 
   return (
     <div
