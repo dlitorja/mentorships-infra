@@ -46,6 +46,51 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     latestCountRef.current = { remainingSessions, totalSessions };
   }, [remainingSessions, totalSessions]);
 
+  const restoreSessions = useCallback(async (count: { remainingSessions: number; totalSessions: number }) => {
+    if (pendingRef.current) return;
+
+    pendingRef.current = true;
+    setPendingAction(null);
+    setOptimisticCount(count);
+    latestCountRef.current = count;
+
+    try {
+      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "restore",
+          remainingSessions: count.remainingSessions,
+          totalSessions: count.totalSessions,
+        }),
+      });
+      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
+      try {
+        json = (await response.json()) as typeof json;
+      } catch {
+        // Non-JSON body, e.g. an HTML proxy error.
+      }
+
+      if (!response.ok || !json.sessionPack) {
+        throw new Error(json.error || "Failed to restore sessions");
+      }
+
+      const restoredCount = {
+        remainingSessions: json.sessionPack.remainingSessions,
+        totalSessions: json.sessionPack.totalSessions,
+      };
+      setOptimisticCount(restoredCount);
+      latestCountRef.current = restoredCount;
+      void refetch();
+      toast.success("Session change undone.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to restore sessions");
+      void refetch();
+    } finally {
+      pendingRef.current = false;
+    }
+  }, [refetch, sessionPackId]);
+
   const adjustSessions = useCallback(async (action: AdjustmentAction, showUndo = true) => {
     if (pendingRef.current) return;
 
@@ -69,7 +114,12 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, amount: 1 }),
       });
-      const json = (await response.json()) as Partial<SessionPackPatchResponse> & { error?: string };
+      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
+      try {
+        json = (await response.json()) as typeof json;
+      } catch {
+        // Non-JSON body, e.g. an HTML proxy error.
+      }
 
       if (!response.ok || !json.sessionPack) {
         throw new Error(json.error || "Failed to update sessions");
@@ -84,12 +134,11 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       void refetch();
 
       const message = action === "increment" ? "Added 1 session" : "Removed 1 session";
-      const oppositeAction: AdjustmentAction = action === "increment" ? "decrement" : "increment";
       toast.success(`${message}. ${json.sessionPack.remainingSessions} left.`, {
         action: showUndo
           ? {
               label: "Undo",
-              onClick: () => void adjustSessions(oppositeAction, false),
+              onClick: () => void restoreSessions(previousCount),
             }
           : undefined,
       });
@@ -101,7 +150,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       pendingRef.current = false;
       setPendingAction(null);
     }
-  }, [refetch, sessionPackId]);
+  }, [refetch, restoreSessions, sessionPackId]);
 
   if (isLoading) {
     return (
