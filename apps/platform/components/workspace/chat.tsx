@@ -303,6 +303,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [retryingIndices, setRetryingIndices] = useState<Set<number>>(new Set());
   const [downloadingFiles, setDownloadingFiles] = useState<Set<string>>(new Set());
+  const [failedInlineImages, setFailedInlineImages] = useState<Set<Id<'workspaceMessages'>>>(new Set());
   const downloadingFilesRef = useRef<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -341,6 +342,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const chatImages = useMemo(() => imageMessages.map(({ parsed }) => (
     parsed.url
   )), [imageMessages]);
+  const imageMessageIds = useMemo(() => new Set(imageMessages.map(({ msg }) => msg._id)), [imageMessages]);
   const chatImageDownloads = useMemo<Array<ChatImageDownloadItem | null>>(() => imageMessages.map(({ msg, parsed }) => {
     if (msg.type !== 'file') return null;
     return { ...parsed, isDownloading: downloadingFiles.has(parsed.url) };
@@ -647,7 +649,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
             const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
-            const fileImageMessage = fileMessage && isImageFileName(fileMessage.fileName) ? fileMessage : null;
+            const hasInlineImageFailed = failedInlineImages.has(msg._id);
+            const fileImageMessage = fileMessage && imageMessageIds.has(msg._id) && !hasInlineImageFailed ? fileMessage : null;
             const displayImageMessage = imageMessage ?? fileImageMessage;
             const isFileImageDownloading = fileImageMessage ? downloadingFiles.has(fileImageMessage.url) : false;
 
@@ -677,6 +680,11 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                           alt={displayImageMessage.fileName}
                           loading="lazy"
                           className="max-w-full rounded-md transition-opacity hover:opacity-90"
+                          onError={() => {
+                            if (fileImageMessage) {
+                              setFailedInlineImages((prev) => new Set(prev).add(msg._id));
+                            }
+                          }}
                         />
                       </button>
                       {displayImageMessage.fileName !== 'Shared image' && (
