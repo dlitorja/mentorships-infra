@@ -108,14 +108,16 @@ export const getWorkspaceExportData = query({
 
     const notes = await ctx.db
       .query("workspaceNotes")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
+      )
       .collect();
 
     const images = await ctx.db
       .query("workspaceImages")
-      .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .withIndex("by_workspaceId_and_deletedAt", (q) =>
+        q.eq("workspaceId", workspaceId).eq("deletedAt", undefined)
+      )
       .collect();
 
     const imagesWithUrls = await Promise.all(

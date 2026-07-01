@@ -350,6 +350,14 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
+    const currentMessageIds = new Set(((messages as Message[] | undefined) ?? []).map((msg) => msg._id));
+    setFailedInlineImages((prev) => {
+      const next = new Set([...prev].filter((id) => currentMessageIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [messages]);
+
+  useEffect(() => {
     if (messages && messages.length > 0) {
       const timeout = setTimeout(() => {
         messagesEndRef.current?.scrollIntoView({ block: "end" });
