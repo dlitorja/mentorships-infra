@@ -106,7 +106,7 @@ export default async function InstructorDashboardPage() {
               <div className="divide-y rounded-lg border">
                 {studentRows.map((row) => (
                   <Link
-                    key={row.seatId}
+                    key={row.seatId ?? row.workspaceId ?? row.userId}
                     href={`/instructor/students/${row.userId}`}
                     className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                   >
@@ -116,7 +116,7 @@ export default async function InstructorDashboardPage() {
                         <p className="truncate text-sm text-muted-foreground">{row.studentEmail}</p>
                       )}
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Pack expires {formatDate(row.seatExpiresAt)}
+                        {row.expiresAt ? `Pack expires ${formatDate(row.expiresAt)}` : "No active pack expiration date"}
                       </p>
                     </div>
 

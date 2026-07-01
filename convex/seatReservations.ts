@@ -140,7 +140,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
         .map((pack) => [pack._id, pack])
     );
 
-    const rows = await Promise.all(
+    const seatRows = await Promise.all(
       seats.map(async (seat) => {
         const student = await ctx.db
           .query("users")
@@ -151,19 +151,63 @@ export const getInstructorStudentsWithRemainingSessions = query({
         return {
           userId: seat.userId,
           seatId: seat._id,
+          workspaceId: null,
           sessionPackId: seat.sessionPackId,
           studentEmail: student?.email ?? null,
           studentFirstName: student?.firstName ?? null,
           studentLastName: student?.lastName ?? null,
           totalSessions: sessionPack?.totalSessions ?? 0,
           remainingSessions: sessionPack?.remainingSessions ?? 0,
-          seatExpiresAt: seat.seatExpiresAt,
+          expiresAt: sessionPack?.expiresAt ?? seat.seatExpiresAt,
           status: seat.status as "active" | "grace",
         };
       })
     );
 
-    return rows.sort((a, b) => a.remainingSessions - b.remainingSessions);
+    const userIdsWithSeats = new Set(seats.map((seat) => seat.userId));
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect();
+
+    const workspaceRows = await Promise.all(
+      workspaces
+        .filter((workspace) =>
+          !workspace.deletedAt &&
+          !workspace.endedAt &&
+          !workspace.seatReservationId &&
+          !userIdsWithSeats.has(workspace.ownerId)
+        )
+        .map(async (workspace) => {
+          const student = await ctx.db
+            .query("users")
+            .withIndex("by_userId", (q) => q.eq("userId", workspace.ownerId))
+            .first();
+          const packs = await ctx.db
+            .query("sessionPacks")
+            .withIndex("by_userId", (q) => q.eq("userId", workspace.ownerId))
+            .collect();
+          const sessionPack = packs
+            .filter((pack) => pack.instructorId === args.instructorId && pack.status === "active")
+            .sort((a, b) => b._creationTime - a._creationTime)[0] ?? null;
+
+          return {
+            userId: workspace.ownerId,
+            seatId: null,
+            workspaceId: workspace._id,
+            sessionPackId: sessionPack?._id ?? null,
+            studentEmail: student?.email ?? null,
+            studentFirstName: student?.firstName ?? null,
+            studentLastName: student?.lastName ?? null,
+            totalSessions: sessionPack?.totalSessions ?? 0,
+            remainingSessions: sessionPack?.remainingSessions ?? 0,
+            expiresAt: sessionPack?.expiresAt ?? null,
+            status: "workspace" as const,
+          };
+        })
+    );
+
+    return [...seatRows, ...workspaceRows].sort((a, b) => a.remainingSessions - b.remainingSessions);
   },
 });
 
