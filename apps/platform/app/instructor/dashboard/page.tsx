@@ -116,7 +116,7 @@ export default async function InstructorDashboardPage() {
                         <p className="truncate text-sm text-muted-foreground">{row.studentEmail}</p>
                       )}
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {row.expiresAt ? `Pack expires ${formatDate(row.expiresAt)}` : "No active pack expiration date"}
+                        {row.expiresAt ? `Pack expires ${formatDate(row.expiresAt)}` : "No expiration date"}
                       </p>
                     </div>
 
