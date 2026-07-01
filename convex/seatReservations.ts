@@ -175,6 +175,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
 
       seatRowByUserId.set(row.userId, {
         ...existing,
+        sessionPackId: existing.hasSessionPack ? existing.sessionPackId : row.sessionPackId,
         hasSessionPack: existing.hasSessionPack || row.hasSessionPack,
         totalSessions: existing.totalSessions + row.totalSessions,
         remainingSessions: existing.remainingSessions + row.remainingSessions,

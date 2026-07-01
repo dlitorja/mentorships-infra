@@ -1,6 +1,6 @@
 import { query, mutation, internalMutation, action } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 
 /** Returns a session pack by its ID, or null if not authenticated. */
@@ -459,10 +459,10 @@ export const restoreSessionCounts = mutation({
       pack.totalSessions !== args.expectedTotalSessions ||
       pack.remainingSessions !== args.expectedRemainingSessions
     ) {
-      throw new Error(JSON.stringify({
+      throw new ConvexError({
         code: "SESSION_PACK_UNDO_CONFLICT",
         message: "Session pack changed before undo could be applied",
-      }));
+      });
     }
 
     const totalSessions = Math.max(0, args.totalSessions);

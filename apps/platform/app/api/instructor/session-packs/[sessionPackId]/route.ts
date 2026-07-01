@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
@@ -34,6 +35,11 @@ const updateSessionCountSchema = z.discriminatedUnion("action", [
 ]);
 
 function getSessionPackError(error: unknown): z.infer<typeof sessionPackErrorSchema> | null {
+  if (error instanceof ConvexError) {
+    const parsed = sessionPackErrorSchema.safeParse(error.data);
+    return parsed.success ? parsed.data : null;
+  }
+
   if (!(error instanceof Error)) return null;
 
   try {
