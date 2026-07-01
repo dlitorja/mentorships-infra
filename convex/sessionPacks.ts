@@ -409,9 +409,12 @@ export const removeSessionsFromPack = mutation({
       throw new Error("Cannot remove more sessions than remaining");
     }
 
+    const status = newRemaining === 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status;
     await ctx.db.patch(args.id, {
       remainingSessions: newRemaining,
-      status: newRemaining === 0 ? "depleted" : pack.status,
+      status,
     });
 
     return await ctx.db.get(args.id);
@@ -431,9 +434,12 @@ export const setRemainingSessions = mutation({
     }
 
     const newRemaining = Math.max(0, Math.min(args.amount, pack.totalSessions));
+    const status = newRemaining === 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status === "depleted" ? "active" : pack.status;
     await ctx.db.patch(args.id, {
       remainingSessions: newRemaining,
-      status: newRemaining === 0 ? "depleted" : newRemaining === pack.totalSessions ? "active" : pack.status,
+      status,
     });
 
     return await ctx.db.get(args.id);
