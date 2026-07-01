@@ -164,7 +164,27 @@ export const getInstructorStudentsWithRemainingSessions = query({
       })
     );
 
-    const userIdsWithSeats = new Set(seats.map((seat) => seat.userId));
+    const seatRowByUserId = new Map<string, (typeof seatRows)[number]>();
+    for (const row of seatRows) {
+      const existing = seatRowByUserId.get(row.userId);
+      if (!existing) {
+        seatRowByUserId.set(row.userId, row);
+        continue;
+      }
+
+      if (existing.status === "grace" && row.status === "active") {
+        seatRowByUserId.set(row.userId, row);
+        continue;
+      }
+
+      if (existing.status === row.status && row.remainingSessions < existing.remainingSessions) {
+        seatRowByUserId.set(row.userId, row);
+      }
+    }
+
+    const dedupedSeatRows = Array.from(seatRowByUserId.values());
+
+    const userIdsWithSeats = new Set(dedupedSeatRows.map((row) => row.userId));
     const workspaces = await ctx.db
       .query("workspaces")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
@@ -227,7 +247,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
       })
     );
 
-    return [...seatRows, ...workspaceRows].sort((a, b) => a.remainingSessions - b.remainingSessions);
+    return [...dedupedSeatRows, ...workspaceRows].sort((a, b) => a.remainingSessions - b.remainingSessions);
   },
 });
 
