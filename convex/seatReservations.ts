@@ -175,6 +175,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
 
       seatRowByUserId.set(row.userId, {
         ...existing,
+        hasSessionPack: existing.hasSessionPack || row.hasSessionPack,
         totalSessions: existing.totalSessions + row.totalSessions,
         remainingSessions: existing.remainingSessions + row.remainingSessions,
         expiresAt:
@@ -232,12 +233,21 @@ export const getInstructorStudentsWithRemainingSessions = query({
       activePacksByOwner.map(({ userId, sessionPack }) => [userId, sessionPack])
     );
 
+    const workspaceOwnerUsers = await Promise.all(
+      workspaceOwners.map((ownerId) =>
+        ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", ownerId))
+          .first()
+      )
+    );
+    const userByOwnerId = new Map(
+      workspaceOwners.map((ownerId, index) => [ownerId, workspaceOwnerUsers[index]])
+    );
+
     const workspaceRows = await Promise.all(
       Array.from(workspaceByOwnerId.values()).map(async (workspace) => {
-        const student = await ctx.db
-          .query("users")
-          .withIndex("by_userId", (q) => q.eq("userId", workspace.ownerId))
-          .first();
+        const student = userByOwnerId.get(workspace.ownerId) ?? null;
         const sessionPack = latestActivePackByUserId.get(workspace.ownerId) ?? null;
 
         return {
