@@ -34,7 +34,8 @@ jobs:
           CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
       - name: Skip codegen (no deploy key)
         if: ${{ env.CONVEX_DEPLOY_KEY == '' }}
-        run: echo "Skipping convex codegen: missing CONVEX_DEPLOY_KEY"
+        run: |
+          echo "Skipping convex codegen: missing CONVEX_DEPLOY_KEY"
       - name: Fail if codegen produced unstaged changes
         run: |
           git status --porcelain
