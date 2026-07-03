@@ -337,8 +337,14 @@ The Quick Capture composer (`Cmd/Ctrl+K`) remains available at all viewport size
 // sessions table additions
 videoRoomUrl: v.optional(v.string()),
 videoRoomName: v.optional(v.string()),
-instructorToken: v.optional(v.string()),
-recordingConsent: v.boolean(),
+// NOTE: instructorToken is intentionally NOT persisted to the database.
+// Daily.co owner-role JWTs grant room-owner access (manage recording,
+// waiting room, call termination). Anyone able to read the sessions
+// table — via a future Convex query, a DB export, or a misconfigured
+// access policy — would otherwise gain owner-level access to every
+// room. Tokens are generated fresh by POST /api/video/token/[roomName]
+// on each join request and live only in the response payload.
+recordingConsent: v.optional(v.boolean()),  // Optional for backwards-compat with existing rows
 recordingUrl: v.optional(v.string()),
 recordingExpiresAt: v.optional(v.number()),
 videoSessionStartedAt: v.optional(v.number()),
@@ -361,11 +367,24 @@ sessionId: v.optional(v.id("sessions")),
 ```
 POST   /api/video/rooms                                - Create Daily.co room for session
 GET    /api/video/token/[roomName]                     - Get participant token (role derived server-side)
-POST   /api/video/recordings                           - Webhook for recording complete
+POST   /api/video/recordings                           - Webhook for recording complete (HMAC-verified)
 GET    /api/video/recordings/[sessionId]               - Get recording URL for session
 GET    /api/video/active/[workspaceId]                 - Returns { sessionId, roomUrl, startedAt } | null
 POST   /api/video/start-adhoc                          - Instructor only; creates synthetic session + Daily room
 ```
+
+### Webhook Security (Daily.co → /api/video/recordings)
+
+`POST /api/video/recordings` is an unauthenticated callback that mutates `sessions.recordingUrl`. Without verification, any caller could POST a fake payload and attach an arbitrary URL to any session in Convex.
+
+Daily.co sends an `x-daily-signature` header containing an HMAC-SHA256 of the raw request body keyed by a webhook secret. The handler **must**:
+
+1. Read the raw request body (not the parsed JSON) before any other parsing.
+2. Compute `hmacSha256(rawBody, DAILY_WEBHOOK_SECRET)` and compare against the `x-daily-signature` header using a constant-time string comparison.
+3. Return `400` for missing header, malformed signature, or signature mismatch before doing any other work.
+4. Only then parse the body, validate the `roomName` corresponds to an existing `sessions.videoRoomName`, and update `recordingUrl`.
+
+The webhook secret is sourced from `DAILY_WEBHOOK_SECRET` env var and configured in the Daily.co dashboard under the room's webhook settings. Rotating the secret must invalidate all old signatures.
 
 ### B2 IAM Role (Daily.co)
 
@@ -437,7 +456,7 @@ POST   /api/video/start-adhoc                          - Instructor only; create
 ### Phase 5: Recording
 - [ ] Add recording consent UI to session booking and call join flows
 - [ ] Configure room for cloud recording to B2
-- [ ] Handle recording webhook (`POST /api/video/recordings`)
+- [ ] Handle recording webhook (`POST /api/video/recordings`) — verify `x-daily-signature` HMAC before parsing the body
 - [ ] Add `recordingUrl` to session in Convex
 - [ ] Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL)
 - [ ] Implement signed B2 URL refresh strategy (TTL policy)
@@ -500,6 +519,7 @@ POST   /api/video/start-adhoc                          - Instructor only; create
 ```env
 DAILY_API_KEY=<FROM_DAILY_DASHBOARD>
 DAILY_API_URL=https://api.daily.co/v1
+DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 ```
 
 ## Dependencies
