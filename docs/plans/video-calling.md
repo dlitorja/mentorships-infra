@@ -365,11 +365,11 @@ sessionId: v.optional(v.id("sessions")),
 ### API Endpoints
 
 ```
-POST   /api/video/rooms                                - Create Daily.co room for session
-GET    /api/video/token/[roomName]                     - Get participant token (role derived server-side)
+POST   /api/video/rooms                                - Create Daily.co room for session (instructor only)
+GET    /api/video/token/[roomName]                     - Get participant token (role derived server-side, session participants only)
 POST   /api/video/recordings                           - Webhook for recording complete (HMAC-verified)
-GET    /api/video/recordings/[sessionId]               - Get recording URL for session
-GET    /api/video/active/[workspaceId]                 - Returns { sessionId, roomUrl, startedAt } | null
+GET    /api/video/recordings/[sessionId]               - Get recording URL for session (session participants only)
+GET    /api/video/active/[workspaceId]                 - Returns { sessionId, roomUrl, startedAt } | null (workspace members only)
 POST   /api/video/start-adhoc                          - Instructor only; creates synthetic session + Daily room
 ```
 
@@ -385,6 +385,20 @@ Daily.co sends an `x-daily-signature` header containing an HMAC-SHA256 of the ra
 4. Only then parse the body, validate the `roomName` corresponds to an existing `sessions.videoRoomName`, and update `recordingUrl`.
 
 The webhook secret is sourced from `DAILY_WEBHOOK_SECRET` env var and configured in the Daily.co dashboard under the room's webhook settings. Rotating the secret must invalidate all old signatures.
+
+### Endpoint Authorization
+
+Every endpoint below the webhook must derive the caller's permissions from the authenticated Clerk session and the Convex row it references — never from URL or body parameters.
+
+| Endpoint | Allowed callers | Server-side check |
+|---|---|---|
+| `POST /api/video/rooms` | **Instructor only** | Compare `clerkUserId` against the session's `instructorId`. Students must not be able to create rooms, even for sessions they are a party to, because that would let them burn Daily.co API quota or create orphan rooms tied to arbitrary session IDs. |
+| `POST /api/video/start-adhoc` | **Instructor only** | Same check as above. Creates a synthetic session, so only the instructor may invoke it. |
+| `GET /api/video/token/[roomName]` | **Session participants only** | Resolve the room to its `sessions` row, then check the caller is the session's instructor OR appears in the workspace's participant list. Reject otherwise. Role (`owner` vs `participant`) is derived from that check. |
+| `GET /api/video/recordings/[sessionId]` | **Session participants only** | The sessionId is returned in many Convex queries, so checking "is the caller authenticated" is not enough. Verify the caller is the instructor OR a participant of the referenced session before issuing the signed B2 URL. |
+| `GET /api/video/active/[workspaceId]` | **Workspace members only** | The caller must appear in the workspace's membership (instructor or student of that workspace pair). Reject otherwise. |
+
+The same identity-check helper should be reused across all endpoints to keep authorization logic in one place and easy to audit.
 
 ### B2 IAM Role (Daily.co)
 
