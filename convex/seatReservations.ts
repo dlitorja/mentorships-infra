@@ -284,6 +284,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
       }
       const aExpires = a.expiresAt ?? Number.POSITIVE_INFINITY;
       const bExpires = b.expiresAt ?? Number.POSITIVE_INFINITY;
+      if (aExpires === bExpires) return 0;
       return aExpires - bExpires;
     });
   },
