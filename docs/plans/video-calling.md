@@ -21,7 +21,7 @@ todos:
     content: Create room creation API endpoint (POST /api/video/rooms)
     status: pending
   - id: token-generation
-    content: Implement token generation with role-based permissions (GET /api/video/token/[roomName]/[role])
+    content: Implement token generation with role derived server-side from authenticated session (GET /api/video/token/[roomName])
     status: pending
   - id: active-call-query
     content: Implement GET /api/video/active/[workspaceId] to determine if a call is live in a workspace
@@ -316,6 +316,7 @@ The Quick Capture composer (`Cmd/Ctrl+K`) remains available at all viewport size
    - Instructor token: `owner` role (full permissions, can manage recording, admit from waiting room).
    - Student token: `participant` role (send audio/video/screenshare, no admin).
    - Tokens expire after session duration + buffer.
+   - **Role is resolved server-side from the authenticated session, never from a request parameter.** The handler looks up the session row, compares the caller's Clerk user ID against `sessions.instructorId` (and the student-side counterpart), and grants `owner` only when the caller is the instructor for that session. Any URL/body parameter that hints at a role is ignored.
 
 4. **Recording to B2**
    - Configure B2 bucket in room properties via IAM role assumption.
@@ -359,7 +360,7 @@ sessionId: v.optional(v.id("sessions")),
 
 ```
 POST   /api/video/rooms                                - Create Daily.co room for session
-GET    /api/video/token/[roomName]/[role]              - Get participant token (instructor|student)
+GET    /api/video/token/[roomName]                     - Get participant token (role derived server-side)
 POST   /api/video/recordings                           - Webhook for recording complete
 GET    /api/video/recordings/[sessionId]               - Get recording URL for session
 GET    /api/video/active/[workspaceId]                 - Returns { sessionId, roomUrl, startedAt } | null
@@ -386,11 +387,13 @@ POST   /api/video/start-adhoc                          - Instructor only; create
     ],
     "Resource": [
       "arn:aws:s3:::instructor-uploads",
-      "arn:aws:s3:::instructor-uploads/*"
+      "arn:aws:s3:::instructor-uploads/recordings/*"
     ]
   }]
 }
 ```
+
+> **Scope note:** Resources are scoped to `recordings/*` so Daily.co's storage service can only read/write recording objects — not user-uploaded workspace content that shares the bucket. Bucket-level ARNs are retained only because `s3:ListBucket` requires them; restrict that action with a `Condition` (`s3:prefix=recordings/`) if B2 supports it.
 
 ## Implementation Phases
 
@@ -407,7 +410,7 @@ POST   /api/video/start-adhoc                          - Instructor only; create
 - [ ] Create `VideoCall` component with DailyProvider
 - [ ] Create `VideoControls` component (mute, camera, screenshare, record)
 - [ ] Implement room creation endpoint (`POST /api/video/rooms`)
-- [ ] Implement token generation endpoint (`GET /api/video/token/[roomName]/[role]`)
+- [ ] Implement token generation endpoint (`GET /api/video/token/[roomName]`) — role resolved server-side from authenticated session, never from request input
 - [ ] Implement active call query endpoint (`GET /api/video/active/[workspaceId]`)
 - [ ] Add "Join Video Call" button to session cards (both roles)
 
@@ -471,7 +474,7 @@ POST   /api/video/start-adhoc                          - Instructor only; create
 
 **API Routes:**
 - `apps/platform/app/api/video/rooms/route.ts` — Room creation
-- `apps/platform/app/api/video/token/[roomName]/[role]/route.ts` — Token generation
+- `apps/platform/app/api/video/token/[roomName]/route.ts` — Token generation (role derived server-side)
 - `apps/platform/app/api/video/recordings/route.ts` — Webhook for recording complete
 - `apps/platform/app/api/video/active/[workspaceId]/route.ts` — Active call query
 - `apps/platform/app/api/video/start-adhoc/route.ts` — Instructor-only ad-hoc call creation
