@@ -269,7 +269,23 @@ export const getInstructorStudentsWithRemainingSessions = query({
       })
     );
 
-    return [...dedupedSeatRows, ...workspaceRows].sort((a, b) => a.remainingSessions - b.remainingSessions);
+    return [...dedupedSeatRows, ...workspaceRows].sort((a, b) => {
+      // Workspace-only rows are a background state, not urgent — push them to
+      // the end so they don't interleave with seat-based students who are
+      // genuinely running low. Within each group, sort by remaining sessions
+      // ascending so the most-urgent rows surface first.
+      const aIsWorkspace = a.status === "workspace";
+      const bIsWorkspace = b.status === "workspace";
+      if (aIsWorkspace !== bIsWorkspace) {
+        return aIsWorkspace ? 1 : -1;
+      }
+      if (a.remainingSessions !== b.remainingSessions) {
+        return a.remainingSessions - b.remainingSessions;
+      }
+      const aExpires = a.expiresAt ?? Number.POSITIVE_INFINITY;
+      const bExpires = b.expiresAt ?? Number.POSITIVE_INFINITY;
+      return aExpires - bExpires;
+    });
   },
 });
 
