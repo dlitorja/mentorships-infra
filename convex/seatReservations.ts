@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation, internalAction, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 const SERVER_SHARED_SECRET = process.env.CONVEX_SERVER_SHARED_SECRET;
 
@@ -130,6 +131,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
         .collect(),
     ]);
     const seats = [...activeSeats, ...graceSeats];
+    const activeSeatReservationIds = new Set(seats.map((seat) => seat._id));
 
     const sessionPacks = await Promise.all(
       seats.map((seat) => ctx.db.get(seat.sessionPackId))
@@ -153,6 +155,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
           seatId: seat._id,
           workspaceId: null,
           sessionPackId: seat.sessionPackId,
+          isAggregate: false,
           hasSessionPack: sessionPack !== undefined,
           studentEmail: student?.email ?? null,
           studentFirstName: student?.firstName ?? null,
@@ -173,9 +176,20 @@ export const getInstructorStudentsWithRemainingSessions = query({
         continue;
       }
 
+      const isAggregate = existing.hasSessionPack && row.hasSessionPack;
+      // Pick the first pack's ID as the merged sessionPackId so the field
+      // stays non-null and typed correctly. Consumers that mutate via
+      // sessionPackId must check isAggregate first and handle the multi-pack
+      // case explicitly rather than silently patching only one of the
+      // underlying packs.
+      const mergedSessionPackId: Id<"sessionPacks"> = existing.hasSessionPack
+        ? existing.sessionPackId
+        : row.sessionPackId;
+
       seatRowByUserId.set(row.userId, {
         ...existing,
-        sessionPackId: existing.hasSessionPack ? existing.sessionPackId : row.sessionPackId,
+        sessionPackId: mergedSessionPackId,
+        isAggregate,
         hasSessionPack: existing.hasSessionPack || row.hasSessionPack,
         totalSessions: existing.totalSessions + row.totalSessions,
         remainingSessions: existing.remainingSessions + row.remainingSessions,
@@ -199,9 +213,15 @@ export const getInstructorStudentsWithRemainingSessions = query({
 
     const workspaceByOwnerId = new Map<string, (typeof workspaces)[number]>();
     for (const workspace of workspaces) {
+      // Skip workspaces that mirror an active seat — the seat row already
+      // covers them and showing both would double-count the student. But
+      // do NOT skip workspaces whose seatReservationId points at a
+      // released/expired seat, otherwise a student who transitions from
+      // seat to workspace would silently fall off the dashboard.
       if (
         workspace.endedAt ||
-        workspace.seatReservationId ||
+        (workspace.seatReservationId !== undefined &&
+          activeSeatReservationIds.has(workspace.seatReservationId)) ||
         (workspace.type !== undefined && workspace.type !== "mentorship") ||
         userIdsWithSeats.has(workspace.ownerId)
       ) {
@@ -217,17 +237,22 @@ export const getInstructorStudentsWithRemainingSessions = query({
     const workspaceOwners = Array.from(workspaceByOwnerId.keys());
     const activePacksByOwner = await Promise.all(
       workspaceOwners.map(async (userId) => {
-        const packs = await ctx.db
+        // Take the single most recent active, non-deleted pack for this
+        // user/instructor pair. .filter() is applied per entry scanned in
+        // .order("desc") order, so .take(1) returns the first pack that
+        // passes the filter — i.e. the latest non-deleted one — even if
+        // there are many soft-deleted packs ahead of it in history.
+        const latest = await ctx.db
           .query("sessionPacks")
           .withIndex("by_userId_instructorId_status", (q) =>
             q.eq("userId", userId).eq("instructorId", args.instructorId).eq("status", "active")
           )
-          .collect();
+          .filter((q) => q.eq(q.field("deletedAt"), undefined))
+          .order("desc")
+          .first();
         return {
           userId,
-          sessionPack: packs
-            .filter((pack) => !pack.deletedAt)
-            .sort((a, b) => b._creationTime - a._creationTime)[0] ?? null,
+          sessionPack: latest ?? null,
         };
       })
     );
