@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation, internalAction, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 
 const SERVER_SHARED_SECRET = process.env.CONVEX_SERVER_SHARED_SECRET;
 
@@ -154,6 +155,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
           seatId: seat._id,
           workspaceId: null,
           sessionPackId: seat.sessionPackId,
+          isAggregate: false,
           hasSessionPack: sessionPack !== undefined,
           studentEmail: student?.email ?? null,
           studentFirstName: student?.firstName ?? null,
@@ -174,17 +176,20 @@ export const getInstructorStudentsWithRemainingSessions = query({
         continue;
       }
 
+      const isAggregate = existing.hasSessionPack && row.hasSessionPack;
+      // Pick the first pack's ID as the merged sessionPackId so the field
+      // stays non-null and typed correctly. Consumers that mutate via
+      // sessionPackId must check isAggregate first and handle the multi-pack
+      // case explicitly rather than silently patching only one of the
+      // underlying packs.
+      const mergedSessionPackId: Id<"sessionPacks"> = existing.hasSessionPack
+        ? existing.sessionPackId
+        : row.sessionPackId;
+
       seatRowByUserId.set(row.userId, {
         ...existing,
-        // When both seats have a pack, the merged row is an aggregate of
-        // multiple packs and no single sessionPackId represents it.
-        // Return null so any future code that tries to mutate via
-        // sessionPackId is forced to handle the multi-pack case explicitly
-        // (rather than silently patching only one of the underlying packs).
-        sessionPackId:
-          existing.hasSessionPack && row.hasSessionPack
-            ? null
-            : (existing.hasSessionPack ? existing.sessionPackId : row.sessionPackId),
+        sessionPackId: mergedSessionPackId,
+        isAggregate,
         hasSessionPack: existing.hasSessionPack || row.hasSessionPack,
         totalSessions: existing.totalSessions + row.totalSessions,
         remainingSessions: existing.remainingSessions + row.remainingSessions,
@@ -232,21 +237,22 @@ export const getInstructorStudentsWithRemainingSessions = query({
     const workspaceOwners = Array.from(workspaceByOwnerId.keys());
     const activePacksByOwner = await Promise.all(
       workspaceOwners.map(async (userId) => {
-        // Use the index's natural _creationTime order (every Convex index
-        // implicitly includes _creationTime as its final sort key) to get
-        // the most recently created active packs first, then filter out
-        // soft-deleted ones in memory. Bounded .take() avoids loading an
-        // unbounded history for repeat customers.
-        const packs = await ctx.db
+        // Take the single most recent active, non-deleted pack for this
+        // user/instructor pair. .filter() is applied per entry scanned in
+        // .order("desc") order, so .take(1) returns the first pack that
+        // passes the filter — i.e. the latest non-deleted one — even if
+        // there are many soft-deleted packs ahead of it in history.
+        const latest = await ctx.db
           .query("sessionPacks")
           .withIndex("by_userId_instructorId_status", (q) =>
             q.eq("userId", userId).eq("instructorId", args.instructorId).eq("status", "active")
           )
+          .filter((q) => q.eq(q.field("deletedAt"), undefined))
           .order("desc")
-          .take(20);
+          .first();
         return {
           userId,
-          sessionPack: packs.find((pack) => !pack.deletedAt) ?? null,
+          sessionPack: latest ?? null,
         };
       })
     );
