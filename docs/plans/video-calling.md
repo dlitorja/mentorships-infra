@@ -285,6 +285,79 @@ The Quick Capture composer (`Cmd/Ctrl+K`) remains available at all viewport size
 9. **Fullscreen** → video only, workspace hidden (full-screen video on narrow viewports).
 10. End call → `callEndedAt` set, panel animates out, recording webhook fires, Notes tab now shows the Calls sub-section at top.
 
+## Instructor Call Flows in /workspace
+
+Instructors have **three** entry points for conducting a call from inside a workspace. Each is intentionally available without leaving the workspace tabs so the call and the workspace content stay on one surface.
+
+### Entry point 1 — Scheduled session in window (both roles)
+
+Trigger: a session for the workspace's `(instructor, student)` pair is scheduled within the next 15 minutes or is currently in progress.
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│ My Workspace    🔴 Live · 00:32:15 · 2 participants           │
+│ Chat │ Notes │ Images │ Links │ Resources     [📹 Join Call]   │
+└───────────────────────────────────────────────────────────────┘
+```
+
+1. The workspace header shows a **"📹 Join Call"** button (enabled). It is visible to both the instructor and the student of the workspace.
+2. The button is disabled (with tooltip "Your next session starts in HH:MM") outside the ±15-minute window.
+3. Both parties see the same button. Clicking from either side opens the consent modal (if recording), then mounts the VideoPanel in split mode.
+4. The instructor takes the `owner` Daily.co role automatically (resolved server-side from `clerkUserId` matching `sessions.instructorId`). The student takes `participant`.
+
+### Entry point 2 — Ad-hoc call (instructor only)
+
+Trigger: the instructor wants to start a call outside any scheduled session (catch-up, quick check-in).
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│ My Workspace    🔴 Live · 00:32:15 · 2 participants           │
+│ Chat │ Notes │ Images │ Links │ Resources  [📹 Call] [⋯ Ad-hoc]│
+└───────────────────────────────────────────────────────────────┘
+```
+
+1. The workspace header shows a small **"⋯ Start ad-hoc call"** button **only when the current user is the instructor of this workspace**. Students never see this button.
+2. Click → consent modal (if recording) → `POST /api/video/start-adhoc` (instructor-only endpoint) creates a **synthetic `sessions` row** with `isAdhoc: true` and a Daily.co room.
+3. The student gets an **in-app notification** (workspace list badge + optional email) with a deep link to the workspace.
+4. From this point the flow is identical to entry point 1: VideoPanel opens in split mode, role resolved server-side, auto-tagging active, recording webhook fires on end.
+
+### Entry point 3 — Session card (both roles)
+
+Trigger: the user is browsing sessions (not the workspace) and wants to join from there.
+
+- Session cards in the instructor dashboard and student sessions page show a **"📹 Join Call"** button (already in today's UI, currently alongside Reschedule / Cancel / Notes).
+- Clicking from a session card navigates to `/workspaces/[workspaceId]` with the call already mounted. The instructor or student lands directly in the split panel.
+
+### What the instructor sees during a call
+
+While the call is active, the instructor's workspace shows the same chrome students see, plus:
+
+- The **CallStatusPill** in the header (`🔴 Live · HH:MM:SS · 2 participants`) — the only place the call duration is visible.
+- The **Waiting Room** UI when a student is admitted. The instructor sees an admit toast and clicks "Admit" — students never see this control.
+- The **"Tag to current call"** toggle is **ON by default** in the Notes/Images/Links composers, with a clear visual indicator so the instructor knows anything posted will be associated with this session.
+- The **Quick Capture composer** (`Cmd/Ctrl+K`) lets the instructor drop a link or paste an image without leaving the call.
+- After the call ends, the **Calls sub-section at the top of the Notes tab** shows the recording (if enabled), with Play and Download.
+
+### What students never see
+
+- The **"Start ad-hoc call"** button is instructor-only at the UI layer (not just the endpoint) — the workspace header hides it for students.
+- The **Resources tab** is instructor-only; during a call, students see a "Shared during current call" subpanel inside the Links tab instead, so they can see resources the instructor handed out live without gaining access to the full Resources management UI.
+- The **admit-from-waiting-room** control is instructor-only.
+- The instructor-only **owner token** is generated server-side and never reaches the browser (no persisted `instructorToken` in Convex).
+
+### Role boundary summary
+
+| Capability | Instructor | Student |
+|---|---|---|
+| Join scheduled call from workspace header | ✅ | ✅ |
+| Start ad-hoc call | ✅ | ❌ (button hidden + endpoint rejects) |
+| See CallStatusPill | ✅ | ✅ |
+| See admit-from-waiting-room control | ✅ | ❌ |
+| See full Resources tab | ✅ | ❌ (sees "shared during call" only) |
+| Post to Notes / Links / Images during call | ✅ (auto-tagged) | ✅ (auto-tagged) |
+| Open Quick Capture composer (`Cmd/Ctrl+K`) | ✅ | ✅ |
+| End call | ✅ | ✅ (leaves room) |
+
 ### Keyboard Shortcuts
 
 | Shortcut | Action |

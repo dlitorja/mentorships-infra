@@ -130,6 +130,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
         .collect(),
     ]);
     const seats = [...activeSeats, ...graceSeats];
+    const activeSeatReservationIds = new Set(seats.map((seat) => seat._id));
 
     const sessionPacks = await Promise.all(
       seats.map((seat) => ctx.db.get(seat.sessionPackId))
@@ -175,7 +176,15 @@ export const getInstructorStudentsWithRemainingSessions = query({
 
       seatRowByUserId.set(row.userId, {
         ...existing,
-        sessionPackId: existing.hasSessionPack ? existing.sessionPackId : row.sessionPackId,
+        // When both seats have a pack, the merged row is an aggregate of
+        // multiple packs and no single sessionPackId represents it.
+        // Return null so any future code that tries to mutate via
+        // sessionPackId is forced to handle the multi-pack case explicitly
+        // (rather than silently patching only one of the underlying packs).
+        sessionPackId:
+          existing.hasSessionPack && row.hasSessionPack
+            ? null
+            : (existing.hasSessionPack ? existing.sessionPackId : row.sessionPackId),
         hasSessionPack: existing.hasSessionPack || row.hasSessionPack,
         totalSessions: existing.totalSessions + row.totalSessions,
         remainingSessions: existing.remainingSessions + row.remainingSessions,
@@ -199,9 +208,15 @@ export const getInstructorStudentsWithRemainingSessions = query({
 
     const workspaceByOwnerId = new Map<string, (typeof workspaces)[number]>();
     for (const workspace of workspaces) {
+      // Skip workspaces that mirror an active seat — the seat row already
+      // covers them and showing both would double-count the student. But
+      // do NOT skip workspaces whose seatReservationId points at a
+      // released/expired seat, otherwise a student who transitions from
+      // seat to workspace would silently fall off the dashboard.
       if (
         workspace.endedAt ||
-        workspace.seatReservationId ||
+        (workspace.seatReservationId !== undefined &&
+          activeSeatReservationIds.has(workspace.seatReservationId)) ||
         (workspace.type !== undefined && workspace.type !== "mentorship") ||
         userIdsWithSeats.has(workspace.ownerId)
       ) {
@@ -217,17 +232,21 @@ export const getInstructorStudentsWithRemainingSessions = query({
     const workspaceOwners = Array.from(workspaceByOwnerId.keys());
     const activePacksByOwner = await Promise.all(
       workspaceOwners.map(async (userId) => {
+        // Use the index's natural _creationTime order (every Convex index
+        // implicitly includes _creationTime as its final sort key) to get
+        // the most recently created active packs first, then filter out
+        // soft-deleted ones in memory. Bounded .take() avoids loading an
+        // unbounded history for repeat customers.
         const packs = await ctx.db
           .query("sessionPacks")
           .withIndex("by_userId_instructorId_status", (q) =>
             q.eq("userId", userId).eq("instructorId", args.instructorId).eq("status", "active")
           )
-          .collect();
+          .order("desc")
+          .take(20);
         return {
           userId,
-          sessionPack: packs
-            .filter((pack) => !pack.deletedAt)
-            .sort((a, b) => b._creationTime - a._creationTime)[0] ?? null,
+          sessionPack: packs.find((pack) => !pack.deletedAt) ?? null,
         };
       })
     );
