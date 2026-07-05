@@ -15,6 +15,7 @@ import type * as cleanup from "../cleanup.js";
 import type * as clerkDeletion from "../clerkDeletion.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
+import type * as dailyRecordingActions from "../dailyRecordingActions.js";
 import type * as discordActionQueue from "../discordActionQueue.js";
 import type * as hdInvitations from "../hdInvitations.js";
 import type * as http from "../http.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   clerkDeletion: typeof clerkDeletion;
   contacts: typeof contacts;
   crons: typeof crons;
+  dailyRecordingActions: typeof dailyRecordingActions;
   discordActionQueue: typeof discordActionQueue;
   hdInvitations: typeof hdInvitations;
   http: typeof http;

@@ -1050,49 +1050,60 @@ export const checkSeatExpiration = internalAction({
 
 /**
  * Attaches Daily.co recording metadata to the session matched by room name.
- * Called by the Daily webhook handler at
- * apps/platform/app/api/webhooks/daily/recordings/route.ts after HMAC
- * verification. The HMAC layer (not Convex auth) is the security boundary;
- * only Daily, holding the shared secret, can trigger this mutation with a
- * valid signature for an existing `sessions.videoRoomName`.
+ * Invoked by `attachRecordingFromDailyWebhookAction` (defined in
+ * convex/dailyRecordingActions.ts) after HMAC verification inside the
+ * Convex action layer.
  *
- * Public (not internal) because ConvexHttpClient.mutation() only accepts
- * public FunctionReferences. Security is enforced by HMAC verification
- * upstream, not by Convex auth — there is no Clerk user context on a
- * webhook call.
+ * Idempotent: if a recording has already been attached for the matched
+ * session, the existing fields are preserved. Daily occasionally re-fires
+ * the recording-ready event for the same room (retry, redelivery); without
+ * this guard the first recorded call would be silently overwritten by a
+ * later delivery, surfacing the wrong playback item in PR #4's Notes tab.
  *
- * Threat model: NEXT_PUBLIC_CONVEX_URL is baked into every browser bundle,
- * so any caller that discovers it AND a valid `videoRoomName` (predicted
- * from `mentorship-{sessionId}` naming) can invoke this mutation. Impact
- * is bounded — overwrites only `recordingUrl` (B2 s3_key), `callEndedAt`,
- * `recordingDurationSeconds`, and `recordingId`. No data is leaked. PR #4
- * is expected to gate this further by validating the s3_key prefix against
- * a server-side bucket allowlist and/or moving the HMAC verification into
- * a Convex action that invokes an internal mutation.
+ * Also defends against duplicate room names: if more than one session
+ * shares the same `videoRoomName` (data drift), this throws so the caller
+ * can investigate rather than silently attaching to the wrong row.
  *
- * Stores the s3_key (path in Backblaze B2). PR #4 will generate signed
- * download URLs on demand from this field.
+ * Stored as `internalMutation` so the public action layer controls access;
+ * the internal mutation is not callable from the Next.js route layer
+ * directly. PR #2 will set `callEndedAt` at the actual call-end moment
+ * via POST /api/video/end/[sessionId]; this mutation only sets it if
+ * the end endpoint hasn't already written it, so the Daily processing
+ * delay (1–5 min after hangup) doesn't inflate call-duration metrics.
  */
-export const attachRecordingFromDailyWebhook = mutation({
+export const attachRecordingFromDailyWebhook = internalMutation({
   args: {
     roomName: v.string(),
     recordingS3Key: v.string(),
     durationSeconds: v.optional(v.number()),
     recordingId: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const session = await ctx.db
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; alreadyAttached: boolean }> => {
+    const matches = await ctx.db
       .query("sessions")
-      .withIndex("by_videoRoomName", (q) => q.eq("videoRoomName", args.roomName))
-      .first();
-    if (!session) {
+      .withIndex("by_videoRoomName", (q) =>
+        q.eq("videoRoomName", args.roomName)
+      )
+      .collect();
+    if (matches.length === 0) {
       throw new Error(`No session found for videoRoomName: ${args.roomName}`);
     }
-    // The Daily recording-ready webhook fires AFTER Daily finishes processing
-    // the recording (typically 1–5 minutes post-hangup). PR #2 will set
-    // callEndedAt at the actual call-end moment via POST /api/video/end/[sessionId].
-    // Only set callEndedAt here if it hasn't already been written, so the
-    // processing delay doesn't inflate call-duration calculations downstream.
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple sessions (${matches.length}) share videoRoomName: ${args.roomName}. ` +
+          `Room names must be unique — investigate duplicates before re-running.`
+      );
+    }
+    const session = matches[0];
+
+    // Idempotency: if a recording is already attached, keep the original.
+    if (session.recordingUrl !== undefined) {
+      return { sessionId: session._id, alreadyAttached: true };
+    }
+
     const patch: Partial<Doc<"sessions">> = {
       recordingUrl: args.recordingS3Key,
     };
@@ -1106,6 +1117,7 @@ export const attachRecordingFromDailyWebhook = mutation({
       patch.recordingId = args.recordingId;
     }
     await ctx.db.patch(session._id, patch);
-    return { sessionId: session._id };
+    return { sessionId: session._id, alreadyAttached: false };
   },
 });
+

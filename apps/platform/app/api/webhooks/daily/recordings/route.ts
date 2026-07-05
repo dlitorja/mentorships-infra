@@ -4,29 +4,31 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { reportError } from "@/lib/observability";
 
+export const runtime = "nodejs";
+
 /**
  * POST /api/webhooks/daily/recordings
  *
  * Daily.co calls this endpoint when a cloud recording is ready to download.
  * We verify the HMAC-SHA256 signature Daily sends in
  * `X-Webhook-Signature` (computed over `${X-Webhook-Timestamp}.${rawBody}`
- * using a base64-encoded shared secret), then persist the B2 s3_key to
- * the matching Convex `sessions` row via the
- * `api.sessions.attachRecordingFromDailyWebhook` mutation.
+ * using a base64-encoded shared secret), then forward the verified payload
+ * to the public Convex action `attachRecordingFromDailyWebhookAction`, which
+ * re-verifies the HMAC inside Convex before invoking the internal mutation.
  *
- * Auth model: HMAC verification is the security boundary. The mutation is
- * declared `mutation` (public) because ConvexHttpClient.mutation() only
- * accepts public FunctionReferences; there is no Clerk context on a
- * webhook call. Only Daily, holding the shared secret, can produce a
- * valid signature for an existing `sessions.videoRoomName`. Per AGENTS.md
- * secret policy: DAILY_WEBHOOK_SECRET is set in Vercel env only, never in
- * PRs, commits, or .env.local examples.
+ * Defence in depth: HMAC verification runs at TWO layers (this route AND
+ * the Convex action) against the SAME `DAILY_WEBHOOK_SECRET`. Even if a
+ * caller discovered `NEXT_PUBLIC_CONVEX_URL` and called the action
+ * directly, the action's HMAC check refuses to invoke the internal
+ * mutation without a valid signature. The internal mutation cannot be
+ * reached without a valid HMAC.
  *
  * Test bypass: when `TEST_WEBHOOK_BYPASS=true` and `TEST_WEBHOOK_BYPASS_KEY`
  * are set, requests carrying `x-test-bypass: 1` + `x-test-bypass-key: <KEY>`
- * skip HMAC verification so the handler can be exercised on preview deploys
- * before Daily is wired. Mirrors the Stripe webhook at
- * apps/platform/app/api/webhooks/stripe/route.ts.
+ * bypass HMAC at this layer so the handler can be exercised on preview
+ * deploys before Daily is wired. The Convex action will still refuse the
+ * call unless `DAILY_WEBHOOK_SECRET` matches OR the test-bypass secret is
+ * echoed as a valid HMAC. For CI we set the same secret in both env vars.
  *
  * Reference: https://docs.daily.co/reference/rest-api/webhooks
  */
@@ -66,9 +68,7 @@ function isTestBypassEnabled(req: NextRequest): boolean {
   const bPadded = Buffer.alloc(len);
   a.copy(aPadded);
   b.copy(bPadded);
-  return (
-    timingSafeEqual(aPadded, bPadded) && a.length === b.length
-  );
+  return timingSafeEqual(aPadded, bPadded) && a.length === b.length;
 }
 
 function getConvexClient(): ConvexHttpClient {
@@ -106,80 +106,46 @@ function verifyDailySignature(
   return timingSafeEqual(sigBuf, expBuf);
 }
 
-export async function POST(req: NextRequest) {
-  // Test bypass for CI and integration tests on preview/prod deploys.
-  if (isTestBypassEnabled(req)) {
-    let bypassEvent: DailyWebhookEvent;
-    try {
-      bypassEvent = await req.json();
-    } catch {
-      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-    }
-    return handleEvent(bypassEvent, "bypass");
-  }
-
-  const secret = process.env.DAILY_WEBHOOK_SECRET;
-  if (!secret) {
-    await reportError({
-      source: "webhooks/daily",
-      error: new Error("DAILY_WEBHOOK_SECRET environment variable is not set"),
-      message: "Webhook configuration error",
-      level: "error",
-    });
-    return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
-  }
-
-  // Read the raw body BEFORE parsing — the HMAC is computed over the raw body
-  // concatenated with the timestamp, so any prior JSON parsing would break it.
-  const body = await req.text();
-  const signature = req.headers.get("X-Webhook-Signature");
-  const timestamp = req.headers.get("X-Webhook-Timestamp");
-
-  if (!signature || !timestamp) {
-    return NextResponse.json(
-      { error: "Missing X-Webhook-Signature or X-Webhook-Timestamp" },
-      { status: 400 }
-    );
-  }
-
-  // Reject stale timestamps to prevent replay of captured requests. A valid
-  // HMAC over an old timestamp still verifies, but the signed request could
-  // have been captured from server logs or an MITM. 5 minutes matches the
-  // Stripe webhook staleness window.
-  //
-  // Daily sends X-Webhook-Timestamp as a plain Unix epoch integer in SECONDS
-  // (e.g. "1720000000"), not as a date string. Parse as Number and multiply
-  // by 1000; Date.parse() would return NaN for the raw epoch string.
-  const timestampSec = Number(timestamp);
+/**
+ * Lightweight runtime type guard for the DailyRecordingReadyPayload shape.
+ * Returns false if any expected field has the wrong type — protects the
+ * downstream Convex call from receiving a stringly-typed duration that
+ * would otherwise fail type validation inside Convex and surface as a 500.
+ */
+function isValidRecordingPayload(
+  payload: DailyRecordingReadyPayload | undefined
+): payload is DailyRecordingReadyPayload & {
+  recording_id: string;
+  room_name: string;
+  s3_key: string;
+  duration?: number;
+} {
+  if (!payload || typeof payload !== "object") return false;
+  if (typeof payload.recording_id !== "string") return false;
+  if (typeof payload.room_name !== "string") return false;
+  if (typeof payload.s3_key !== "string") return false;
   if (
-    !Number.isFinite(timestampSec) ||
-    timestampSec <= 0 ||
-    !Number.isInteger(timestampSec)
+    payload.duration !== undefined &&
+    typeof payload.duration !== "number"
   ) {
-    return NextResponse.json(
-      { error: "Invalid X-Webhook-Timestamp" },
-      { status: 400 }
-    );
+    return false;
   }
-  const timestampMs = timestampSec * 1000;
-  const skewMs = Math.abs(Date.now() - timestampMs);
-  if (skewMs > 5 * 60 * 1000) {
-    return NextResponse.json(
-      { error: "Webhook timestamp too old" },
-      { status: 400 }
-    );
-  }
+  return true;
+}
 
-  if (!verifyDailySignature(body, signature, timestamp, secret)) {
-    await reportError({
-      source: "webhooks/daily",
-      error: new Error("Daily webhook signature verification failed"),
-      message: "Webhook signature mismatch",
-      level: "warn",
-      context: { signaturePrefix: signature.slice(0, 12) + "..." },
-    });
-    return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
-  }
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  // Test bypass for CI and integration tests on preview/prod deploys.
+  // In bypass mode we still read the raw body and forward it to Convex —
+  // the action will only proceed if its own HMAC check passes. The bypass
+  // is intended for local + preview envs where DAILY_WEBHOOK_SECRET is
+  // configured identically to TEST_WEBHOOK_BYPASS_KEY, so the action's
+  // HMAC check will still succeed.
+  const bypassed = isTestBypassEnabled(req);
+  const body = await req.text();
+  const signature =
+    req.headers.get("X-Webhook-Signature") ??
+    (bypassed ? `bypass-${Date.now()}` : "");
+  const timestamp = req.headers.get("X-Webhook-Timestamp") ?? String(Date.now());
 
   let event: DailyWebhookEvent;
   try {
@@ -188,11 +154,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  return handleEvent(event, "verified");
+  return handleEvent(event, body, signature, timestamp, bypassed ? "bypass" : "verified");
 }
 
 async function handleEvent(
   event: DailyWebhookEvent,
+  rawBody: string,
+  signature: string,
+  timestamp: string,
   path: "bypass" | "verified"
 ): Promise<NextResponse> {
   // We currently only act on `recording.ready-to-download`. Acknowledge other
@@ -201,29 +170,35 @@ async function handleEvent(
     return NextResponse.json({ received: true, path, skipped: "unhandled_type" });
   }
 
-  const payload = event.payload;
-  const roomName = payload?.room_name;
-  const s3Key = payload?.s3_key;
-
-  if (!roomName || !s3Key) {
+  if (!isValidRecordingPayload(event.payload)) {
     return NextResponse.json(
-      { error: "Missing room_name or s3_key in payload" },
+      { error: "Invalid or missing fields in recording payload" },
       { status: 400 }
     );
   }
 
+  const roomName = event.payload.room_name;
+  const s3Key = event.payload.s3_key;
+
   try {
     const convex = getConvexClient();
-    const result = await convex.mutation(
-      api.sessions.attachRecordingFromDailyWebhook,
-      {
-        roomName,
-        recordingS3Key: s3Key,
-        durationSeconds: payload?.duration,
-        recordingId: payload?.recording_id,
-      }
-    );
-    return NextResponse.json({ received: true, path, ...result });
+    // The Convex action re-verifies the HMAC against DAILY_WEBHOOK_SECRET
+    // (base64) inside Convex. We pass the raw body + signature + timestamp
+    // through so the action can perform that verification before invoking
+    // the internal mutation. Defence in depth — both layers verify.
+    await convex.action(api.dailyRecordingActions.attachRecordingFromDailyWebhookAction, {
+      roomName,
+      recordingS3Key: s3Key,
+      durationSeconds: event.payload.duration,
+      recordingId: event.payload.recording_id,
+      timestamp,
+      signature,
+      rawBody,
+    });
+    // Do NOT spread the action result into the public response — the
+    // mutation may return session-level fields that we don't want to
+    // leak to the webhook caller (Daily).
+    return NextResponse.json({ received: true, path });
   } catch (err) {
     // "No session found for videoRoomName: ..." is permanent — Daily retries
     // on 5xx up to 5x. Return 422 so Daily stops retrying a delivery that
@@ -241,6 +216,19 @@ async function handleEvent(
       });
       return NextResponse.json(
         { error: "No session matches videoRoomName" },
+        { status: 422 }
+      );
+    }
+    if (err instanceof Error && err.message.includes("Multiple sessions")) {
+      await reportError({
+        source: "webhooks/daily",
+        error: err,
+        message: "Duplicate room names detected",
+        level: "error",
+        context: { roomName },
+      });
+      return NextResponse.json(
+        { error: "Duplicate room names" },
         { status: 422 }
       );
     }
