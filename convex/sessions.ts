@@ -1129,6 +1129,12 @@ export const attachRecordingFromDailyWebhook = internalMutation({
  * calling Daily. This mutation always patches, so callers MUST check
  * `session.videoRoomName !== undefined` first.
  *
+ * Recovery case: if `videoRoomName` is set but `videoRoomUrl` is empty
+ * (a previous request crashed between `createDailyRoom` and this
+ * mutation), this mutation patches the URL in place. The route layer
+ * detects this state, calls Daily again to recover, and re-invokes
+ * `setVideoRoom` with the new URL.
+ *
  * Auth: instructor on the session only. Students cannot create rooms
  * — this prevents burning Daily quota or creating orphan rooms.
  */
@@ -1162,8 +1168,20 @@ export const setVideoRoom = mutation({
       });
     }
 
-    if (session.videoRoomName !== undefined) {
+    if (session.videoRoomName === args.videoRoomName) {
+      if (session.videoRoomUrl !== args.videoRoomUrl) {
+        await ctx.db.patch(args.sessionId, { videoRoomUrl: args.videoRoomUrl });
+        return await ctx.db.get(args.sessionId);
+      }
       return session;
+    }
+
+    if (session.videoRoomName !== undefined) {
+      throw new ConvexError({
+        code: "VIDEO_ROOM_NAME_CONFLICT",
+        message:
+          "Session already has a different videoRoomName; refusing to overwrite",
+      });
     }
 
     await ctx.db.patch(args.sessionId, {
@@ -1358,7 +1376,8 @@ export const getActiveSessionForWorkspace = query({
       return null;
     }
 
-    const activeWindowStart = Date.now() - 4 * 60 * 60 * 1000;
+    const callActiveWindowStart = Date.now() - 4 * 60 * 60 * 1000;
+    const roomReservedWindowStart = Date.now() - 24 * 60 * 60 * 1000;
 
     if (workspace.instructorId === undefined) {
       return null;
@@ -1370,8 +1389,18 @@ export const getActiveSessionForWorkspace = query({
       .filter((q) =>
         q.and(
           q.eq(q.field("instructorId"), workspace.instructorId!),
-          q.gt(q.field("callStartedAt"), activeWindowStart),
-          q.eq(q.field("callEndedAt"), undefined)
+          q.eq(q.field("callEndedAt"), undefined),
+          q.or(
+            q.and(
+              q.neq(q.field("callStartedAt"), undefined),
+              q.gt(q.field("callStartedAt"), callActiveWindowStart)
+            ),
+            q.and(
+              q.eq(q.field("callStartedAt"), undefined),
+              q.neq(q.field("videoRoomName"), undefined),
+              q.gt(q.field("_creationTime"), roomReservedWindowStart)
+            )
+          )
         )
       )
       .collect();
@@ -1387,11 +1416,7 @@ export const getActiveSessionForWorkspace = query({
     });
 
     const active = sorted[0];
-    if (
-      active.videoRoomName === undefined ||
-      active.videoRoomUrl === undefined ||
-      active.callStartedAt === undefined
-    ) {
+    if (active.videoRoomName === undefined || active.videoRoomUrl === undefined) {
       return null;
     }
 
@@ -1399,7 +1424,7 @@ export const getActiveSessionForWorkspace = query({
       sessionId: active._id,
       roomName: active.videoRoomName,
       roomUrl: active.videoRoomUrl,
-      startedAt: active.callStartedAt,
+      startedAt: active.callStartedAt ?? active._creationTime,
     };
   },
 });

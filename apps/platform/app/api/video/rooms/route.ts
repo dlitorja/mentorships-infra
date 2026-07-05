@@ -7,6 +7,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 import {
   createDailyRoom,
   DailyApiError,
+  getDailyRoom,
+  videoRoomNameForSession,
 } from "@/lib/daily";
 import { reportError } from "@/lib/observability";
 
@@ -15,6 +17,23 @@ export const runtime = "nodejs";
 const createRoomSchema = z.object({
   sessionId: z.string().min(1),
 });
+
+async function resolveDailyRoom(
+  sessionId: Id<"sessions">
+): Promise<{ roomName: string; roomUrl: string }> {
+  const roomName = videoRoomNameForSession(sessionId);
+  try {
+    return await createDailyRoom(sessionId, { recordingEnabled: true });
+  } catch (error) {
+    if (error instanceof DailyApiError && error.statusCode === 409) {
+      const existing = await getDailyRoom(roomName);
+      if (existing !== null) {
+        return existing;
+      }
+    }
+    throw error;
+  }
+}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -39,10 +58,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     const { sessionId } = parsed.data;
+    const sessionIdTyped = sessionId as Id<"sessions">;
 
     const existing = await fetchQuery(
       api.sessions.getSessionById,
-      { id: sessionId as Id<"sessions"> },
+      { id: sessionIdTyped },
       { token }
     );
 
@@ -57,7 +77,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    if (existing.videoRoomName && existing.videoRoomUrl) {
+    const expectedRoomName = videoRoomNameForSession(sessionIdTyped);
+
+    if (
+      existing.videoRoomName === expectedRoomName &&
+      existing.videoRoomUrl !== undefined &&
+      existing.videoRoomUrl.length > 0
+    ) {
       return NextResponse.json({
         roomName: existing.videoRoomName,
         roomUrl: existing.videoRoomUrl,
@@ -84,13 +110,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { roomName, roomUrl } = await createDailyRoom(
-      sessionId as Id<"sessions">
-    );
+    const { roomName, roomUrl } = await resolveDailyRoom(sessionIdTyped);
 
     await fetchMutation(
       api.sessions.setVideoRoom,
-      { sessionId: sessionId as Id<"sessions">, videoRoomName: roomName, videoRoomUrl: roomUrl },
+      {
+        sessionId: sessionIdTyped,
+        videoRoomName: roomName,
+        videoRoomUrl: roomUrl,
+      },
       { token }
     );
 

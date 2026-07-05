@@ -122,16 +122,26 @@ export function videoRoomNameForSession(sessionId: Id<"sessions">): string {
 
 /**
  * Creates a new Daily room for a session. The room is private
- * (token-gated), configured for two participants, with screen-share and
- * cloud recording enabled. The room expires 24h after creation and
- * participants are auto-ejected at 4h (matching the recording cap).
+ * (token-gated), configured for two participants, with screen-share
+ * and (optionally) cloud recording enabled. The room expires 24h after
+ * creation and participants are auto-ejected at 4h (matching the
+ * recording cap).
+ *
+ * `recordingEnabled` MUST be passed explicitly: passing `true` enables
+ * Daily cloud recording (used by PR #1's webhook to attach metadata);
+ * passing `false` disables it. The caller is responsible for any
+ * consent check — recording consent is a PR #4 feature and will gate
+ * this flag at the route layer once the session-level consent field
+ * lands. For PR #2 the rooms route passes `true` (current behavior).
  *
  * Idempotency is enforced at the caller level: this helper always
  * creates a new room. The route handler is responsible for checking
- * `sessions.videoRoomName` before calling.
+ * `sessions.videoRoomName` before calling, and for handling a 409
+ * from Daily (room already exists) by reusing the existing room.
  */
 export async function createDailyRoom(
-  sessionId: Id<"sessions">
+  sessionId: Id<"sessions">,
+  options: { recordingEnabled: boolean }
 ): Promise<DailyRoom> {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const response = await dailyFetch("/rooms", {
@@ -142,7 +152,7 @@ export async function createDailyRoom(
       properties: {
         enable_chat: false,
         enable_screenshare: true,
-        enable_recording: "cloud",
+        enable_recording: options.recordingEnabled ? "cloud" : undefined,
         enable_emoji_reactions: true,
         enable_hand_raising: true,
         // 1:1 mentorship — capped at 2 participants to prevent
@@ -188,6 +198,38 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
   if (!response.ok) {
     throw await parseErrorResponse(response);
   }
+}
+
+/**
+ * Fetches an existing Daily room by name. Used by the rooms route to
+ * recover from partial-failure states where a Daily room exists but
+ * the Convex row was never written (e.g., a prior request crashed
+ * after `createDailyRoom` returned but before `setVideoRoom` ran).
+ * Returns null if the room does not exist on Daily's side.
+ */
+export async function getDailyRoom(
+  roomName: string
+): Promise<DailyRoom | null> {
+  const encoded = encodeURIComponent(roomName);
+  const response = await dailyFetch(`/rooms/${encoded}`, {
+    method: "GET",
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+
+  const data = (await response.json()) as { name?: string; url?: string };
+  if (typeof data.name !== "string" || typeof data.url !== "string") {
+    throw new DailyApiError({
+      statusCode: response.status,
+      message: "Daily get-room response missing name or url",
+    });
+  }
+  return { roomName: data.name, roomUrl: data.url };
 }
 
 /**
