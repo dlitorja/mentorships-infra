@@ -190,15 +190,11 @@ async function handleEvent(
 
   try {
     const convex = getConvexClient();
-    // The Convex action re-verifies the HMAC against DAILY_WEBHOOK_SECRET
-    // (base64) inside Convex. We pass the raw body + signature + timestamp
-    // through so the action can perform that verification before invoking
-    // the internal mutation. Defence in depth — both layers verify.
+    // SECURITY: the action's args contain ONLY (timestamp, signature,
+    // rawBody). The action parses every field written downstream from
+    // the verified rawBody itself. A captured signed body cannot be
+    // replayed with substituted recording arguments.
     await convex.action(api.dailyRecordingActions.attachRecordingFromDailyWebhookAction, {
-      roomName,
-      recordingS3Key: s3Key,
-      durationSeconds: event.payload.duration,
-      recordingId: event.payload.recording_id,
       timestamp,
       signature,
       rawBody,

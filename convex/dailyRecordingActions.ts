@@ -34,6 +34,69 @@ function verifyDailyHmac(
 }
 
 /**
+ * Parses the fields that get written to the database from the verified
+ * rawBody. The HMAC binds the signature to the rawBody; if parsing fails,
+ * we treat the delivery as malformed and refuse to call the mutation.
+ *
+ * Critical security boundary: every field we write downstream MUST come
+ * from this parser (i.e. from the signed rawBody), NOT from caller-
+ * supplied action arguments. Otherwise a captured signed body could be
+ * replayed with substituted arguments (e.g. a different `roomName` or
+ * `s3_key`).
+ */
+function parseVerifiedPayload(rawBody: string): {
+  type: string;
+  roomName: string;
+  s3Key: string;
+  durationSeconds: number | undefined;
+  recordingId: string | undefined;
+} {
+  const event = JSON.parse(rawBody) as {
+    type?: string;
+    payload?: {
+      room_name?: string;
+      s3_key?: string;
+      duration?: number;
+      recording_id?: string;
+    };
+  };
+  if (event.type !== "recording.ready-to-download") {
+    throw new Error(
+      `Unhandled Daily webhook event type: ${event.type ?? "undefined"}`
+    );
+  }
+  const payload = event.payload;
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Daily webhook payload missing");
+  }
+  if (typeof payload.room_name !== "string") {
+    throw new Error("Daily webhook payload missing room_name");
+  }
+  if (typeof payload.s3_key !== "string") {
+    throw new Error("Daily webhook payload missing s3_key");
+  }
+  if (
+    payload.duration !== undefined &&
+    typeof payload.duration !== "number"
+  ) {
+    throw new Error("Daily webhook payload duration is not a number");
+  }
+  if (
+    payload.recording_id !== undefined &&
+    typeof payload.recording_id !== "string"
+  ) {
+    throw new Error("Daily webhook payload recording_id is not a string");
+  }
+  return {
+    type: event.type,
+    roomName: payload.room_name,
+    s3Key: payload.s3_key,
+    durationSeconds: payload.duration,
+    recordingId: payload.recording_id,
+  };
+}
+
+/**
  * Public Convex action that performs HMAC-SHA256 verification of the
  * Daily.co webhook payload and then invokes the internal mutation
  * `sessions.attachRecordingFromDailyWebhook`.
@@ -41,10 +104,14 @@ function verifyDailyHmac(
  * Auth model: this action is public (callable from the webhook) but
  * gated by HMAC verification against `DAILY_WEBHOOK_SECRET` (base64-
  * encoded). Without the secret, the verification fails and the action
- * refuses to call the internal mutation. This keeps the HMAC auth
- * boundary inside the Convex function graph rather than relying solely
- * on the Next.js route — closing the gap that let anyone with
- * `NEXT_PUBLIC_CONVEX_URL` overwrite recording fields directly.
+ * refuses to call the internal mutation.
+ *
+ * SECURITY: every field written downstream is parsed from the verified
+ * rawBody (inside `parseVerifiedPayload`). The action takes ONLY
+ * `(timestamp, signature, rawBody)` as args — no caller-supplied field
+ * values. This closes the gap where a captured signed body could be
+ * replayed with substituted recording arguments (e.g. a different
+ * `roomName` or `s3_key`).
  *
  * Defence in depth: the Next.js route at
  * apps/platform/app/api/webhooks/daily/recordings/route.ts also verifies
@@ -52,10 +119,6 @@ function verifyDailyHmac(
  */
 export const attachRecordingFromDailyWebhookAction = action({
   args: {
-    roomName: v.string(),
-    recordingS3Key: v.string(),
-    durationSeconds: v.optional(v.number()),
-    recordingId: v.optional(v.string()),
     timestamp: v.string(),
     signature: v.string(),
     rawBody: v.string(),
@@ -77,13 +140,14 @@ export const attachRecordingFromDailyWebhookAction = action({
     if (!verified) {
       throw new Error("Daily webhook signature verification failed");
     }
+    const parsed = parseVerifiedPayload(args.rawBody);
     return await ctx.runMutation(
       internal.sessions.attachRecordingFromDailyWebhook,
       {
-        roomName: args.roomName,
-        recordingS3Key: args.recordingS3Key,
-        durationSeconds: args.durationSeconds,
-        recordingId: args.recordingId,
+        roomName: parsed.roomName,
+        recordingS3Key: parsed.s3Key,
+        durationSeconds: parsed.durationSeconds,
+        recordingId: parsed.recordingId,
       }
     );
   },
