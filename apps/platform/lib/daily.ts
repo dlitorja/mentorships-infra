@@ -1,4 +1,5 @@
 import type { Id } from "@/convex/_generated/dataModel";
+import { z } from "zod";
 
 const DEFAULT_DAILY_API_URL = "https://api.daily.co/v1";
 
@@ -83,6 +84,11 @@ type DailyErrorBody = {
   error?: string;
   info?: string;
 };
+
+const dailyRoomResponseSchema = z.object({
+  name: z.string(),
+  url: z.string(),
+});
 
 function isDailyErrorBody(value: unknown): value is DailyErrorBody {
   if (!value || typeof value !== "object") return false;
@@ -173,14 +179,14 @@ export async function createDailyRoom(
     throw await parseErrorResponse(response);
   }
 
-  const data = (await response.json()) as { name?: string; url?: string };
-  if (typeof data.name !== "string" || typeof data.url !== "string") {
+  const parsed = dailyRoomResponseSchema.safeParse(await response.json());
+  if (!parsed.success) {
     throw new DailyApiError({
       statusCode: response.status,
       message: "Daily create-room response missing name or url",
     });
   }
-  return { roomName: data.name, roomUrl: data.url };
+  return { roomName: parsed.data.name, roomUrl: parsed.data.url };
 }
 
 /**
@@ -222,14 +228,14 @@ export async function getDailyRoom(
     throw await parseErrorResponse(response);
   }
 
-  const data = (await response.json()) as { name?: string; url?: string };
-  if (typeof data.name !== "string" || typeof data.url !== "string") {
+  const parsed = dailyRoomResponseSchema.safeParse(await response.json());
+  if (!parsed.success) {
     throw new DailyApiError({
       statusCode: response.status,
       message: "Daily get-room response missing name or url",
     });
   }
-  return { roomName: data.name, roomUrl: data.url };
+  return { roomName: parsed.data.name, roomUrl: parsed.data.url };
 }
 
 /**

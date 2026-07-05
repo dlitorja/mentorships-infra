@@ -10,12 +10,13 @@ import {
   getDailyRoom,
   videoRoomNameForSession,
 } from "@/lib/daily";
+import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
 
 export const runtime = "nodejs";
 
 const createRoomSchema = z.object({
-  sessionId: z.string().min(1),
+  sessionId: convexIdSchema,
 });
 
 async function resolveDailyRoom(
