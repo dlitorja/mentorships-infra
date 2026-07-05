@@ -1121,3 +1121,260 @@ export const attachRecordingFromDailyWebhook = internalMutation({
   },
 });
 
+/**
+ * Attaches Daily room metadata (name + URL) to a session.
+ *
+ * Idempotent at the caller level: if the session already has a
+ * `videoRoomName`, the route layer returns the existing value without
+ * calling Daily. This mutation always patches, so callers MUST check
+ * `session.videoRoomName !== undefined` first.
+ *
+ * Auth: instructor on the session only. Students cannot create rooms
+ * — this prevents burning Daily quota or creating orphan rooms.
+ */
+export const setVideoRoom = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    videoRoomName: v.string(),
+    videoRoomUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      throw new Error("Forbidden: only the session's instructor can create a room");
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      videoRoomName: args.videoRoomName,
+      videoRoomUrl: args.videoRoomUrl,
+    });
+
+    return await ctx.db.get(args.sessionId);
+  },
+});
+
+/**
+ * Marks a video call as ended by setting `callEndedAt`. Either party
+ * on the session (instructor OR student) may end the call — both
+ * parties need an "End" button on the UI.
+ *
+ * Idempotent: if `callEndedAt` is already set, the existing value is
+ * returned without writing. This means retried/replayed POSTs are safe.
+ *
+ * Does NOT delete the Daily room — leaving the room up lets the
+ * recording webhook (PR #1) fire and attach recording metadata. The
+ * room auto-expires 24h after creation via Daily's `eject_at_room_exp`.
+ */
+export const endCall = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args): Promise<number> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    if (session.callEndedAt !== undefined) {
+      return session.callEndedAt;
+    }
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.tokenIdentifier;
+    const isStudent = identity.tokenIdentifier === session.studentId;
+
+    if (!isInstructor && !isStudent) {
+      throw new Error("Forbidden: only session participants can end the call");
+    }
+
+    const callEndedAt = Date.now();
+    await ctx.db.patch(args.sessionId, { callEndedAt });
+    return callEndedAt;
+  },
+});
+
+export type VideoCallRole = "owner" | "participant";
+
+export type SessionRoleForVideo = {
+  sessionId: Id<"sessions">;
+  role: VideoCallRole;
+};
+
+/**
+ * Resolves a Daily room name to a session and the caller's role
+ * (`owner` for the instructor, `participant` for the student on the
+ * session's workspace).
+ *
+ * Role is derived server-side from the authenticated Clerk identity
+ * vs. `sessions.instructorId` / the workspace whose `ownerId` matches
+ * the caller. NEVER trust a role hint from the URL or request body.
+ *
+ * Used by `GET /api/video/token/[roomName]` to determine whether the
+ * caller should receive an owner-role or participant-role meeting JWT.
+ */
+export const getSessionByVideoRoomName = query({
+  args: { videoRoomName: v.string() },
+  handler: async (ctx, args): Promise<SessionRoleForVideo | null> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const matches = await ctx.db
+      .query("sessions")
+      .withIndex("by_videoRoomName", (q) =>
+        q.eq("videoRoomName", args.videoRoomName)
+      )
+      .collect();
+
+    if (matches.length === 0) {
+      return null;
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple sessions (${matches.length}) share videoRoomName: ${args.videoRoomName}`
+      );
+    }
+    const session = matches[0];
+
+    const instructor = await ctx.db.get(session.instructorId);
+    if (instructor && instructor.userId === identity.tokenIdentifier) {
+      return { sessionId: session._id, role: "owner" };
+    }
+
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", session.studentId))
+      .collect();
+
+    const matchingWorkspace = workspaces.find(
+      (w) =>
+        w.instructorId === session.instructorId &&
+        w.endedAt === undefined &&
+        w.deletedAt === undefined
+    );
+
+    if (
+      matchingWorkspace !== undefined &&
+      matchingWorkspace.ownerId === identity.tokenIdentifier
+    ) {
+      return { sessionId: session._id, role: "participant" };
+    }
+
+    return null;
+  },
+});
+
+export type ActiveSessionForWorkspace = {
+  sessionId: Id<"sessions">;
+  roomName: string;
+  roomUrl: string;
+  startedAt: number;
+};
+
+/**
+ * Returns the most recently-started in-progress session for a workspace,
+ * or null if there is none. "In progress" means `callStartedAt` is set,
+ * within the last 4 hours, and `callEndedAt` is undefined.
+ *
+ * The workspace must NOT be ended or deleted — even an active session
+ * on an ended workspace returns null (the workspace is being torn down).
+ *
+ * Auth: caller must be the workspace owner (student) OR the workspace's
+ * instructor. Anyone else gets null.
+ *
+ * Powers `GET /api/video/active/[workspaceId]` so the workspace UI
+ * can mount the VideoPanel without polling every session.
+ */
+export const getActiveSessionForWorkspace = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    now: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<ActiveSessionForWorkspace | null> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+      return null;
+    }
+
+    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+    let isInstructor = false;
+    if (workspace.instructorId !== undefined) {
+      const instructor = await ctx.db.get(workspace.instructorId);
+      if (instructor && instructor.userId === identity.tokenIdentifier) {
+        isInstructor = true;
+      }
+    }
+
+    if (!isOwner && !isInstructor) {
+      return null;
+    }
+
+    const now = args.now ?? Date.now();
+    const activeWindowStart = now - 4 * 60 * 60 * 1000;
+
+    if (workspace.instructorId === undefined) {
+      return null;
+    }
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId", (q) => q.eq("studentId", workspace.ownerId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("instructorId"), workspace.instructorId!),
+          q.gt(q.field("callStartedAt"), activeWindowStart),
+          q.eq(q.field("callEndedAt"), undefined)
+        )
+      )
+      .collect();
+
+    if (sessions.length === 0) {
+      return null;
+    }
+
+    const sorted = sessions.sort((a, b) => {
+      const aTime = a.callStartedAt ?? a._creationTime;
+      const bTime = b.callStartedAt ?? b._creationTime;
+      return bTime - aTime;
+    });
+
+    const active = sorted[0];
+    if (
+      active.videoRoomName === undefined ||
+      active.videoRoomUrl === undefined ||
+      active.callStartedAt === undefined
+    ) {
+      return null;
+    }
+
+    return {
+      sessionId: active._id,
+      roomName: active.videoRoomName,
+      roomUrl: active.videoRoomUrl,
+      startedAt: active.callStartedAt,
+    };
+  },
+});
+
