@@ -1,6 +1,6 @@
 import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 
 /** Returns a session by its ID. */
@@ -1141,16 +1141,25 @@ export const setVideoRoom = mutation({
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
     if (!session) {
-      throw new Error("Session not found");
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
     }
 
     const instructor = await ctx.db.get(session.instructorId);
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      throw new Error("Unauthorized");
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
     }
     if (!instructor || instructor.userId !== identity.tokenIdentifier) {
-      throw new Error("Forbidden: only the session's instructor can create a room");
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
+        message: "Forbidden: only the session's instructor can create a room",
+      });
     }
 
     if (session.videoRoomName !== undefined) {
@@ -1183,12 +1192,18 @@ export const endCall = mutation({
   handler: async (ctx, args): Promise<number> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      throw new Error("Unauthorized");
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
     }
 
     const session = await ctx.db.get(args.sessionId);
     if (!session) {
-      throw new Error("Session not found");
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
     }
 
     const instructor = await ctx.db.get(session.instructorId);
@@ -1197,7 +1212,10 @@ export const endCall = mutation({
     const isStudent = identity.tokenIdentifier === session.studentId;
 
     if (!isInstructor && !isStudent) {
-      throw new Error("Forbidden: only session participants can end the call");
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only session participants can end the call",
+      });
     }
 
     if (session.callEndedAt !== undefined) {

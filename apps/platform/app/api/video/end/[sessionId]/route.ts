@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ConvexError } from "convex/values";
 import { auth } from "@clerk/nextjs/server";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -6,6 +7,25 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { reportError } from "@/lib/observability";
 
 export const runtime = "nodejs";
+
+type VideoConvexErrorCode =
+  | "VIDEO_UNAUTHORIZED"
+  | "VIDEO_FORBIDDEN_NOT_PARTICIPANT"
+  | "VIDEO_SESSION_NOT_FOUND";
+
+function getVideoConvexErrorCode(error: unknown): VideoConvexErrorCode | null {
+  if (error instanceof ConvexError && typeof error.data === "object" && error.data !== null) {
+    const code = (error.data as { code?: unknown }).code;
+    if (
+      code === "VIDEO_UNAUTHORIZED" ||
+      code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT" ||
+      code === "VIDEO_SESSION_NOT_FOUND"
+    ) {
+      return code;
+    }
+  }
+  return null;
+}
 
 export async function POST(
   _req: NextRequest,
@@ -40,11 +60,8 @@ export async function POST(
       );
       return NextResponse.json({ success: true, callEndedAt });
     } catch (mutationError) {
-      const message =
-        mutationError instanceof Error
-          ? mutationError.message
-          : String(mutationError);
-      if (message.includes("Unauthorized")) {
+      const code = getVideoConvexErrorCode(mutationError);
+      if (code === "VIDEO_UNAUTHORIZED") {
         await reportError({
           source: "api/video/end",
           error: mutationError,
@@ -54,7 +71,7 @@ export async function POST(
         });
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
-      if (message.includes("Forbidden")) {
+      if (code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT") {
         await reportError({
           source: "api/video/end",
           error: mutationError,
@@ -64,7 +81,7 @@ export async function POST(
         });
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
-      if (message.includes("Session not found")) {
+      if (code === "VIDEO_SESSION_NOT_FOUND") {
         return NextResponse.json(
           { error: "Session not found" },
           { status: 404 }
