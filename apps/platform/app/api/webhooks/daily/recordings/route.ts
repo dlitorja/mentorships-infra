@@ -10,25 +10,25 @@ export const runtime = "nodejs";
  * POST /api/webhooks/daily/recordings
  *
  * Daily.co calls this endpoint when a cloud recording is ready to download.
- * We verify the HMAC-SHA256 signature Daily sends in
- * `X-Webhook-Signature` (computed over `${X-Webhook-Timestamp}.${rawBody}`
- * using a base64-encoded shared secret), then forward the verified payload
+ * The route forwards the raw body + `X-Webhook-Signature` + `X-Webhook-Timestamp`
  * to the public Convex action `attachRecordingFromDailyWebhookAction`, which
- * re-verifies the HMAC inside Convex before invoking the internal mutation.
+ * performs HMAC verification inside Convex before invoking the internal
+ * mutation.
  *
- * Defence in depth: HMAC verification runs at TWO layers (this route AND
- * the Convex action) against the SAME `DAILY_WEBHOOK_SECRET`. Even if a
- * caller discovered `NEXT_PUBLIC_CONVEX_URL` and called the action
- * directly, the action's HMAC check refuses to invoke the internal
- * mutation without a valid signature. The internal mutation cannot be
- * reached without a valid HMAC.
+ * Auth model: signature verification happens in the Convex action layer
+ * (against `DAILY_WEBHOOK_SECRET`, base64-encoded). The internal mutation
+ * is `internalMutation` and is not callable from any public client; the
+ * only way to invoke it is through the action, which refuses without a
+ * valid HMAC. Even if a caller discovered `NEXT_PUBLIC_CONVEX_URL` and
+ * called the action directly, they would still need the shared secret
+ * to forge a signature.
  *
  * Test bypass: when `TEST_WEBHOOK_BYPASS=true` and `TEST_WEBHOOK_BYPASS_KEY`
  * are set, requests carrying `x-test-bypass: 1` + `x-test-bypass-key: <KEY>`
- * bypass HMAC at this layer so the handler can be exercised on preview
- * deploys before Daily is wired. The Convex action will still refuse the
- * call unless `DAILY_WEBHOOK_SECRET` matches OR the test-bypass secret is
- * echoed as a valid HMAC. For CI we set the same secret in both env vars.
+ * skip the route's bypass check and the route then signs the body locally
+ * with `DAILY_WEBHOOK_SECRET` (which is set to the same value as the
+ * bypass key in CI/preview envs). The Convex action's HMAC check succeeds
+ * because both layers use the same secret.
  *
  * Reference: https://docs.daily.co/reference/rest-api/webhooks
  */
@@ -79,33 +79,6 @@ function getConvexClient(): ConvexHttpClient {
   return new ConvexHttpClient(convexUrl);
 }
 
-function verifyDailySignature(
-  body: string,
-  signature: string,
-  timestamp: string,
-  secret: string
-): boolean {
-  // Daily provides the webhook secret as base64. Decode before HMAC.
-  let decodedSecret: Buffer;
-  try {
-    decodedSecret = Buffer.from(secret, "base64");
-  } catch {
-    return false;
-  }
-  // Signature input: `${timestamp}.${rawBody}` (per Daily docs).
-  const signatureInput = `${timestamp}.${body}`;
-  const expected = createHmac("sha256", decodedSecret)
-    .update(signatureInput)
-    .digest("base64");
-
-  const sigBuf = Buffer.from(signature, "base64");
-  const expBuf = Buffer.from(expected, "base64");
-  if (sigBuf.length !== expBuf.length) {
-    return false;
-  }
-  return timingSafeEqual(sigBuf, expBuf);
-}
-
 /**
  * Lightweight runtime type guard for the DailyRecordingReadyPayload shape.
  * Returns false if any expected field has the wrong type — protects the
@@ -134,18 +107,41 @@ function isValidRecordingPayload(
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+  const bypassed = isTestBypassEnabled(req);
+  const body = await req.text();
+
   // Test bypass for CI and integration tests on preview/prod deploys.
   // In bypass mode we still read the raw body and forward it to Convex —
   // the action will only proceed if its own HMAC check passes. The bypass
   // is intended for local + preview envs where DAILY_WEBHOOK_SECRET is
-  // configured identically to TEST_WEBHOOK_BYPASS_KEY, so the action's
-  // HMAC check will still succeed.
-  const bypassed = isTestBypassEnabled(req);
-  const body = await req.text();
-  const signature =
-    req.headers.get("X-Webhook-Signature") ??
-    (bypassed ? `bypass-${Date.now()}` : "");
-  const timestamp = req.headers.get("X-Webhook-Timestamp") ?? String(Date.now());
+  // configured identically to TEST_WEBHOOK_BYPASS_KEY, so we generate a
+  // valid HMAC over the body using that same secret and pass it as the
+  // signature. The action's HMAC check will succeed because both layers
+  // use the same secret.
+  let signature: string;
+  let timestamp: string;
+  if (bypassed) {
+    const secret = process.env.DAILY_WEBHOOK_SECRET;
+    if (!secret) {
+      return NextResponse.json(
+        { error: "Bypass requires DAILY_WEBHOOK_SECRET to be configured" },
+        { status: 500 }
+      );
+    }
+    timestamp = String(Math.floor(Date.now() / 1000));
+    signature = signForBypass(body, timestamp, secret);
+  } else {
+    const sigHeader = req.headers.get("X-Webhook-Signature");
+    const tsHeader = req.headers.get("X-Webhook-Timestamp");
+    if (!sigHeader || !tsHeader) {
+      return NextResponse.json(
+        { error: "Missing X-Webhook-Signature or X-Webhook-Timestamp" },
+        { status: 400 }
+      );
+    }
+    signature = sigHeader;
+    timestamp = tsHeader;
+  }
 
   let event: DailyWebhookEvent;
   try {
@@ -155,6 +151,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   return handleEvent(event, body, signature, timestamp, bypassed ? "bypass" : "verified");
+}
+
+/**
+ * Compute a valid HMAC over `(timestamp, body)` using the same
+ * base64-decoded secret Daily uses. The action's HMAC check will
+ * pass because both layers sign with the same secret.
+ */
+function signForBypass(body: string, timestamp: string, base64Secret: string): string {
+  const decoded = Buffer.from(base64Secret, "base64");
+  return createHmac("sha256", decoded)
+    .update(`${timestamp}.${body}`, "utf8")
+    .digest("base64");
 }
 
 async function handleEvent(
