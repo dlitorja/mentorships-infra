@@ -1168,6 +1168,10 @@ export const setVideoRoom = mutation({
       });
     }
 
+    if (session.callEndedAt !== undefined) {
+      return session;
+    }
+
     if (session.videoRoomName === args.videoRoomName) {
       if (session.videoRoomUrl !== args.videoRoomUrl) {
         await ctx.db.patch(args.sessionId, { videoRoomUrl: args.videoRoomUrl });
@@ -1310,7 +1314,10 @@ export const getSessionByVideoRoomName = query({
       .collect();
 
     const matchingWorkspace = workspaces.find(
-      (w) => w.instructorId === session.instructorId
+      (w) =>
+        w.instructorId === session.instructorId &&
+        w.endedAt === undefined &&
+        w.deletedAt === undefined
     );
 
     if (
