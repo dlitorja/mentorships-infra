@@ -282,6 +282,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
           seatId: null,
           workspaceId: workspace._id,
           sessionPackId: sessionPack?._id ?? null,
+          isAggregate: false,
           hasSessionPack: sessionPack !== null,
           studentEmail: student?.email ?? null,
           studentFirstName: student?.firstName ?? null,

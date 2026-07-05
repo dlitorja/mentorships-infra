@@ -136,6 +136,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Reject stale timestamps to prevent replay of captured requests. A valid
+  // HMAC over an old timestamp still verifies, but the signed request could
+  // have been captured from server logs or an MITM. 5 minutes matches the
+  // Stripe webhook staleness window.
+  const timestampMs = Date.parse(timestamp);
+  if (Number.isNaN(timestampMs)) {
+    return NextResponse.json(
+      { error: "Invalid X-Webhook-Timestamp" },
+      { status: 400 }
+    );
+  }
+  const skewMs = Math.abs(Date.now() - timestampMs);
+  if (skewMs > 5 * 60 * 1000) {
+    return NextResponse.json(
+      { error: "Webhook timestamp too old" },
+      { status: 400 }
+    );
+  }
+
   if (!verifyDailySignature(body, signature, timestamp, secret)) {
     await reportError({
       source: "webhooks/daily",
