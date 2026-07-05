@@ -225,6 +225,25 @@ async function handleEvent(
     );
     return NextResponse.json({ received: true, path, ...result });
   } catch (err) {
+    // "No session found for videoRoomName: ..." is permanent — Daily retries
+    // on 5xx up to 5x. Return 422 so Daily stops retrying a delivery that
+    // will never resolve. Transient Convex errors fall through to 500.
+    if (
+      err instanceof Error &&
+      err.message.startsWith("No session found for videoRoomName:")
+    ) {
+      await reportError({
+        source: "webhooks/daily",
+        error: err,
+        message: "Recording received for unknown room",
+        level: "warn",
+        context: { roomName },
+      });
+      return NextResponse.json(
+        { error: "No session matches videoRoomName" },
+        { status: 422 }
+      );
+    }
     await reportError({
       source: "webhooks/daily",
       error: err,
