@@ -140,13 +140,22 @@ export async function POST(req: NextRequest) {
   // HMAC over an old timestamp still verifies, but the signed request could
   // have been captured from server logs or an MITM. 5 minutes matches the
   // Stripe webhook staleness window.
-  const timestampMs = Date.parse(timestamp);
-  if (Number.isNaN(timestampMs)) {
+  //
+  // Daily sends X-Webhook-Timestamp as a plain Unix epoch integer in SECONDS
+  // (e.g. "1720000000"), not as a date string. Parse as Number and multiply
+  // by 1000; Date.parse() would return NaN for the raw epoch string.
+  const timestampSec = Number(timestamp);
+  if (
+    !Number.isFinite(timestampSec) ||
+    timestampSec <= 0 ||
+    !Number.isInteger(timestampSec)
+  ) {
     return NextResponse.json(
       { error: "Invalid X-Webhook-Timestamp" },
       { status: 400 }
     );
   }
+  const timestampMs = timestampSec * 1000;
   const skewMs = Math.abs(Date.now() - timestampMs);
   if (skewMs > 5 * 60 * 1000) {
     return NextResponse.json(
