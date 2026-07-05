@@ -180,7 +180,7 @@ export async function createDailyRoom(
       properties: {
         enable_chat: false,
         enable_screenshare: true,
-        enable_recording: options.recordingEnabled ? "cloud" : undefined,
+        enable_recording: options.recordingEnabled ? "cloud" : "off",
         enable_emoji_reactions: true,
         enable_hand_raising: true,
         // 1:1 mentorship — capped at 2 participants to prevent

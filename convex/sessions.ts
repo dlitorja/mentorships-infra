@@ -1377,7 +1377,6 @@ export const getActiveSessionForWorkspace = query({
     }
 
     const callActiveWindowStart = Date.now() - 4 * 60 * 60 * 1000;
-    const roomReservedWindowStart = Date.now() - 24 * 60 * 60 * 1000;
 
     if (workspace.instructorId === undefined) {
       return null;
@@ -1389,18 +1388,10 @@ export const getActiveSessionForWorkspace = query({
       .filter((q) =>
         q.and(
           q.eq(q.field("instructorId"), workspace.instructorId!),
+          q.neq(q.field("callStartedAt"), undefined),
+          q.gt(q.field("callStartedAt"), callActiveWindowStart),
           q.eq(q.field("callEndedAt"), undefined),
-          q.or(
-            q.and(
-              q.neq(q.field("callStartedAt"), undefined),
-              q.gt(q.field("callStartedAt"), callActiveWindowStart)
-            ),
-            q.and(
-              q.eq(q.field("callStartedAt"), undefined),
-              q.neq(q.field("videoRoomName"), undefined),
-              q.gt(q.field("_creationTime"), roomReservedWindowStart)
-            )
-          )
+          q.neq(q.field("videoRoomName"), undefined)
         )
       )
       .collect();
@@ -1409,31 +1400,15 @@ export const getActiveSessionForWorkspace = query({
       return null;
     }
 
-    const started = sessions.filter(
-      (s) => s.callStartedAt !== undefined
-    );
-    const reserved = sessions.filter(
-      (s) => s.callStartedAt === undefined
-    );
-
-    const active =
-      started.length > 0
-        ? started.sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0]
-        : reserved.sort((a, b) => b._creationTime - a._creationTime)[0];
-
-    if (
-      active === undefined ||
-      active.videoRoomName === undefined ||
-      active.videoRoomUrl === undefined
-    ) {
-      return null;
-    }
+    const active = sessions.sort(
+      (a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0)
+    )[0];
 
     return {
       sessionId: active._id,
-      roomName: active.videoRoomName,
-      roomUrl: active.videoRoomUrl,
-      startedAt: active.callStartedAt ?? active._creationTime,
+      roomName: active.videoRoomName!,
+      roomUrl: active.videoRoomUrl!,
+      startedAt: active.callStartedAt!,
     };
   },
 });
