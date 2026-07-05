@@ -145,6 +145,12 @@ export async function createDailyRoom(
         enable_recording: "cloud",
         enable_emoji_reactions: true,
         enable_hand_raising: true,
+        // 1:1 mentorship — capped at 2 participants to prevent
+        // uninvited observers. Trade-off: a user who disconnects on
+        // a flaky network may need to wait briefly for Daily's stale
+        // session to be evicted before they can rejoin; the 4h
+        // eject_after_elapsed also bounds the window. Acceptable for
+        // the mentorship use case; revisit if rejoin complaints surface.
         max_participants: 2,
         exp: nowSeconds + DAILY_ROOM_EXPIRY_SECONDS,
         eject_at_room_exp: true,

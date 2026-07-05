@@ -1226,6 +1226,11 @@ export type SessionRoleForVideo = {
  * vs. `sessions.instructorId` / the workspace whose `ownerId` matches
  * the caller. NEVER trust a role hint from the URL or request body.
  *
+ * Refuses once `callEndedAt` is set — the token endpoint uses this
+ * as its sole "call is over" gate (Daily's `eject_after_elapsed` is
+ * the second, slower gate). Symmetric for instructor and student:
+ * neither can rejoin via a fresh JWT after End Call.
+ *
  * Used by `GET /api/video/token/[roomName]` to determine whether the
  * caller should receive an owner-role or participant-role meeting JWT.
  */
@@ -1269,10 +1274,7 @@ export const getSessionByVideoRoomName = query({
       .collect();
 
     const matchingWorkspace = workspaces.find(
-      (w) =>
-        w.instructorId === session.instructorId &&
-        w.endedAt === undefined &&
-        w.deletedAt === undefined
+      (w) => w.instructorId === session.instructorId
     );
 
     if (

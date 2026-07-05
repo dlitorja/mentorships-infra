@@ -50,6 +50,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
+    if (existing.callEndedAt !== undefined) {
+      return NextResponse.json(
+        { error: "Call has already ended; cannot create a new room" },
+        { status: 409 }
+      );
+    }
+
     if (existing.videoRoomName && existing.videoRoomUrl) {
       return NextResponse.json({
         roomName: existing.videoRoomName,
