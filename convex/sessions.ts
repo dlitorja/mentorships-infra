@@ -1,6 +1,6 @@
 import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 
 /** Returns a session by its ID. */
@@ -1118,6 +1118,305 @@ export const attachRecordingFromDailyWebhook = internalMutation({
     }
     await ctx.db.patch(session._id, patch);
     return { sessionId: session._id, alreadyAttached: false };
+  },
+});
+
+/**
+ * Attaches Daily room metadata (name + URL) to a session.
+ *
+ * Idempotent at the caller level: if the session already has a
+ * `videoRoomName`, the route layer returns the existing value without
+ * calling Daily. This mutation always patches, so callers MUST check
+ * `session.videoRoomName !== undefined` first.
+ *
+ * Recovery case: if `videoRoomName` is set but `videoRoomUrl` is empty
+ * (a previous request crashed between `createDailyRoom` and this
+ * mutation), this mutation patches the URL in place. The route layer
+ * detects this state, calls Daily again to recover, and re-invokes
+ * `setVideoRoom` with the new URL.
+ *
+ * Auth: instructor on the session only. Students cannot create rooms
+ * — this prevents burning Daily quota or creating orphan rooms.
+ */
+export const setVideoRoom = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    videoRoomName: v.string(),
+    videoRoomUrl: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
+        message: "Forbidden: only the session's instructor can create a room",
+      });
+    }
+
+    if (session.callEndedAt !== undefined) {
+      return session;
+    }
+
+    if (session.videoRoomName === args.videoRoomName) {
+      if (session.videoRoomUrl !== args.videoRoomUrl) {
+        await ctx.db.patch(args.sessionId, { videoRoomUrl: args.videoRoomUrl });
+        return await ctx.db.get(args.sessionId);
+      }
+      return session;
+    }
+
+    if (session.videoRoomName !== undefined) {
+      throw new ConvexError({
+        code: "VIDEO_ROOM_NAME_CONFLICT",
+        message:
+          "Session already has a different videoRoomName; refusing to overwrite",
+      });
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      videoRoomName: args.videoRoomName,
+      videoRoomUrl: args.videoRoomUrl,
+    });
+
+    return await ctx.db.get(args.sessionId);
+  },
+});
+
+/**
+ * Marks a video call as ended by setting `callEndedAt`. Either party
+ * on the session (instructor OR student) may end the call — both
+ * parties need an "End" button on the UI.
+ *
+ * Idempotent: if `callEndedAt` is already set, the existing value is
+ * returned without writing. This means retried/replayed POSTs are safe.
+ *
+ * Does NOT delete the Daily room — leaving the room up lets the
+ * recording webhook (PR #1) fire and attach recording metadata. The
+ * room auto-expires 24h after creation via Daily's `eject_at_room_exp`.
+ */
+export const endCall = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args): Promise<number> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.tokenIdentifier;
+    const isStudent = identity.tokenIdentifier === session.studentId;
+
+    if (!isInstructor && !isStudent) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only session participants can end the call",
+      });
+    }
+
+    if (session.callEndedAt !== undefined) {
+      return session.callEndedAt;
+    }
+
+    const callEndedAt = Date.now();
+    await ctx.db.patch(args.sessionId, { callEndedAt });
+    return callEndedAt;
+  },
+});
+
+export type VideoCallRole = "owner" | "participant";
+
+export type SessionRoleForVideo = {
+  sessionId: Id<"sessions">;
+  role: VideoCallRole;
+};
+
+/**
+ * Resolves a Daily room name to a session and the caller's role
+ * (`owner` for the instructor, `participant` for the student on the
+ * session's workspace).
+ *
+ * Role is derived server-side from the authenticated Clerk identity
+ * vs. `sessions.instructorId` / the workspace whose `ownerId` matches
+ * the caller. NEVER trust a role hint from the URL or request body.
+ *
+ * Refuses once `callEndedAt` is set — the token endpoint uses this
+ * as its sole "call is over" gate (Daily's `eject_after_elapsed` is
+ * the second, slower gate). Symmetric for instructor and student:
+ * neither can rejoin via a fresh JWT after End Call.
+ *
+ * Used by `GET /api/video/token/[roomName]` to determine whether the
+ * caller should receive an owner-role or participant-role meeting JWT.
+ */
+export const getSessionByVideoRoomName = query({
+  args: { videoRoomName: v.string() },
+  handler: async (ctx, args): Promise<SessionRoleForVideo | null> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const matches = await ctx.db
+      .query("sessions")
+      .withIndex("by_videoRoomName", (q) =>
+        q.eq("videoRoomName", args.videoRoomName)
+      )
+      .collect();
+
+    if (matches.length === 0) {
+      return null;
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple sessions (${matches.length}) share videoRoomName: ${args.videoRoomName}`
+      );
+    }
+    const session = matches[0];
+
+    if (session.callEndedAt !== undefined) {
+      return null;
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    if (instructor && instructor.userId === identity.tokenIdentifier) {
+      return { sessionId: session._id, role: "owner" };
+    }
+
+    const workspaces = await ctx.db
+      .query("workspaces")
+      .withIndex("by_ownerId", (q) => q.eq("ownerId", session.studentId))
+      .collect();
+
+    const matchingWorkspace = workspaces.find(
+      (w) =>
+        w.instructorId === session.instructorId &&
+        w.endedAt === undefined &&
+        w.deletedAt === undefined
+    );
+
+    if (
+      matchingWorkspace !== undefined &&
+      matchingWorkspace.ownerId === identity.tokenIdentifier
+    ) {
+      return { sessionId: session._id, role: "participant" };
+    }
+
+    return null;
+  },
+});
+
+export type ActiveSessionForWorkspace = {
+  sessionId: Id<"sessions">;
+  roomName: string;
+  roomUrl: string;
+  startedAt: number;
+};
+
+/**
+ * Returns the most recently-started in-progress session for a workspace,
+ * or null if there is none. "In progress" means `callStartedAt` is set,
+ * within the last 4 hours, and `callEndedAt` is undefined.
+ *
+ * The workspace must NOT be ended or deleted — even an active session
+ * on an ended workspace returns null (the workspace is being torn down).
+ *
+ * Auth: caller must be the workspace owner (student) OR the workspace's
+ * instructor. Anyone else gets null.
+ *
+ * Powers `GET /api/video/active/[workspaceId]` so the workspace UI
+ * can mount the VideoPanel without polling every session.
+ */
+export const getActiveSessionForWorkspace = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args): Promise<ActiveSessionForWorkspace | null> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+      return null;
+    }
+
+    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+    let isInstructor = false;
+    if (workspace.instructorId !== undefined) {
+      const instructor = await ctx.db.get(workspace.instructorId);
+      if (instructor && instructor.userId === identity.tokenIdentifier) {
+        isInstructor = true;
+      }
+    }
+
+    if (!isOwner && !isInstructor) {
+      return null;
+    }
+
+    const callActiveWindowStart = Date.now() - 4 * 60 * 60 * 1000;
+
+    if (workspace.instructorId === undefined) {
+      return null;
+    }
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId", (q) => q.eq("studentId", workspace.ownerId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("instructorId"), workspace.instructorId!),
+          q.neq(q.field("callStartedAt"), undefined),
+          q.gt(q.field("callStartedAt"), callActiveWindowStart),
+          q.eq(q.field("callEndedAt"), undefined),
+          q.neq(q.field("videoRoomName"), undefined)
+        )
+      )
+      .collect();
+
+    if (sessions.length === 0) {
+      return null;
+    }
+
+    const active = sessions.sort(
+      (a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0)
+    )[0];
+
+    return {
+      sessionId: active._id,
+      roomName: active.videoRoomName!,
+      roomUrl: active.videoRoomUrl!,
+      startedAt: active.callStartedAt!,
+    };
   },
 });
 
