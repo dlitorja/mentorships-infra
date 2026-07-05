@@ -46,7 +46,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const userName = resolveUserName(clerkAuth.sessionClaims);
+    const userName = resolveUserName(clerkAuth.sessionClaims, clerkAuth.userId);
 
     const { token: meetingToken } = await createMeetingToken({
       roomName,
@@ -92,9 +92,9 @@ export async function GET(
  * the bare Clerk user id if no name fields are present (defensive — the
  * token still works, Daily just shows a less friendly label).
  */
-function resolveUserName(sessionClaims: unknown): string {
+function resolveUserName(sessionClaims: unknown, fallbackUserId: string): string {
   if (!sessionClaims || typeof sessionClaims !== "object") {
-    return "";
+    return fallbackUserId;
   }
   const claims = sessionClaims as Record<string, unknown>;
   const firstName = typeof claims.firstName === "string" ? claims.firstName : "";
@@ -104,5 +104,5 @@ function resolveUserName(sessionClaims: unknown): string {
   if (typeof claims.username === "string" && claims.username.length > 0) {
     return claims.username;
   }
-  return "";
+  return fallbackUserId;
 }

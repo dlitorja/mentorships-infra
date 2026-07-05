@@ -1153,6 +1153,10 @@ export const setVideoRoom = mutation({
       throw new Error("Forbidden: only the session's instructor can create a room");
     }
 
+    if (session.videoRoomName !== undefined) {
+      return session;
+    }
+
     await ctx.db.patch(args.sessionId, {
       videoRoomName: args.videoRoomName,
       videoRoomUrl: args.videoRoomUrl,
@@ -1249,6 +1253,10 @@ export const getSessionByVideoRoomName = query({
       );
     }
     const session = matches[0];
+
+    if (session.callEndedAt !== undefined) {
+      return null;
+    }
 
     const instructor = await ctx.db.get(session.instructorId);
     if (instructor && instructor.userId === identity.tokenIdentifier) {
