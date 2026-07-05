@@ -51,6 +51,12 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (!/^[a-z0-9]{20,32}$/.test(sessionId)) {
+      return NextResponse.json(
+        { error: "Invalid sessionId format" },
+        { status: 400 }
+      );
+    }
 
     try {
       const callEndedAt = await fetchMutation(

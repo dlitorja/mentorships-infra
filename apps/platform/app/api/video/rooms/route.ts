@@ -77,19 +77,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const expectedRoomName = videoRoomNameForSession(sessionIdTyped);
-
-    if (
-      existing.videoRoomName === expectedRoomName &&
-      existing.videoRoomUrl !== undefined &&
-      existing.videoRoomUrl.length > 0
-    ) {
-      return NextResponse.json({
-        roomName: existing.videoRoomName,
-        roomUrl: existing.videoRoomUrl,
-      });
-    }
-
     const instructor = await fetchQuery(
       api.instructors.getInstructorByUserId,
       { userId: clerkAuth.userId },
@@ -110,6 +97,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    const expectedRoomName = videoRoomNameForSession(sessionIdTyped);
+
+    if (
+      existing.videoRoomName === expectedRoomName &&
+      existing.videoRoomUrl !== undefined &&
+      existing.videoRoomUrl.length > 0
+    ) {
+      return NextResponse.json({
+        roomName: existing.videoRoomName,
+        roomUrl: existing.videoRoomUrl,
+      });
+    }
+
     const { roomName, roomUrl } = await resolveDailyRoom(sessionIdTyped);
 
     await fetchMutation(
@@ -124,12 +124,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ roomName, roomUrl });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Invalid request body", details: error.issues },
-        { status: 400 }
-      );
-    }
     if (error instanceof DailyApiError) {
       const message =
         error.statusCode === 409
