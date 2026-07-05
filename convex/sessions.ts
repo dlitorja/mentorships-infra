@@ -1061,6 +1061,15 @@ export const checkSeatExpiration = internalAction({
  * upstream, not by Convex auth — there is no Clerk user context on a
  * webhook call.
  *
+ * Threat model: NEXT_PUBLIC_CONVEX_URL is baked into every browser bundle,
+ * so any caller that discovers it AND a valid `videoRoomName` (predicted
+ * from `mentorship-{sessionId}` naming) can invoke this mutation. Impact
+ * is bounded — overwrites only `recordingUrl` (B2 s3_key), `callEndedAt`,
+ * `recordingDurationSeconds`, and `recordingId`. No data is leaked. PR #4
+ * is expected to gate this further by validating the s3_key prefix against
+ * a server-side bucket allowlist and/or moving the HMAC verification into
+ * a Convex action that invokes an internal mutation.
+ *
  * Stores the s3_key (path in Backblaze B2). PR #4 will generate signed
  * download URLs on demand from this field.
  */
@@ -1079,10 +1088,24 @@ export const attachRecordingFromDailyWebhook = mutation({
     if (!session) {
       throw new Error(`No session found for videoRoomName: ${args.roomName}`);
     }
-    await ctx.db.patch(session._id, {
+    // The Daily recording-ready webhook fires AFTER Daily finishes processing
+    // the recording (typically 1–5 minutes post-hangup). PR #2 will set
+    // callEndedAt at the actual call-end moment via POST /api/video/end/[sessionId].
+    // Only set callEndedAt here if it hasn't already been written, so the
+    // processing delay doesn't inflate call-duration calculations downstream.
+    const patch: Partial<Doc<"sessions">> = {
       recordingUrl: args.recordingS3Key,
-      callEndedAt: Date.now(),
-    });
+    };
+    if (session.callEndedAt === undefined) {
+      patch.callEndedAt = Date.now();
+    }
+    if (args.durationSeconds !== undefined) {
+      patch.recordingDurationSeconds = args.durationSeconds;
+    }
+    if (args.recordingId !== undefined) {
+      patch.recordingId = args.recordingId;
+    }
+    await ctx.db.patch(session._id, patch);
     return { sessionId: session._id };
   },
 });

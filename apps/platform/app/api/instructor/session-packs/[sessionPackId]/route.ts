@@ -141,8 +141,8 @@ export async function PATCH(
 
     if (!updatedPack) {
       return NextResponse.json(
-        { error: "Failed to update session pack" },
-        { status: 500 }
+        { error: "Session pack not found" },
+        { status: 404 }
       );
     }
 
@@ -167,6 +167,20 @@ export async function PATCH(
     }
     if (isForbiddenError(error)) {
       return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
+    }
+
+    // TOCTOU: a concurrent soft-delete can race the deletedAt guard above
+    // and surface as "Session pack not found" from the underlying mutation.
+    // Translate to 404 so clients can distinguish a deleted pack from a
+    // genuine server fault.
+    if (
+      error instanceof Error &&
+      error.message === "Session pack not found"
+    ) {
+      return NextResponse.json(
+        { error: "Session pack not found" },
+        { status: 404 }
+      );
     }
 
     const sessionPackError = getSessionPackError(error);

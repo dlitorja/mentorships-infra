@@ -51,12 +51,23 @@ interface DailyWebhookEvent {
 }
 
 function isTestBypassEnabled(req: NextRequest): boolean {
+  if (process.env.TEST_WEBHOOK_BYPASS !== "true") return false;
+  const expected = process.env.TEST_WEBHOOK_BYPASS_KEY;
+  if (typeof expected !== "string" || expected.length === 0) return false;
+  if (req.headers.get("x-test-bypass") !== "1") return false;
+  const provided = req.headers.get("x-test-bypass-key");
+  if (typeof provided !== "string") return false;
+  // Timing-safe comparison: avoid leaking the bypass secret length via
+  // timing. Pad to a fixed-length buffer to neutralise length leakage.
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  const len = Math.max(a.length, b.length, 64);
+  const aPadded = Buffer.alloc(len);
+  const bPadded = Buffer.alloc(len);
+  a.copy(aPadded);
+  b.copy(bPadded);
   return (
-    process.env.TEST_WEBHOOK_BYPASS === "true" &&
-    typeof process.env.TEST_WEBHOOK_BYPASS_KEY === "string" &&
-    process.env.TEST_WEBHOOK_BYPASS_KEY.length > 0 &&
-    req.headers.get("x-test-bypass") === "1" &&
-    req.headers.get("x-test-bypass-key") === process.env.TEST_WEBHOOK_BYPASS_KEY
+    timingSafeEqual(aPadded, bPadded) && a.length === b.length
   );
 }
 

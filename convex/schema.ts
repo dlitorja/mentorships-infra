@@ -80,6 +80,8 @@ export default defineSchema({
     callStartedAt: v.optional(v.number()),
     callEndedAt: v.optional(v.number()),
     isAdhoc: v.optional(v.boolean()),
+    recordingDurationSeconds: v.optional(v.number()),
+    recordingId: v.optional(v.string()),
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
     cancelReason: v.optional(v.string()),
