@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
 
 export const runtime = "nodejs";
@@ -45,23 +46,19 @@ export async function POST(
     }
 
     const { sessionId } = await params;
-    if (!sessionId || sessionId.length === 0) {
-      return NextResponse.json(
-        { error: "Missing sessionId" },
-        { status: 400 }
-      );
-    }
-    if (!/^[a-z0-9]{20,32}$/.test(sessionId)) {
+    const parsedSessionId = convexIdSchema.safeParse(sessionId);
+    if (!parsedSessionId.success) {
       return NextResponse.json(
         { error: "Invalid sessionId format" },
         { status: 400 }
       );
     }
+    const sessionIdTyped = parsedSessionId.data as Id<"sessions">;
 
     try {
       const callEndedAt = await fetchMutation(
         api.sessions.endCall,
-        { sessionId: sessionId as Id<"sessions"> },
+        { sessionId: sessionIdTyped },
         { token }
       );
       return NextResponse.json({ success: true, callEndedAt });

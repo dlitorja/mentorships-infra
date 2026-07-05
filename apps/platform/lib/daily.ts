@@ -90,6 +90,28 @@ const dailyRoomResponseSchema = z.object({
   url: z.string(),
 });
 
+async function parseDailyRoomResponse(
+  response: Response
+): Promise<DailyRoom> {
+  let raw: unknown;
+  try {
+    raw = await response.json();
+  } catch {
+    throw new DailyApiError({
+      statusCode: response.status,
+      message: "Daily response was not valid JSON",
+    });
+  }
+  const parsed = dailyRoomResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new DailyApiError({
+      statusCode: response.status,
+      message: "Daily room response missing name or url",
+    });
+  }
+  return { roomName: parsed.data.name, roomUrl: parsed.data.url };
+}
+
 function isDailyErrorBody(value: unknown): value is DailyErrorBody {
   if (!value || typeof value !== "object") return false;
   const obj = value as Record<string, unknown>;
@@ -179,14 +201,7 @@ export async function createDailyRoom(
     throw await parseErrorResponse(response);
   }
 
-  const parsed = dailyRoomResponseSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new DailyApiError({
-      statusCode: response.status,
-      message: "Daily create-room response missing name or url",
-    });
-  }
-  return { roomName: parsed.data.name, roomUrl: parsed.data.url };
+  return await parseDailyRoomResponse(response);
 }
 
 /**
@@ -228,14 +243,7 @@ export async function getDailyRoom(
     throw await parseErrorResponse(response);
   }
 
-  const parsed = dailyRoomResponseSchema.safeParse(await response.json());
-  if (!parsed.success) {
-    throw new DailyApiError({
-      statusCode: response.status,
-      message: "Daily get-room response missing name or url",
-    });
-  }
-  return { roomName: parsed.data.name, roomUrl: parsed.data.url };
+  return await parseDailyRoomResponse(response);
 }
 
 /**

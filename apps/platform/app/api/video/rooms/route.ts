@@ -98,19 +98,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const expectedRoomName = videoRoomNameForSession(sessionIdTyped);
-
-    if (
-      existing.videoRoomName === expectedRoomName &&
-      existing.videoRoomUrl !== undefined &&
-      existing.videoRoomUrl.length > 0
-    ) {
-      return NextResponse.json({
-        roomName: existing.videoRoomName,
-        roomUrl: existing.videoRoomUrl,
-      });
-    }
-
     const { roomName, roomUrl } = await resolveDailyRoom(sessionIdTyped);
 
     await fetchMutation(
