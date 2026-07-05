@@ -57,41 +57,35 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
     }
 
+    const instructor = await fetchQuery(
+      api.instructors.getInstructorByUserId,
+      { userId: clerkAuth.userId },
+      { token }
+    );
+
+    if (!instructor) {
+      return NextResponse.json(
+        { error: "Instructor profile not found" },
+        { status: 403 }
+      );
+    }
+
+    if (existing.instructorId !== instructor._id) {
+      return NextResponse.json(
+        { error: "Forbidden: only the session's instructor can create a room" },
+        { status: 403 }
+      );
+    }
+
     const { roomName, roomUrl } = await createDailyRoom(
       sessionId as Id<"sessions">
     );
 
-    try {
-      await fetchMutation(
-        api.sessions.setVideoRoom,
-        { sessionId: sessionId as Id<"sessions">, videoRoomName: roomName, videoRoomUrl: roomUrl },
-        { token }
-      );
-    } catch (mutationError) {
-      const message =
-        mutationError instanceof Error ? mutationError.message : String(mutationError);
-      if (message.includes("Unauthorized")) {
-        await reportError({
-          source: "api/video/rooms",
-          error: mutationError,
-          message: "Convex auth check failed while saving room",
-          level: "warn",
-          context: { sessionId },
-        });
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      if (message.includes("Forbidden")) {
-        await reportError({
-          source: "api/video/rooms",
-          error: mutationError,
-          message: "Instructor-only check failed",
-          level: "warn",
-          context: { sessionId },
-        });
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-      throw mutationError;
-    }
+    await fetchMutation(
+      api.sessions.setVideoRoom,
+      { sessionId: sessionId as Id<"sessions">, videoRoomName: roomName, videoRoomUrl: roomUrl },
+      { token }
+    );
 
     return NextResponse.json({ roomName, roomUrl });
   } catch (error) {
@@ -102,6 +96,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
     if (error instanceof DailyApiError) {
+      const message =
+        error.statusCode === 409
+          ? "Room already exists for this session"
+          : "Failed to create video room";
       await reportError({
         source: "api/video/rooms",
         error,
@@ -111,10 +109,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
       return NextResponse.json(
         {
-          error: "Failed to create video room",
+          error: message,
           details: error.info ?? error.message,
         },
-        { status: 502 }
+        { status: error.statusCode === 409 ? 409 : 502 }
       );
     }
     await reportError({

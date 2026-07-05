@@ -1177,18 +1177,14 @@ export const setVideoRoom = mutation({
 export const endCall = mutation({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args): Promise<number> => {
-    const session = await ctx.db.get(args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
-
-    if (session.callEndedAt !== undefined) {
-      return session.callEndedAt;
-    }
-
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Unauthorized");
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
     }
 
     const instructor = await ctx.db.get(session.instructorId);
@@ -1198,6 +1194,10 @@ export const endCall = mutation({
 
     if (!isInstructor && !isStudent) {
       throw new Error("Forbidden: only session participants can end the call");
+    }
+
+    if (session.callEndedAt !== undefined) {
+      return session.callEndedAt;
     }
 
     const callEndedAt = Date.now();
@@ -1302,7 +1302,6 @@ export type ActiveSessionForWorkspace = {
 export const getActiveSessionForWorkspace = query({
   args: {
     workspaceId: v.id("workspaces"),
-    now: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<ActiveSessionForWorkspace | null> => {
     const identity = await ctx.auth.getUserIdentity();
@@ -1331,8 +1330,7 @@ export const getActiveSessionForWorkspace = query({
       return null;
     }
 
-    const now = args.now ?? Date.now();
-    const activeWindowStart = now - 4 * 60 * 60 * 1000;
+    const activeWindowStart = Date.now() - 4 * 60 * 60 * 1000;
 
     if (workspace.instructorId === undefined) {
       return null;
