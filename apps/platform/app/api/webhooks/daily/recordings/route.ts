@@ -109,7 +109,13 @@ function verifyDailySignature(
 export async function POST(req: NextRequest) {
   // Test bypass for CI and integration tests on preview/prod deploys.
   if (isTestBypassEnabled(req)) {
-    return handleEvent(await req.json(), "bypass");
+    let bypassEvent: DailyWebhookEvent;
+    try {
+      bypassEvent = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    return handleEvent(bypassEvent, "bypass");
   }
 
   const secret = process.env.DAILY_WEBHOOK_SECRET;
