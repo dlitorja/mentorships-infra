@@ -113,9 +113,10 @@ function parseVerifiedPayload(rawBody: string): {
  * replayed with substituted recording arguments (e.g. a different
  * `roomName` or `s3_key`).
  *
- * Defence in depth: the Next.js route at
- * apps/platform/app/api/webhooks/daily/recordings/route.ts also verifies
- * the HMAC at its own layer before forwarding. Two layers, same secret.
+ * Single verification layer: HMAC is verified here in the Convex action.
+ * The Next.js route extracts (or, in bypass mode, generates) the
+ * signature and forwards it unverified; this action is the only code
+ * that calls verifyDailyHmac before the internal mutation is invoked.
  */
 export const attachRecordingFromDailyWebhookAction = action({
   args: {

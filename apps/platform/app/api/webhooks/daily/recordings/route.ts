@@ -186,7 +186,6 @@ async function handleEvent(
   }
 
   const roomName = event.payload.room_name;
-  const s3Key = event.payload.s3_key;
 
   try {
     const convex = getConvexClient();
