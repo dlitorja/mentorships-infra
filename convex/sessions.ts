@@ -1047,3 +1047,77 @@ export const checkSeatExpiration = internalAction({
     };
   },
 });
+
+/**
+ * Attaches Daily.co recording metadata to the session matched by room name.
+ * Invoked by `attachRecordingFromDailyWebhookAction` (defined in
+ * convex/dailyRecordingActions.ts) after HMAC verification inside the
+ * Convex action layer.
+ *
+ * Idempotent: if a recording has already been attached for the matched
+ * session, the existing fields are preserved. Daily occasionally re-fires
+ * the recording-ready event for the same room (retry, redelivery); without
+ * this guard the first recorded call would be silently overwritten by a
+ * later delivery, surfacing the wrong playback item in PR #4's Notes tab.
+ *
+ * Also defends against duplicate room names: if more than one session
+ * shares the same `videoRoomName` (data drift), this throws so the caller
+ * can investigate rather than silently attaching to the wrong row.
+ *
+ * Stored as `internalMutation` so the public action layer controls access;
+ * the internal mutation is not callable from the Next.js route layer
+ * directly. PR #2 will set `callEndedAt` at the actual call-end moment
+ * via POST /api/video/end/[sessionId]; this mutation only sets it if
+ * the end endpoint hasn't already written it, so the Daily processing
+ * delay (1–5 min after hangup) doesn't inflate call-duration metrics.
+ */
+export const attachRecordingFromDailyWebhook = internalMutation({
+  args: {
+    roomName: v.string(),
+    recordingS3Key: v.string(),
+    durationSeconds: v.optional(v.number()),
+    recordingId: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; alreadyAttached: boolean }> => {
+    const matches = await ctx.db
+      .query("sessions")
+      .withIndex("by_videoRoomName", (q) =>
+        q.eq("videoRoomName", args.roomName)
+      )
+      .collect();
+    if (matches.length === 0) {
+      throw new Error(`No session found for videoRoomName: ${args.roomName}`);
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple sessions (${matches.length}) share videoRoomName: ${args.roomName}. ` +
+          `Room names must be unique — investigate duplicates before re-running.`
+      );
+    }
+    const session = matches[0];
+
+    // Idempotency: if a recording is already attached, keep the original.
+    if (session.recordingUrl !== undefined) {
+      return { sessionId: session._id, alreadyAttached: true };
+    }
+
+    const patch: Partial<Doc<"sessions">> = {
+      recordingUrl: args.recordingS3Key,
+    };
+    if (session.callEndedAt === undefined) {
+      patch.callEndedAt = Date.now();
+    }
+    if (args.durationSeconds !== undefined) {
+      patch.recordingDurationSeconds = args.durationSeconds;
+    }
+    if (args.recordingId !== undefined) {
+      patch.recordingId = args.recordingId;
+    }
+    await ctx.db.patch(session._id, patch);
+    return { sessionId: session._id, alreadyAttached: false };
+  },
+});
+

@@ -3,85 +3,139 @@ name: Video Calling
 overview: Integrate Daily.co video calling into apps/platform workspaces with a 50/50 user-resizable hybrid split-panel UX, screenshare, and cloud recording stored on Backblaze B2, replacing Discord mentorship calls. Workspace content (Notes/Images/Links/Chat) is auto-tagged to the active session during a call so users can post things discussed without leaving the workspace. Daily's in-call chat is disabled in favor of the workspace Chat tab. Recording playback lives as a sub-section in the Notes tab.
 todos:
   - id: daily-account-setup
+    owner: user
+    phase: 0
     content: Set up Daily.co account and API key
     status: pending
   - id: b2-iam-role
+    owner: user
+    phase: 0
     content: Configure B2 bucket IAM role for Daily.co recording storage
     status: pending
   - id: sdk-integration
+    owner: agent
+    phase: 1
     content: Add @daily-co/daily-react SDK to apps/platform
     status: pending
   - id: schema-content-sessionid
+    owner: agent
+    phase: 1
     content: Add sessionId foreign key to workspace_notes, workspace_links, workspace_images + callStartedAt/callEndedAt to sessions
     status: pending
-  - id: video-component
-    content: Create video call component with DailyProvider, DailyVideo, controls (chat disabled)
+  - id: recording-storage
+    owner: agent
+    phase: 1
+    content: Add recording webhook (POST /api/webhooks/daily/recordings) and store recordingUrl in Convex
     status: pending
   - id: room-creation-api
+    owner: agent
+    phase: 2
     content: Create room creation API endpoint (POST /api/video/rooms)
     status: pending
   - id: token-generation
+    owner: agent
+    phase: 2
     content: Implement token generation with role derived server-side from authenticated session (GET /api/video/token/[roomName])
     status: pending
   - id: active-call-query
+    owner: agent
+    phase: 2
     content: Implement GET /api/video/active/[workspaceId] to determine if a call is live in a workspace
     status: pending
-  - id: adhoc-call-api
-    content: Implement POST /api/video/start-adhoc (instructor only, creates synthetic session)
-    status: pending
   - id: video-call-provider
+    owner: agent
+    phase: 3
     content: Create VideoCallProvider with Jotai atoms (panelMode, splitRatio, activeSessionId, callState, liveSessionNoteId)
     status: pending
   - id: hybrid-panel-ui
+    owner: agent
+    phase: 3
     content: Create VideoPanel with 50/50 default + draggable divider (min 360px/side) using react-resizable-panels; persist ratio to localStorage
     status: pending
   - id: picture-in-picture
+    owner: agent
+    phase: 3
     content: Create PictureInPicture floating component (bottom-right)
     status: pending
-  - id: quick-capture
-    content: Create QuickCapture floating composer (Cmd/Ctrl+K) for text/link/clipboard-image → tagged Note/Link/Image
-    status: pending
   - id: call-status-pill
+    owner: agent
+    phase: 3
     content: Create CallStatusPill in workspace header (live indicator, timer, participants)
     status: pending
   - id: waiting-room
+    owner: agent
+    phase: 3
     content: Create WaitingRoom UI for student admit by instructor
     status: pending
-  - id: session-integration
-    content: Add "Join Video Call" button on session cards (both roles)
-    status: pending
-  - id: recording-consent
-    content: Add recording consent UI to session booking and call join flows
+  - id: video-component
+    owner: agent
+    phase: 3
+    content: Create video call component with DailyProvider, DailyVideo, controls (chat disabled)
     status: pending
   - id: workspace-mount
+    owner: agent
+    phase: 3
     content: Mount VideoPanel in workspace-client-page.tsx gated by active session
     status: pending
-  - id: auto-tag-content
-    content: Update Notes/Images/Link composers to default sessionId tagging while a call is active, with untag toggle
-    status: pending
-  - id: live-session-note
-    content: Auto-create live session note on callStartedAt transition, pin at top of Notes tab
-    status: pending
-  - id: clipboard-image-paste
-    content: Add "Paste from clipboard" button on Images tab while a call is active
-    status: pending
   - id: chat-tab-banner
+    owner: agent
+    phase: 3
     content: Add banner on Chat tab explaining it replaces Daily chat while a call is active
     status: pending
   - id: keyboard-shortcuts
+    owner: agent
+    phase: 3
     content: Wire keyboard shortcuts (Cmd/Ctrl+K quick capture, +Shift+L tag toggle, +Shift+H hide panel, +Shift+V toggle panel, +Shift+M mute, +Shift+S screenshare, Escape PiP)
     status: pending
-  - id: recording-storage
-    content: Add recording webhook (POST /api/video/recordings) and store recordingUrl in Convex
-    status: pending
-  - id: recording-playback
-    content: Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL)
-    status: pending
   - id: mobile-narrow-viewport
+    owner: agent
+    phase: 3
     content: Implement narrow viewport (<900px: PiP-only, <600px: full-screen video with bottom-sheet workspace drawer)
     status: pending
+  - id: session-integration
+    owner: agent
+    phase: 3
+    content: Add "Join Video Call" button on session cards (both roles)
+    status: pending
+  - id: adhoc-call-api
+    owner: agent
+    phase: 4
+    content: Implement POST /api/video/start-adhoc (instructor only, creates synthetic session)
+    status: pending
   - id: adhoc-call-ui
+    owner: agent
+    phase: 4
     content: Add instructor-only "Start ad-hoc call" button in workspace header
+    status: pending
+  - id: recording-consent
+    owner: agent
+    phase: 4
+    content: Add recording consent UI to session booking and call join flows
+    status: pending
+  - id: auto-tag-content
+    owner: agent
+    phase: 4
+    content: Update Notes/Images/Link composers to default sessionId tagging while a call is active, with untag toggle
+    status: pending
+  - id: live-session-note
+    owner: agent
+    phase: 4
+    content: Auto-create live session note on callStartedAt transition, pin at top of Notes tab
+    status: pending
+  - id: clipboard-image-paste
+    owner: agent
+    phase: 4
+    content: Add "Paste from clipboard" button on Images tab while a call is active
+    status: pending
+  - id: quick-capture
+    owner: agent
+    phase: 4
+    content: Create QuickCapture floating composer (Cmd/Ctrl+K) for text/link/clipboard-image → tagged Note/Link/Image
+    status: pending
+  - id: recording-playback
+    owner: agent
+    phase: 4
+    content: Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL)
     status: pending
 ---
 
@@ -105,6 +159,37 @@ Key behaviors:
 - **Ad-hoc calls** — instructor only, for catch-up calls outside scheduled sessions (creates a synthetic session record).
 - **Picture-in-Picture mode** for minimized video when not actively using call.
 - **Mobile / narrow viewport** support — PiP-only below 900px, full-screen video with bottom-sheet workspace drawer below 600px.
+
+## Status
+
+**Plan approved. Implementation in progress.**
+
+- Plan merged via PR #593.
+- Instructor-dashboard `seatReservations` query P2s + Instructor Call Flows section landed via PR #594 (commit `803313ca`).
+- **PR #1 (Phase 1) — in progress.** Schema additions for Daily.co call metadata + recording webhook handler at `/api/webhooks/daily/recordings`. Does not require SDK install or Daily end-to-end wiring.
+
+**Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
+
+| Phase | Scope | Owner | PR |
+|---|---|---|---|
+| 0 | Daily.co account + B2 bucket + IAM key + webhook secret | user | — |
+| 1 | Schema + dependencies + recording webhook | agent | PR #1 |
+| 2 | Room / token / active / end endpoints | agent | PR #2 |
+| 3 | VideoCallProvider + VideoPanel + mount + Join Call button | agent | PR #3 |
+| 4 | Ad-hoc endpoint + Start-ad-hoc button + consent modal + auto-tagging + recording playback | agent | PR #4 |
+
+## Phase 0 Prerequisites (User Action Required)
+
+Before any code lands, the user creates these resources outside the repo. The agent integrates against the env var names; values are pasted only into the Vercel project env (never into PRs, commits, or `.env.local` examples — per AGENTS.md secret policy).
+
+| Resource | Where to create | Env var name |
+|---|---|---|
+| Daily.co account + domain | https://dashboard.daily.co/ | `DAILY_API_KEY` |
+| B2 bucket for recordings | Backblaze B2 | `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_NAME` |
+| IAM-limited Daily access key for B2 | B2 → Application Keys, scope `listBuckets`, `listFiles`, `readFiles`, `writeFiles` to recordings bucket only | `DAILY_B2_KEY_ID`, `DAILY_B2_APPLICATION_KEY` |
+| Webhook secret (Daily → `/api/webhooks/daily/recordings`) | Daily dashboard generates the secret as base64 (NOT hex). Paste into Daily webhook config + Vercel as `DAILY_WEBHOOK_SECRET`. | `DAILY_WEBHOOK_SECRET` |
+
+When done, paste the env var names into the Vercel project's environment variables (preview + production). Ping the agent with "Phase 0 done" to start PR #1.
 
 ## Why Daily.co
 
@@ -253,10 +338,14 @@ Instructors can start a call from the workspace **outside scheduled sessions** (
 - Notes/Links/Images posted during the call can be tagged with `sessionId`.
 - Retention / billing flows treat it like a normal session.
 
+There is no UI to start an ad-hoc call from the dashboard or sessions list today — the entry point lives in the workspace header (see [Instructor Call Flows in /workspace](#instructor-call-flows-in-workspace), entry point 2).
+
+**Recording default for ad-hoc calls: ON.** The consent modal opens with recording toggled on; both parties are notified that the call is being recorded; the recording lands in B2 and surfaces in the Notes tab Calls sub-section on call end. If either party declines consent, the call proceeds without recording (no webhook fires, no Notes sub-section entry).
+
 Flow:
 
 1. Instructor workspace header shows a small **"📹 Start ad-hoc call"** button (instructors only — never visible to students).
-2. Click → consent modal (if recording) → `POST /api/video/start-adhoc` creates a synthetic session + Daily room.
+2. Click → consent modal (recording toggle defaults to ON) → `POST /api/video/start-adhoc` creates a synthetic session + Daily room.
 3. Student gets an in-app notification (and optionally email) with a deep link to the workspace.
 4. From step 5 onward, the same flow as a scheduled session call.
 
@@ -372,7 +461,36 @@ While the call is active, the instructor's workspace shows the same chrome stude
 
 ## Architecture
 
+### Endpoints
+
+| Method + path | Auth | Behavior |
+|---|---|---|
+| `POST /api/video/rooms` | session owner (instructor OR student on the session) | Create Daily room `mentorship-{sessionId}` with `enable_chat: false`, `enable_screenshare: true`, recording per consent. Returns `{ roomName, roomUrl }`. |
+| `GET /api/video/token/[roomName]` | session owner | Resolves role **server-side** from `clerkUserId` against `sessions.instructorId` (or workspace membership). Returns Daily JWT with `is_owner` flag. **Role never trusted from URL/body.** |
+| `GET /api/video/active/[workspaceId]` | workspace member | Returns `{ active: true, sessionId, startedAt }` if a session with `callStartedAt > now - 4h && callEndedAt === undefined` exists for this workspace, else `{ active: false }`. |
+| `POST /api/video/start-adhoc` | **instructor of the workspace** | Creates synthetic `sessions` row with `isAdhoc: true`, `recordingConsent: true` (default ON), Daily room. Notifies the student. |
+| `POST /api/video/end/[sessionId]` | instructor OR student on the session | Sets `callEndedAt: Date.now()`. Daily webhook fires with recording shortly after. |
+| `POST /api/webhooks/daily/recordings` | unauthenticated; HMAC-verified via `X-Webhook-Signature` over `${X-Webhook-Timestamp}.${rawBody}` with base64-decoded `DAILY_WEBHOOK_SECRET` (constant-time compare) | Writes `sessions.recordingUrl` (B2 s3_key) + `sessions.callEndedAt`. Returns 400 on missing/malformed/mismatched signature before parsing the body. Mounted under `/api/webhooks/*` because `proxy.ts:196-208` whitelists that path as a public route — avoids touching proxy.ts per AGENTS.md Clerk policy. |
+| `GET /api/video/recordings/[sessionId]` | session owner | Returns signed B2 URL with TTL policy. |
+
+Detailed per-endpoint authorization: see [Endpoint Authorization](#endpoint-authorization) below.
+
 ### Components
+
+All new components live under `apps/platform/components/video/`:
+
+| File | Mount point | Both roles | Instructor only |
+|---|---|---|---|
+| `video-call-provider.tsx` | wraps workspace tree | ✅ | |
+| `video-panel.tsx` | below tab strip | ✅ | |
+| `call-status-pill.tsx` | workspace header | ✅ | |
+| `join-call-button.tsx` | workspace header (±15 min window) | ✅ | |
+| `start-adhoc-button.tsx` | workspace header | | ✅ (hidden for students) |
+| `picture-in-picture.tsx` | bottom-right floating | ✅ | |
+| `quick-capture.tsx` | overlay (`Cmd/Ctrl+K`) | ✅ | |
+| `consent-modal.tsx` | on join + on ad-hoc start | ✅ | |
+| `waiting-room.tsx` | below header | | ✅ |
+| `recording-playback.tsx` | Notes tab sub-section | ✅ | |
 
 1. **Daily.co SDK** (`@daily-co/daily-react`)
    - React hooks for video call state.
@@ -407,7 +525,7 @@ While the call is active, the instructor's workspace shows the same chrome stude
 ### Data Model (Convex)
 
 ```typescript
-// sessions table additions
+// sessions table additions (PR #1)
 videoRoomUrl: v.optional(v.string()),
 videoRoomName: v.optional(v.string()),
 // NOTE: instructorToken is intentionally NOT persisted to the database.
@@ -415,24 +533,33 @@ videoRoomName: v.optional(v.string()),
 // waiting room, call termination). Anyone able to read the sessions
 // table — via a future Convex query, a DB export, or a misconfigured
 // access policy — would otherwise gain owner-level access to every
-// room. Tokens are generated fresh by POST /api/video/token/[roomName]
+// room. Tokens are generated fresh by GET /api/video/token/[roomName]
 // on each join request and live only in the response payload.
-recordingConsent: v.optional(v.boolean()),  // Optional for backwards-compat with existing rows
-recordingUrl: v.optional(v.string()),
-recordingExpiresAt: v.optional(v.number()),
 videoSessionStartedAt: v.optional(v.number()),
 callStartedAt: v.optional(v.number()),       // Set when first participant joins
-callEndedAt: v.optional(v.number()),         // Set on call end
+callEndedAt: v.optional(v.number()),         // Set on call end (also set by Daily webhook)
 isAdhoc: v.optional(v.boolean()),            // True for instructor-started ad-hoc calls
 
-// workspace_notes additions
+// sessions table — already present (NOT added in PR #1)
+recordingConsent: v.boolean(),               // Required, set at session booking
+recordingUrl: v.optional(v.string()),        // B2 s3_key; signed URLs generated in PR #4
+recordingExpiresAt: v.optional(v.number()),
+
+// workspaceNotes additions (PR #1)
 sessionId: v.optional(v.id("sessions")),     // Auto-set during live call, untag-able
+// new index: by_workspaceId_sessionId
 
-// workspace_links additions
+// workspaceLinks additions (PR #1)
 sessionId: v.optional(v.id("sessions")),
+// new index: by_workspaceId_sessionId
 
-// workspace_images additions
+// workspaceImages additions (PR #1)
 sessionId: v.optional(v.id("sessions")),
+// new index: by_workspaceId_sessionId
+
+// sessions indexes added in PR #1
+// .index("by_videoRoomName", ["videoRoomName"])        — Daily webhook lookup
+// .index("by_instructorId_isAdhoc", ["instructorId", "isAdhoc"])  — ad-hoc listing
 ```
 
 ### API Endpoints
@@ -440,24 +567,29 @@ sessionId: v.optional(v.id("sessions")),
 ```
 POST   /api/video/rooms                                - Create Daily.co room for session (instructor only)
 GET    /api/video/token/[roomName]                     - Get participant token (role derived server-side, session participants only)
-POST   /api/video/recordings                           - Webhook for recording complete (HMAC-verified)
+POST   /api/webhooks/daily/recordings                  - Daily.co webhook for recording ready (HMAC-verified; public)
 GET    /api/video/recordings/[sessionId]               - Get recording URL for session (session participants only)
 GET    /api/video/active/[workspaceId]                 - Returns { sessionId, roomUrl, startedAt } | null (workspace members only)
 POST   /api/video/start-adhoc                          - Instructor only; creates synthetic session + Daily room
 ```
 
-### Webhook Security (Daily.co → /api/video/recordings)
+### Webhook Security (Daily.co → /api/webhooks/daily/recordings)
 
-`POST /api/video/recordings` is an unauthenticated callback that mutates `sessions.recordingUrl`. Without verification, any caller could POST a fake payload and attach an arbitrary URL to any session in Convex.
+`POST /api/webhooks/daily/recordings` is an unauthenticated callback that mutates `sessions.recordingUrl` and `sessions.callEndedAt`. Without verification, any caller could POST a fake payload and attach an arbitrary URL to any session in Convex.
 
-Daily.co sends an `x-daily-signature` header containing an HMAC-SHA256 of the raw request body keyed by a webhook secret. The handler **must**:
+Daily.co sends two headers: `X-Webhook-Signature` (base64-encoded HMAC-SHA256) and `X-Webhook-Timestamp`. The signature is computed over the string `${timestamp}.${rawBody}` (NOT just the raw body) using the base64-decoded shared secret. The handler **must**:
 
 1. Read the raw request body (not the parsed JSON) before any other parsing.
-2. Compute `hmacSha256(rawBody, DAILY_WEBHOOK_SECRET)` and compare against the `x-daily-signature` header using a constant-time string comparison.
-3. Return `400` for missing header, malformed signature, or signature mismatch before doing any other work.
-4. Only then parse the body, validate the `roomName` corresponds to an existing `sessions.videoRoomName`, and update `recordingUrl`.
+2. Decode `DAILY_WEBHOOK_SECRET` from base64.
+3. Compute `hmacSha256(decodedSecret, ${X-Webhook-Timestamp}.${rawBody}).toString("base64")` and compare against `X-Webhook-Signature` using `crypto.timingSafeEqual` after a length check.
+4. Return `400` for missing headers, malformed signature, or signature mismatch before doing any other work.
+5. Only then parse the body, filter for `type: "recording.ready-to-download"`, extract `payload.room_name` + `payload.s3_key`, and persist to Convex.
 
 The webhook secret is sourced from `DAILY_WEBHOOK_SECRET` env var and configured in the Daily.co dashboard under the room's webhook settings. Rotating the secret must invalidate all old signatures.
+
+**Why `/api/webhooks/daily/recordings` and not `/api/video/recordings`:** `proxy.ts:196-208` whitelists `/api/webhooks/*` as a public route (alongside `/api/webhooks/stripe`, `/api/webhooks/clerk`, `/api/webhooks/paypal`). Per AGENTS.md Clerk policy, modifying `proxy.ts` (Clerk proxy wiring) requires explicit approval. Mounting under the existing whitelisted prefix avoids touching `proxy.ts` and gets the `"webhook"` rate-limit policy for free (`proxy.ts:272-274`).
+
+**Auth model:** The corresponding Convex mutation `api.sessions.attachRecordingFromDailyWebhook` is declared `mutation` (public) because `ConvexHttpClient.mutation()` only accepts public FunctionReferences and there is no Clerk context on a webhook call. HMAC verification upstream is the security boundary — only Daily, holding the shared secret, can produce a valid signature.
 
 ### Endpoint Authorization
 
@@ -543,15 +675,20 @@ The same identity-check helper should be reused across all endpoints to keep aut
 ### Phase 5: Recording
 - [ ] Add recording consent UI to session booking and call join flows
 - [ ] Configure room for cloud recording to B2
-- [ ] Handle recording webhook (`POST /api/video/recordings`) — verify `x-daily-signature` HMAC before parsing the body
+- [ ] Handle recording webhook (`POST /api/webhooks/daily/recordings`) — verify `X-Webhook-Signature` HMAC (base64-decoded secret, input `${X-Webhook-Timestamp}.${rawBody}`) before parsing the body
 - [ ] Add `recordingUrl` to session in Convex
 - [ ] Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL)
 - [ ] Implement signed B2 URL refresh strategy (TTL policy)
 
-### Phase 6: Ad-hoc Calls (Instructor Only)
-- [ ] Implement `POST /api/video/start-adhoc` (creates synthetic session + Daily room)
-- [ ] Add instructor-only "Start ad-hoc call" button in workspace header
-- [ ] Implement student notification on ad-hoc call start (in-app + optional email)
+### Phase 6: Ad-hoc Calls (Instructor Only) — PR #4
+
+- [ ] Implement `POST /api/video/start-adhoc` (creates synthetic `sessions` row with `isAdhoc: true`, `recordingConsent: true` default)
+- [ ] Add instructor-only "Start ad-hoc call" button in workspace header (hidden in the UI for students, not just gated server-side)
+- [ ] Consent modal opens with recording toggled ON by default
+- [ ] Student receives in-app notification (workspace list badge + optional email)
+- [ ] Auto-tagging composers default `sessionId` while call is live (untag toggle visible)
+- [ ] Recording playback sub-section at top of Notes tab (Play + Download)
+- [ ] Greptile: no new P1; Vercel: all 4 apps READY
 
 ### Phase 7: Mobile & Narrow Viewport
 - [ ] Implement narrow viewport (< 900px): PiP-only default, no split panel
@@ -581,7 +718,7 @@ The same identity-check helper should be reused across all endpoints to keep aut
 **API Routes:**
 - `apps/platform/app/api/video/rooms/route.ts` — Room creation
 - `apps/platform/app/api/video/token/[roomName]/route.ts` — Token generation (role derived server-side)
-- `apps/platform/app/api/video/recordings/route.ts` — Webhook for recording complete
+- `apps/platform/app/api/webhooks/daily/recordings/route.ts` — Webhook for recording complete (HMAC-verified, public)
 - `apps/platform/app/api/video/active/[workspaceId]/route.ts` — Active call query
 - `apps/platform/app/api/video/start-adhoc/route.ts` — Instructor-only ad-hoc call creation
 
@@ -655,3 +792,17 @@ DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 │                                                "Start ad-hoc") │
 └───────────────────────────────────────────────────────────────┘
 ```
+
+## Open Questions / Deferred
+
+These surfaced during Greptile review of PR #594 (commit `803313ca`) and are queued for a follow-up PR (planned alongside PR #4, not blocking):
+
+- **Workspace-only students sort to top of dashboard.** `getInstructorStudentsWithRemainingSessions` emits workspace rows with `sessionPack: null` and `remainingSessions: 0`. The final sort is ascending by `remainingSessions`, so these rows land at position zero — interleaved with students who have genuinely depleted packs. An instructor with several workspace-only students who haven't been assigned a pack will see them at the very top of the list. **Resolution:** push workspace rows with `hasSessionPack: false` to the bottom, or split them into a separate section.
+- **TOCTOU gap in `/api/instructor/session-packs/[sessionPackId]/route.ts:142-147`** — resolved in PR #1. The upfront `deletedAt` check is now paired with a catch on `"Session pack not found"` errors thrown by the underlying mutations, returning 404 instead of 500. Same 404 also returned when `updatedPack === null`.
+- **Public mutation auth bypass (`api.sessions.attachRecordingFromDailyWebhook`)** — resolved in PR #1 by splitting into (a) `internalMutation` `attachRecordingFromDailyWebhook` in `convex/sessions.ts` (idempotent + duplicate-room-name guard) and (b) public `action` `attachRecordingFromDailyWebhookAction` in `convex/dailyRecordingActions.ts` (HMAC-verified wrapper that calls the internal mutation via `ctx.runMutation`). The Next.js route now forwards `rawBody + timestamp + signature` to the action, which re-verifies the HMAC against `DAILY_WEBHOOK_SECRET` before calling the mutation. Defence in depth: both layers verify the same secret.
+- **Duplicate recording events overwrite (P1)** — resolved by idempotency check: `if (session.recordingUrl !== undefined) return { alreadyAttached: true }`. Daily re-firing the same event no longer overwrites the original recording.
+- **Duplicate room names misroute recordings (P1)** — resolved by `.collect()` + `if (matches.length > 1) throw`. Future PR will enforce `by_videoRoomName` as a unique index once data drift is investigated.
+- **Webhook runtime missing (P1)** — resolved by adding `export const runtime = "nodejs"` at the top of the route file.
+- **Mutation result leaked in webhook response (CodeRabbit 🟠)** — resolved: `convex.action()` call no longer spreads `result` into the public NextResponse.
+- **Payload type guard (CodeRabbit 🟡)** — resolved: `isValidRecordingPayload` validates field types before forwarding to Convex, returning 400 on malformed input instead of 500.
+- **Explicit return type (CodeRabbit 🔵)** — resolved: `POST(req: NextRequest): Promise<NextResponse>`.

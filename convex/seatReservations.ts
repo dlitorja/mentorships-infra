@@ -272,27 +272,26 @@ export const getInstructorStudentsWithRemainingSessions = query({
       workspaceOwners.map((ownerId, index) => [ownerId, workspaceOwnerUsers[index]])
     );
 
-    const workspaceRows = await Promise.all(
-      Array.from(workspaceByOwnerId.values()).map(async (workspace) => {
-        const student = userByOwnerId.get(workspace.ownerId) ?? null;
-        const sessionPack = latestActivePackByUserId.get(workspace.ownerId) ?? null;
+    const workspaceRows = Array.from(workspaceByOwnerId.values()).map((workspace) => {
+      const student = userByOwnerId.get(workspace.ownerId) ?? null;
+      const sessionPack = latestActivePackByUserId.get(workspace.ownerId) ?? null;
 
-        return {
-          userId: workspace.ownerId,
-          seatId: null,
-          workspaceId: workspace._id,
-          sessionPackId: sessionPack?._id ?? null,
-          hasSessionPack: sessionPack !== null,
-          studentEmail: student?.email ?? null,
-          studentFirstName: student?.firstName ?? null,
-          studentLastName: student?.lastName ?? null,
-          totalSessions: sessionPack?.totalSessions ?? 0,
-          remainingSessions: sessionPack?.remainingSessions ?? 0,
-          expiresAt: sessionPack?.expiresAt ?? null,
-          status: "workspace" as const,
-        };
-      })
-    );
+      return {
+        userId: workspace.ownerId,
+        seatId: null,
+        workspaceId: workspace._id,
+        sessionPackId: sessionPack?._id ?? null,
+        isAggregate: false,
+        hasSessionPack: sessionPack !== null,
+        studentEmail: student?.email ?? null,
+        studentFirstName: student?.firstName ?? null,
+        studentLastName: student?.lastName ?? null,
+        totalSessions: sessionPack?.totalSessions ?? 0,
+        remainingSessions: sessionPack?.remainingSessions ?? 0,
+        expiresAt: sessionPack?.expiresAt ?? null,
+        status: "workspace" as const,
+      };
+    });
 
     return [...dedupedSeatRows, ...workspaceRows].sort((a, b) => {
       // Workspace-only rows are a background state, not urgent — push them to
