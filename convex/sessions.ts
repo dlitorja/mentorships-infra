@@ -1047,3 +1047,42 @@ export const checkSeatExpiration = internalAction({
     };
   },
 });
+
+/**
+ * Attaches Daily.co recording metadata to the session matched by room name.
+ * Called by the Daily webhook handler at
+ * apps/platform/app/api/webhooks/daily/recordings/route.ts after HMAC
+ * verification. The HMAC layer (not Convex auth) is the security boundary;
+ * only Daily, holding the shared secret, can trigger this mutation with a
+ * valid signature for an existing `sessions.videoRoomName`.
+ *
+ * Public (not internal) because ConvexHttpClient.mutation() only accepts
+ * public FunctionReferences. Security is enforced by HMAC verification
+ * upstream, not by Convex auth — there is no Clerk user context on a
+ * webhook call.
+ *
+ * Stores the s3_key (path in Backblaze B2). PR #4 will generate signed
+ * download URLs on demand from this field.
+ */
+export const attachRecordingFromDailyWebhook = mutation({
+  args: {
+    roomName: v.string(),
+    recordingS3Key: v.string(),
+    durationSeconds: v.optional(v.number()),
+    recordingId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("sessions")
+      .withIndex("by_videoRoomName", (q) => q.eq("videoRoomName", args.roomName))
+      .first();
+    if (!session) {
+      throw new Error(`No session found for videoRoomName: ${args.roomName}`);
+    }
+    await ctx.db.patch(session._id, {
+      recordingUrl: args.recordingS3Key,
+      callEndedAt: Date.now(),
+    });
+    return { sessionId: session._id };
+  },
+});

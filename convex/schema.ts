@@ -74,6 +74,12 @@ export default defineSchema({
     recordingConsent: v.boolean(),
     recordingUrl: v.optional(v.string()),
     recordingExpiresAt: v.optional(v.number()),
+    videoRoomUrl: v.optional(v.string()),
+    videoRoomName: v.optional(v.string()),
+    videoSessionStartedAt: v.optional(v.number()),
+    callStartedAt: v.optional(v.number()),
+    callEndedAt: v.optional(v.number()),
+    isAdhoc: v.optional(v.boolean()),
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
     cancelReason: v.optional(v.string()),
@@ -86,7 +92,9 @@ export default defineSchema({
     .index("by_scheduledAt", ["scheduledAt"])
     .index("by_studentId_status_scheduledAt", ["studentId", "status", "scheduledAt"])
     .index("by_googleCalendarEventId", ["googleCalendarEventId"])
-    .index("by_instructorId_status_scheduledAt", ["instructorId", "status", "scheduledAt"]),
+    .index("by_instructorId_status_scheduledAt", ["instructorId", "status", "scheduledAt"])
+    .index("by_videoRoomName", ["videoRoomName"])
+    .index("by_instructorId_isAdhoc", ["instructorId", "isAdhoc"]),
 
   seatReservations: defineTable({
     instructorId: v.id("instructors"),
@@ -280,9 +288,11 @@ export default defineSchema({
     updatedAt: v.number(),
     deletedAt: v.optional(v.number()),
     imageUrl: v.optional(v.string()),
+    sessionId: v.optional(v.id("sessions")),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
-    .index("by_createdBy", ["createdBy"]),
+    .index("by_createdBy", ["createdBy"])
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
 
   workspaceNoteComments: defineTable({
     noteId: v.id("workspaceNotes"),
@@ -299,7 +309,9 @@ export default defineSchema({
     title: v.optional(v.string()),
     createdBy: v.string(),
     deletedAt: v.optional(v.number()),
-  }).index("by_workspaceId", ["workspaceId"]),
+    sessionId: v.optional(v.id("sessions")),
+  }).index("by_workspaceId", ["workspaceId"])
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
 
   workspaceImages: defineTable({
     workspaceId: v.id("workspaces"),
@@ -307,8 +319,10 @@ export default defineSchema({
     storageId: v.optional(v.string()),
     createdBy: v.string(),
     deletedAt: v.optional(v.number()),
+    sessionId: v.optional(v.id("sessions")),
   }).index("by_workspaceId", ["workspaceId"])
-    .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"]),
+    .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
 
   instructorResources: defineTable({
     instructorId: v.id("instructors"),
