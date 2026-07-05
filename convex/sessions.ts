@@ -1409,14 +1409,23 @@ export const getActiveSessionForWorkspace = query({
       return null;
     }
 
-    const sorted = sessions.sort((a, b) => {
-      const aTime = a.callStartedAt ?? a._creationTime;
-      const bTime = b.callStartedAt ?? b._creationTime;
-      return bTime - aTime;
-    });
+    const started = sessions.filter(
+      (s) => s.callStartedAt !== undefined
+    );
+    const reserved = sessions.filter(
+      (s) => s.callStartedAt === undefined
+    );
 
-    const active = sorted[0];
-    if (active.videoRoomName === undefined || active.videoRoomUrl === undefined) {
+    const active =
+      started.length > 0
+        ? started.sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0]
+        : reserved.sort((a, b) => b._creationTime - a._creationTime)[0];
+
+    if (
+      active === undefined ||
+      active.videoRoomName === undefined ||
+      active.videoRoomUrl === undefined
+    ) {
       return null;
     }
 

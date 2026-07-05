@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
+import { ConvexError } from "convex/values";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -14,6 +15,22 @@ import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
 
 export const runtime = "nodejs";
+
+type VideoConvexErrorCode = "VIDEO_ROOM_NAME_CONFLICT";
+
+function getVideoRoomsConvexErrorCode(
+  error: unknown
+): VideoConvexErrorCode | null {
+  if (
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null
+  ) {
+    const code = (error.data as { code?: unknown }).code;
+    if (code === "VIDEO_ROOM_NAME_CONFLICT") return code;
+  }
+  return null;
+}
 
 const createRoomSchema = z.object({
   sessionId: convexIdSchema,
@@ -98,6 +115,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
+    const expectedRoomName = videoRoomNameForSession(sessionIdTyped);
+    if (
+      existing.videoRoomName === expectedRoomName &&
+      existing.videoRoomUrl !== undefined &&
+      existing.videoRoomUrl.length > 0
+    ) {
+      return NextResponse.json({
+        roomName: existing.videoRoomName,
+        roomUrl: existing.videoRoomUrl,
+      });
+    }
+
     const { roomName, roomUrl } = await resolveDailyRoom(sessionIdTyped);
 
     await fetchMutation(
@@ -112,6 +141,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ roomName, roomUrl });
   } catch (error) {
+    const conflictCode = getVideoRoomsConvexErrorCode(error);
+    if (conflictCode === "VIDEO_ROOM_NAME_CONFLICT") {
+      await reportError({
+        source: "api/video/rooms",
+        error,
+        message: "Session has a conflicting videoRoomName",
+        level: "warn",
+      });
+      return NextResponse.json(
+        {
+          error:
+            "Session already has a different videoRoomName; cannot create a new room",
+        },
+        { status: 409 }
+      );
+    }
     if (error instanceof DailyApiError) {
       const message =
         error.statusCode === 409
