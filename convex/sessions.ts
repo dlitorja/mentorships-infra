@@ -1808,6 +1808,80 @@ export const markCallStarted = mutation({
 
     const callStartedAt = now;
     await ctx.db.patch(args.sessionId, { callStartedAt });
+
+    // After the call is marked started, auto-create the live
+    // session note for this workspace. The internal mutation is
+    // idempotent via `by_sessionId_isLiveSessionNote`, so two
+    // participants joining simultaneously can each trigger
+    // `markCallStarted` without producing a duplicate note (only the
+    // first one writes; subsequent calls return the existing row).
+    // We look up the workspace from the session before calling so
+    // the new note lands in the right workspace tab.
+    //
+    // PR #4b (Greptile R1 P1): a student/instructor pair can have
+    // multiple historical workspaces (closed, archived, or in rare
+    // cases overlapping active ones). Pick the workspace for this
+    // call deterministically:
+    //
+    //   1. Active pair workspace (most recently created by `_id`
+    //      descending — `_id` order in Convex is random, so fall back
+    //      to first match if `_creationTime` is unavailable)
+    //   2. Most-recently-closed pair workspace (`endedAt` descending)
+    //   3. Any non-deleted pair workspace
+    //
+    // We always filter by `instructorId === session.instructorId`
+    // because the ownerId index returns every workspace the student
+    // ever owned across all instructors.
+    try {
+      const candidateWorkspaces = await ctx.db
+        .query("workspaces")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", session.studentId))
+        .collect();
+
+      const pairWorkspaces = candidateWorkspaces.filter(
+        (w) => w.instructorId === session.instructorId
+      );
+      const activePair = pairWorkspaces.filter(
+        (w) => w.deletedAt === undefined && w.endedAt === undefined
+      );
+      const nonDeletedPair = pairWorkspaces.filter(
+        (w) => w.deletedAt === undefined
+      );
+
+      const matching =
+        (activePair.length > 0 ? activePair : null) ??
+        (nonDeletedPair.length > 0
+          ? [...nonDeletedPair].sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+          : null) ??
+        (pairWorkspaces.length > 0 ? pairWorkspaces : null);
+
+      if (matching && matching.length > 0) {
+        // Active workspaces: pick first. Closed: pick the most
+        // recently ended (largest endedAt). Any: pick first.
+        const chosen =
+          matching === activePair
+            ? matching[0]
+            : matching === pairWorkspaces
+              ? matching[0]
+              : matching[0];
+        await ctx.runMutation(
+          internal.workspaces.createLiveSessionNote,
+          {
+            sessionId: args.sessionId,
+            workspaceId: chosen._id,
+          }
+        );
+      }
+    } catch (err) {
+      // The live-note write is a non-critical enrichment; do not
+      // fail `markCallStarted` if it errors. Logged for ops to
+      // catch in production.
+      console.error(
+        "[sessions.markCallStarted] live session note creation failed",
+        err
+      );
+    }
+
     return callStartedAt;
   },
 });

@@ -13,10 +13,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { workspaceId, title, content } = body as {
+    const { workspaceId, title, content, sessionId } = body as {
       workspaceId: string;
       title: string;
       content: string;
+      // PR #4b: optional — when set, the note is auto-tagged to the
+      // active video-call session. The Notes composer sends this for
+      // any new note created while the call is live.
+      sessionId?: string;
     };
 
     if (!workspaceId || !title) {
@@ -34,6 +38,7 @@ export async function POST(request: Request) {
         workspaceId: workspaceId as Id<"workspaces">,
         title,
         content: content || "",
+        sessionId: sessionId ? (sessionId as Id<"sessions">) : undefined,
       },
       { token }
     );

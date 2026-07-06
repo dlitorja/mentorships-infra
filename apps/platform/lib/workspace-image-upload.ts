@@ -62,7 +62,15 @@ export async function uploadSingleImage(
   workspaceId: Id<'workspaces'>,
   file: File,
   generateUploadUrl: (args: { workspaceId: Id<'workspaces'> }) => Promise<string>,
-  createImage: (args: { workspaceId: Id<'workspaces'>; storageId: string; imageUrl: string }) => Promise<unknown>
+  createImage: (args: {
+    workspaceId: Id<'workspaces'>;
+    storageId: string;
+    imageUrl: string;
+    // Optional — carried through from the Images tab "Paste from
+    // clipboard" path so uploads during an active call tag the
+    // resulting image row to the live session.
+    sessionId?: Id<'sessions'>;
+  }) => Promise<unknown>
 ): Promise<UploadResponse> {
   try {
     const uploadUrl = await generateUploadUrl({ workspaceId });

@@ -8,7 +8,7 @@ import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, RefreshCw } from 'lucide-react';
+import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, RefreshCw, ClipboardPaste } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
@@ -20,6 +20,7 @@ interface Image {
   storageId?: string;
   createdBy: string;
   deletedAt?: number;
+  sessionId?: Id<'sessions'>;
 }
 
 interface FailedUpload {
@@ -39,9 +40,14 @@ interface WorkspaceImagesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
   role: 'student' | 'instructor' | 'admin';
+  // PR #4b: id of the active video-call session, or null when no
+  // call is active. While a call is active, uploads (including
+  // clipboard paste) are tagged to this session via the
+  // `useCreateWorkspaceImage` mutation.
+  activeSessionId: Id<'sessions'> | null;
 }
 
-export default function WorkspaceImages({ workspaceId, currentUserId, role }: WorkspaceImagesProps) {
+export default function WorkspaceImages({ workspaceId, currentUserId, role, activeSessionId }: WorkspaceImagesProps) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [previewImages, setPreviewImages] = useState<string[]>([]);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
@@ -138,7 +144,19 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       const previewIndex = i;
       setUploadProgress({ current: i + 1, total: imageFiles.length });
 
-      const result = await uploadSingleImage(workspaceId, file, generateUploadUrl, createImage.mutateAsync);
+      const result = await uploadSingleImage(
+        workspaceId,
+        file,
+        generateUploadUrl,
+        (args) =>
+          createImage.mutateAsync({
+            workspaceId: args.workspaceId,
+            storageId: args.storageId,
+            imageUrl: args.imageUrl,
+            // PR #4b: tag uploads to the active call when present.
+            sessionId: activeSessionId ?? undefined,
+          })
+      );
 
       if (!result.success) {
         newFailedUploads.push({
@@ -166,7 +184,18 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
   };
 
   const handleRetryUpload = async (failedUpload: FailedUpload, index: number): Promise<void> => {
-    const result = await uploadSingleImage(workspaceId, failedUpload.file, generateUploadUrl, createImage.mutateAsync);
+    const result = await uploadSingleImage(
+      workspaceId,
+      failedUpload.file,
+      generateUploadUrl,
+      (args) =>
+        createImage.mutateAsync({
+          workspaceId: args.workspaceId,
+          storageId: args.storageId,
+          imageUrl: args.imageUrl,
+          sessionId: activeSessionId ?? undefined,
+        })
+    );
 
     if (result.success) {
       setFailedUploads((prev) => prev.filter((_, i) => i !== index));
@@ -189,7 +218,18 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
 
     for (let i = 0; i < failed.length; i++) {
       setUploadProgress({ current: i + 1, total: failed.length });
-      const result = await uploadSingleImage(workspaceId, failed[i].file, generateUploadUrl, createImage.mutateAsync);
+      const result = await uploadSingleImage(
+        workspaceId,
+        failed[i].file,
+        generateUploadUrl,
+        (args) =>
+          createImage.mutateAsync({
+            workspaceId: args.workspaceId,
+            storageId: args.storageId,
+            imageUrl: args.imageUrl,
+            sessionId: activeSessionId ?? undefined,
+          })
+      );
 
       if (!result.success) {
         stillFailed.push({ ...failed[i], error: (result as UploadError).error });
@@ -211,6 +251,56 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
       toast.success('All images uploaded successfully');
     }
   };
+
+  // PR #4b: clipboard-image paste while a call is active. We listen
+  // at the window level while the Images tab is mounted, so a paste
+  // anywhere on the page (dropzone, focused input, anywhere)
+  // routes the image to `uploadSingleImage` tagged to the active
+  // session. Gated on `activeSessionId` per the plan: the
+  // "Paste from clipboard" affordance only appears during a call.
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (remainingSlots <= 0) return;
+
+    const onPaste = async (e: ClipboardEvent) => {
+      // Don't intercept if the user is pasting text into another input.
+      const target = e.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        if (target.isContentEditable) return;
+      }
+
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageItem = items.find((it) => it.type.startsWith("image/"));
+      if (!imageItem) return;
+      const file = imageItem.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+
+      const result = await uploadSingleImage(
+        workspaceId,
+        file,
+        generateUploadUrl,
+        (args) =>
+          createImage.mutateAsync({
+            workspaceId: args.workspaceId,
+            storageId: args.storageId,
+            imageUrl: args.imageUrl,
+            sessionId: activeSessionId,
+          })
+      );
+
+      if (!result.success) {
+        toast.error((result as UploadError).error || "Upload failed");
+        return;
+      }
+      toast.success("Clipboard image saved to this call");
+    };
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [activeSessionId, workspaceId, generateUploadUrl, createImage, remainingSlots]);
 
   const removeImage = (index: number) => {
     setPreviewImages((prev) => prev.filter((_, i) => i !== index));
@@ -366,16 +456,38 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role }: Wo
         <p className="mt-1 text-xs text-muted-foreground">
           PNG, JPG, GIF, or WebP up to 5MB. You can add up to {PER_UPLOAD_CAP} images at a time.
         </p>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="mt-3"
-          disabled={remainingSlots <= 0 || isUploading}
-          onClick={open}
-        >
-          Browse files
-        </Button>
+        <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={remainingSlots <= 0 || isUploading}
+            onClick={open}
+          >
+            Browse files
+          </Button>
+          {/* PR #4b: clipboard paste hint + button while a call is active. */}
+          {activeSessionId && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              disabled={remainingSlots <= 0 || isUploading}
+              onClick={() => {
+                // Focus the dropzone area so subsequent ⌘/Ctrl+V
+                // paste events target this component (the global
+                // listener installed in the effect above still
+                // catches them, but focusing helps user understanding).
+                document.body.focus();
+                toast.info("Press ⌘/Ctrl + V to paste an image from your clipboard");
+              }}
+            >
+              <ClipboardPaste className="h-4 w-4" />
+              Paste from clipboard
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Upload Progress */}

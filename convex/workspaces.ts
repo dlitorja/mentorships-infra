@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, internalQuery, action } from "./_gen
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 const WORKSPACE_IMAGE_CAPS = {
   student: 75,
@@ -117,6 +118,49 @@ async function logWorkspaceAudit(
     details,
     timestamp: Date.now(),
   });
+}
+
+/**
+ * Verifies that the given session belongs to the workspace: the
+ * session's instructor/student pair matches the workspace's
+ * instructor/owner pair. Throws on mismatch so callers can fail fast
+ * before inserting rows tagged to the wrong session.
+ *
+ * Used by every workspace mutation that accepts an optional
+ * `sessionId` (PR #4b) so a client cannot tag a note/link/image/chat
+ * message to a session that is not associated with the workspace the
+ * caller is writing to.
+ *
+ * PR #4b (Greptile R2 P2): typed `MutationCtx` (rather than
+ * `any`) so OCC guarantees and the schema's field types are
+ * enforced at the type level. Surrounding helpers in this file
+ * still use `ctx: any` — they predate this helper and are out
+ * of scope to retype.
+ */
+async function assertSessionBelongsToWorkspace(
+  ctx: MutationCtx,
+  args: { sessionId?: Id<"sessions">; workspaceId: Id<"workspaces"> }
+): Promise<void> {
+  if (args.sessionId === undefined) return;
+  const [session, workspace] = await Promise.all([
+    ctx.db.get(args.sessionId),
+    ctx.db.get(args.workspaceId),
+  ]);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (!workspace) {
+    throw new Error("Workspace not found");
+  }
+  if (workspace.instructorId === undefined) {
+    throw new Error("Workspace is not paired with an instructor");
+  }
+  if (session.instructorId !== workspace.instructorId) {
+    throw new Error("Session does not belong to this workspace");
+  }
+  if (session.studentId !== workspace.ownerId) {
+    throw new Error("Session does not belong to this workspace");
+  }
 }
 
 /** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
@@ -406,6 +450,10 @@ export const createWorkspaceNote = mutation({
     workspaceId: v.id("workspaces"),
     title: v.string(),
     content: v.string(),
+    // Optional — set when a note is created while a video call is
+    // active in the workspace. The Notes tab uses this to render
+    // "tagged to current call" affordances and the Notes list filter.
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -423,26 +471,78 @@ export const createWorkspaceNote = mutation({
       throw new Error("Access denied to workspace");
     }
 
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace so a client cannot tag rows to a session the
+    // workspace is not associated with.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
     return await ctx.db.insert("workspaceNotes", {
       workspaceId: args.workspaceId,
       title: args.title,
       content: args.content,
       createdBy: user.subject,
       updatedAt: Date.now(),
+      sessionId: args.sessionId,
     });
   },
 });
 
-/** Updates a workspace note's title and content. */
+/** Updates a workspace note's title, content, and call-tag. */
 export const updateWorkspaceNote = mutation({
   args: {
     id: v.id("workspaceNotes"),
     title: v.optional(v.string()),
     content: v.optional(v.string()),
+    // Optional — sets the note's `sessionId` to the given session
+    // (used by the "Tag to current call" retag button). Always
+    // set together with `clearSessionId: false` (or omitted).
+    sessionId: v.optional(v.id("sessions")),
+    // When true, clears the note's `sessionId` (used by the
+    // "Tag to current call" untag toggle in the Notes composer).
+    // Boolean instead of `sessionId: null` so callers never have to
+    // overload a single optional arg with two distinct meanings.
+    clearSessionId: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const { id, ...updates } = args;
-    await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const note = await ctx.db.get(args.id);
+    if (!note) {
+      throw new Error("Note not found");
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
+    // PR #4b (Greptile R1 P1): the previous handler trusted the
+    // client-provided `id` and let any authenticated caller patch any
+    // note's title/content/call-tag. After fetching the note, enforce
+    // that any retag `sessionId` actually belongs to the note's
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, {
+      sessionId: args.sessionId,
+      workspaceId: note.workspaceId,
+    });
+
+    const { id, clearSessionId, sessionId, ...updates } = args;
+    const patch: Record<string, unknown> = { ...updates, updatedAt: Date.now() };
+    if (sessionId !== undefined) {
+      patch.sessionId = sessionId;
+    }
+    if (clearSessionId === true) {
+      patch.sessionId = undefined;
+    }
+    await ctx.db.patch(id, patch);
     return await ctx.db.get(id);
   },
 });
@@ -659,6 +759,10 @@ export const createWorkspaceLink = mutation({
     workspaceId: v.id("workspaces"),
     url: v.string(),
     title: v.optional(v.string()),
+    // Optional — set when a link is shared while a video call is
+    // active in the workspace. Future PR surfaces this as a
+    // "Shared during current call" subpanel in the Links tab.
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -676,11 +780,16 @@ export const createWorkspaceLink = mutation({
       throw new Error("Access denied to workspace");
     }
 
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
     return await ctx.db.insert("workspaceLinks", {
       workspaceId: args.workspaceId,
       url: args.url,
       title: args.title,
       createdBy: user.subject,
+      sessionId: args.sessionId,
     });
   },
 });
@@ -767,6 +876,11 @@ export const createWorkspaceImage = mutation({
     workspaceId: v.id("workspaces"),
     imageUrl: v.string(),
     storageId: v.optional(v.string()),
+    // Optional — set when an image is uploaded while a video call
+    // is active in the workspace. Carried through from
+    // `uploadSingleImage` and the "Paste from clipboard" paste
+    // handler on the Images tab.
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -783,6 +897,10 @@ export const createWorkspaceImage = mutation({
     if (!role) {
       throw new Error("Not authorized to add images to this workspace");
     }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
 
     const isStudent = role === "student";
     const isAdmin = role === "admin";
@@ -810,6 +928,7 @@ export const createWorkspaceImage = mutation({
       imageUrl: args.imageUrl,
       storageId: args.storageId,
       createdBy: user.subject,
+      sessionId: args.sessionId,
     });
 
     const nextStudentCount = isStudent ? studentCount + 1 : studentCount;
@@ -829,6 +948,10 @@ export const createWorkspaceImageAndMessage = mutation({
   args: {
     workspaceId: v.id("workspaces"),
     storageId: v.string(),
+    // Optional — when set, the sessionId is written to BOTH the
+    // `workspaceImages` row and the chat `workspaceMessages` row so
+    // the same call surfaces consistently in both tabs.
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -845,6 +968,11 @@ export const createWorkspaceImageAndMessage = mutation({
     if (!role) {
       throw new Error("Not authorized to add images to this workspace");
     }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace. The same `sessionId` is written to BOTH the
+    // `workspaceImages` row and the chat `workspaceMessages` row.
+    await assertSessionBelongsToWorkspace(ctx, args);
 
     const isStudent = role === "student";
     const isAdmin = role === "admin";
@@ -880,6 +1008,7 @@ export const createWorkspaceImageAndMessage = mutation({
       imageUrl: "",
       storageId: args.storageId,
       createdBy: user.subject,
+      sessionId: args.sessionId,
     });
 
     const nextStudentCount = isStudent ? studentCount + 1 : studentCount;
@@ -910,6 +1039,7 @@ export const createWorkspaceImageAndMessage = mutation({
       content: imageUrl,
       type: "image",
       senderRole,
+      sessionId: args.sessionId,
     });
 
     return imageId;
@@ -1030,6 +1160,11 @@ export const createWorkspaceMessage = mutation({
     userId: v.string(),
     content: v.string(),
     type: v.optional(v.union(v.literal("text"), v.literal("image"), v.literal("file"))),
+    // Optional — set when a chat message is posted while a video
+    // call is active in the workspace. The Chat tab renders an
+    // in-call banner and individual messages tagged to the active
+    // session display a 🔴 dot.
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -1061,10 +1196,20 @@ export const createWorkspaceMessage = mutation({
       senderRole = "student";
     }
 
+    if (!senderRole) {
+      throw new Error("Access denied to workspace");
+    }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
+    const { sessionId, ...rest } = args;
     const messageId = await ctx.db.insert("workspaceMessages", {
-      ...args,
+      ...rest,
       type: args.type ?? "text",
       senderRole,
+      sessionId,
     });
 
     if (isUserAdmin) {
@@ -1081,6 +1226,10 @@ export const createWorkspaceFileMessage = mutation({
     workspaceId: v.id("workspaces"),
     storageId: v.id("_storage"),
     fileName: v.string(),
+    // Optional — set when a file message is posted while a video
+    // call is active in the workspace. Same semantics as
+    // `createWorkspaceMessage.sessionId`.
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const user = await ctx.auth.getUserIdentity();
@@ -1098,6 +1247,10 @@ export const createWorkspaceFileMessage = mutation({
       throw new Error("Not authorized to add files to this workspace");
     }
 
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
     const metadata = await ctx.db.system.get("_storage", args.storageId);
     if (!metadata) {
       throw new Error("Uploaded file not found");
@@ -1110,7 +1263,7 @@ export const createWorkspaceFileMessage = mutation({
       const currentCount = await countWorkspaceFilesByRole(ctx, args.workspaceId, role);
       const cap = WORKSPACE_FILE_CAPS[role];
       if (currentCount >= cap) {
-        throw new Error(`File limit reached (${cap} ${role} files allowed per workspace)`);
+        throw new Error(`File limit reached (${cap} ${role} files allowed per workspace).`);
       }
     }
 
@@ -1125,6 +1278,7 @@ export const createWorkspaceFileMessage = mutation({
       content: `${encodeURIComponent(args.fileName)}|${fileUrl}`,
       type: "file",
       senderRole: role,
+      sessionId: args.sessionId,
     });
 
     if (role === "admin") {
@@ -1443,6 +1597,105 @@ export const migrateWorkspaceImage = action({
     });
 
     return { success: true, storageId };
+  },
+});
+
+/**
+ * Idempotently creates (or returns) the single live session note
+ * for a given session. The mutation is called from
+ * `convex/sessions.ts:markCallStarted` after the call is marked
+ * started, so reconnect-after-disconnect cannot create a duplicate.
+ *
+ * Idempotency is enforced via the
+ * `by_sessionId_isLiveSessionNote` schema index: we look up the
+ * existing live-session-note row for `(sessionId, true)` and return
+ * it without writing if present.
+ *
+ * `createdBy` is set to a fixed system marker (`"system"`) because
+ * this row is created by `markCallStarted` on behalf of either party,
+ * not by a specific user. The Notes composer hides the "delete" /
+ * "edit" affordances on rows where `createdBy === "system"` (handled
+ * client-side via the existing UI guards on a system-authored note).
+ */
+export const createLiveSessionNote = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args): Promise<Id<"workspaceNotes">> => {
+    const existing = await ctx.db
+      .query("workspaceNotes")
+      .withIndex("by_sessionId_isLiveSessionNote", (q) =>
+        q.eq("sessionId", args.sessionId).eq("isLiveSessionNote", true)
+      )
+      .first();
+
+    if (existing) {
+      return existing._id;
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+
+    const startedAt = session.callStartedAt ?? Date.now();
+    const dateLabel = new Date(startedAt).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const title = `Live notes — ${dateLabel}`;
+
+    return await ctx.db.insert("workspaceNotes", {
+      workspaceId: args.workspaceId,
+      title,
+      content: "",
+      createdBy: "system",
+      updatedAt: Date.now(),
+      sessionId: args.sessionId,
+      isLiveSessionNote: true,
+    });
+  },
+});
+
+/**
+ * Returns the live session note for a given session, if one exists
+ * AND the caller has access to the workspace the note lives in.
+ * Used by the Notes tab to pin it at the top while the call is
+ * active. Returns null if no live note has been created yet (e.g.,
+ * `markCallStarted` has not yet been called) or the caller is not
+ * a participant in the session.
+ *
+ * PR #4b (Greptile R1 P1): the previous handler returned the live
+ * note to any authenticated user, allowing a non-participant to
+ * read content tagged to a call they are not in. We now look up
+ * the note's workspace and require the caller to have a role on
+ * it (or be an admin).
+ */
+export const getLiveSessionNote = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) return null;
+
+    const note = await ctx.db
+      .query("workspaceNotes")
+      .withIndex("by_sessionId_isLiveSessionNote", (q) =>
+        q.eq("sessionId", args.sessionId).eq("isLiveSessionNote", true)
+      )
+      .first();
+    if (!note) return null;
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) return null;
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) return null;
+
+    return note;
   },
 });
 
