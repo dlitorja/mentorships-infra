@@ -61,7 +61,10 @@ export function StartAdhocButton({
         );
       }
       // Provider picks up the new session via the existing PR #3
-      // subscription; no client-side join dispatch needed.
+      // subscription; no client-side join dispatch needed. Reset both
+      // flags so the button is enabled again if the instructor wants
+      // to start another ad-hoc call later in this session.
+      setIsStarting(false);
       setModalOpen(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

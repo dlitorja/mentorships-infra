@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { ConvexError } from "convex/values";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexIdSchema } from "@/lib/validators";
@@ -90,14 +90,12 @@ export async function POST(
 
     const sessionIdTyped = parsedId.data as Id<"sessions">;
 
-    const session = await fetchQuery(
-      api.sessions.getSessionById,
-      { id: sessionIdTyped },
-      { token }
-    );
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
+    // No pre-flight getSessionById — `recordConsent` independently
+    // validates session existence (throws VIDEO_SESSION_NOT_FOUND) and
+    // authorization (throws VIDEO_FORBIDDEN_NOT_PARTICIPANT), both of
+    // which are mapped to HTTP responses below. The pre-flight added a
+    // round-trip and a TOCTOU window where a session could be deleted
+    // between query and mutation.
 
     const result = await fetchMutation(
       api.sessions.recordConsent,
