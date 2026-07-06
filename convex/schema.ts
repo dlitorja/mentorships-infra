@@ -310,10 +310,17 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     imageUrl: v.optional(v.string()),
     sessionId: v.optional(v.id("sessions")),
+    // True for the single auto-created "live session note" that is
+    // pinned at the top of the Notes tab while a video call is
+    // active. Exactly one row per session has this flag set; the
+    // internal mutation that creates it is idempotent via the
+    // `by_sessionId_isLiveSessionNote` index below.
+    isLiveSessionNote: v.optional(v.boolean()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_workspaceId_and_deletedAt", ["workspaceId", "deletedAt"])
     .index("by_createdBy", ["createdBy"])
-    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
+    .index("by_sessionId_isLiveSessionNote", ["sessionId", "isLiveSessionNote"]),
 
   workspaceNoteComments: defineTable({
     noteId: v.id("workspaceNotes"),
@@ -366,9 +373,15 @@ export default defineSchema({
     content: v.string(),
     type: v.union(v.literal("text"), v.literal("image"), v.literal("file")),
     senderRole: v.optional(v.union(v.literal("instructor"), v.literal("student"), v.literal("admin"))),
+    // Set when a chat message is posted while a video call is active
+    // in the workspace. The Chat tab renders a banner that explains
+    // this replaces Daily's in-call chat. The Conversations subpanel
+    // for the live call can be filtered through `by_workspaceId_sessionId`.
+    sessionId: v.optional(v.id("sessions")),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
-    .index("by_senderRole", ["senderRole"]),
+    .index("by_senderRole", ["senderRole"])
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
 
   workspaceExports: defineTable({
     workspaceId: v.id("workspaces"),

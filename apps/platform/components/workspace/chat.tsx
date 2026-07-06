@@ -8,7 +8,7 @@ import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download, Link as LinkIcon } from 'lucide-react';
+import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download, Link as LinkIcon, Radio } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { createImagePreviews, uploadImageForChat, uploadFileForChat, LARGE_CHAT_FILE_BYTES, MAX_CHAT_FILE_BYTES, type UploadError } from '@/lib/workspace-image-upload';
@@ -28,6 +28,7 @@ interface Message {
   content: string;
   type: 'text' | 'image' | 'file';
   senderRole?: 'student' | 'instructor' | 'admin';
+  sessionId?: Id<'sessions'>;
 }
 
 interface ImageMessageEntry {
@@ -55,6 +56,12 @@ interface WorkspaceChatProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
   role?: 'student' | 'instructor' | 'admin';
+  // PR #4b: id of the active video-call session, or null when no
+  // call is active. New messages, images, and files posted during
+  // the call are auto-tagged with this sessionId. While non-null,
+  // an in-call banner is shown explaining the chat replaces Daily's
+  // in-call chat.
+  activeSessionId: Id<'sessions'> | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -249,9 +256,12 @@ function renderMessageWithLinks(content: string): React.ReactNode {
 interface ShareLinkButtonProps {
   urls: string[];
   workspaceId: Id<'workspaces'>;
+  // PR #4b: forwarded so the share-to-Links path also tags to the
+  // active session when a call is in progress.
+  activeSessionId: Id<'sessions'> | null;
 }
 
-function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
+function ShareLinkButton({ urls, workspaceId, activeSessionId }: ShareLinkButtonProps) {
   const createLink = useCreateWorkspaceLink();
   const [sharedUrls, setSharedUrls] = useState<Set<string>>(new Set());
 
@@ -261,6 +271,7 @@ function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
       await createLink.mutateAsync({
         workspaceId,
         url: normalizedUrl,
+        sessionId: activeSessionId ?? undefined,
       });
       setSharedUrls((prev) => new Set(prev).add(normalizedUrl));
       toast.success('Link shared to Links tab');
@@ -294,7 +305,7 @@ function ShareLinkButton({ urls, workspaceId }: ShareLinkButtonProps) {
   );
 }
 
-export default function WorkspaceChat({ workspaceId, currentUserId, role = 'student' }: WorkspaceChatProps) {
+export default function WorkspaceChat({ workspaceId, currentUserId, role = 'student', activeSessionId }: WorkspaceChatProps) {
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -375,6 +386,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
         userId: currentUserId,
         content: message.trim(),
         type: 'text',
+        // PR #4b: tag to active call when present.
+        sessionId: activeSessionId ?? undefined,
       });
       setMessage('');
     } catch (error) {
@@ -492,12 +505,16 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
         await createImageAndMessage.mutateAsync({
           workspaceId,
           storageId: uploadResult.storageId,
+          // PR #4b: tag both the image and the message row to the
+          // active session.
+          sessionId: activeSessionId ?? undefined,
         });
       } else {
         await createFileMessage.mutateAsync({
           workspaceId,
           storageId: uploadResult.storageId as Id<'_storage'>,
           fileName: attachment.file.name,
+          sessionId: activeSessionId ?? undefined,
         });
       }
       return null;
@@ -653,6 +670,19 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto min-h-0 space-y-3 p-2">
+        {/* PR #4b: in-call banner explaining the chat replaces
+         * Daily's in-call chat. Hidden when no call is active. */}
+        {activeSessionId && (
+          <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs flex items-start gap-2">
+            <Radio className="h-4 w-4 mt-0.5 text-primary shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium text-primary">You&apos;re in a call.</p>
+              <p className="text-muted-foreground">
+                Messages here are saved to this session and visible after the call ends. Daily&apos;s in-call chat is disabled — this tab is the single chat surface during the call.
+              </p>
+            </div>
+          </div>
+        )}
         {messages && messages.length > 0 ? (
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
@@ -661,6 +691,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
             const fileImageMessage = fileMessage && imageMessageIds.has(msg._id) && !hasInlineImageFailed ? fileMessage : null;
             const displayImageMessage = imageMessage ?? fileImageMessage;
             const isFileImageDownloading = fileImageMessage ? downloadingFiles.has(fileImageMessage.url) : false;
+            const isTaggedToActiveCall =
+              !!activeSessionId && msg.sessionId === activeSessionId;
 
             return (
               <div
@@ -671,11 +703,19 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                 )}
               >
                 <div className={clsx(
-                  'max-w-[80%] rounded-lg px-3 py-2',
+                  "max-w-[80%] rounded-lg px-3 py-2 relative",
                   msg.userId === currentUserId
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted'
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted"
                 )}>
+                  {/* PR #4b: subtle 🔴 dot on messages tagged to the
+                   * active call. Top-right corner. */}
+                  {isTaggedToActiveCall && (
+                    <span
+                      className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-primary ring-2 ring-background"
+                      title="Sent during current call"
+                    />
+                  )}
                   {displayImageMessage?.url ? (
                     <div className="space-y-1">
                       <button
@@ -749,7 +789,13 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
                   ) : (
                     <>
                       <p className="whitespace-pre-wrap">{renderMessageWithLinks(msg.content)}</p>
-                      {msg.type === 'text' && <ShareLinkButton urls={extractUrls(msg.content)} workspaceId={workspaceId} />}
+                      {msg.type === 'text' && (
+                        <ShareLinkButton
+                          urls={extractUrls(msg.content)}
+                          workspaceId={workspaceId}
+                          activeSessionId={activeSessionId}
+                        />
+                      )}
                     </>
                   )}
                   <p className={clsx(

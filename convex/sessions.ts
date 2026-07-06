@@ -1808,6 +1808,53 @@ export const markCallStarted = mutation({
 
     const callStartedAt = now;
     await ctx.db.patch(args.sessionId, { callStartedAt });
+
+    // After the call is marked started, auto-create the live
+    // session note for this workspace. The internal mutation is
+    // idempotent via `by_sessionId_isLiveSessionNote`, so two
+    // participants joining simultaneously can each trigger
+    // `markCallStarted` without producing a duplicate note (only the
+    // first one writes; subsequent calls return the existing row).
+    // We look up the workspace from the session before calling so
+    // the new note lands in the right workspace tab.
+    try {
+      const candidateWorkspaces = await ctx.db
+        .query("workspaces")
+        .withIndex("by_ownerId", (q) => q.eq("ownerId", session.studentId))
+        .collect();
+      const matching =
+        candidateWorkspaces.find(
+          (w) =>
+            w.instructorId === session.instructorId &&
+            w.deletedAt === undefined &&
+            w.endedAt === undefined
+        ) ??
+        candidateWorkspaces.find(
+          (w) => w.instructorId === session.instructorId && w.deletedAt === undefined
+        ) ??
+        candidateWorkspaces.find(
+          (w) => w.instructorId === session.instructorId
+        );
+
+      if (matching) {
+        await ctx.runMutation(
+          internal.workspaces.createLiveSessionNote,
+          {
+            sessionId: args.sessionId,
+            workspaceId: matching._id,
+          }
+        );
+      }
+    } catch (err) {
+      // The live-note write is a non-critical enrichment; do not
+      // fail `markCallStarted` if it errors. Logged for ops to
+      // catch in production.
+      console.error(
+        "[sessions.markCallStarted] live session note creation failed",
+        err
+      );
+    }
+
     return callStartedAt;
   },
 });

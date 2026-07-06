@@ -88,6 +88,10 @@ export function useWorkspaceImages(workspaceId: string) {
 /**
  * Mutation hook for creating a new chat message in a workspace.
  * Creates a new chat message. Convex subscriptions update matching queries.
+ *
+ * Pass `sessionId` when posting during an active video call — the
+ * message is then auto-tagged to that session for the Chat tab
+ * in-call banner.
  */
 export function useCreateWorkspaceMessage() {
   return useMutation({
@@ -98,6 +102,9 @@ export function useCreateWorkspaceMessage() {
 /**
  * Mutation hook for creating a new note in a workspace.
  * Refetches workspace notes queries on success to refresh note list.
+ *
+ * Pass `sessionId` when posting during an active video call — the
+ * note is then auto-tagged to that session for the Notes tab.
  */
 export function useCreateWorkspaceNote() {
   const queryClient = useQueryClient();
@@ -115,6 +122,10 @@ export function useCreateWorkspaceNote() {
 /**
  * Mutation hook for updating an existing workspace note.
  * Refetches workspace notes queries on success to refresh data.
+ *
+ * Pass `clearSessionId: true` from the "Tag to current call" untag
+ * toggle to remove a note's `sessionId` while leaving title and
+ * content untouched.
  */
 export function useUpdateWorkspaceNote() {
   const queryClient = useQueryClient();
@@ -126,6 +137,20 @@ export function useUpdateWorkspaceNote() {
         queryKey: ["convexQuery", "workspaces.getWorkspaceNotes"],
       });
     },
+  });
+}
+
+/**
+ * Fetches the single live session note for a given session, or null
+ * if it has not yet been created. Used by the Notes tab to pin it
+ * at the top while the call is active.
+ */
+export function useLiveSessionNote(sessionId: string | null | undefined) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getLiveSessionNote, {
+      sessionId: (sessionId ?? "00000000000000000000000001") as Id<"sessions">,
+    }),
+    enabled: !!sessionId,
   });
 }
 

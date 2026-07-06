@@ -7,21 +7,22 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Image from '@tiptap/extension-image';
 import Underline from '@tiptap/extension-underline';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { 
-  useWorkspaceNotes, 
-  useUpdateWorkspaceNote, 
+import {
+  useWorkspaceNotes,
+  useUpdateWorkspaceNote,
   useDeleteWorkspaceNote,
   useEmbedImageInNote,
   useNoteComments,
   useCreateNoteComment,
   useDeleteNoteComment,
+  useLiveSessionNote,
   type NoteComment,
 } from '@/lib/queries/convex/use-workspaces';
 import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle, Paperclip, File } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle, Paperclip, File, Pin, Tag, XCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
@@ -34,11 +35,18 @@ interface Note {
   content: string;
   createdBy: string;
   updatedAt: number;
+  sessionId?: Id<'sessions'>;
+  isLiveSessionNote?: boolean;
 }
 
 interface WorkspaceNotesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
+  // PR #4b: id of the active video-call session, or null when no
+  // call is active. New notes default to being tagged to this
+  // session (toggleable), and the live session note (if any) is
+  // pinned at the top of the Notes list while the call is active.
+  activeSessionId: Id<'sessions'> | null;
 }
 
 interface AutosaveEntry {
@@ -58,10 +66,16 @@ type TitleEditSurface = 'list' | 'header' | null;
  * @param workspaceId - Convex workspace ID
  * @param currentUserId - Current authenticated user's ID
  */
-export default function WorkspaceNotes({ workspaceId, currentUserId }: WorkspaceNotesProps) {
+export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessionId }: WorkspaceNotesProps) {
   const [selectedNoteId, setSelectedNoteId] = useState<Id<'workspaceNotes'> | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  // PR #4b: per-create-form "Tag to current call" toggle. Defaults
+  // to ON whenever a call is active so users get auto-tagging out of
+  // the box, but they can untag individual notes per posting.
+  const [tagNewNoteToCall, setTagNewNoteToCall] = useState(
+    activeSessionId !== null
+  );
   const [editingNoteId, setEditingNoteId] = useState<Id<'workspaceNotes'> | null>(null);
   const [editingTitleSurface, setEditingTitleSurface] = useState<TitleEditSurface>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
@@ -84,6 +98,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
   const editingTitleSurfaceRef = useRef<TitleEditSurface>(null);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
+  const { data: liveSessionNote } = useLiveSessionNote(activeSessionId);
+  // Local override so the toggle flips immediately even before the
+  // Convex mutation round-trips back through the `notes` query.
+  const [clearedSessionIdByNote, setClearedSessionIdByNote] = useState<
+    Set<Id<'workspaceNotes'>>
+  >(new Set());
   const updateNote = useUpdateWorkspaceNote();
   const deleteNote = useDeleteWorkspaceNote();
   const embedImageInNote = useEmbedImageInNote();
@@ -258,6 +278,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
           workspaceId,
           title: newTitle.trim(),
           content: '',
+          // PR #4b: forward the active sessionId when the user keeps
+          // the "Tag to current call" toggle ON (default). Falls
+          // through to the API route which forwards it to Convex.
+          sessionId:
+            tagNewNoteToCall && activeSessionId ? activeSessionId : undefined,
         }),
       });
 
@@ -269,6 +294,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       const { noteId } = await response.json();
       setNewTitle('');
       setIsCreating(false);
+      setTagNewNoteToCall(activeSessionId !== null);
       setSelectedNoteId(noteId as Id<'workspaceNotes'>);
       await refetch();
     } catch (error) {
@@ -297,7 +323,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
       setEditingTitleSurface(null);
       return;
     }
-    
+
     try {
       await updateNote.mutateAsync({
         id: noteId,
@@ -308,6 +334,45 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
     } catch (error) {
       console.error('Failed to update title:', error);
       toast.error('Failed to update note title');
+    }
+  };
+
+  // PR #4b: tag an existing note to the active call. Uses the
+  // update mutation with `sessionId` directly (not clearSessionId).
+  const handleTagToCall = async (noteId: Id<'workspaceNotes'>) => {
+    if (!activeSessionId) return;
+    try {
+      await updateNote.mutateAsync({
+        id: noteId,
+        sessionId: activeSessionId,
+      });
+      setClearedSessionIdByNote((prev) => {
+        if (!prev.has(noteId)) return prev;
+        const next = new Set(prev);
+        next.delete(noteId);
+        return next;
+      });
+      await refetch();
+    } catch (error) {
+      console.error('Failed to tag note to call', error);
+      toast.error('Failed to tag note');
+    }
+  };
+
+  // PR #4b: untag an existing note from the active call. We
+  // optimistically update the local override set so the "Tagged"
+  // badge disappears before the query refetches.
+  const handleUntagFromCall = async (noteId: Id<'workspaceNotes'>) => {
+    try {
+      await updateNote.mutateAsync({
+        id: noteId,
+        clearSessionId: true,
+      });
+      setClearedSessionIdByNote((prev) => new Set(prev).add(noteId));
+      await refetch();
+    } catch (error) {
+      console.error('Failed to untag note', error);
+      toast.error('Failed to untag note');
     }
   };
 
@@ -470,12 +535,24 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
               onKeyDown={(e) => e.key === 'Enter' && handleCreateNote()}
               autoFocus
             />
+            {activeSessionId && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5"
+                  checked={tagNewNoteToCall}
+                  onChange={(e) => setTagNewNoteToCall(e.target.checked)}
+                />
+                <Tag className="h-3 w-3" />
+                Tag to current call
+              </label>
+            )}
             <div className="flex gap-2">
               <Button size="sm" onClick={handleCreateNote} disabled={!newTitle.trim()}>
                 <Save className="h-4 w-4 mr-1" />
                 Create
               </Button>
-              <Button size="sm" variant="outline" onClick={() => { setIsCreating(false); setNewTitle(''); }}>
+              <Button size="sm" variant="outline" onClick={() => { setIsCreating(false); setNewTitle(''); setTagNewNoteToCall(activeSessionId !== null); }}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -483,91 +560,168 @@ export default function WorkspaceNotes({ workspaceId, currentUserId }: Workspace
         )}
 
         <div className="flex-1 overflow-y-auto space-y-1">
-          {notes && notes.length > 0 ? (
-            notes.map((note: Note) => (
-              <div
-                key={note._id}
-                className={clsx(
-                  "group flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors",
-                  selectedNoteId === note._id
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-muted"
-                )}
-                onClick={() => setSelectedNoteId(note._id)}
-              >
-                {editingNoteId === note._id && editingTitleSurface === 'list' ? (
-                  <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    <Input
-                      ref={titleInputRef}
-                      value={editingTitleValue}
-                      onChange={(e) => setEditingTitleValue(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(note._id)}
-                      onBlur={() => {
-                        if (titleEditGuardRef.current) {
-                          titleEditGuardRef.current = false;
-                          return;
-                        }
-                        const blurredNoteId = note._id;
-                        setTimeout(() => {
-                          if (editingNoteIdRef.current !== blurredNoteId || editingTitleSurfaceRef.current !== 'list') return;
-                          if (editingTitleValue?.trim()) {
-                            handleTitleUpdate(blurredNoteId);
-                          } else {
-                            setEditingNoteId(null);
-                          }
-                        }, 50);
-                      }}
-                      className="h-6 text-sm"
-                    />
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; handleTitleUpdate(note._id); }}>
-                      <Save className="h-3 w-3" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; setEditingNoteId(null); setEditingTitleSurface(null); }}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <FileText className="h-4 w-4 shrink-0" />
-                      <span className="truncate text-sm">{note.title}</span>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6"
-                        onClick={(e) => { e.stopPropagation(); titleEditGuardRef.current = false; setEditingTitleSurface('list'); setEditingNoteId(note._id); setEditingTitleValue(note.title); }}
-                      >
-                        <Edit2 className="h-3 w-3" />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6 text-destructive"
-                        onClick={(e) => { e.stopPropagation(); handleDeleteNote(note._id); }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </>
-                )}
+          {/* PR #4b: pinned live-session note. While a call is active,
+           * `markCallStarted` has fired `createLiveSessionNote` and
+           * the row exists with `isLiveSessionNote: true`. We render
+           * it at the top with a 🔴 Live badge so the call's
+           * shared scratchpad is always one click away. */}
+          {liveSessionNote && activeSessionId && (
+            <div
+              className={clsx(
+                "group flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ring-1 ring-primary/40",
+                selectedNoteId === liveSessionNote._id
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-primary/5 hover:bg-primary/10"
+              )}
+              onClick={() => setSelectedNoteId(liveSessionNote._id)}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <Pin className="h-4 w-4 shrink-0 text-primary" />
+                <span className="truncate text-sm font-medium">
+                  {liveSessionNote.title}
+                </span>
+                <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/20 text-primary">
+                  Live
+                </span>
               </div>
-            ))
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No notes yet</p>
-              <Button
-                size="sm"
-                variant="link"
-                onClick={() => setIsCreating(true)}
-                className="mt-2"
-              >
-                Create your first note
-              </Button>
             </div>
+          )}
+
+          {notes && notes.length > 0 ? (
+            notes
+              .filter((n) => n._id !== liveSessionNote?._id)
+              .map((note: Note) => {
+                const isTaggedToCall =
+                  !!activeSessionId &&
+                  note.sessionId === activeSessionId &&
+                  !clearedSessionIdByNote.has(note._id);
+                return (
+                  <div
+                    key={note._id}
+                    className={clsx(
+                      "group flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors",
+                      selectedNoteId === note._id
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted"
+                    )}
+                    onClick={() => setSelectedNoteId(note._id)}
+                  >
+                    {editingNoteId === note._id && editingTitleSurface === 'list' ? (
+                      <div className="flex-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Input
+                          ref={titleInputRef}
+                          value={editingTitleValue}
+                          onChange={(e) => setEditingTitleValue(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate(note._id)}
+                          onBlur={() => {
+                            if (titleEditGuardRef.current) {
+                              titleEditGuardRef.current = false;
+                              return;
+                            }
+                            const blurredNoteId = note._id;
+                            setTimeout(() => {
+                              if (editingNoteIdRef.current !== blurredNoteId || editingTitleSurfaceRef.current !== 'list') return;
+                              if (editingTitleValue?.trim()) {
+                                handleTitleUpdate(blurredNoteId);
+                              } else {
+                                setEditingNoteId(null);
+                              }
+                            }, 50);
+                          }}
+                          className="h-6 text-sm"
+                        />
+                        <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; handleTitleUpdate(note._id); }}>
+                          <Save className="h-3 w-3" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-6 w-6" onMouseDown={(e) => { e.preventDefault(); titleEditGuardRef.current = true; }} onClick={() => { titleEditGuardRef.current = false; setEditingNoteId(null); setEditingTitleSurface(null); }}>
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <FileText className="h-4 w-4 shrink-0" />
+                          <span className="truncate text-sm">{note.title}</span>
+                          {isTaggedToCall && (
+                            <span
+                              className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/20 text-primary"
+                              title="Tagged to current call"
+                            >
+                              Tagged
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {activeSessionId && note.sessionId === activeSessionId && !note.isLiveSessionNote && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              title="Untag from current call"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleUntagFromCall(note._id);
+                              }}
+                            >
+                              <XCircle className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {activeSessionId && !note.sessionId && !clearedSessionIdByNote.has(note._id) && !note.isLiveSessionNote && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              title="Tag to current call"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleTagToCall(note._id);
+                              }}
+                            >
+                              <Tag className="h-3 w-3" />
+                            </Button>
+                          )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={(e) => { e.stopPropagation(); titleEditGuardRef.current = false; setEditingTitleSurface('list'); setEditingNoteId(note._id); setEditingTitleValue(note.title); }}
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                          {!note.isLiveSessionNote && (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 text-destructive"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteNote(note._id); }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })
+          ) : (
+            !liveSessionNote && (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No notes yet</p>
+                <Button
+                  size="sm"
+                  variant="link"
+                  onClick={() => setIsCreating(true)}
+                  className="mt-2"
+                >
+                  Create your first note
+                </Button>
+              </div>
+            )
           )}
         </div>
       </div>

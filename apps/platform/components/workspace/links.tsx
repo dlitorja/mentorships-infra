@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
   useWorkspaceLinks,
@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink } from 'lucide-react';
+import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag } from 'lucide-react';
 
 interface Link {
   _id: Id<'workspaceLinks'>;
@@ -19,11 +19,16 @@ interface Link {
   title?: string;
   createdBy: string;
   deletedAt?: number;
+  sessionId?: Id<'sessions'>;
 }
 
 interface WorkspaceLinksProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
+  // PR #4b: id of the active video-call session, or null when no
+  // call is active. New links default to being tagged to this
+  // session (toggleable per-link).
+  activeSessionId: Id<'sessions'> | null;
 }
 
 /**
@@ -34,12 +39,18 @@ interface WorkspaceLinksProps {
  * @param workspaceId - Convex workspace ID
  * @param currentUserId - Current authenticated user's ID
  */
-export default function WorkspaceLinks({ workspaceId, currentUserId }: WorkspaceLinksProps) {
+export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessionId }: WorkspaceLinksProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [error, setError] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  // PR #4b: per-form "Tag to current call" toggle. Resets to ON
+  // every time a call goes active.
+  const [tagToCall, setTagToCall] = useState(activeSessionId !== null);
+  useEffect(() => {
+    setTagToCall(activeSessionId !== null);
+  }, [activeSessionId]);
 
   const { data: links, isLoading } = useWorkspaceLinks(workspaceId);
   const createLink = useCreateWorkspaceLink();
@@ -70,6 +81,8 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
         workspaceId,
         url: trimmedUrl,
         title: newTitle.trim() || undefined,
+        // PR #4b: tag to active call when the toggle is ON.
+        sessionId: tagToCall && activeSessionId ? activeSessionId : undefined,
       });
       setNewUrl('');
       setNewTitle('');
@@ -157,6 +170,20 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
                 onKeyDown={handleKeyDown}
               />
             </div>
+            {/* PR #4b: "Tag to current call" toggle, defaults ON
+             * while a call is active. */}
+            {activeSessionId && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="h-3.5 w-3.5"
+                  checked={tagToCall}
+                  onChange={(e) => setTagToCall(e.target.checked)}
+                />
+                <Tag className="h-3 w-3" />
+                Tag to current call
+              </label>
+            )}
             {error && (
               <div className="text-sm text-destructive">{error}</div>
             )}
@@ -177,6 +204,7 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
                   setNewUrl('');
                   setNewTitle('');
                   setError('');
+                  setTagToCall(activeSessionId !== null);
                 }}
               >
                 Cancel
@@ -190,56 +218,70 @@ export default function WorkspaceLinks({ workspaceId, currentUserId }: Workspace
       <div className="flex-1 overflow-y-auto">
         {activeLinks.length > 0 ? (
           <div className="space-y-2">
-            {activeLinks.map((link: Link) => (
-              <Card key={link._id} className="hover:bg-muted/50 transition-colors">
-                <CardContent className="p-3 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-primary hover:underline block truncate"
-                      >
-                        {link.title || link.url}
-                      </a>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {link.url}
-                      </p>
+            {activeLinks.map((link: Link) => {
+              const isTaggedToCall =
+                !!activeSessionId && link.sessionId === activeSessionId;
+              return (
+                <Card key={link._id} className="hover:bg-muted/50 transition-colors">
+                  <CardContent className="p-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <LinkIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-primary hover:underline block truncate"
+                        >
+                          {link.title || link.url}
+                        </a>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {link.url}
+                        </p>
+                      </div>
+                      {/* PR #4b: "Tagged" badge while a call is active
+                       * AND the link was tagged to it. */}
+                      {isTaggedToCall && (
+                        <span
+                          className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/20 text-primary shrink-0"
+                          title="Tagged to current call"
+                        >
+                          Tagged
+                        </span>
+                      )}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-8 w-8"
-                      asChild
-                    >
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="Open link"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    </Button>
-                    {link.createdBy === currentUserId && (
+                    <div className="flex items-center gap-1 shrink-0">
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => handleDeleteLink(link._id)}
-                        title="Delete link"
+                        className="h-8 w-8"
+                        asChild
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <a
+                          href={link.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Open link"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
                       </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                      {link.createdBy === currentUserId && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteLink(link._id)}
+                          title="Delete link"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         ) : (
           <div className="flex items-center justify-center h-full">
