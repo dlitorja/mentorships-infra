@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   DailyApiError,
+  deleteDailyRoom,
   resolveDailyRoom,
 } from "@/lib/daily";
 import { convexIdSchema } from "@/lib/validators";
@@ -123,9 +124,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // this, a transient Daily 5xx during `resolveDailyRoom` would
     // leave the session row without a `videoRoomName`, and the next
     // `startAdhocCall` would be blocked by the active-candidate guard
-    // (isAdhoc === true) until the 4-hour window expires.
-    let roomName: string;
-    let roomUrl: string;
+    // (isAdhoc === true) until the 4-hour window expires. The
+    // `startAdhocCall` mutation also self-heals such orphans
+    // (`activeCandidate.videoRoomName === undefined` branch), so the
+    // delete here is defense-in-depth rather than the sole recovery
+    // path.
+    let roomName: string | undefined;
+    let roomUrl: string | undefined;
     try {
       const resolved = await resolveDailyRoom(sessionId, {
         recordingEnabled: recordingConsent,
@@ -147,8 +152,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // The session row exists but the Daily room linkage (and
       // possibly the room itself) is incomplete. Without cleanup, the
       // session shows up to the student as a phantom upcoming session
-      // with no join URL. Swallow cleanup errors and always re-throw
-      // the original so the outer catch logs the root cause.
+      // with no join URL, AND a freshly created Daily room leaks
+      // toward the account's 200-room quota until its 24h expiry.
+      // Swallow cleanup errors and always re-throw the original so
+      // the outer catch logs the root cause.
       try {
         await fetchMutation(
           api.sessions.deleteOrphanedAdhocSession,
@@ -156,9 +163,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           { token }
         );
       } catch {
-        // best-effort cleanup; failure leaves the orphan for a
-        // future retry (the startAdhocCall guard will refuse a
-        // second creation until the orphan is reaped).
+        // best-effort cleanup; `startAdhocCall` self-heals stale
+        // roomless ad-hoc rows, so this no longer blocks retries.
+      }
+      // If `resolveDailyRoom` succeeded before the failure, the Daily
+      // room itself was created. Delete it so we don't leak the slot.
+      // `roomName` is undefined when `resolveDailyRoom` itself threw
+      // before returning, so we skip the cleanup in that case.
+      if (roomName !== undefined) {
+        try {
+          await deleteDailyRoom(roomName);
+        } catch {
+          // best-effort; Daily's 24h `exp` reaps the room either way
+          // and the next attempt's `resolveDailyRoom` will reuse the
+          // existing room via the 409-recovery path.
+        }
       }
       throw error;
     }

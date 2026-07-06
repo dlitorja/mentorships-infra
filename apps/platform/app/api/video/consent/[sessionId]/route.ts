@@ -43,11 +43,16 @@ const consentSchema = z.object({
 /**
  * Records a participant's recording consent on a session. Either
  * party on the session (instructor OR student) may invoke this via
- * the consent modal. The session's `recordingConsent` field is the
- * combined consent flag — whichever value is persisted last wins
- * (currently the modal flow only writes once per session). This
- * matches Daily's `enable_recording: "cloud" | "off"` semantics
- * rather than per-participant consent tracking.
+ * the consent modal. PR #4a tracks consent per-party
+ * (`instructorRecordingConsent`, `studentRecordingConsent`) and
+ * derives the combined `recordingConsent` as
+ * `instructor && student` — so either party declining flips the
+ * combined value to `false` and disables Daily recording, matching
+ * the plan's "If either party declines consent, the call proceeds
+ * without recording" semantic (`docs/plans/video-calling.md:343`).
+ * An unanswered party is treated as "not yet declined" (not as a
+ * `false`), so early responses do not prematurely disable
+ * recording before the other party has had a chance to consent.
  *
  * Used by `ConsentModal` (PR #4a). The Daily room's
  * `enable_recording` flag is reconciled by `POST /api/video/rooms`
@@ -80,7 +85,20 @@ export async function POST(
       );
     }
 
-    const body = await req.json();
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      // Empty/malformed JSON is a client error, not a server fault —
+      // surface it as a 400 with the same shape used by safeParse
+      // failures below so the client always sees `error: "Invalid
+      // request body"`. Without this, the SyntaxError escapes to the
+      // outer catch and becomes a generic 500.
+      return NextResponse.json(
+        { error: "Invalid request body" },
+        { status: 400 }
+      );
+    }
     const parsed = consentSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(

@@ -1627,12 +1627,29 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
 
     const upcomingWindowEnd = now + 24 * 60 * 60 * 1000;
 
-    // `scoped` is already ordered by `scheduledAt` ascending from the
-    // index, so the first matching session is the earliest upcoming
-    // one — no further sort needed.
-    const upcoming = scoped.find(
+    // Ad-hoc catch-up calls beat any stale, never-started scheduled
+    // session for the "next session to act on" pick. Without this
+    // branch, `scoped.find` returns the EARLIEST `scheduledAt`
+    // (`scoped` is ascending), which can be a missed scheduled
+    // session from earlier in the window — hiding the freshly-created
+    // ad-hoc call behind a row that nobody can join. We pick the
+    // most recent ad-hoc (rather than `find` first) in case multiple
+    // exist (shouldn't, but `startAdhocCall`'s self-heal keeps the
+    // table clean even if a cleanup previously failed).
+    const adHocUpcoming = scoped
+      .filter(
+        (s) =>
+          s.callStartedAt === undefined &&
+          s.isAdhoc === true &&
+          s.scheduledAt <= upcomingWindowEnd
+      )
+      .sort((a, b) => b.scheduledAt - a.scheduledAt)[0];
+
+    const upcoming = adHocUpcoming ?? scoped.find(
       (s) =>
-        s.callStartedAt === undefined && s.scheduledAt <= upcomingWindowEnd
+        s.callStartedAt === undefined &&
+        s.isAdhoc !== true &&
+        s.scheduledAt <= upcomingWindowEnd
     );
 
     if (!upcoming) {
@@ -1904,10 +1921,33 @@ export const startAdhocCall = mutation({
         (s.callStartedAt !== undefined || s.isAdhoc === true)
     );
     if (activeCandidate) {
-      throw new ConvexError({
-        code: "VIDEO_FORBIDDEN_CALL_ACTIVE",
-        message: "Forbidden: another call is already active in this workspace",
-      });
+      // Self-heal: a stale ad-hoc row with no Daily room and no
+      // joined participants means a previous `startAdhocCall` crashed
+      // after the row insert but before `setVideoRoom`, AND the
+      // route's `deleteOrphanedAdhocSession` cleanup also failed.
+      // Without this, the active-candidate guard would block the
+      // instructor's retry for up to 4 hours (the `historyStart`
+      // window). Safe to delete inline because:
+      //   - `isAdhoc === true` (never touches scheduled rows)
+      //   - `videoRoomName === undefined` (no Daily room to leak —
+      //     nothing else can be holding a reference)
+      //   - `callStartedAt === undefined` (nobody is in a call —
+      //     never deletes an in-progress row)
+      //   - `deletedAt === undefined` (no double-delete)
+      //   - caller is already verified as the workspace's instructor
+      //     earlier in this handler
+      if (
+        activeCandidate.isAdhoc === true &&
+        activeCandidate.videoRoomName === undefined &&
+        activeCandidate.callStartedAt === undefined
+      ) {
+        await ctx.db.delete(activeCandidate._id);
+      } else {
+        throw new ConvexError({
+          code: "VIDEO_FORBIDDEN_CALL_ACTIVE",
+          message: "Forbidden: another call is already active in this workspace",
+        });
+      }
     }
 
     const sessionId = await ctx.db.insert("sessions", {
@@ -1993,12 +2033,23 @@ export const recordConsent = mutation({
       });
     }
 
+    // Treat an unanswered party as "not yet declined" rather than
+    // `false`. Rationale: the ad-hoc flow sets
+    // `instructorRecordingConsent` at `startAdhocCall` time but the
+    // student's field stays `undefined` until they join and go
+    // through the consent modal. Coercing `undefined` to `false`
+    // would flip the combined value to `false` on the instructor's
+    // first re-confirm (before the student has answered), disabling
+    // Daily recording even though nobody actually declined. Using
+    // `?? true` preserves the "either party declines" semantic
+    // while keeping early responses from prematurely disabling
+    // recording.
     const updatedInstructorConsent = isInstructor
       ? args.consent
-      : (session.instructorRecordingConsent ?? false);
+      : (session.instructorRecordingConsent ?? true);
     const updatedStudentConsent = isStudent
       ? args.consent
-      : (session.studentRecordingConsent ?? false);
+      : (session.studentRecordingConsent ?? true);
     const combined = updatedInstructorConsent && updatedStudentConsent;
 
     const changed =

@@ -33,8 +33,12 @@ export type ConsentModalProps = {
   onResolved: (consent: boolean) => void;
   /**
    * Called when the user closes the dialog without choosing (Escape,
-   * backdrop click). The caller should treat this as "decline
-   * recording" — same effect as choosing the Don't record button.
+   * backdrop click). Aborts the pending join flow — no consent is
+   * persisted and `join()` is NOT called. The user must click the
+   * Join/Retry button again to re-open the modal and make a choice.
+   * This is intentionally different from picking "Don't record":
+   * cancel is a pure dismiss, while "Don't record" submits `false`
+   * through the same persistence path as a `true` confirmation.
    */
   onCancel: () => void;
 };
@@ -52,12 +56,13 @@ export type ConsentModalProps = {
  *     `POST /api/video/start-adhoc`. No separate persistence step
  *     because the session row doesn't exist yet.
  *
- * Why a single boolean (not per-participant):
- *   Daily's `enable_recording` is a room-level flag — recording on
- *   means the room is recording, period. We model "did both parties
- *   consent?" with the last recorded value. The PR #4a flow only
- *   writes once per session (the modal), so the latest write is the
- *   binding consent.
+ * Why a single boolean (not per-participant in the modal):
+ *   The modal collects THIS USER's personal consent choice (true or
+ *   false). The server combines each party's choice with AND
+ *   semantics (see `recordConsent` in convex/sessions.ts) — if
+ *   either party has submitted `false`, recording is disabled for
+ *   the call. Daily's `enable_recording` is a room-level flag, so
+ *   the combined value is what gets reconciled to Daily.
  */
 export function ConsentModal({
   open,
