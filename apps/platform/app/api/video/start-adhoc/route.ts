@@ -118,11 +118,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw error;
     }
 
-    const { roomName, roomUrl } = await resolveDailyRoom(sessionId, {
-      recordingEnabled: recordingConsent,
-    });
-
+    // Both post-session-creation steps are inside the same try block
+    // so a failure in either one triggers the orphan cleanup. Without
+    // this, a transient Daily 5xx during `resolveDailyRoom` would
+    // leave the session row without a `videoRoomName`, and the next
+    // `startAdhocCall` would be blocked by the active-candidate guard
+    // (isAdhoc === true) until the 4-hour window expires.
+    let roomName: string;
+    let roomUrl: string;
     try {
+      const resolved = await resolveDailyRoom(sessionId, {
+        recordingEnabled: recordingConsent,
+      });
+      roomName = resolved.roomName;
+      roomUrl = resolved.roomUrl;
+
       await fetchMutation(
         api.sessions.setVideoRoom,
         {
@@ -134,11 +144,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { token }
       );
     } catch (error) {
-      // Daily room is provisioned but the session row is still missing
-      // videoRoomName/videoRoomUrl. Without cleanup, the session shows
-      // up to the student as a phantom upcoming session with no join
-      // URL. Swallow cleanup errors and always re-throw the original
-      // so the outer catch logs the root cause, not the cleanup.
+      // The session row exists but the Daily room linkage (and
+      // possibly the room itself) is incomplete. Without cleanup, the
+      // session shows up to the student as a phantom upcoming session
+      // with no join URL. Swallow cleanup errors and always re-throw
+      // the original so the outer catch logs the root cause.
       try {
         await fetchMutation(
           api.sessions.deleteOrphanedAdhocSession,
@@ -146,10 +156,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           { token }
         );
       } catch {
-        // best-effort cleanup; failure leaves the orphan for a future
-        // attempt to overwrite (the startAdhocCall guard will refuse
-        // a second creation, but the orphan will be re-created via
-        // a deleteOrphanedAdhocSession-on-session route in a follow-up).
+        // best-effort cleanup; failure leaves the orphan for a
+        // future retry (the startAdhocCall guard will refuse a
+        // second creation until the orphan is reaped).
       }
       throw error;
     }

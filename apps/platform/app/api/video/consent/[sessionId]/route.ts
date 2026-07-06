@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { ConvexError } from "convex/values";
-import { fetchMutation } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexIdSchema } from "@/lib/validators";
@@ -116,7 +116,7 @@ export async function POST(
     // stays unchanged and the drift detector in `recordConsent`
     // remains armed for the next consent submission.
     if (result.needsRoomPatch) {
-      const syncResult = await fetchMutation(
+      const syncResult = await fetchQuery(
         api.sessions.syncRoomRecording,
         {
           sessionId: sessionIdTyped,

@@ -2089,12 +2089,16 @@ export const deleteOrphanedAdhocSession = mutation({
  * when `recordConsent` returns `needsRoomPatch: true` (i.e., a late
  * consent change would flip the recording setting).
  *
- * Pure: this mutation does NOT write `roomRecordingEnabled`. It only
- * returns the PATCH payload so the route can perform the Daily REST
- * call. The snapshot is written by `confirmRoomRecording` AFTER the
- * PATCH succeeds — this ensures the drift detector in `recordConsent`
- * keeps working if a Daily PATCH fails (otherwise we'd permanently
- * mark the snapshot as "in sync" while Daily is actually out of sync).
+ * Pure read: returns the PATCH payload so the route can perform the
+ * Daily REST call. The snapshot is written by `confirmRoomRecording`
+ * AFTER the PATCH succeeds — this ensures the drift detector in
+ * `recordConsent` keeps working if a Daily PATCH fails (otherwise
+ * we'd permanently mark the snapshot as "in sync" while Daily is
+ * actually out of sync).
+ *
+ * Classified as a query (not a mutation) because it performs no
+ * writes — Convex mutations hold an OCC write lock and are billed
+ * differently, neither of which applies to a pure read.
  *
  * Auth: instructor OR student on the session (same as `recordConsent`).
  *
@@ -2102,7 +2106,7 @@ export const deleteOrphanedAdhocSession = mutation({
  * returns `{ needsPatch: false }` so the caller skips the Daily REST
  * call entirely.
  */
-export const syncRoomRecording = mutation({
+export const syncRoomRecording = query({
   args: {
     sessionId: v.id("sessions"),
     enableRecording: v.boolean(),
