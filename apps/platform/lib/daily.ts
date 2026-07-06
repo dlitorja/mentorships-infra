@@ -192,6 +192,13 @@ export async function createDailyRoom(
         enable_recording: options.recordingEnabled ? "cloud" : "off",
         enable_emoji_reactions: true,
         enable_hand_raising: true,
+        // PR #4a: turn on Daily's built-in waiting room so a student
+        // who arrives while the instructor is already in the call
+        // lands in the lobby instead of being rejected by
+        // `max_participants: 2`. Owner-role meeting tokens (issued to
+        // the instructor per PR #2) bypass the lobby automatically,
+        // so the first-to-join instructor enters the room directly.
+        enable_knocking: true,
         // 1:1 mentorship — capped at 2 participants to prevent
         // uninvited observers. Trade-off: a user who disconnects on
         // a flaky network may need to wait briefly for Daily's stale

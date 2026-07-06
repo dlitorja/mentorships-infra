@@ -66,7 +66,11 @@ export default defineSchema({
   sessions: defineTable({
     instructorId: v.id("instructors"),
     studentId: v.string(),
-    sessionPackId: v.id("sessionPacks"),
+    // Widen: PR #4a made this optional to support ad-hoc calls
+    // (instructor-started catch-up calls outside scheduled sessions).
+    // Existing scheduled-call rows have a value; ad-hoc rows leave
+    // it undefined. No backfill needed.
+    sessionPackId: v.optional(v.id("sessionPacks")),
     scheduledAt: v.number(),
     completedAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),

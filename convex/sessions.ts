@@ -102,7 +102,9 @@ export const getInstructorUpcomingSessions = query({
           .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
           .first();
 
-        const sessionPack = await ctx.db.get(session.sessionPackId);
+        const sessionPack = session.sessionPackId
+          ? await ctx.db.get(session.sessionPackId)
+          : null;
 
         return {
           id: session._id,
@@ -240,7 +242,9 @@ export const getInstructorAllSessions = query({
           .withIndex("by_userId", (q) => q.eq("userId", session.studentId))
           .first();
 
-        const sessionPack = await ctx.db.get(session.sessionPackId);
+        const sessionPack = session.sessionPackId
+          ? await ctx.db.get(session.sessionPackId)
+          : null;
 
         return {
           id: session._id,
@@ -434,7 +438,9 @@ export const getAllStudentSessionsWithInstructor = query({
           instructorEmail = users?.email ?? null;
         }
 
-        const sessionPack = await ctx.db.get(session.sessionPackId);
+        const sessionPack = session.sessionPackId
+          ? await ctx.db.get(session.sessionPackId)
+          : null;
 
         return {
           id: session._id,
@@ -1452,6 +1458,15 @@ export type CurrentOrUpcomingSession = {
   participantName: string;
   windowOpensAt: number;
   windowClosesAt: number;
+  /**
+   * Last recorded consent value, or null if no consent has been captured
+   * yet (e.g., an ad-hoc session whose creator hasn't confirmed). The
+   * consent modal defaults to this when present and to `true` for
+   * newly-booked sessions (the booking form sets `recordingConsent:
+   * true`). Nullable so the UI can show "no choice yet" rather than
+   * guessing.
+   */
+  recordingConsent: boolean | null;
 };
 
 /**
@@ -1571,6 +1586,7 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
         participantName,
         windowOpensAt: active.scheduledAt - JOIN_WINDOW_BEFORE_MS,
         windowClosesAt: active.callStartedAt + JOIN_WINDOW_AFTER_MS,
+        recordingConsent: active.recordingConsent ?? null,
       };
     }
 
@@ -1608,6 +1624,7 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
       participantName,
       windowOpensAt,
       windowClosesAt,
+      recordingConsent: upcoming.recordingConsent ?? null,
     };
   },
 });
@@ -1743,3 +1760,183 @@ export const markCallStarted = mutation({
   },
 });
 
+
+/**
+ * Instructor-only mutation that creates a synthetic `sessions` row
+ * for an ad-hoc (catch-up) call started outside any scheduled session.
+ *
+ * Used by `POST /api/video/start-adhoc` (PR #4a). The route handler
+ * then calls `setVideoRoom` to provision a Daily room against the
+ * returned `sessionId`. This split lets the route do the Daily REST
+ * call (with its retry-on-409 logic) while the database write happens
+ * here, transactionally.
+ *
+ * Auth: caller must be the workspace's instructor (matched via
+ * `instructor.userId === identity.tokenIdentifier`). Students never
+ * see the UI button (it's hidden at `workspace-client-page.tsx`) AND
+ * the endpoint rejects them server-side.
+ *
+ * The synthetic row has `isAdhoc: true`, `sessionPackId: undefined`
+ * (ad-hoc calls don't consume pack quota; PR #4a widened the field to
+ * optional), `recordingConsent: args.recordingConsent` (set by the
+ * caller after the consent modal — defaults to `true` for instructor-
+ * initiated calls per `docs/plans/video-calling.md:343`).
+ *
+ * `scheduledAt` is set to `Date.now()` so the existing join-window
+ * logic in `markCallStarted` (PR #3) treats it as currently in-window
+ * and the session appears in `getCurrentOrUpcomingSessionForWorkspace`
+ * immediately for the other party.
+ */
+export const startAdhocCall = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    recordingConsent: v.boolean(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions"> }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Workspace not found",
+      });
+    }
+    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Workspace is ended or deleted",
+      });
+    }
+    if (workspace.instructorId === undefined) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Workspace has no instructor",
+      });
+    }
+
+    const instructor = await ctx.db.get(workspace.instructorId);
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
+        message: "Forbidden: only the workspace's instructor can start an ad-hoc call",
+      });
+    }
+
+    // Refuse if an active (not-ended, callStartedAt set) session
+    // already exists for this workspace. Prevents stacking two
+    // concurrent calls against the same workspace.
+    const recentWindowStart = Date.now() - 4 * 60 * 60 * 1000;
+    const candidates = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
+        q
+          .eq("studentId", workspace.ownerId)
+          .eq("status", "scheduled")
+          .gte("scheduledAt", recentWindowStart)
+      )
+      .order("asc")
+      .take(50);
+
+    const activeCandidate = candidates.find(
+      (s) =>
+        s.instructorId === workspace.instructorId &&
+        s.callStartedAt !== undefined &&
+        s.callEndedAt === undefined &&
+        s.videoRoomName !== undefined
+    );
+    if (activeCandidate) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_CALL_ACTIVE",
+        message: "Forbidden: another call is already active in this workspace",
+      });
+    }
+
+    const sessionId = await ctx.db.insert("sessions", {
+      instructorId: workspace.instructorId,
+      studentId: workspace.ownerId,
+      sessionPackId: undefined,
+      scheduledAt: Date.now(),
+      status: "scheduled",
+      recordingConsent: args.recordingConsent,
+      isAdhoc: true,
+    });
+
+    return { sessionId };
+  },
+});
+
+/**
+ * Records a participant's recording consent on a session. Either
+ * party on the session (instructor OR student) may call this.
+ *
+ * Idempotent: if `recordingConsent` already equals `args.consent`,
+ * the call returns without writing.
+ *
+ * Authorization matches `endCall`/`markCallStarted` (PR #2/3): the
+ * caller must be the session's instructor (matched via
+ * `instructor.userId === identity.tokenIdentifier`) or the
+ * session's student (`session.studentId === identity.tokenIdentifier`).
+ *
+ * Used by the consent modal (`ConsentModal`) and by the ad-hoc
+ * confirmation flow. The Daily room's `enable_recording` flag is
+ * reconciled later by `POST /api/video/rooms` which reads the
+ * session's current `recordingConsent` and passes it as
+ * `recordingEnabled`.
+ */
+export const recordConsent = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    consent: v.boolean(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ recordingConsent: boolean; changed: boolean }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.tokenIdentifier;
+    const isStudent = identity.tokenIdentifier === session.studentId;
+
+    if (!isInstructor && !isStudent) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only session participants can record consent",
+      });
+    }
+
+    if (session.recordingConsent === args.consent) {
+      return { recordingConsent: args.consent, changed: false };
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      recordingConsent: args.consent,
+    });
+    return { recordingConsent: args.consent, changed: true };
+  },
+});

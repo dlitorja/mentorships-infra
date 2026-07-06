@@ -37,11 +37,12 @@ const createRoomSchema = z.object({
 });
 
 async function resolveDailyRoom(
-  sessionId: Id<"sessions">
+  sessionId: Id<"sessions">,
+  options: { recordingEnabled: boolean }
 ): Promise<{ roomName: string; roomUrl: string }> {
   const roomName = videoRoomNameForSession(sessionId);
   try {
-    return await createDailyRoom(sessionId, { recordingEnabled: true });
+    return await createDailyRoom(sessionId, options);
   } catch (error) {
     if (error instanceof DailyApiError && error.statusCode === 409) {
       const existing = await getDailyRoom(roomName);
@@ -127,7 +128,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       });
     }
 
-    const { roomName, roomUrl } = await resolveDailyRoom(sessionIdTyped);
+    const { roomName, roomUrl } = await resolveDailyRoom(sessionIdTyped, {
+      recordingEnabled: existing.recordingConsent,
+    });
 
     await fetchMutation(
       api.sessions.setVideoRoom,
