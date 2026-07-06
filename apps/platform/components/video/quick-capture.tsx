@@ -446,6 +446,15 @@ function ImageCaptureForm({
   };
 
   // Paste-from-clipboard while this tab is active.
+  //
+  // PR #4b (Greptile R1 P1): the Images tab installs its own
+  // `window` paste listener while a call is active. Without
+  // coordination, both listeners would receive the same event and
+  // upload the image twice. We bind with `capture: true` and call
+  // `stopImmediatePropagation()` so the Quick Capture handler wins
+  // when the dialog is open (it is the visible, focused surface for
+  // the capture). The Images tab listener still fires for pastes
+  // while the Quick Capture dialog is closed.
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       if (submitting || disabled) return;
@@ -455,13 +464,14 @@ function ImageCaptureForm({
       const file = imageItem.getAsFile();
       if (!file) return;
       e.preventDefault();
+      e.stopImmediatePropagation();
       const reader = new FileReader();
       reader.onload = (ev) => setPreview((ev.target?.result as string) ?? null);
       reader.readAsDataURL(file);
       void handleFile(file);
     };
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [submitting, disabled, workspaceId]);
 

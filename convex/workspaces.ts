@@ -119,6 +119,43 @@ async function logWorkspaceAudit(
   });
 }
 
+/**
+ * Verifies that the given session belongs to the workspace: the
+ * session's instructor/student pair matches the workspace's
+ * instructor/owner pair. Throws on mismatch so callers can fail fast
+ * before inserting rows tagged to the wrong session.
+ *
+ * Used by every workspace mutation that accepts an optional
+ * `sessionId` (PR #4b) so a client cannot tag a note/link/image/chat
+ * message to a session that is not associated with the workspace the
+ * caller is writing to.
+ */
+async function assertSessionBelongsToWorkspace(
+  ctx: any,
+  args: { sessionId?: Id<"sessions">; workspaceId: Id<"workspaces"> }
+): Promise<void> {
+  if (args.sessionId === undefined) return;
+  const [session, workspace] = await Promise.all([
+    ctx.db.get(args.sessionId),
+    ctx.db.get(args.workspaceId),
+  ]);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (!workspace) {
+    throw new Error("Workspace not found");
+  }
+  if (workspace.instructorId === undefined) {
+    throw new Error("Workspace is not paired with an instructor");
+  }
+  if (session.instructorId !== workspace.instructorId) {
+    throw new Error("Session does not belong to this workspace");
+  }
+  if (session.studentId !== workspace.ownerId) {
+    throw new Error("Session does not belong to this workspace");
+  }
+}
+
 /** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
 export const logViewWorkspaceAudit = mutation({
   args: {
@@ -427,6 +464,11 @@ export const createWorkspaceNote = mutation({
       throw new Error("Access denied to workspace");
     }
 
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace so a client cannot tag rows to a session the
+    // workspace is not associated with.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
     return await ctx.db.insert("workspaceNotes", {
       workspaceId: args.workspaceId,
       title: args.title,
@@ -438,7 +480,7 @@ export const createWorkspaceNote = mutation({
   },
 });
 
-/** Updates a workspace note's title and content. */
+/** Updates a workspace note's title, content, and call-tag. */
 export const updateWorkspaceNote = mutation({
   args: {
     id: v.id("workspaceNotes"),
@@ -455,6 +497,36 @@ export const updateWorkspaceNote = mutation({
     clearSessionId: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const note = await ctx.db.get(args.id);
+    if (!note) {
+      throw new Error("Note not found");
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Access denied to workspace");
+    }
+
+    // PR #4b (Greptile R1 P1): the previous handler trusted the
+    // client-provided `id` and let any authenticated caller patch any
+    // note's title/content/call-tag. After fetching the note, enforce
+    // that any retag `sessionId` actually belongs to the note's
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, {
+      sessionId: args.sessionId,
+      workspaceId: note.workspaceId,
+    });
+
     const { id, clearSessionId, sessionId, ...updates } = args;
     const patch: Record<string, unknown> = { ...updates, updatedAt: Date.now() };
     if (sessionId !== undefined) {
@@ -701,6 +773,10 @@ export const createWorkspaceLink = mutation({
       throw new Error("Access denied to workspace");
     }
 
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
     return await ctx.db.insert("workspaceLinks", {
       workspaceId: args.workspaceId,
       url: args.url,
@@ -815,6 +891,10 @@ export const createWorkspaceImage = mutation({
       throw new Error("Not authorized to add images to this workspace");
     }
 
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
     const isStudent = role === "student";
     const isAdmin = role === "admin";
     const studentCount = (workspace as any).studentImageCount ?? 0;
@@ -881,6 +961,11 @@ export const createWorkspaceImageAndMessage = mutation({
     if (!role) {
       throw new Error("Not authorized to add images to this workspace");
     }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace. The same `sessionId` is written to BOTH the
+    // `workspaceImages` row and the chat `workspaceMessages` row.
+    await assertSessionBelongsToWorkspace(ctx, args);
 
     const isStudent = role === "student";
     const isAdmin = role === "admin";
@@ -1104,6 +1189,14 @@ export const createWorkspaceMessage = mutation({
       senderRole = "student";
     }
 
+    if (!senderRole) {
+      throw new Error("Access denied to workspace");
+    }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
+
     const { sessionId, ...rest } = args;
     const messageId = await ctx.db.insert("workspaceMessages", {
       ...rest,
@@ -1146,6 +1239,10 @@ export const createWorkspaceFileMessage = mutation({
     if (!role) {
       throw new Error("Not authorized to add files to this workspace");
     }
+
+    // PR #4b: reject sessionIds that do not belong to this
+    // workspace.
+    await assertSessionBelongsToWorkspace(ctx, args);
 
     const metadata = await ctx.db.system.get("_storage", args.storageId);
     if (!metadata) {
@@ -1558,10 +1655,18 @@ export const createLiveSessionNote = internalMutation({
 });
 
 /**
- * Returns the live session note for a given session, if one exists.
+ * Returns the live session note for a given session, if one exists
+ * AND the caller has access to the workspace the note lives in.
  * Used by the Notes tab to pin it at the top while the call is
  * active. Returns null if no live note has been created yet (e.g.,
- * `markCallStarted` has not yet been called).
+ * `markCallStarted` has not yet been called) or the caller is not
+ * a participant in the session.
+ *
+ * PR #4b (Greptile R1 P1): the previous handler returned the live
+ * note to any authenticated user, allowing a non-participant to
+ * read content tagged to a call they are not in. We now look up
+ * the note's workspace and require the caller to have a role on
+ * it (or be an admin).
  */
 export const getLiveSessionNote = query({
   args: { sessionId: v.id("sessions") },
@@ -1569,12 +1674,21 @@ export const getLiveSessionNote = query({
     const user = await ctx.auth.getUserIdentity();
     if (!user) return null;
 
-    return await ctx.db
+    const note = await ctx.db
       .query("workspaceNotes")
       .withIndex("by_sessionId_isLiveSessionNote", (q) =>
         q.eq("sessionId", args.sessionId).eq("isLiveSessionNote", true)
       )
       .first();
+    if (!note) return null;
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) return null;
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) return null;
+
+    return note;
   },
 });
 
