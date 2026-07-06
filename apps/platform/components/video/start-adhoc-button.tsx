@@ -74,6 +74,9 @@ export function StartAdhocButton({
       });
       toast.error("Could not start ad-hoc call", { description: message });
       setIsStarting(false);
+      // Close the modal so the next open gets a fresh `hasChosen=false`
+      // (the ConsentModal only resets on `open` flipping to true).
+      setModalOpen(false);
     }
   };
 

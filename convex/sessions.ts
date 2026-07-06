@@ -1832,9 +1832,17 @@ export const startAdhocCall = mutation({
       });
     }
 
-    // Refuse if an active (not-ended, callStartedAt set) session
-    // already exists for this workspace. Prevents stacking two
-    // concurrent calls against the same workspace.
+    // Refuse if any non-deleted, non-ended session for this workspace
+    // already exists within the recent window. Catches BOTH:
+    //   (a) sessions where `markCallStarted` already ran (callStartedAt
+    //       set), and
+    //   (b) freshly-created ad-hoc sessions that haven't been joined
+    //       yet (callStartedAt undefined) — important because the
+    //       previous guard required callStartedAt !== undefined, leaving
+    //       a gap where a second `startAdhocCall` invocation (second
+    //       tab, retry after network hiccup) could create a duplicate
+    //       session before the first one was joined.
+    // Prevents stacking two concurrent calls against the same workspace.
     const recentWindowStart = Date.now() - 4 * 60 * 60 * 1000;
     const candidates = await ctx.db
       .query("sessions")
@@ -1850,9 +1858,8 @@ export const startAdhocCall = mutation({
     const activeCandidate = candidates.find(
       (s) =>
         s.instructorId === workspace.instructorId &&
-        s.callStartedAt !== undefined &&
         s.callEndedAt === undefined &&
-        s.videoRoomName !== undefined
+        s.deletedAt === undefined
     );
     if (activeCandidate) {
       throw new ConvexError({
@@ -1938,5 +1945,62 @@ export const recordConsent = mutation({
       recordingConsent: args.consent,
     });
     return { recordingConsent: args.consent, changed: true };
+  },
+});
+
+/**
+ * Cleanup helper for `POST /api/video/start-adhoc`. If the route
+ * successfully creates a session via `startAdhocCall` but then fails
+ * to provision the Daily room (network error, Daily 5xx, etc.), the
+ * session row exists with no `videoRoomName` and would otherwise show
+ * up to the student as a phantom upcoming session.
+ *
+ * This mutation deletes the orphaned session row. Safety:
+ *   - Caller must be the session's instructor (same auth as
+ *     `startAdhocCall`).
+ *   - Session must be `isAdhoc: true` (never deletes scheduled
+ *     sessions — those have other cleanup paths via `endCall`).
+ *   - Session must NOT have a `videoRoomName` set (otherwise the
+ *     Daily room is real and the session should not be deleted).
+ *   - Session must NOT be `deletedAt` (already cleaned up — no-op).
+ *
+ * Returns `{ deleted: true }` on success. No-ops (returns
+ * `{ deleted: false }`) if any precondition fails — idempotent so the
+ * route can call it without checking the result.
+ */
+export const deleteOrphanedAdhocSession = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ deleted: boolean }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { deleted: false };
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      return { deleted: false };
+    }
+    if (!session.isAdhoc) {
+      return { deleted: false };
+    }
+    if (session.videoRoomName !== undefined) {
+      return { deleted: false };
+    }
+    if (session.deletedAt !== undefined) {
+      return { deleted: false };
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+      return { deleted: false };
+    }
+
+    await ctx.db.delete(args.sessionId);
+    return { deleted: true };
   },
 });

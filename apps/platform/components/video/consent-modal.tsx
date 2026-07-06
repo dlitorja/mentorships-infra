@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Mic, VideoOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,19 @@ export function ConsentModal({
 }: ConsentModalProps): React.ReactElement {
   const [recordConsent, setRecordConsent] = useState<boolean>(defaultRecording);
   const [hasChosen, setHasChosen] = useState<boolean>(false);
+
+  // Reset internal state whenever the modal re-opens. Without this,
+  // `hasChosen` stays `true` from the previous open and the action
+  // buttons remain permanently disabled — breaking any retry path
+  // (CallStatusPill error → Retry, scheduled re-join after the call
+  // ends, etc.). The component is mounted once per parent so we have
+  // to react to `open` flipping rather than remounting on each open.
+  useEffect(() => {
+    if (open) {
+      setRecordConsent(defaultRecording);
+      setHasChosen(false);
+    }
+  }, [defaultRecording, open]);
 
   const choose = useCallback(
     (consent: boolean): void => {
