@@ -111,9 +111,10 @@ export async function POST(
     // Daily's `enable_recording` (e.g., the student declined AFTER
     // the instructor had already provisioned the room with recording
     // ON), reconcile via Daily's PATCH endpoint so the declining
-    // party's wishes are honored. Failure is non-fatal — the session
-    // state is correct in Convex; the Daily room will be re-created
-    // on the next attempt with the new consent.
+    // party's wishes are honored. The snapshot write is deferred
+    // until AFTER the PATCH succeeds — if PATCH fails, the snapshot
+    // stays unchanged and the drift detector in `recordConsent`
+    // remains armed for the next consent submission.
     if (result.needsRoomPatch) {
       const syncResult = await fetchMutation(
         api.sessions.syncRoomRecording,
@@ -123,11 +124,13 @@ export async function POST(
         },
         { token }
       );
-      if (syncResult.patched && syncResult.videoRoomName !== null) {
+      if (syncResult.needsPatch && syncResult.videoRoomName !== null) {
+        let patchSucceeded = false;
         try {
           await patchDailyRoomProperties(syncResult.videoRoomName, {
             enable_recording: syncResult.enableRecording ? "cloud" : "off",
           });
+          patchSucceeded = true;
         } catch (err) {
           if (err instanceof DailyApiError) {
             await reportError({
@@ -150,6 +153,16 @@ export async function POST(
               context: { sessionId: sessionIdTyped },
             });
           }
+        }
+        if (patchSucceeded) {
+          await fetchMutation(
+            api.sessions.confirmRoomRecording,
+            {
+              sessionId: sessionIdTyped,
+              enableRecording: syncResult.enableRecording,
+            },
+            { token }
+          );
         }
       }
     }

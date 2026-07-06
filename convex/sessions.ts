@@ -1207,6 +1207,17 @@ export const setVideoRoom = mutation({
         });
         return await ctx.db.get(args.sessionId);
       }
+      // Name + URL match — but roomRecordingEnabled may still have
+      // drifted if a previous 409-recovery PATCH (in resolveDailyRoom)
+      // reconciled Daily to a new consent value. Update the snapshot
+      // to keep the drift detector in recordConsent in sync with
+      // Daily's actual state.
+      if (session.roomRecordingEnabled !== args.roomRecordingEnabled) {
+        await ctx.db.patch(args.sessionId, {
+          roomRecordingEnabled: args.roomRecordingEnabled,
+        });
+        return await ctx.db.get(args.sessionId);
+      }
       return session;
     }
 
@@ -2078,16 +2089,18 @@ export const deleteOrphanedAdhocSession = mutation({
  * when `recordConsent` returns `needsRoomPatch: true` (i.e., a late
  * consent change would flip the recording setting).
  *
- * The mutation does NOT call Daily itself — it returns the PATCH
- * payload so the route can perform the REST call. This keeps the
- * mutation layer free of HTTP dependencies and matches the existing
- * pattern where Daily API calls live in `apps/platform/lib/daily.ts`.
+ * Pure: this mutation does NOT write `roomRecordingEnabled`. It only
+ * returns the PATCH payload so the route can perform the Daily REST
+ * call. The snapshot is written by `confirmRoomRecording` AFTER the
+ * PATCH succeeds — this ensures the drift detector in `recordConsent`
+ * keeps working if a Daily PATCH fails (otherwise we'd permanently
+ * mark the snapshot as "in sync" while Daily is actually out of sync).
  *
  * Auth: instructor OR student on the session (same as `recordConsent`).
  *
- * Idempotent: if `roomRecordingEnabled` already equals the current
- * `recordingConsent`, returns `{ patched: false, enableRecording }`
- * without writing — the caller can skip the Daily REST call.
+ * Idempotent: if the snapshot already equals the desired value,
+ * returns `{ needsPatch: false }` so the caller skips the Daily REST
+ * call entirely.
  */
 export const syncRoomRecording = mutation({
   args: {
@@ -2098,7 +2111,7 @@ export const syncRoomRecording = mutation({
     ctx,
     args
   ): Promise<{
-    patched: boolean;
+    needsPatch: boolean;
     enableRecording: boolean;
     videoRoomName: string | null;
   }> => {
@@ -2132,7 +2145,7 @@ export const syncRoomRecording = mutation({
 
     if (session.videoRoomName === undefined) {
       return {
-        patched: false,
+        needsPatch: false,
         enableRecording: args.enableRecording,
         videoRoomName: null,
       };
@@ -2140,20 +2153,75 @@ export const syncRoomRecording = mutation({
 
     if (session.roomRecordingEnabled === args.enableRecording) {
       return {
-        patched: false,
+        needsPatch: false,
         enableRecording: args.enableRecording,
         videoRoomName: session.videoRoomName,
       };
     }
 
-    await ctx.db.patch(args.sessionId, {
-      roomRecordingEnabled: args.enableRecording,
-    });
-
     return {
-      patched: true,
+      needsPatch: true,
       enableRecording: args.enableRecording,
       videoRoomName: session.videoRoomName,
     };
+  },
+});
+
+/**
+ * Persists the `roomRecordingEnabled` snapshot AFTER a successful
+ * Daily PATCH (driven by `syncRoomRecording` + the route's PATCH
+ * call). The split exists so that a failed PATCH leaves the snapshot
+ * unchanged — keeping the drift detector in `recordConsent` armed for
+ * the next consent submission.
+ *
+ * Auth: instructor OR student on the session (same as `syncRoomRecording`).
+ *
+ * Idempotent: writing the same value twice is a no-op.
+ */
+export const confirmRoomRecording = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    enableRecording: v.boolean(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ updated: boolean }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.tokenIdentifier;
+    const isStudent = identity.tokenIdentifier === session.studentId;
+
+    if (!isInstructor && !isStudent) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only session participants can confirm recording sync",
+      });
+    }
+
+    if (session.roomRecordingEnabled === args.enableRecording) {
+      return { updated: false };
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      roomRecordingEnabled: args.enableRecording,
+    });
+    return { updated: true };
   },
 });

@@ -282,6 +282,12 @@ export async function patchDailyRoomProperties(
  * state. Reconciling here keeps `setVideoRoom`'s `roomRecordingEnabled`
  * snapshot consistent with the real Daily room.
  *
+ * The PATCH is best-effort: a failure here logs but does NOT abort
+ * the resolution. The user can still join the existing room with its
+ * current recording setting; `syncRoomRecording` will reconcile later
+ * when either party records a fresh consent choice (which keeps the
+ * drift detector armed).
+ *
  * Returns the `{ roomName, roomUrl }` pair to persist via
  * `setVideoRoom`. `recordingEnabled` is forwarded to
  * `createDailyRoom`.
@@ -297,13 +303,15 @@ export async function resolveDailyRoom(
     if (error instanceof DailyApiError && error.statusCode === 409) {
       const existing = await getDailyRoom(roomName);
       if (existing !== null) {
-        // PATCH the room's enable_recording to match the desired
-        // state. The PATCH endpoint accepts the same `properties`
-        // shape as room creation, so we only need to set the one
-        // field that may have drifted.
-        await patchDailyRoomProperties(roomName, {
-          enable_recording: options.recordingEnabled ? "cloud" : "off",
-        });
+        try {
+          await patchDailyRoomProperties(roomName, {
+            enable_recording: options.recordingEnabled ? "cloud" : "off",
+          });
+        } catch {
+          // Best-effort reconciliation — the room is still usable
+          // with its current setting. Drift detection in
+          // `recordConsent` will fire on the next consent submission.
+        }
         return existing;
       }
     }
