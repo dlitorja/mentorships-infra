@@ -1548,7 +1548,8 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
       .filter(
         (s) =>
           s.status === "scheduled" &&
-          s.callStartedAt === undefined
+          s.callStartedAt === undefined &&
+          s.scheduledAt <= upcomingWindowEnd
       )
       .sort((a, b) => a.scheduledAt - b.scheduledAt)[0];
 
@@ -1673,7 +1674,23 @@ export const markCallStarted = mutation({
       return session.callStartedAt;
     }
 
-    const callStartedAt = Date.now();
+    // Enforce the join window server-side. The UI hides the Join
+    // button outside this window, but a raw Convex call could
+    // bypass that — refuse to set callStartedAt if the caller is
+    // trying to start a call outside [scheduledAt - 15min,
+    // scheduledAt + 4h]. Symmetric with `endCall` and PR #2's
+    // `getSessionByVideoRoomName` returning null after `callEndedAt`.
+    const now = Date.now();
+    const windowOpensAt = session.scheduledAt - JOIN_WINDOW_BEFORE_MS;
+    const windowClosesAt = session.scheduledAt + JOIN_WINDOW_AFTER_MS;
+    if (now < windowOpensAt || now > windowClosesAt) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_OUTSIDE_JOIN_WINDOW",
+        message: "Forbidden: cannot start a call outside the join window",
+      });
+    }
+
+    const callStartedAt = now;
     await ctx.db.patch(args.sessionId, { callStartedAt });
     return callStartedAt;
   },

@@ -17,6 +17,7 @@ import { VideoCallProvider } from "@/components/video/video-call-provider";
 import { VideoPanel } from "@/components/video/video-panel";
 import { CallStatusPill } from "@/components/video/call-status-pill";
 import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
+import { useVideoCallContext } from "@/lib/video/video-context";
 import { DEFAULT_SPLIT_RATIO, SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
 import type { UserRole } from "@/lib/auth-helpers";
 
@@ -228,15 +229,14 @@ function WorkspaceContent({
 
 /**
  * Chat tab content with optional resizable split for an active video
- * call. When no call is active, renders the chat alone. When a call
- * is active, splits horizontally — chat on the left, video on the
- * right. Default 60/40 split with a 360px minimum panel width.
+ * call. When no call is active, renders the chat full-width (no
+ * split, no separator). When a call is active, splits horizontally
+ * — chat on the left, video on the right. Default 60/40 split.
  *
- * The split uses `react-resizable-panels` which is uncontrolled
- * internally; we persist the user's preferred ratio via a stable
- * panel id and the library's `defaultLayout` prop is read once on
- * mount. PR #3's `useSplitRatio` hook is the explicit persistence
- * layer for that value.
+ * Reading from `VideoCallContext` here instead of taking the session
+ * as a prop keeps the "should we split?" decision inside the same
+ * tree that knows whether the user has joined a call, without
+ * plumbing through extra props.
  */
 function ChatTabWithVideo({
   workspaceId,
@@ -247,9 +247,29 @@ function ChatTabWithVideo({
   clerkUserId: string;
   role: UserRole;
 }) {
+  const { status } = useVideoCallContextSafe();
   const { ratio } = useSplitRatio(SPLIT_RATIO_STORAGE_KEY, DEFAULT_SPLIT_RATIO);
   const chatSize = ratio;
   const videoSize = 100 - ratio;
+
+  // Render the split only when an active call is in progress. When no
+  // call is active, give the chat full width so users aren't looking
+  // at a blank 40% right column.
+  const isInCall =
+    status === "joined" || status === "joining" || status === "leaving";
+
+  if (!isInCall) {
+    return (
+      <div className="flex-1 min-h-0 mt-4">
+        <WorkspaceChat
+          workspaceId={workspaceId}
+          currentUserId={clerkUserId}
+          role={role}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 min-h-0 mt-4">
       <Group orientation="horizontal" id={`workspace-${workspaceId}-chat-video`}>
@@ -267,6 +287,21 @@ function ChatTabWithVideo({
       </Group>
     </div>
   );
+}
+
+/**
+ * Reads only `status` from the call context. Safe to call outside an
+ * active provider — returns `idle` if no provider is mounted. This
+ * lets `ChatTabWithVideo` render full-width chat on pages without a
+ * VideoCallProvider (shouldn't happen in PR #3 but is defensive).
+ */
+function useVideoCallContextSafe(): { status: "idle" | "joining" | "joined" | "leaving" | "error" | "ended" } {
+  try {
+    const ctx = useVideoCallContext();
+    return { status: ctx.status };
+  } catch {
+    return { status: "idle" };
+  }
 }
 
 function WorkspacePolicyBanner() {
