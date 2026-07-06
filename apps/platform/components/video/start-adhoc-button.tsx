@@ -29,8 +29,9 @@ export type StartAdhocButtonProps = {
  *      room and returns `{ sessionId, roomName, roomUrl }`.
  *   3. The VideoCallProvider subscribes to the workspace's session
  *      via `getCurrentOrUpcomingSessionForWorkspace` (PR #3). The
- *      synthetic row appears with `status: "active"` + a populated
- *      `videoRoomName`, so the existing auto-join effect kicks in.
+ *      synthetic row has DB `status: "scheduled"` with `scheduledAt ≈
+ *      now` and a populated `videoRoomName`; the query returns it as
+ *      `"joinable"`, so the existing auto-join effect kicks in.
  *
  * Notification to the student is deferred — instructor tells them
  * manually for now; email + in-app notification are PR #5+ work.

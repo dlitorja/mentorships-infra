@@ -115,55 +115,76 @@ export async function POST(
     // until AFTER the PATCH succeeds — if PATCH fails, the snapshot
     // stays unchanged and the drift detector in `recordConsent`
     // remains armed for the next consent submission.
+    //
+    // This block is wrapped in its own try/catch (separate from the
+    // outer handler's catch) so that a transient Convex/Daily error
+    // here does NOT cause the client to see consent as unsaved. By
+    // the time we reach this point, `recordConsent` has already
+    // persisted the user's choice; the reconciliation is a
+    // best-effort follow-up that should never block the join.
     if (result.needsRoomPatch) {
-      const syncResult = await fetchQuery(
-        api.sessions.syncRoomRecording,
-        {
-          sessionId: sessionIdTyped,
-          enableRecording: result.recordingConsent,
-        },
-        { token }
-      );
-      if (syncResult.needsPatch && syncResult.videoRoomName !== null) {
-        let patchSucceeded = false;
-        try {
-          await patchDailyRoomProperties(syncResult.videoRoomName, {
-            enable_recording: syncResult.enableRecording ? "cloud" : "off",
-          });
-          patchSucceeded = true;
-        } catch (err) {
-          if (err instanceof DailyApiError) {
-            await reportError({
-              source: "api/video/consent",
-              error: err,
-              message: "Failed to PATCH Daily room after consent change",
-              level: "error",
-              context: {
+      try {
+        const syncResult = await fetchQuery(
+          api.sessions.syncRoomRecording,
+          {
+            sessionId: sessionIdTyped,
+            enableRecording: result.recordingConsent,
+          },
+          { token }
+        );
+        if (syncResult.needsPatch && syncResult.videoRoomName !== null) {
+          let patchSucceeded = false;
+          try {
+            await patchDailyRoomProperties(syncResult.videoRoomName, {
+              enable_recording: syncResult.enableRecording ? "cloud" : "off",
+            });
+            patchSucceeded = true;
+          } catch (err) {
+            if (err instanceof DailyApiError) {
+              await reportError({
+                source: "api/video/consent",
+                error: err,
+                message: "Failed to PATCH Daily room after consent change",
+                level: "error",
+                context: {
+                  sessionId: sessionIdTyped,
+                  enableRecording: syncResult.enableRecording,
+                  statusCode: err.statusCode,
+                },
+              });
+            } else {
+              await reportError({
+                source: "api/video/consent",
+                error: err instanceof Error ? err : new Error(String(err)),
+                message: "Failed to PATCH Daily room after consent change",
+                level: "error",
+                context: { sessionId: sessionIdTyped },
+              });
+            }
+          }
+          if (patchSucceeded) {
+            await fetchMutation(
+              api.sessions.confirmRoomRecording,
+              {
                 sessionId: sessionIdTyped,
                 enableRecording: syncResult.enableRecording,
-                statusCode: err.statusCode,
               },
-            });
-          } else {
-            await reportError({
-              source: "api/video/consent",
-              error: err instanceof Error ? err : new Error(String(err)),
-              message: "Failed to PATCH Daily room after consent change",
-              level: "error",
-              context: { sessionId: sessionIdTyped },
-            });
+              { token }
+            );
           }
         }
-        if (patchSucceeded) {
-          await fetchMutation(
-            api.sessions.confirmRoomRecording,
-            {
-              sessionId: sessionIdTyped,
-              enableRecording: syncResult.enableRecording,
-            },
-            { token }
-          );
-        }
+      } catch (err) {
+        // Log and swallow — recordConsent already succeeded, so the
+        // user's choice is persisted. The next consent submission
+        // (or the 409-recovery PATCH in resolveDailyRoom) will
+        // re-attempt reconciliation.
+        await reportError({
+          source: "api/video/consent",
+          error: err instanceof Error ? err : new Error(String(err)),
+          message: "Failed to reconcile Daily recording after consent change",
+          level: "error",
+          context: { sessionId: sessionIdTyped },
+        });
       }
     }
 
