@@ -268,8 +268,18 @@ export async function patchDailyRoomProperties(
  * Creates a Daily room for a session, with 409-recovery: if Daily
  * reports the room already exists (the stable name from
  * `videoRoomNameForSession` collides with a prior partial-failure),
- * look it up and reuse it. Extracted from the rooms/start-adhoc routes
+ * look it up, reconcile its `enable_recording` to match the desired
+ * state, and reuse it. Extracted from the rooms/start-adhoc routes
  * so the retry logic lives in one place — both flows need it.
+ *
+ * Why the PATCH-on-409 step: when a previous attempt crashed between
+ * `createDailyRoom` and `setVideoRoom`, the Daily room exists with
+ * whatever `enable_recording` was used at that time. If consent
+ * changed between the failed attempt and the retry (e.g., the user
+ * dismissed and re-opened the consent modal with a different choice),
+ * the room's `enable_recording` would diverge from the new desired
+ * state. Reconciling here keeps `setVideoRoom`'s `roomRecordingEnabled`
+ * snapshot consistent with the real Daily room.
  *
  * Returns the `{ roomName, roomUrl }` pair to persist via
  * `setVideoRoom`. `recordingEnabled` is forwarded to
@@ -286,6 +296,13 @@ export async function resolveDailyRoom(
     if (error instanceof DailyApiError && error.statusCode === 409) {
       const existing = await getDailyRoom(roomName);
       if (existing !== null) {
+        // PATCH the room's enable_recording to match the desired
+        // state. The PATCH endpoint accepts the same `properties`
+        // shape as room creation, so we only need to set the one
+        // field that may have drifted.
+        await patchDailyRoomProperties(roomName, {
+          enable_recording: options.recordingEnabled ? "cloud" : "off",
+        });
         return existing;
       }
     }

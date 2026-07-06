@@ -487,10 +487,18 @@ export const createSession = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // PR #4a: initialize both per-party consent fields to match the
+    // booking-time default. Without this, the first party's modal
+    // submission would see `otherParty ?? false` and flip the
+    // combined value off — disabling recording before the second
+    // party has even opened the modal.
+    const initialConsent = args.recordingConsent ?? false;
     return await ctx.db.insert("sessions", {
       ...args,
       status: "scheduled",
-      recordingConsent: args.recordingConsent ?? false,
+      recordingConsent: initialConsent,
+      instructorRecordingConsent: initialConsent,
+      studentRecordingConsent: initialConsent,
     });
   },
 });
@@ -691,6 +699,12 @@ export const migrateSession = mutation({
       canceledAt: args.canceledAt ?? undefined,
       status: args.status ?? "scheduled",
       recordingConsent: args.recordingConsent ?? false,
+      // PR #4a: initialize per-party consent to match the historical
+      // combined value. Migrated sessions are by definition not going
+      // through the consent modal — their state is fixed at migration
+      // time.
+      instructorRecordingConsent: args.recordingConsent ?? false,
+      studentRecordingConsent: args.recordingConsent ?? false,
       recordingUrl: args.recordingUrl ?? undefined,
       recordingExpiresAt: args.recordingExpiresAt ?? undefined,
       googleCalendarEventId: args.googleCalendarEventId ?? undefined,
@@ -1885,6 +1899,11 @@ export const startAdhocCall = mutation({
       scheduledAt: Date.now(),
       status: "scheduled",
       recordingConsent: args.recordingConsent,
+      // PR #4a: initialize the instructor's per-party field to the
+      // consented value (the ad-hoc creator IS the instructor and has
+      // already gone through the consent modal). The student's field
+      // stays undefined until they record their choice.
+      instructorRecordingConsent: args.recordingConsent,
       isAdhoc: true,
     });
 
