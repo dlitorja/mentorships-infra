@@ -4,6 +4,15 @@ import { z } from "zod";
 const DEFAULT_DAILY_API_URL = "https://api.daily.co/v1";
 
 /**
+ * Default Daily subdomain tied to our account configuration. Mirrors the
+ * `DAILY_API_URL` fallback pattern in this file: an in-code constant is
+ * used unless `NEXT_PUBLIC_DAILY_DOMAIN` overrides it (e.g. staging
+ * preview). This keeps join URLs stable across deployments that don't
+ * set the env var explicitly, instead of crashing at request time.
+ */
+export const DEFAULT_DAILY_DOMAIN = "huckleberryartinc.daily.co";
+
+/**
  * Recording max length in seconds (matches `eject_after_elapsed`).
  * Daily auto-ejects participants at this point, capping cloud recording
  * duration at 4 hours.

@@ -1,4 +1,5 @@
 import { query, mutation, internalAction, internalQuery, internalMutation } from "./_generated/server";
+import type { QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
@@ -1389,27 +1390,39 @@ export const getActiveSessionForWorkspace = query({
       return null;
     }
 
+    // Use `by_studentId_status_scheduledAt` instead of `by_studentId`
+    // so the read is bounded to recent scheduled sessions, then
+    // in-memory filter for the active-call conditions. In-memory
+    // filter (Array.filter) on a bounded set is allowed — only
+    // Convex query builder `.filter()` is disallowed per the
+    // guidelines. Sort by `callStartedAt` desc to pick the most
+    // recently started active session (avoids the previous behavior
+    // where `.collect()` returned all matches in arbitrary order).
     const sessions = await ctx.db
       .query("sessions")
-      .withIndex("by_studentId", (q) => q.eq("studentId", workspace.ownerId))
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("instructorId"), workspace.instructorId!),
-          q.neq(q.field("callStartedAt"), undefined),
-          q.gt(q.field("callStartedAt"), callActiveWindowStart),
-          q.eq(q.field("callEndedAt"), undefined),
-          q.neq(q.field("videoRoomName"), undefined)
-        )
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
+        q
+          .eq("studentId", workspace.ownerId)
+          .eq("status", "scheduled")
+          .gte("scheduledAt", callActiveWindowStart)
       )
-      .collect();
+      .order("asc")
+      .take(50);
 
-    if (sessions.length === 0) {
+    const active = sessions
+      .filter(
+        (s) =>
+          s.instructorId === workspace.instructorId &&
+          s.callStartedAt !== undefined &&
+          s.callStartedAt > callActiveWindowStart &&
+          s.callEndedAt === undefined &&
+          s.videoRoomName !== undefined
+      )
+      .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
+
+    if (!active || active.callStartedAt === undefined) {
       return null;
     }
-
-    const active = sessions.sort(
-      (a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0)
-    )[0];
 
     return {
       sessionId: active._id,
@@ -1417,6 +1430,316 @@ export const getActiveSessionForWorkspace = query({
       roomUrl: active.videoRoomUrl!,
       startedAt: active.callStartedAt!,
     };
+  },
+});
+
+/**
+ * Window (in ms) during which a session is "joinable" — participants may
+ * start the call. Centered on `scheduledAt`; the window opens 15 minutes
+ * before the scheduled start and closes 4 hours after it (matching
+ * `DAILY_MAX_RECORDING_SECONDS` / 4h active window in PR #2).
+ */
+export const JOIN_WINDOW_BEFORE_MS = 15 * 60 * 1000;
+export const JOIN_WINDOW_AFTER_MS = 4 * 60 * 60 * 1000;
+
+export type CurrentOrUpcomingSession = {
+  sessionId: Id<"sessions">;
+  scheduledAt: number;
+  status: "active" | "joinable" | "scheduled";
+  startedAt: number | null;
+  videoRoomName: string | null;
+  videoRoomUrl: string | null;
+  participantName: string;
+  windowOpensAt: number;
+  windowClosesAt: number;
+};
+
+/**
+ * Returns the current or upcoming session for a workspace.
+ *
+ * Priority: an in-progress call (`callStartedAt` set, `callEndedAt`
+ * undefined, `videoRoomName` set) wins over an upcoming scheduled session.
+ * Otherwise, returns the next scheduled session within 24 hours (so the
+ * UI can show a countdown) — even if outside the join window, the
+ * caller can render a disabled Join button with the time remaining.
+ *
+ * The workspace must NOT be ended or deleted, and the caller must be
+ * the workspace owner (student) OR the workspace's instructor. Anyone
+ * else gets null.
+ *
+ * Powers the Join Call button on the workspace UI (PR #3): the button
+ * is enabled only when `status === "active" | "joinable"`.
+ */
+export const getCurrentOrUpcomingSessionForWorkspace = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args): Promise<CurrentOrUpcomingSession | null> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+    if (workspace.endedAt !== undefined || workspace.deletedAt !== undefined) {
+      return null;
+    }
+    if (workspace.instructorId === undefined) {
+      return null;
+    }
+
+    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+    let isInstructor = false;
+    const instructor = await ctx.db.get(workspace.instructorId);
+    if (instructor && instructor.userId === identity.tokenIdentifier) {
+      isInstructor = true;
+    }
+
+    if (!isOwner && !isInstructor) {
+      return null;
+    }
+
+    const now = Date.now();
+
+    // Bounded read scoped to the next ~30 days of scheduled sessions.
+    // Uses the compound index `by_studentId_status_scheduledAt` so the
+    // result is deterministically ordered by `scheduledAt` ascending —
+    // `.take(50)` is guaranteed to include the next-upcoming session
+    // regardless of how many historical sessions exist (which the
+    // previous `by_studentId`-only query could not guarantee). Also
+    // restricts to status="scheduled" because every active call still
+    // has status="scheduled" until `endCall` transitions it, so this
+    // index covers both active and upcoming candidates.
+    const historyStart = now - 4 * 60 * 60 * 1000;
+    const futureEnd = now + 30 * 24 * 60 * 60 * 1000;
+
+    const sessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
+        q
+          .eq("studentId", workspace.ownerId)
+          .eq("status", "scheduled")
+          .gte("scheduledAt", historyStart)
+          .lte("scheduledAt", futureEnd)
+      )
+      .order("asc")
+      .take(50);
+
+    if (sessions.length === 0) {
+      return null;
+    }
+
+    // Narrow to the workspace's instructor. The compound index is
+    // scoped by `studentId` only — instructor filtering is in-memory
+    // because `instructorId` is not part of any compound index that
+    // also includes `studentId`. The result set is already bounded
+    // (≤ 50), so an in-memory filter is fine.
+    const scoped = sessions.filter(
+      (s) => s.instructorId === workspace.instructorId && s.deletedAt === undefined
+    );
+    if (scoped.length === 0) {
+      return null;
+    }
+
+    // Pick the most recently started active session, if any. We sort
+    // by `callStartedAt` desc instead of using `find()` so a stale
+    // earlier-scheduled active session can't beat a freshly started
+    // one (which would otherwise happen if `.order("asc")` returned
+    // an older session first in the index).
+    const active = scoped
+      .filter(
+        (s) =>
+          s.callStartedAt !== undefined &&
+          s.callEndedAt === undefined &&
+          s.videoRoomName !== undefined
+      )
+      .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
+    if (active && active.callStartedAt !== undefined) {
+      const participantName = isInstructor
+        ? await resolveStudentName(ctx, active.studentId)
+        : await resolveInstructorName(ctx, instructor);
+      return {
+        sessionId: active._id,
+        scheduledAt: active.scheduledAt,
+        status: "active",
+        startedAt: active.callStartedAt,
+        videoRoomName: active.videoRoomName ?? null,
+        videoRoomUrl: active.videoRoomUrl ?? null,
+        participantName,
+        windowOpensAt: active.scheduledAt - JOIN_WINDOW_BEFORE_MS,
+        windowClosesAt: active.callStartedAt + JOIN_WINDOW_AFTER_MS,
+      };
+    }
+
+    const upcomingWindowEnd = now + 24 * 60 * 60 * 1000;
+
+    // `scoped` is already ordered by `scheduledAt` ascending from the
+    // index, so the first matching session is the earliest upcoming
+    // one — no further sort needed.
+    const upcoming = scoped.find(
+      (s) =>
+        s.callStartedAt === undefined && s.scheduledAt <= upcomingWindowEnd
+    );
+
+    if (!upcoming) {
+      return null;
+    }
+
+    const windowOpensAt = upcoming.scheduledAt - JOIN_WINDOW_BEFORE_MS;
+    const windowClosesAt = upcoming.scheduledAt + JOIN_WINDOW_AFTER_MS;
+
+    const status: "joinable" | "scheduled" =
+      now >= windowOpensAt && now <= windowClosesAt ? "joinable" : "scheduled";
+
+    const participantName = isInstructor
+      ? await resolveStudentName(ctx, upcoming.studentId)
+      : await resolveInstructorName(ctx, instructor);
+
+    return {
+      sessionId: upcoming._id,
+      scheduledAt: upcoming.scheduledAt,
+      status,
+      startedAt: null,
+      videoRoomName: null,
+      videoRoomUrl: null,
+      participantName,
+      windowOpensAt,
+      windowClosesAt,
+    };
+  },
+});
+
+async function resolveInstructorName(
+  ctx: QueryCtx,
+  instructor: Doc<"instructors"> | null
+): Promise<string> {
+  if (!instructor) return "Instructor";
+  if (instructor.name) return instructor.name;
+  if (instructor.userId) {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", instructor.userId!))
+      .first();
+    if (user?.firstName) {
+      return user.lastName ? `${user.firstName} ${user.lastName}` : user.firstName;
+    }
+    if (user?.email) return user.email;
+  }
+  return "Instructor";
+}
+
+async function resolveStudentName(
+  ctx: QueryCtx,
+  studentId: string
+): Promise<string> {
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", studentId))
+    .first();
+  if (!user) return "Student";
+  if (user.firstName) {
+    return user.lastName ? `${user.firstName} ${user.lastName}` : user.firstName;
+  }
+  if (user.email) return user.email;
+  return "Student";
+}
+
+/**
+ * Marks a video call as started by setting `callStartedAt`. Either party
+ * on the session (instructor OR student) may start the call.
+ *
+ * Idempotent: if `callStartedAt` is already set, the existing value is
+ * returned without writing. This means the Join Call button is safe to
+ * double-click and the same timestamp is used across reconnects.
+ *
+ * Authorization matches `endCall`: the caller must be the session's
+ * instructor (matched via `instructor.userId === identity.tokenIdentifier`)
+ * or the session's student (`session.studentId === identity.tokenIdentifier`).
+ *
+ * Used by the Join Call button on the workspace UI. After this mutation
+ * returns, the caller fetches a Daily meeting token via
+ * `GET /api/video/token/[roomName]` and joins the Daily room.
+ */
+export const markCallStarted = mutation({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args): Promise<number> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.tokenIdentifier;
+    const isStudent = identity.tokenIdentifier === session.studentId;
+
+    if (!isInstructor && !isStudent) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only session participants can start the call",
+      });
+    }
+
+    if (session.callEndedAt !== undefined) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_CALL_ENDED",
+        message: "Forbidden: call has already ended",
+      });
+    }
+
+    // The Daily room must already exist before we mark the call as
+    // started. Otherwise the Join flow has no `videoRoomName` to
+    // request a meeting token against, and the client never gets a
+    // joinable room URL. The client is expected to call
+    // `POST /api/video/rooms` first (which routes to `setVideoRoom`
+    // and creates the Daily room). This precondition prevents a
+    // stale `callStartedAt` from being persisted without a backing
+    // room.
+    if (session.videoRoomName === undefined) {
+      throw new ConvexError({
+        code: "VIDEO_ROOM_NAME_CONFLICT",
+        message:
+          "Forbidden: cannot start a call without a Daily room. Ensure POST /api/video/rooms has been called first.",
+      });
+    }
+
+    if (session.callStartedAt !== undefined) {
+      return session.callStartedAt;
+    }
+
+    // Enforce the join window server-side. The UI hides the Join
+    // button outside this window, but a raw Convex call could
+    // bypass that — refuse to set callStartedAt if the caller is
+    // trying to start a call outside [scheduledAt - 15min,
+    // scheduledAt + 4h]. Symmetric with `endCall` and PR #2's
+    // `getSessionByVideoRoomName` returning null after `callEndedAt`.
+    const now = Date.now();
+    const windowOpensAt = session.scheduledAt - JOIN_WINDOW_BEFORE_MS;
+    const windowClosesAt = session.scheduledAt + JOIN_WINDOW_AFTER_MS;
+    if (now < windowOpensAt || now > windowClosesAt) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_OUTSIDE_JOIN_WINDOW",
+        message: "Forbidden: cannot start a call outside the join window",
+      });
+    }
+
+    const callStartedAt = now;
+    await ctx.db.patch(args.sessionId, { callStartedAt });
+    return callStartedAt;
   },
 });
 
