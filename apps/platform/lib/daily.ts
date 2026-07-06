@@ -238,13 +238,14 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
 }
 
 /**
- * Patches an existing Daily room's properties. Used by PR #4a's consent
+ * Updates an existing Daily room's properties. Used by PR #4a's consent
  * reconciliation flow: when a participant records their consent AFTER
  * the room was already provisioned (e.g., the student declines after
  * the instructor already joined), `enable_recording` may need to flip
  * from `"cloud"` to `"off"` so the call isn't recorded against the
- * declining party's wishes. Daily's PATCH /rooms endpoint supports
- * updating properties on a live room.
+ * declining party's wishes. Daily's room-update endpoint is
+ * `POST /v1/rooms/{name}` (NOT PATCH) — the `method: "POST"` below
+ * is correct; do not "fix" it to PATCH or the update will 404.
  *
  * Only `properties` is updatable here — privacy, exp, eject, and the
  * other non-property fields are immutable post-creation.

@@ -1883,7 +1883,14 @@ export const startAdhocCall = mutation({
       (s) =>
         s.instructorId === workspace.instructorId &&
         s.callEndedAt === undefined &&
-        s.deletedAt === undefined
+        s.deletedAt === undefined &&
+        // Only block sessions that were actually started OR ad-hoc
+        // sessions that haven't been joined yet (guards the
+        // creation-to-join race for ad-hoc specifically). Never-
+        // started scheduled sessions (e.g., a student no-showed) must
+        // NOT block a new ad-hoc catch-up call — the instructor
+        // should be able to reach out after the missed session.
+        (s.callStartedAt !== undefined || s.isAdhoc === true)
     );
     if (activeCandidate) {
       throw new ConvexError({

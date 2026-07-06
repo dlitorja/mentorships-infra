@@ -137,15 +137,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // Daily room is provisioned but the session row is still missing
       // videoRoomName/videoRoomUrl. Without cleanup, the session shows
       // up to the student as a phantom upcoming session with no join
-      // URL. Delete the orphan row; the next startAdhocCall attempt can
-      // re-create everything. Failure of the cleanup itself is
-      // swallowed (logged via reportError in the outer catch) — better
-      // to surface the original error to the user than to mask it.
-      await fetchMutation(
-        api.sessions.deleteOrphanedAdhocSession,
-        { sessionId },
-        { token }
-      );
+      // URL. Swallow cleanup errors and always re-throw the original
+      // so the outer catch logs the root cause, not the cleanup.
+      try {
+        await fetchMutation(
+          api.sessions.deleteOrphanedAdhocSession,
+          { sessionId },
+          { token }
+        );
+      } catch {
+        // best-effort cleanup; failure leaves the orphan for a future
+        // attempt to overwrite (the startAdhocCall guard will refuse
+        // a second creation, but the orphan will be re-created via
+        // a deleteOrphanedAdhocSession-on-session route in a follow-up).
+      }
       throw error;
     }
 
