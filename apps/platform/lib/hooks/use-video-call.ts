@@ -99,6 +99,22 @@ export function useVideoCall(
     },
   });
 
+  // Capture the stable `mutateAsync` reference in a ref so the
+  // unmount cleanup doesn't need `endCall` (the whole mutation
+  // object) in its dependency array. Otherwise the cleanup would
+  // re-register whenever mutation-state flips (pending → success),
+  // and a stale cleanup could call `endCall` against an already-
+  // ended session.
+  const endCallMutateRef = useRef(endCall.mutateAsync);
+  useEffect(() => {
+    endCallMutateRef.current = endCall.mutateAsync;
+  }, [endCall.mutateAsync]);
+
+  // Track the latest remote participant's `session_id` (not name)
+  // so we can clear `remoteParticipantName` correctly on leave —
+  // independent of `setUserName` mid-call.
+  const remoteSessionIdRef = useRef<string | null>(null);
+
   const [status, setStatus] = useState<VideoCallStatus>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
@@ -241,7 +257,22 @@ export function useVideoCall(
     }
   }, [daily, endCall, joinedSessionId, meetingState, sessionId, workspaceId]);
 
-  // Cleanup on unmount: leave + endCall if we joined.
+  // Cleanup on unmount: leave + endCall if we joined. Captured
+  // refs for `mutateAsync` and `invalidateQueries` so the cleanup
+  // doesn't re-register when mutation state flips mid-call.
+  const invalidateSessionsRef = useRef(() => {
+    queryClient.invalidateQueries({ queryKey: ["sessions"] });
+  });
+  useEffect(() => {
+    invalidateSessionsRef.current = () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    };
+  }, [queryClient]);
+
+  // Cleanup on unmount: leave + endCall if we joined. We depend on
+  // `daily` only — `endCall` and `queryClient` are accessed via
+  // refs so the cleanup only re-registers when the Daily call
+  // instance changes (rare in practice).
   useEffect(() => {
     return () => {
       const d = daily;
@@ -253,11 +284,10 @@ export function useVideoCall(
           /* swallow — unmount path */
         });
         if (sid && didJoinRef.current) {
-          // Fire and forget: endCall invalidates sessions query on success.
-          endCall
-            .mutateAsync({ sessionId: sid })
+          endCallMutateRef
+            .current({ sessionId: sid })
             .then(() => {
-              queryClient.invalidateQueries({ queryKey: ["sessions"] });
+              invalidateSessionsRef.current();
             })
             .catch(() => {
               /* swallow — unmount path */
@@ -265,7 +295,7 @@ export function useVideoCall(
         }
       }
     };
-  }, [daily, endCall, queryClient]);
+  }, [daily]);
 
   const toggleMute = useCallback((): void => {
     const d = daily;
@@ -291,34 +321,50 @@ export function useVideoCall(
     }
   }, [isSharingScreen, startScreenShare, stopScreenShare]);
 
-  // Track participant count + remote name. Use `session_id` as the
-  // identity key so name mutations (`daily.setUserName`) don't reset
-  // the recorded remote name.
+  // Track participant count + remote name. Key identity by
+  // `session_id` (not `user_name`) so a mid-call `setUserName` does
+  // not corrupt our tracking. The remote session id is mirrored to a
+  // ref so the participant-left handler can compare against the
+  // latest value.
   useDailyEvent(
     "participant-joined",
-    useCallback((evt: { participant: { session_id?: string; user_name?: string; local?: boolean } }) => {
-      setParticipantCount((prev) => Math.max(prev + 1, 1));
-      if (!evt.participant.local && evt.participant.user_name) {
-        setRemoteParticipantName(evt.participant.user_name);
-      }
-    }, [])
+    useCallback(
+      (evt: {
+        participant: {
+          session_id?: string;
+          user_name?: string;
+          local?: boolean;
+        };
+      }) => {
+        setParticipantCount((prev) => Math.max(prev + 1, 1));
+        if (!evt.participant.local && evt.participant.session_id) {
+          remoteSessionIdRef.current = evt.participant.session_id;
+          if (evt.participant.user_name) {
+            setRemoteParticipantName(evt.participant.user_name);
+          }
+        }
+      },
+      []
+    )
   );
 
   useDailyEvent(
     "participant-left",
     useCallback(
-      (evt: { participant: { session_id?: string; user_name?: string } }) => {
+      (evt: {
+        participant: { session_id?: string; user_name?: string };
+      }) => {
         setParticipantCount((prev) => Math.max(prev - 1, 0));
-        setRemoteParticipantName((current) => {
-          if (
-            current &&
-            evt.participant.user_name &&
-            current === evt.participant.user_name
-          ) {
-            return null;
-          }
-          return current;
-        });
+        // Only clear the remote name if the leaving participant's
+        // session_id matches the one we recorded — name changes via
+        // setUserName won't match.
+        if (
+          evt.participant.session_id &&
+          evt.participant.session_id === remoteSessionIdRef.current
+        ) {
+          remoteSessionIdRef.current = null;
+          setRemoteParticipantName(null);
+        }
       },
       []
     )
