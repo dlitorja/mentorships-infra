@@ -207,6 +207,15 @@ function QuickCaptureBody({
           <ImageCaptureForm
             workspaceId={workspaceId}
             sessionId={sessionId}
+            // PR #4b (Greptile R2 P1): Radix TabsContent keeps
+            // inactive panes mounted. Without `isActive`, the
+            // window paste listener would fire while the user is
+            // on the Note or Link tab, intercepting a paste meant
+            // for that form's input and silently uploading an
+            // image + closing the dialog. We only register the
+            // paste listener when the Image tab is the active
+            // Quick Capture surface.
+            isActive={mode === "image"}
             disabled={isPending}
             onClose={onClose}
             uploadImage={async (file) => {
@@ -412,12 +421,19 @@ function ImageCaptureForm({
   disabled,
   onClose,
   uploadImage,
+  isActive,
 }: {
   workspaceId: Id<"workspaces"> | null;
   sessionId: Id<"sessions">;
   disabled: boolean;
   onClose: () => void;
   uploadImage: (file: File) => Promise<void>;
+  // PR #4b (Greptile R2 P1): ImageCaptureForm's window paste
+  // listener must only run while the Image tab is the active
+  // Quick Capture tab. TabsContent keeps inactive panes mounted,
+  // so without this gate the listener would steal a paste intended
+  // for the Note or Link tab.
+  isActive: boolean;
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -447,15 +463,17 @@ function ImageCaptureForm({
 
   // Paste-from-clipboard while this tab is active.
   //
-  // PR #4b (Greptile R1 P1): the Images tab installs its own
-  // `window` paste listener while a call is active. Without
-  // coordination, both listeners would receive the same event and
-  // upload the image twice. We bind with `capture: true` and call
-  // `stopImmediatePropagation()` so the Quick Capture handler wins
-  // when the dialog is open (it is the visible, focused surface for
-  // the capture). The Images tab listener still fires for pastes
-  // while the Quick Capture dialog is closed.
+  // PR #4b (Greptile R1 P1 + R2 P1): the Images tab installs its
+  // own `window` paste listener while a call is active. We bind
+  // with `capture: true` and call `stopImmediatePropagation()` so
+  // Quick Capture wins when its Image tab is the visible capture
+  // surface. The Images tab listener still fires while Quick
+  // Capture is closed. Additionally gated on `isActive` so the
+  // paste handler does not fire on inactive TabsContent panes
+  // (Note / Link) where it would silently upload + close and lose
+  // the user's in-progress content.
   useEffect(() => {
+    if (!isActive) return;
     const onPaste = (e: ClipboardEvent) => {
       if (submitting || disabled) return;
       const items = Array.from(e.clipboardData?.items ?? []);
@@ -473,7 +491,7 @@ function ImageCaptureForm({
     window.addEventListener("paste", onPaste, true);
     return () => window.removeEventListener("paste", onPaste, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitting, disabled, workspaceId]);
+  }, [isActive, submitting, disabled, workspaceId]);
 
   return (
     <div className="space-y-2">

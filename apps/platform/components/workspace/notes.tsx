@@ -76,6 +76,16 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const [tagNewNoteToCall, setTagNewNoteToCall] = useState(
     activeSessionId !== null
   );
+  // PR #4b (Greptile R2 P2): the toggle above is seeded from
+  // activeSessionId at mount time but never synced when
+  // activeSessionId changes at runtime (e.g., a new call starts
+  // while the Notes tab is already mounted and the create form is
+  // already open). Mirror the pattern from links.tsx so the
+  // toggle defaults to ON whenever a call goes live, rather than
+  // being stuck at whatever value it had on first render.
+  useEffect(() => {
+    setTagNewNoteToCall(activeSessionId !== null);
+  }, [activeSessionId]);
   const [editingNoteId, setEditingNoteId] = useState<Id<'workspaceNotes'> | null>(null);
   const [editingTitleSurface, setEditingTitleSurface] = useState<TitleEditSurface>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');

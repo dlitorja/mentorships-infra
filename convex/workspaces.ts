@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, internalQuery, action } from "./_gen
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 
 const WORKSPACE_IMAGE_CAPS = {
   student: 75,
@@ -129,9 +130,15 @@ async function logWorkspaceAudit(
  * `sessionId` (PR #4b) so a client cannot tag a note/link/image/chat
  * message to a session that is not associated with the workspace the
  * caller is writing to.
+ *
+ * PR #4b (Greptile R2 P2): typed `MutationCtx` (rather than
+ * `any`) so OCC guarantees and the schema's field types are
+ * enforced at the type level. Surrounding helpers in this file
+ * still use `ctx: any` — they predate this helper and are out
+ * of scope to retype.
  */
 async function assertSessionBelongsToWorkspace(
-  ctx: any,
+  ctx: MutationCtx,
   args: { sessionId?: Id<"sessions">; workspaceId: Id<"workspaces"> }
 ): Promise<void> {
   if (args.sessionId === undefined) return;

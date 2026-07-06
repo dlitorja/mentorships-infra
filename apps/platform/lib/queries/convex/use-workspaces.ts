@@ -144,6 +144,18 @@ export function useUpdateWorkspaceNote() {
  * Fetches the single live session note for a given session, or null
  * if it has not yet been created. Used by the Notes tab to pin it
  * at the top while the call is active.
+ *
+ * PR #4b (Greptile R2 P2): the sentinel `"0000…01"` is required by
+ * Convex's typed argument validator (sessionId must be an
+ * `Id<"sessions">` string, not null). When `sessionId` is null the
+ * sentinel is substituted solely to satisfy the type, and the
+ * `enabled: false` flag prevents the request from being executed.
+ * In current TanStack Query versions (4.x, 5.x) `enabled` and
+ * `queryKey` are evaluated together, so the sentinel never reaches
+ * the server. Greptile flagged this as potentially fragile under
+ * future TanStack Query changes; the mitigation here is the
+ * explicit, narrowly-scoped cast and the documented invariant
+ * that the sentinel is dead client-side data.
  */
 export function useLiveSessionNote(sessionId: string | null | undefined) {
   return useQuery({
