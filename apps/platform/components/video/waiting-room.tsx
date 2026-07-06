@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { useWaitingParticipants } from "@daily-co/daily-react";
-import { UserCheck, UserX, Loader2 } from "lucide-react";
+import { UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -35,15 +34,17 @@ export type WaitingRoomProps = {
  *     endpoint gate (Daily's `grantAccess` would no-op for non-owners
  *     anyway, but we hide the UI for clarity).
  *
- * Why a single list (not per-participant "name shown to instructor"
- * extraction): Daily's `waitingParticipants` exposes `user_name` which
- * is set from the meeting token (PR #2 `resolveUserName` falls back to
- * `clerkAuth.userId`). For a 1:1 mentorship with two known parties,
- * the user_name IS recognizable.
+ * Why no busy/spinner state: Daily's `grantAccess`/`denyAccess` are
+ * synchronous SDK calls that update the meeting state immediately.
+ * With React 18 automatic batching, any `useState` flip around a
+ * synchronous call collapses into a single render — so the spinner
+ * never appears. The participant is removed from the list as soon as
+ * Daily's `waiting-participant-removed` event fires (which the
+ * `useWaitingParticipants` hook handles), giving the user natural
+ * feedback that the action completed.
  */
 export function WaitingRoom({ role }: WaitingRoomProps): React.ReactElement | null {
   const { waitingParticipants, grantAccess, denyAccess } = useWaitingParticipants();
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   if (waitingParticipants.length === 0) {
     return null;
@@ -52,7 +53,6 @@ export function WaitingRoom({ role }: WaitingRoomProps): React.ReactElement | nu
   const isInstructor = role === "instructor";
 
   const handleAdmit = async (id: string, name: string): Promise<void> => {
-    setBusyId(id);
     try {
       grantAccess(id);
       toast.success(`Admitted ${name}`);
@@ -66,13 +66,10 @@ export function WaitingRoom({ role }: WaitingRoomProps): React.ReactElement | nu
         context: { participantId: id },
       });
       toast.error("Could not admit participant", { description: message });
-    } finally {
-      setBusyId(null);
     }
   };
 
   const handleDeny = async (id: string, name: string): Promise<void> => {
-    setBusyId(id);
     try {
       denyAccess(id);
       toast.message(`${name} was denied`, { description: "They'll see a call-ended message." });
@@ -86,8 +83,6 @@ export function WaitingRoom({ role }: WaitingRoomProps): React.ReactElement | nu
         context: { participantId: id },
       });
       toast.error("Could not deny participant", { description: message });
-    } finally {
-      setBusyId(null);
     }
   };
 
@@ -106,7 +101,6 @@ export function WaitingRoom({ role }: WaitingRoomProps): React.ReactElement | nu
             typeof p.user_name === "string" && p.user_name.length > 0
               ? p.user_name
               : "Guest";
-          const busy = busyId === id;
           return (
             <li
               key={id}
@@ -120,14 +114,9 @@ export function WaitingRoom({ role }: WaitingRoomProps): React.ReactElement | nu
                     variant="outline"
                     size="sm"
                     onClick={() => void handleDeny(id, name)}
-                    disabled={busy}
                     aria-label={`Deny ${name}`}
                   >
-                    {busy ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <UserX className="h-3 w-3" />
-                    )}
+                    <UserX className="h-3 w-3" />
                     Deny
                   </Button>
                   <Button
@@ -135,14 +124,9 @@ export function WaitingRoom({ role }: WaitingRoomProps): React.ReactElement | nu
                     variant="default"
                     size="sm"
                     onClick={() => void handleAdmit(id, name)}
-                    disabled={busy}
                     aria-label={`Admit ${name}`}
                   >
-                    {busy ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <UserCheck className="h-3 w-3" />
-                    )}
+                    <UserCheck className="h-3 w-3" />
                     Admit
                   </Button>
                 </div>

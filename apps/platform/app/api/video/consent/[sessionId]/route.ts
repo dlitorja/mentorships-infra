@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
+import { DailyApiError, patchDailyRoomProperties } from "@/lib/daily";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,53 @@ export async function POST(
       },
       { token }
     );
+
+    // If the combined consent now disagrees with the snapshot of
+    // Daily's `enable_recording` (e.g., the student declined AFTER
+    // the instructor had already provisioned the room with recording
+    // ON), reconcile via Daily's PATCH endpoint so the declining
+    // party's wishes are honored. Failure is non-fatal — the session
+    // state is correct in Convex; the Daily room will be re-created
+    // on the next attempt with the new consent.
+    if (result.needsRoomPatch) {
+      const syncResult = await fetchMutation(
+        api.sessions.syncRoomRecording,
+        {
+          sessionId: sessionIdTyped,
+          enableRecording: result.recordingConsent,
+        },
+        { token }
+      );
+      if (syncResult.patched && syncResult.videoRoomName !== null) {
+        try {
+          await patchDailyRoomProperties(syncResult.videoRoomName, {
+            enable_recording: syncResult.enableRecording ? "cloud" : "off",
+          });
+        } catch (err) {
+          if (err instanceof DailyApiError) {
+            await reportError({
+              source: "api/video/consent",
+              error: err,
+              message: "Failed to PATCH Daily room after consent change",
+              level: "error",
+              context: {
+                sessionId: sessionIdTyped,
+                enableRecording: syncResult.enableRecording,
+                statusCode: err.statusCode,
+              },
+            });
+          } else {
+            await reportError({
+              source: "api/video/consent",
+              error: err instanceof Error ? err : new Error(String(err)),
+              message: "Failed to PATCH Daily room after consent change",
+              level: "error",
+              context: { sessionId: sessionIdTyped },
+            });
+          }
+        }
+      }
+    }
 
     return NextResponse.json({
       recordingConsent: result.recordingConsent,

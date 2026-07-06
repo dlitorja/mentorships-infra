@@ -76,6 +76,21 @@ export default defineSchema({
     canceledAt: v.optional(v.number()),
     status: v.union(v.literal("scheduled"), v.literal("completed"), v.literal("canceled"), v.literal("no_show")),
     recordingConsent: v.boolean(),
+    // PR #4a: per-party recording consent. The combined `recordingConsent`
+    // (above) is recomputed as `instructorRecordingConsent && studentRecordingConsent`
+    // whenever either party records their choice via `recordConsent`.
+    // Either party declining flips the combined value to `false` —
+    // matches the plan's "If either party declines consent, the call
+    // proceeds without recording" semantic
+    // (`docs/plans/video-calling.md:343`). Nullable until each party
+    // has made a choice (the booking flow defaults to `true` for both).
+    instructorRecordingConsent: v.optional(v.boolean()),
+    studentRecordingConsent: v.optional(v.boolean()),
+    // PR #4a: snapshot of `enable_recording` on the Daily room at the
+    // time the room was provisioned. Used to detect drift after a late
+    // consent change — if the new combined consent differs, the consent
+    // route calls Daily's PATCH /rooms endpoint to reconcile.
+    roomRecordingEnabled: v.optional(v.boolean()),
     recordingUrl: v.optional(v.string()),
     recordingExpiresAt: v.optional(v.number()),
     videoRoomUrl: v.optional(v.string()),

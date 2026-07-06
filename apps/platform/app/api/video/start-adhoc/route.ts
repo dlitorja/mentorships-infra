@@ -6,10 +6,8 @@ import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  createDailyRoom,
   DailyApiError,
-  getDailyRoom,
-  videoRoomNameForSession,
+  resolveDailyRoom,
 } from "@/lib/daily";
 import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
@@ -131,6 +129,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           sessionId,
           videoRoomName: roomName,
           videoRoomUrl: roomUrl,
+          roomRecordingEnabled: recordingConsent,
         },
         { token }
       );
@@ -178,23 +177,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { error: "Internal server error" },
       { status: 500 }
     );
-  }
-}
-
-async function resolveDailyRoom(
-  sessionId: Id<"sessions">,
-  options: { recordingEnabled: boolean }
-): Promise<{ roomName: string; roomUrl: string }> {
-  const roomName = videoRoomNameForSession(sessionId);
-  try {
-    return await createDailyRoom(sessionId, options);
-  } catch (error) {
-    if (error instanceof DailyApiError && error.statusCode === 409) {
-      const existing = await getDailyRoom(roomName);
-      if (existing !== null) {
-        return existing;
-      }
-    }
-    throw error;
   }
 }

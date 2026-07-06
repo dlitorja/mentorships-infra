@@ -238,6 +238,62 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
 }
 
 /**
+ * Patches an existing Daily room's properties. Used by PR #4a's consent
+ * reconciliation flow: when a participant records their consent AFTER
+ * the room was already provisioned (e.g., the student declines after
+ * the instructor already joined), `enable_recording` may need to flip
+ * from `"cloud"` to `"off"` so the call isn't recorded against the
+ * declining party's wishes. Daily's PATCH /rooms endpoint supports
+ * updating properties on a live room.
+ *
+ * Only `properties` is updatable here — privacy, exp, eject, and the
+ * other non-property fields are immutable post-creation.
+ */
+export async function patchDailyRoomProperties(
+  roomName: string,
+  properties: Record<string, unknown>
+): Promise<void> {
+  const encoded = encodeURIComponent(roomName);
+  const response = await dailyFetch(`/rooms/${encoded}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ properties }),
+  });
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+}
+
+/**
+ * Creates a Daily room for a session, with 409-recovery: if Daily
+ * reports the room already exists (the stable name from
+ * `videoRoomNameForSession` collides with a prior partial-failure),
+ * look it up and reuse it. Extracted from the rooms/start-adhoc routes
+ * so the retry logic lives in one place — both flows need it.
+ *
+ * Returns the `{ roomName, roomUrl }` pair to persist via
+ * `setVideoRoom`. `recordingEnabled` is forwarded to
+ * `createDailyRoom`.
+ */
+export async function resolveDailyRoom(
+  sessionId: Id<"sessions">,
+  options: { recordingEnabled: boolean }
+): Promise<DailyRoom> {
+  const roomName = videoRoomNameForSession(sessionId);
+  try {
+    return await createDailyRoom(sessionId, options);
+  } catch (error) {
+    if (error instanceof DailyApiError && error.statusCode === 409) {
+      const existing = await getDailyRoom(roomName);
+      if (existing !== null) {
+        return existing;
+      }
+    }
+    throw error;
+  }
+}
+
+/**
  * Fetches an existing Daily room by name. Used by the rooms route to
  * recover from partial-failure states where a Daily room exists but
  * the Convex row was never written (e.g., a prior request crashed

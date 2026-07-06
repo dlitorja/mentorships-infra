@@ -1142,6 +1142,11 @@ export const attachRecordingFromDailyWebhook = internalMutation({
  * detects this state, calls Daily again to recover, and re-invokes
  * `setVideoRoom` with the new URL.
  *
+ * `roomRecordingEnabled` (PR #4a) is a snapshot of Daily's current
+ * `enable_recording` at the time the room was provisioned. Used by
+ * `recordConsent` + `syncRoomRecording` to detect drift when a late
+ * consent change would flip the recording setting.
+ *
  * Auth: instructor on the session only. Students cannot create rooms
  * — this prevents burning Daily quota or creating orphan rooms.
  */
@@ -1150,6 +1155,7 @@ export const setVideoRoom = mutation({
     sessionId: v.id("sessions"),
     videoRoomName: v.string(),
     videoRoomUrl: v.string(),
+    roomRecordingEnabled: v.boolean(),
   },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
@@ -1181,7 +1187,10 @@ export const setVideoRoom = mutation({
 
     if (session.videoRoomName === args.videoRoomName) {
       if (session.videoRoomUrl !== args.videoRoomUrl) {
-        await ctx.db.patch(args.sessionId, { videoRoomUrl: args.videoRoomUrl });
+        await ctx.db.patch(args.sessionId, {
+          videoRoomUrl: args.videoRoomUrl,
+          roomRecordingEnabled: args.roomRecordingEnabled,
+        });
         return await ctx.db.get(args.sessionId);
       }
       return session;
@@ -1198,6 +1207,7 @@ export const setVideoRoom = mutation({
     await ctx.db.patch(args.sessionId, {
       videoRoomName: args.videoRoomName,
       videoRoomUrl: args.videoRoomUrl,
+      roomRecordingEnabled: args.roomRecordingEnabled,
     });
 
     return await ctx.db.get(args.sessionId);
@@ -1886,19 +1896,24 @@ export const startAdhocCall = mutation({
  * Records a participant's recording consent on a session. Either
  * party on the session (instructor OR student) may call this.
  *
- * Idempotent: if `recordingConsent` already equals `args.consent`,
- * the call returns without writing.
+ * PR #4a: per-party consent tracking. Each call writes to the
+ * caller's own field (`instructorRecordingConsent` or
+ * `studentRecordingConsent`) and recomputes the combined
+ * `recordingConsent` as `instructor && student`. The combined value
+ * flips to `false` if EITHER party declines — matching the plan's
+ * "If either party declines consent, the call proceeds without
+ * recording" semantic
+ * (`docs/plans/video-calling.md:343`).
+ *
+ * Returns `needsRoomPatch: true` when the combined consent now
+ * differs from the snapshot `roomRecordingEnabled` (Daily's current
+ * `enable_recording`). The caller (consent route) uses this flag to
+ * trigger `syncRoomRecording`, which PATCHes Daily to reconcile.
  *
  * Authorization matches `endCall`/`markCallStarted` (PR #2/3): the
  * caller must be the session's instructor (matched via
  * `instructor.userId === identity.tokenIdentifier`) or the
  * session's student (`session.studentId === identity.tokenIdentifier`).
- *
- * Used by the consent modal (`ConsentModal`) and by the ad-hoc
- * confirmation flow. The Daily room's `enable_recording` flag is
- * reconciled later by `POST /api/video/rooms` which reads the
- * session's current `recordingConsent` and passes it as
- * `recordingEnabled`.
  */
 export const recordConsent = mutation({
   args: {
@@ -1908,7 +1923,11 @@ export const recordConsent = mutation({
   handler: async (
     ctx,
     args
-  ): Promise<{ recordingConsent: boolean; changed: boolean }> => {
+  ): Promise<{
+    recordingConsent: boolean;
+    changed: boolean;
+    needsRoomPatch: boolean;
+  }> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new ConvexError({
@@ -1937,14 +1956,36 @@ export const recordConsent = mutation({
       });
     }
 
-    if (session.recordingConsent === args.consent) {
-      return { recordingConsent: args.consent, changed: false };
-    }
+    const updatedInstructorConsent = isInstructor
+      ? args.consent
+      : (session.instructorRecordingConsent ?? false);
+    const updatedStudentConsent = isStudent
+      ? args.consent
+      : (session.studentRecordingConsent ?? false);
+    const combined = updatedInstructorConsent && updatedStudentConsent;
+
+    const changed =
+      combined !== session.recordingConsent ||
+      (isInstructor &&
+        session.instructorRecordingConsent !== args.consent) ||
+      (isStudent && session.studentRecordingConsent !== args.consent);
 
     await ctx.db.patch(args.sessionId, {
-      recordingConsent: args.consent,
+      instructorRecordingConsent: updatedInstructorConsent,
+      studentRecordingConsent: updatedStudentConsent,
+      recordingConsent: combined,
     });
-    return { recordingConsent: args.consent, changed: true };
+
+    return {
+      recordingConsent: combined,
+      changed,
+      // Drift is real only when there's a room AND the snapshot
+      // disagrees with the new combined value.
+      needsRoomPatch:
+        session.videoRoomName !== undefined &&
+        session.roomRecordingEnabled !== undefined &&
+        session.roomRecordingEnabled !== combined,
+    };
   },
 });
 
@@ -2002,5 +2043,91 @@ export const deleteOrphanedAdhocSession = mutation({
 
     await ctx.db.delete(args.sessionId);
     return { deleted: true };
+  },
+});
+
+/**
+ * Reconciles the Daily room's `enable_recording` setting with the
+ * session's current `recordingConsent`. Called by the consent route
+ * when `recordConsent` returns `needsRoomPatch: true` (i.e., a late
+ * consent change would flip the recording setting).
+ *
+ * The mutation does NOT call Daily itself — it returns the PATCH
+ * payload so the route can perform the REST call. This keeps the
+ * mutation layer free of HTTP dependencies and matches the existing
+ * pattern where Daily API calls live in `apps/platform/lib/daily.ts`.
+ *
+ * Auth: instructor OR student on the session (same as `recordConsent`).
+ *
+ * Idempotent: if `roomRecordingEnabled` already equals the current
+ * `recordingConsent`, returns `{ patched: false, enableRecording }`
+ * without writing — the caller can skip the Daily REST call.
+ */
+export const syncRoomRecording = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+    enableRecording: v.boolean(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{
+    patched: boolean;
+    enableRecording: boolean;
+    videoRoomName: string | null;
+  }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new ConvexError({
+        code: "VIDEO_UNAUTHORIZED",
+        message: "Unauthorized",
+      });
+    }
+
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new ConvexError({
+        code: "VIDEO_SESSION_NOT_FOUND",
+        message: "Session not found",
+      });
+    }
+
+    const instructor = await ctx.db.get(session.instructorId);
+    const isInstructor =
+      instructor !== null && instructor.userId === identity.tokenIdentifier;
+    const isStudent = identity.tokenIdentifier === session.studentId;
+
+    if (!isInstructor && !isStudent) {
+      throw new ConvexError({
+        code: "VIDEO_FORBIDDEN_NOT_PARTICIPANT",
+        message: "Forbidden: only session participants can sync recording",
+      });
+    }
+
+    if (session.videoRoomName === undefined) {
+      return {
+        patched: false,
+        enableRecording: args.enableRecording,
+        videoRoomName: null,
+      };
+    }
+
+    if (session.roomRecordingEnabled === args.enableRecording) {
+      return {
+        patched: false,
+        enableRecording: args.enableRecording,
+        videoRoomName: session.videoRoomName,
+      };
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      roomRecordingEnabled: args.enableRecording,
+    });
+
+    return {
+      patched: true,
+      enableRecording: args.enableRecording,
+      videoRoomName: session.videoRoomName,
+    };
   },
 });

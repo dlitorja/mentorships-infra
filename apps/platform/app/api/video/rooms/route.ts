@@ -6,9 +6,8 @@ import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  createDailyRoom,
   DailyApiError,
-  getDailyRoom,
+  resolveDailyRoom,
   videoRoomNameForSession,
 } from "@/lib/daily";
 import { convexIdSchema } from "@/lib/validators";
@@ -35,24 +34,6 @@ function getVideoRoomsConvexErrorCode(
 const createRoomSchema = z.object({
   sessionId: convexIdSchema,
 });
-
-async function resolveDailyRoom(
-  sessionId: Id<"sessions">,
-  options: { recordingEnabled: boolean }
-): Promise<{ roomName: string; roomUrl: string }> {
-  const roomName = videoRoomNameForSession(sessionId);
-  try {
-    return await createDailyRoom(sessionId, options);
-  } catch (error) {
-    if (error instanceof DailyApiError && error.statusCode === 409) {
-      const existing = await getDailyRoom(roomName);
-      if (existing !== null) {
-        return existing;
-      }
-    }
-    throw error;
-  }
-}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
@@ -138,6 +119,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         sessionId: sessionIdTyped,
         videoRoomName: roomName,
         videoRoomUrl: roomUrl,
+        roomRecordingEnabled: existing.recordingConsent,
       },
       { token }
     );
