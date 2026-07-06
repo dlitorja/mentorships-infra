@@ -6,7 +6,8 @@ import type { Id } from "@/convex/_generated/dataModel";
 /**
  * Mirror of `convex/sessions.CurrentOrUpcomingSession` for client-side
  * consumption. Kept in sync manually because the Convex codegen only
- * re-exports function references through `api`, not types.
+ * re-exports function references through `api`, not types. Any change
+ * to the Convex return shape MUST be mirrored here.
  */
 export type CurrentOrUpcomingSession = {
   sessionId: Id<"sessions">;
@@ -21,6 +22,17 @@ export type CurrentOrUpcomingSession = {
 };
 
 /**
+ * Status of the local Daily call. Mirrors `UseVideoCallResult.status`
+ * in `lib/hooks/use-video-call.ts` — keep in sync.
+ */
+export type VideoCallStatus =
+  | "idle"
+  | "joining"
+  | "joined"
+  | "leaving"
+  | "error";
+
+/**
  * Snapshot of the call state shared via `VideoCallContext`.
  *
  * The provider owns the call state (Daily ref + UI flags) and exposes
@@ -31,7 +43,7 @@ export type CurrentOrUpcomingSession = {
 export type VideoCallContextValue = {
   workspaceId: Id<"workspaces"> | null;
   session: CurrentOrUpcomingSession | null;
-  status: "idle" | "joining" | "joined" | "leaving" | "error" | "ended";
+  status: VideoCallStatus;
   isMuted: boolean;
   isCameraOff: boolean;
   isScreenSharing: boolean;

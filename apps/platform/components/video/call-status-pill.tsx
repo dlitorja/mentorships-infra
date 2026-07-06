@@ -1,16 +1,58 @@
 "use client";
 
-import { Phone, PhoneOff, Video, VideoOff, Loader2, AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Phone,
+  PhoneOff,
+  Video,
+  VideoOff,
+  Loader2,
+  AlertTriangle,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { cn } from "@/lib/utils";
 
+/**
+ * Format `seconds` as `HH:MM:SS` for calls that cross the 1-hour
+ * mark (PR #3 sessions can run up to 4 hours per the join window),
+ * and `MM:SS` for shorter calls. Zero-pads each segment so the
+ * duration chip's monospace width stays stable.
+ */
 function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  if (hours > 0) {
+    return `${pad(hours)}:${pad(minutes)}:${pad(secs)}`;
+  }
+  return `${pad(minutes)}:${pad(secs)}`;
+}
+
+/**
+ * Format the countdown label for a scheduled session. Mirrors
+ * `formatDuration` granularity — seconds when under a minute, minutes
+ * when under an hour, hours when under a day, days beyond.
+ */
+function formatCountdown(msUntil: number): string {
+  const clamped = Math.max(0, msUntil);
+  const minutes = Math.floor(clamped / 60_000);
+  const seconds = Math.floor((clamped % 60_000) / 1000);
+  if (minutes >= 60 * 24) {
+    const days = Math.floor(minutes / (60 * 24));
+    return `Opens in ${days}d`;
+  }
+  if (minutes >= 60) {
+    return `Opens in ${Math.ceil(minutes / 60)}h`;
+  }
+  if (minutes >= 1) {
+    return `Opens in ${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  }
+  return `Opens in ${seconds}s`;
 }
 
 /**
@@ -24,9 +66,13 @@ function formatDuration(seconds: number): string {
  *
  * Used in the action row between the workspace header Card and the
  * TabsList. The full VideoPanel mounts below the tabs only when
- * `status === "active"`.
+ * `status === "joined"`.
  */
-export function CallStatusPill({ className }: { className?: string }) {
+export function CallStatusPill({
+  className,
+}: {
+  className?: string;
+}): React.ReactElement | null {
   const {
     session,
     status,
@@ -36,7 +82,21 @@ export function CallStatusPill({ className }: { className?: string }) {
     leave,
   } = useVideoCallContext();
 
-  const handleJoin = () => {
+  // Tick once per second so the countdown chip ("Opens in 4m 30s")
+  // updates without requiring a parent re-render. The interval is
+  // only mounted when the pill is in the "scheduled" state.
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!session || session.status !== "scheduled") return;
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1_000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [session]);
+
+  const handleJoin = (): void => {
     join().catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       toast.error("Could not join call", { description: message });
@@ -47,7 +107,8 @@ export function CallStatusPill({ className }: { className?: string }) {
     return null;
   }
 
-  const isInCall = status === "joined" || status === "joining" || status === "leaving";
+  const isInCall =
+    status === "joined" || status === "joining" || status === "leaving";
   const isError = status === "error";
 
   if (isInCall) {
@@ -86,12 +147,7 @@ export function CallStatusPill({ className }: { className?: string }) {
             {errorMessage ?? "Call error"}
           </span>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={handleJoin}
-        >
+        <Button type="button" variant="outline" size="sm" onClick={handleJoin}>
           Retry
         </Button>
       </div>
@@ -116,19 +172,15 @@ export function CallStatusPill({ className }: { className?: string }) {
     );
   }
 
-  // scheduled (future, not yet in window)
-  const minutesUntil = Math.max(
-    0,
-    Math.ceil((session.windowOpensAt - Date.now()) / 60_000)
-  );
+  // scheduled (future, not yet in window) — use the tick `now` so the
+  // countdown stays fresh without a parent re-render.
+  const msUntil = session.windowOpensAt - now;
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground">
         <VideoOff className="h-4 w-4" />
-        <span>
-          {minutesUntil > 60
-            ? `Opens in ${Math.ceil(minutesUntil / 60)}h`
-            : `Opens in ${minutesUntil}m`}
+        <span className="font-mono tabular-nums">
+          {formatCountdown(msUntil)}
         </span>
       </div>
       <Button type="button" variant="outline" size="sm" disabled>

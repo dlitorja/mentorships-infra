@@ -14,8 +14,9 @@ import { cn } from "@/lib/utils";
  *   - Always renders inside a `<div>` that fills the right column.
  *   - When PiP mode is on, swaps the full VideoCall for a floating
  *     mini-window so the user can keep using the chat.
- *   - When the call ends (status === "ended"), unmounts entirely
- *     and leaves the workspace tabs free.
+ *   - When the call is not in a join / leave / joined state (e.g.
+ *     idle or error), unmounts entirely so the workspace tabs are
+ *     free of the Daily iframe.
  *
  * PR #3 is desktop-only (≥ 900px). Mobile is Phase 7.
  */

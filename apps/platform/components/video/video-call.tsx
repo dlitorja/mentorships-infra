@@ -126,7 +126,12 @@ function ParticipantTile({
       <DailyVideo
         sessionId={sessionId}
         type={isScreenShare ? "screenVideo" : "video"}
-        automirror={isLocal}
+        // Mirror only the local camera feed. Screen-share tiles are
+        // never mirrored (otherwise they would appear flipped to the
+        // presenter and confuse the audience). `automirror` is
+        // ignored by Daily when `type="screenVideo"` but we set it
+        // explicitly to false so intent is clear.
+        automirror={isLocal && !isScreenShare}
         fit="contain"
         className="h-full w-full object-contain"
       />

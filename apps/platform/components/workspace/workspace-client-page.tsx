@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -63,7 +63,16 @@ function WorkspaceContent({
   const isChatTab = activeTab === "chat";
 
   return (
-    <VideoCallProvider workspaceId={selectedWorkspaceId}>
+    <VideoCallProvider
+      // key on workspaceId so the entire video call state (Daily
+      // call, joined room, local PiP position, device state) is reset
+      // when the user switches workspaces. Without the key, the same
+      // provider instance would carry over the previous workspace's
+      // call object — `useVideoCall` couldn't re-bind to the new
+      // session, and unmount cleanup of the old call would never fire.
+      key={selectedWorkspaceId}
+      workspaceId={selectedWorkspaceId}
+    >
       <div className={`container mx-auto p-4 md:p-6 ${isChatTab ? "h-[calc(100dvh-64px)]" : ""}`}>
         <div className={`flex flex-col md:flex-row gap-6 ${isChatTab ? "h-full" : ""}`}>
           <div className="w-full md:w-64 shrink-0">
@@ -172,11 +181,16 @@ function WorkspaceContent({
                     </TabsList>
 
                     {isChatTab ? (
-                      <ChatTabWithVideo
-                        workspaceId={selectedWorkspace._id}
-                        clerkUserId={clerkUserId}
-                        role={userRole}
-                      />
+                      <TabsContent
+                        value="chat"
+                        className="flex-1 min-h-0 mt-4 flex flex-col"
+                      >
+                        <ChatTabWithVideo
+                          workspaceId={selectedWorkspace._id}
+                          clerkUserId={clerkUserId}
+                          role={userRole}
+                        />
+                      </TabsContent>
                     ) : (
                       <>
                         <TabsContent value="notes" className="mt-4">
@@ -246,9 +260,12 @@ function ChatTabWithVideo({
   workspaceId: Id<"workspaces">;
   clerkUserId: string;
   role: UserRole;
-}) {
-  const { status } = useVideoCallContextSafe();
-  const { ratio } = useSplitRatio(SPLIT_RATIO_STORAGE_KEY, DEFAULT_SPLIT_RATIO);
+}): React.ReactElement {
+  const { status } = useVideoCallContext();
+  const { ratio, setRatio } = useSplitRatio(
+    SPLIT_RATIO_STORAGE_KEY,
+    DEFAULT_SPLIT_RATIO
+  );
   const chatSize = ratio;
   const videoSize = 100 - ratio;
 
@@ -258,50 +275,49 @@ function ChatTabWithVideo({
   const isInCall =
     status === "joined" || status === "joining" || status === "leaving";
 
+  const onLayoutChanged = useCallback(
+    (layout: { [id: string]: number }) => {
+      // react-resizable-panels calls `onLayoutChanged` once per
+      // completed resize (e.g. on pointerup) — much better than
+      // `onLayoutChange` which fires on every pointermove. Layout is
+      // keyed by panel id (we have id="chat" and id="video").
+      const chatPanelSize = layout["chat"];
+      if (typeof chatPanelSize === "number") {
+        setRatio(chatPanelSize);
+      }
+    },
+    [setRatio]
+  );
+
   if (!isInCall) {
     return (
-      <div className="flex-1 min-h-0 mt-4">
+      <WorkspaceChat
+        workspaceId={workspaceId}
+        currentUserId={clerkUserId}
+        role={role}
+      />
+    );
+  }
+
+  return (
+    <Group
+      orientation="horizontal"
+      id={`workspace-${workspaceId}-chat-video`}
+      onLayoutChanged={onLayoutChanged}
+    >
+      <Panel id="chat" defaultSize={chatSize} minSize={20}>
         <WorkspaceChat
           workspaceId={workspaceId}
           currentUserId={clerkUserId}
           role={role}
         />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 min-h-0 mt-4">
-      <Group orientation="horizontal" id={`workspace-${workspaceId}-chat-video`}>
-        <Panel id="chat" defaultSize={chatSize} minSize={20}>
-          <WorkspaceChat
-            workspaceId={workspaceId}
-            currentUserId={clerkUserId}
-            role={role}
-          />
-        </Panel>
-        <Separator className="w-1.5 bg-border transition-colors hover:bg-primary" />
-        <Panel id="video" defaultSize={videoSize} minSize={20}>
-          <VideoPanel className="h-full" />
-        </Panel>
-      </Group>
-    </div>
+      </Panel>
+      <Separator className="w-1.5 bg-border transition-colors hover:bg-primary" />
+      <Panel id="video" defaultSize={videoSize} minSize={20}>
+        <VideoPanel className="h-full" />
+      </Panel>
+    </Group>
   );
-}
-
-/**
- * Reads only `status` from the call context. Safe to call outside an
- * active provider — returns `idle` if no provider is mounted. This
- * lets `ChatTabWithVideo` render full-width chat on pages without a
- * VideoCallProvider (shouldn't happen in PR #3 but is defensive).
- */
-function useVideoCallContextSafe(): { status: "idle" | "joining" | "joined" | "leaving" | "error" | "ended" } {
-  try {
-    const ctx = useVideoCallContext();
-    return { status: ctx.status };
-  } catch {
-    return { status: "idle" };
-  }
 }
 
 function WorkspacePolicyBanner() {

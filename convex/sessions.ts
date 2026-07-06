@@ -1390,27 +1390,39 @@ export const getActiveSessionForWorkspace = query({
       return null;
     }
 
+    // Use `by_studentId_status_scheduledAt` instead of `by_studentId`
+    // so the read is bounded to recent scheduled sessions, then
+    // in-memory filter for the active-call conditions. In-memory
+    // filter (Array.filter) on a bounded set is allowed — only
+    // Convex query builder `.filter()` is disallowed per the
+    // guidelines. Sort by `callStartedAt` desc to pick the most
+    // recently started active session (avoids the previous behavior
+    // where `.collect()` returned all matches in arbitrary order).
     const sessions = await ctx.db
       .query("sessions")
-      .withIndex("by_studentId", (q) => q.eq("studentId", workspace.ownerId))
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("instructorId"), workspace.instructorId!),
-          q.neq(q.field("callStartedAt"), undefined),
-          q.gt(q.field("callStartedAt"), callActiveWindowStart),
-          q.eq(q.field("callEndedAt"), undefined),
-          q.neq(q.field("videoRoomName"), undefined)
-        )
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
+        q
+          .eq("studentId", workspace.ownerId)
+          .eq("status", "scheduled")
+          .gte("scheduledAt", callActiveWindowStart)
       )
-      .collect();
+      .order("asc")
+      .take(50);
 
-    if (sessions.length === 0) {
+    const active = sessions
+      .filter(
+        (s) =>
+          s.instructorId === workspace.instructorId &&
+          s.callStartedAt !== undefined &&
+          s.callStartedAt > callActiveWindowStart &&
+          s.callEndedAt === undefined &&
+          s.videoRoomName !== undefined
+      )
+      .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
+
+    if (!active || active.callStartedAt === undefined) {
       return null;
     }
-
-    const active = sessions.sort(
-      (a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0)
-    )[0];
 
     return {
       sessionId: active._id,
@@ -1492,39 +1504,59 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
 
     const now = Date.now();
 
-    // Bounded read: only the next ~30 days of sessions are candidates
-    // for "current or upcoming". Anything older than that is not
-    // joinable (the join window has already closed) and shouldn't be
-    // considered. Limits Convex read units per query and keeps the
-    // query responsive for users with long histories.
+    // Bounded read scoped to the next ~30 days of scheduled sessions.
+    // Uses the compound index `by_studentId_status_scheduledAt` so the
+    // result is deterministically ordered by `scheduledAt` ascending —
+    // `.take(50)` is guaranteed to include the next-upcoming session
+    // regardless of how many historical sessions exist (which the
+    // previous `by_studentId`-only query could not guarantee). Also
+    // restricts to status="scheduled" because every active call still
+    // has status="scheduled" until `endCall` transitions it, so this
+    // index covers both active and upcoming candidates.
     const historyStart = now - 4 * 60 * 60 * 1000;
     const futureEnd = now + 30 * 24 * 60 * 60 * 1000;
 
     const sessions = await ctx.db
       .query("sessions")
-      .withIndex("by_studentId", (q) => q.eq("studentId", workspace.ownerId))
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("instructorId"), workspace.instructorId!),
-          q.eq(q.field("deletedAt"), undefined),
-          q.gte(q.field("scheduledAt"), historyStart),
-          q.lte(q.field("scheduledAt"), futureEnd)
-        )
+      .withIndex("by_studentId_status_scheduledAt", (q) =>
+        q
+          .eq("studentId", workspace.ownerId)
+          .eq("status", "scheduled")
+          .gte("scheduledAt", historyStart)
+          .lte("scheduledAt", futureEnd)
       )
+      .order("asc")
       .take(50);
 
     if (sessions.length === 0) {
       return null;
     }
 
-    const active = sessions.find(
-      (s) =>
-        s.callStartedAt !== undefined &&
-        s.callEndedAt === undefined &&
-        s.videoRoomName !== undefined
+    // Narrow to the workspace's instructor. The compound index is
+    // scoped by `studentId` only — instructor filtering is in-memory
+    // because `instructorId` is not part of any compound index that
+    // also includes `studentId`. The result set is already bounded
+    // (≤ 50), so an in-memory filter is fine.
+    const scoped = sessions.filter(
+      (s) => s.instructorId === workspace.instructorId && s.deletedAt === undefined
     );
-    // The historyStart filter above can include active calls that
-    // started up to 4h ago — covers the post-call late-join window.
+    if (scoped.length === 0) {
+      return null;
+    }
+
+    // Pick the most recently started active session, if any. We sort
+    // by `callStartedAt` desc instead of using `find()` so a stale
+    // earlier-scheduled active session can't beat a freshly started
+    // one (which would otherwise happen if `.order("asc")` returned
+    // an older session first in the index).
+    const active = scoped
+      .filter(
+        (s) =>
+          s.callStartedAt !== undefined &&
+          s.callEndedAt === undefined &&
+          s.videoRoomName !== undefined
+      )
+      .sort((a, b) => (b.callStartedAt ?? 0) - (a.callStartedAt ?? 0))[0];
     if (active && active.callStartedAt !== undefined) {
       const participantName = isInstructor
         ? await resolveStudentName(ctx, active.studentId)
@@ -1544,14 +1576,13 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
 
     const upcomingWindowEnd = now + 24 * 60 * 60 * 1000;
 
-    const upcoming = sessions
-      .filter(
-        (s) =>
-          s.status === "scheduled" &&
-          s.callStartedAt === undefined &&
-          s.scheduledAt <= upcomingWindowEnd
-      )
-      .sort((a, b) => a.scheduledAt - b.scheduledAt)[0];
+    // `scoped` is already ordered by `scheduledAt` ascending from the
+    // index, so the first matching session is the earliest upcoming
+    // one — no further sort needed.
+    const upcoming = scoped.find(
+      (s) =>
+        s.callStartedAt === undefined && s.scheduledAt <= upcomingWindowEnd
+    );
 
     if (!upcoming) {
       return null;
@@ -1667,6 +1698,22 @@ export const markCallStarted = mutation({
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_CALL_ENDED",
         message: "Forbidden: call has already ended",
+      });
+    }
+
+    // The Daily room must already exist before we mark the call as
+    // started. Otherwise the Join flow has no `videoRoomName` to
+    // request a meeting token against, and the client never gets a
+    // joinable room URL. The client is expected to call
+    // `POST /api/video/rooms` first (which routes to `setVideoRoom`
+    // and creates the Daily room). This precondition prevents a
+    // stale `callStartedAt` from being persisted without a backing
+    // room.
+    if (session.videoRoomName === undefined) {
+      throw new ConvexError({
+        code: "VIDEO_ROOM_NAME_CONFLICT",
+        message:
+          "Forbidden: cannot start a call without a Daily room. Ensure POST /api/video/rooms has been called first.",
       });
     }
 

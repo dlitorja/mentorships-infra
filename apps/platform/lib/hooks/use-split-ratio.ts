@@ -1,6 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { MIN_PANEL_WIDTH_PX } from "@/lib/video/constants";
+
+export type UseSplitRatioResult = {
+  ratio: number;
+  setRatio: (next: number) => void;
+  minPanelWidthPx: number;
+};
 
 /**
  * Persists a horizontal split ratio (0-100) to localStorage so users
@@ -11,7 +17,10 @@ import { MIN_PANEL_WIDTH_PX } from "@/lib/video/constants";
  * the only piece of UI state we persist; everything else lives in the
  * VideoCallContext.
  */
-export function useSplitRatio(storageKey: string, defaultRatio: number) {
+export function useSplitRatio(
+  storageKey: string,
+  defaultRatio: number
+): UseSplitRatioResult {
   const [ratio, setRatioState] = useState<number>(() => {
     if (typeof window === "undefined") return defaultRatio;
     try {
@@ -35,10 +44,10 @@ export function useSplitRatio(storageKey: string, defaultRatio: number) {
     }
   }, [ratio, storageKey]);
 
-  const setRatio = (next: number) => {
+  const setRatio = useCallback((next: number) => {
     const clamped = Math.min(90, Math.max(10, next));
     setRatioState(clamped);
-  };
+  }, []);
 
   return {
     ratio,

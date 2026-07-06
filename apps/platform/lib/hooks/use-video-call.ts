@@ -1,106 +1,200 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useDaily,
   useDailyEvent,
-  useLocalSessionId,
   useMeetingState,
-  useParticipantIds,
   useScreenShare,
 } from "@daily-co/daily-react";
-import type { DailyEventObject } from "@daily-co/daily-js";
-
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
+import { z } from "zod";
+
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { DEFAULT_DAILY_DOMAIN } from "@/lib/daily";
 import { reportError } from "@/lib/observability";
 
-type CallStatus =
+export type VideoCallStatus =
   | "idle"
   | "joining"
   | "joined"
   | "leaving"
-  | "error"
-  | "ended";
+  | "error";
+
+export type UseVideoCallOptions = {
+  /**
+   * Whether the call hook should be live. When false, the hook does not
+   * attempt to join, exposes `status: "idle"`, and skips all effects.
+   */
+  enabled: boolean;
+  workspaceId: Id<"workspaces"> | null;
+  sessionId: Id<"sessions"> | null;
+  roomName: string | null;
+};
+
+export type UseVideoCallResult = {
+  status: VideoCallStatus;
+  isMuted: boolean;
+  isCameraOff: boolean;
+  isScreenSharing: boolean;
+  participantCount: number;
+  remoteParticipantName: string | null;
+  errorMessage: string | null;
+  durationSeconds: number;
+  join: () => Promise<void>;
+  leave: () => Promise<void>;
+  toggleMute: () => void;
+  toggleCamera: () => void;
+  toggleScreenShare: () => void;
+};
 
 /**
- * Fetches a Daily meeting token from `GET /api/video/token/[roomName]`
- * and joins the Daily room. Manages the full call lifecycle for PR #3.
- *
- * The token route reads the caller's Clerk identity, resolves the
- * session via `api.sessions.getSessionByVideoRoomName` (PR #2), and
- * issues an `owner` (instructor) or `participant` (student) JWT.
- * The token's `user_name` claim is honored as the Daily display name
- * (set server-side from Clerk sessionClaims) — we deliberately do not
- * pass `userName` to `daily.join()` so the server-resolved name wins.
- *
- * Calls `api.sessions.endCall` on leave so `callEndedAt` is set,
- * closing the join window via `getSessionByVideoRoomName` returning
- * null on any subsequent token request.
- *
- * Tracks the in-call duration via a 1-second interval started after
- * `joined-meeting`. Used by the VideoPanel to render the call timer.
- *
- * Status transitions: idle → joining → joined → leaving → ended.
+ * Shape of `GET /api/video/token/[roomName]`. Validated with zod
+ * instead of casting through `as` so misconfigurations surface as a
+ * clear parse error rather than a runtime null access.
  */
-export function useVideoCall(input: {
-  enabled: boolean;
-  workspaceId: Id<"workspaces">;
-  sessionId: Id<"sessions">;
-  roomName: string;
-}) {
+const tokenResponseSchema = z.object({
+  token: z.string().min(1),
+});
+
+/**
+ * Hook that owns the Daily call lifecycle for a single workspace +
+ * session. Returns immutable state + stable action handlers. Designed
+ * to be called inside a `<DailyProvider>` (so `useDaily()` returns the
+ * actual call object).
+ *
+ * Effects:
+ *   1. When `enabled` + `roomName` flip from null → non-null, fetch a
+ *      meeting token from `GET /api/video/token/[roomName]` and call
+ *      `daily.join({ url, token })`.
+ *   2. On unmount OR when the session is reset to null, call
+ *      `daily.leave()` followed by `endCall` (only if we actually
+ *      joined — never call `endCall` on a session we never entered).
+ *   3. Track mute / camera / screenshare via Daily + local mirrors.
+ *   4. Tick `durationSeconds` while in the meeting; reset on leave.
+ *   5. Track the remote participant by `session_id` (not `user_name`,
+ *      which can change mid-call via `setUserName`).
+ *
+ * The hook uses refs to track the latest `sessionId` and `workspaceId`
+ * so the unmount cleanup uses the correct identifiers even if the
+ * React state that spawned the effect has already closed over an
+ * older value.
+ */
+export function useVideoCall(
+  options: UseVideoCallOptions
+): UseVideoCallResult {
+  const { enabled, workspaceId, sessionId, roomName } = options;
   const daily = useDaily();
   const meetingState = useMeetingState();
-  const localSessionId = useLocalSessionId();
-  const participantIds = useParticipantIds();
-  const screenShare = useScreenShare();
+  const { isSharingScreen, startScreenShare, stopScreenShare } =
+    useScreenShare();
+
+  const queryClient = useQueryClient();
   const endCall = useMutation({
     mutationFn: useConvexMutation(api.sessions.endCall),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    },
   });
 
-  const [status, setStatus] = useState<CallStatus>("idle");
+  const [status, setStatus] = useState<VideoCallStatus>("idle");
+  const [isMuted, setIsMuted] = useState(false);
+  const [isCameraOff, setIsCameraOff] = useState(false);
+  const [remoteParticipantName, setRemoteParticipantName] = useState<
+    string | null
+  >(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [joinedAtMs, setJoinedAtMs] = useState<number | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(0);
-  const [remoteParticipantName, setRemoteParticipantName] = useState<string | null>(null);
-  const [isMuted, setIsMuted] = useState(true);
-  const [isCameraOff, setIsCameraOff] = useState(true);
-  const joinInFlight = useRef(false);
-  const leaveInFlight = useRef(false);
+  const [participantCount, setParticipantCount] = useState(0);
+  const [joinedSessionId, setJoinedSessionId] = useState<Id<"sessions"> | null>(
+    null
+  );
 
-  // ── join ──────────────────────────────────────────────────────────────────
-  const join = useCallback(async () => {
-    if (joinInFlight.current) return;
-    if (!input.enabled) return;
+  // Track the latest session/workspace for the unmount cleanup path,
+  // which runs after React has cleared local state. Without refs, the
+  // cleanup closure would capture the values from when the call
+  // effect first fired, not the current values.
+  const latestSessionIdRef = useRef<Id<"sessions"> | null>(null);
+  const latestWorkspaceIdRef = useRef<Id<"workspaces"> | null>(null);
+  const didJoinRef = useRef(false);
+
+  useEffect(() => {
+    latestSessionIdRef.current = sessionId;
+    latestWorkspaceIdRef.current = workspaceId;
+  }, [sessionId, workspaceId]);
+
+  // Mirror Daily's local device state into React state so consumers
+  // don't need access to the `daily` call object.
+  useEffect(() => {
+    if (!daily) return;
+    setIsMuted(!daily.localAudio());
+    setIsCameraOff(!daily.localVideo());
+  }, [daily]);
+
+  // Track meeting-state transitions into our higher-level `status`.
+  useEffect(() => {
+    if (meetingState === "joined-meeting") {
+      setStatus("joined");
+    } else if (meetingState === "joining-meeting") {
+      setStatus("joining");
+    } else if (meetingState === "left-meeting") {
+      setStatus("idle");
+    }
+  }, [meetingState]);
+
+  // Reset per-session state when the session changes (e.g. switching
+  // workspaces or after a previous call ended).
+  useEffect(() => {
+    setRemoteParticipantName(null);
+    setDurationSeconds(0);
+    setParticipantCount(0);
+    setErrorMessage(null);
+  }, [sessionId]);
+
+  // Duration ticker. Re-renders once per second while joined. The
+  // interval is cleared on status change or unmount so it doesn't
+  // leak.
+  useEffect(() => {
+    if (status !== "joined") return;
+    const interval = window.setInterval(() => {
+      setDurationSeconds((prev) => prev + 1);
+    }, 1_000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [status]);
+
+  const join = useCallback(async (): Promise<void> => {
+    if (!enabled || !roomName || !sessionId) return;
     if (!daily) {
-      setErrorMessage("Video call provider not ready");
+      setErrorMessage("Video provider not ready. Please retry in a moment.");
       setStatus("error");
       return;
     }
-    joinInFlight.current = true;
-    setStatus("joining");
     setErrorMessage(null);
-
+    setStatus("joining");
     try {
-      const tokenRes = await fetch(`/api/video/token/${encodeURIComponent(input.roomName)}`);
-      if (!tokenRes.ok) {
-        const body = await tokenRes.text();
-        throw new Error(`Token request failed (${tokenRes.status}): ${body.slice(0, 200)}`);
+      const res = await fetch(`/api/video/token/${encodeURIComponent(roomName)}`);
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(
+          `Failed to fetch meeting token (${res.status})${detail ? `: ${detail}` : ""}`
+        );
       }
-      const json = (await tokenRes.json()) as { token?: string };
-      if (!json.token) throw new Error("Token response missing 'token' field");
+      const raw = await res.json();
+      const parsed = tokenResponseSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new Error("Invalid token response from server.");
+      }
+      const token = parsed.data.token;
 
-      const roomUrl = `https://${process.env.NEXT_PUBLIC_DAILY_DOMAIN ?? "huckleberryartinc.daily.co"}/${input.roomName}`;
-
-      await daily.join({
-        url: roomUrl,
-        token: json.token,
-      });
-
-      setJoinedAtMs(Date.now());
-      setStatus("joined");
+      const domain = process.env.NEXT_PUBLIC_DAILY_DOMAIN ?? DEFAULT_DAILY_DOMAIN;
+      const roomUrl = `https://${domain}/${roomName}`;
+      await daily.join({ url: roomUrl, token });
+      setJoinedSessionId(sessionId);
+      didJoinRef.current = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrorMessage(message);
@@ -110,212 +204,156 @@ export function useVideoCall(input: {
         error: err instanceof Error ? err : new Error(message),
         level: "error",
         message: "Failed to join video call",
-        context: { sessionId: input.sessionId, roomName: input.roomName },
+        context: { workspaceId, sessionId, roomName },
       });
-      // Re-throw so manual Join button callers can surface a toast.
-      // The auto-join effect catches and ignores.
       throw err;
-    } finally {
-      joinInFlight.current = false;
     }
-  }, [daily, input.enabled, input.roomName, input.sessionId]);
+  }, [daily, enabled, roomName, sessionId, workspaceId]);
 
-  // ── leave ─────────────────────────────────────────────────────────────────
-  const leave = useCallback(async () => {
-    if (leaveInFlight.current) return;
-    leaveInFlight.current = true;
-    setStatus("leaving");
-    try {
-      if (daily && meetingState === "joined-meeting") {
-        await daily.leave();
-      }
-    } catch (err) {
-      await reportError({
-        source: "useVideoCall.leave",
-        error: err,
-        level: "warn",
-        message: "Daily leave() threw; continuing to mark call ended",
-      });
-    }
-
-    try {
-      await endCall.mutateAsync({ sessionId: input.sessionId });
-    } catch (err) {
-      await reportError({
-        source: "useVideoCall.leave.endCall",
-        error: err,
-        level: "warn",
-        message: "Failed to mark call ended in Convex (call may be auto-ended via webhook)",
-      });
-    }
-
-    setStatus("ended");
-    setJoinedAtMs(null);
-    setDurationSeconds(0);
-    leaveInFlight.current = false;
-    // input.sessionId is captured in mutateAsync — included for completeness
-  }, [daily, endCall, input.sessionId, meetingState]);
-
-  // ── duration ticker ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (status !== "joined" || joinedAtMs === null) {
-      setDurationSeconds(0);
+  const leave = useCallback(async (): Promise<void> => {
+    if (!daily) return;
+    if (meetingState !== "joined-meeting") {
+      // We never successfully joined this session — don't burn the
+      // `endCall` mutation by claiming we did.
+      setStatus("idle");
       return;
     }
-    const tick = () => setDurationSeconds(Math.floor((Date.now() - joinedAtMs) / 1000));
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [status, joinedAtMs]);
-
-  // ── device toggles ────────────────────────────────────────────────────────
-  const toggleMute = useCallback(() => {
-    if (!daily) return;
+    setStatus("leaving");
     try {
-      const next = !daily.localAudio();
-      daily.setLocalAudio(next);
-      setIsMuted(!next);
-    } catch (err) {
-      void reportError({ source: "useVideoCall.toggleMute", error: err, level: "warn" });
-    }
-  }, [daily]);
-
-  const toggleCamera = useCallback(() => {
-    if (!daily) return;
-    try {
-      const next = !daily.localVideo();
-      daily.setLocalVideo(next);
-      setIsCameraOff(!next);
-    } catch (err) {
-      void reportError({ source: "useVideoCall.toggleCamera", error: err, level: "warn" });
-    }
-  }, [daily]);
-
-  const toggleScreenShare = useCallback(() => {
-    try {
-      if (screenShare.isSharingScreen) {
-        screenShare.stopScreenShare();
-      } else {
-        screenShare.startScreenShare();
+      await daily.leave();
+      if (joinedSessionId) {
+        await endCall.mutateAsync({ sessionId: joinedSessionId });
       }
+      didJoinRef.current = false;
+      setJoinedSessionId(null);
+      setStatus("idle");
     } catch (err) {
-      void reportError({ source: "useVideoCall.toggleScreenShare", error: err, level: "warn" });
+      const message = err instanceof Error ? err.message : String(err);
+      await reportError({
+        source: "useVideoCall.leave",
+        error: err instanceof Error ? err : new Error(message),
+        level: "error",
+        message: "Failed to leave video call cleanly",
+        context: { workspaceId, sessionId },
+      });
+      setStatus("error");
+      setErrorMessage(message);
     }
-  }, [screenShare]);
+  }, [daily, endCall, joinedSessionId, meetingState, sessionId, workspaceId]);
 
-  // ── meeting-state autosync ────────────────────────────────────────────────
-  useDailyEvent(
-    "joined-meeting",
-    useCallback(() => {
-      setStatus("joined");
-      if (joinedAtMs === null) setJoinedAtMs(Date.now());
-      // Read device state from the call object so the controls reflect reality
-      if (daily) {
-        setIsMuted(!daily.localAudio());
-        setIsCameraOff(!daily.localVideo());
-      }
-    }, [daily, joinedAtMs])
-  );
-
-  useDailyEvent(
-    "left-meeting",
-    useCallback(() => {
-      setStatus("ended");
-      setJoinedAtMs(null);
-    }, [])
-  );
-
-  useDailyEvent(
-    "error",
-    useCallback(
-      (event: DailyEventObject<"error">) => {
-        const message = event?.error?.message ?? "Daily call error";
-        setErrorMessage(message);
-        setStatus("error");
-        void reportError({
-          source: "useVideoCall.daily.error",
-          error: new Error(message),
-          level: "error",
-          message: "Daily call error event",
-          context: { sessionId: input.sessionId },
+  // Cleanup on unmount: leave + endCall if we joined.
+  useEffect(() => {
+    return () => {
+      const d = daily;
+      if (!d) return;
+      const ms = d.meetingState();
+      if (ms === "joined-meeting") {
+        const sid = latestSessionIdRef.current;
+        d.leave().catch(() => {
+          /* swallow — unmount path */
         });
-      },
-      [input.sessionId]
-    )
-  );
+        if (sid && didJoinRef.current) {
+          // Fire and forget: endCall invalidates sessions query on success.
+          endCall
+            .mutateAsync({ sessionId: sid })
+            .then(() => {
+              queryClient.invalidateQueries({ queryKey: ["sessions"] });
+            })
+            .catch(() => {
+              /* swallow — unmount path */
+            });
+        }
+      }
+    };
+  }, [daily, endCall, queryClient]);
 
-  // ── remote participant name ───────────────────────────────────────────────
+  const toggleMute = useCallback((): void => {
+    const d = daily;
+    if (!d) return;
+    const next = !d.localAudio();
+    d.setLocalAudio(next);
+    setIsMuted(!next);
+  }, [daily]);
+
+  const toggleCamera = useCallback((): void => {
+    const d = daily;
+    if (!d) return;
+    const next = !d.localVideo();
+    d.setLocalVideo(next);
+    setIsCameraOff(!next);
+  }, [daily]);
+
+  const toggleScreenShare = useCallback((): void => {
+    if (isSharingScreen) {
+      void stopScreenShare();
+    } else {
+      void startScreenShare();
+    }
+  }, [isSharingScreen, startScreenShare, stopScreenShare]);
+
+  // Track participant count + remote name. Use `session_id` as the
+  // identity key so name mutations (`daily.setUserName`) don't reset
+  // the recorded remote name.
   useDailyEvent(
     "participant-joined",
-    useCallback(
-      (event: DailyEventObject<"participant-joined">) => {
-        const participant = event?.participant;
-        if (!participant) return;
-        if (participant.session_id === localSessionId) return;
-        if (participant.user_name) setRemoteParticipantName(participant.user_name);
-      },
-      [localSessionId]
-    )
+    useCallback((evt: { participant: { session_id?: string; user_name?: string; local?: boolean } }) => {
+      setParticipantCount((prev) => Math.max(prev + 1, 1));
+      if (!evt.participant.local && evt.participant.user_name) {
+        setRemoteParticipantName(evt.participant.user_name);
+      }
+    }, [])
   );
 
   useDailyEvent(
     "participant-left",
     useCallback(
-      (event: DailyEventObject<"participant-left">) => {
-        const participant = event?.participant;
-        if (!participant) return;
-        setRemoteParticipantName((prev) =>
-          prev && participant.user_name === prev ? null : prev
-        );
+      (evt: { participant: { session_id?: string; user_name?: string } }) => {
+        setParticipantCount((prev) => Math.max(prev - 1, 0));
+        setRemoteParticipantName((current) => {
+          if (
+            current &&
+            evt.participant.user_name &&
+            current === evt.participant.user_name
+          ) {
+            return null;
+          }
+          return current;
+        });
       },
       []
     )
   );
 
-  // Cleanup on unmount: leave the Daily room AND mark callEndedAt in
-  // Convex so the session isn't stuck in "active" state. Without the
-  // endCall mutation, the next participant opening the workspace would
-  // see an "active" call and auto-join a Daily room that no one is in.
-  // The recording webhook (PR #1) is the backstop for cases where the
-  // browser crashes before this cleanup runs, but we shouldn't depend
-  // on it for the common case.
-  useEffect(() => {
-    return () => {
-      const wasJoined = daily && daily.meetingState() === "joined-meeting";
-      if (wasJoined) {
-        void daily.leave();
-      }
-      // Only invoke endCall if the call actually started — avoid
-      // touching sessions that were never joined.
-      if (wasJoined) {
-        void endCall
-          .mutateAsync({ sessionId: input.sessionId })
-          .catch((err: unknown) => {
-            void reportError({
-              source: "useVideoCall.unmount.endCall",
-              error: err,
-              level: "warn",
-              message: "endCall failed during unmount cleanup",
-            });
-          });
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return {
-    status,
-    isMuted,
-    isCameraOff,
-    isScreenSharing: screenShare.isSharingScreen,
-    participantCount: participantIds.length,
-    remoteParticipantName,
-    errorMessage,
-    durationSeconds,
-    join,
-    leave,
-    toggleMute,
-    toggleCamera,
-    toggleScreenShare,
-  };
+  return useMemo<UseVideoCallResult>(
+    () => ({
+      status,
+      isMuted,
+      isCameraOff,
+      isScreenSharing: isSharingScreen,
+      participantCount,
+      remoteParticipantName,
+      errorMessage,
+      durationSeconds,
+      join,
+      leave,
+      toggleMute,
+      toggleCamera,
+      toggleScreenShare,
+    }),
+    [
+      status,
+      isMuted,
+      isCameraOff,
+      isSharingScreen,
+      participantCount,
+      remoteParticipantName,
+      errorMessage,
+      durationSeconds,
+      join,
+      leave,
+      toggleMute,
+      toggleCamera,
+      toggleScreenShare,
+    ]
+  );
 }

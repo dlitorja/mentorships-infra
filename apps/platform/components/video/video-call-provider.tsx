@@ -21,6 +21,17 @@ type VideoCallProviderProps = {
 /**
  * Owns the Daily call object + state, exposes it via React Context.
  *
+ * Architecture note: `useVideoCall` internally calls `useDaily()`
+ * (from `@daily-co/daily-react`) to obtain the call object. That hook
+ * reads the DailyProvider context, which is NOT visible from a
+ * component that renders `<DailyProvider>` as a child of itself —
+ * React's context lookup only sees ancestors, not self-rendered
+ * descendants. We therefore split into:
+ *   1. `<VideoCallProvider>` — outer shell, just renders DailyProvider
+ *      and forwards children.
+ *   2. `<VideoCallProviderInner>` — child of DailyProvider, contains
+ *      all the call logic that uses `useVideoCall` / `useDaily()`.
+ *
  * Wires together:
  *   - `useCurrentOrUpcomingSessionForWorkspace` — Convex query for the
  *     current/next session on the workspace.
@@ -35,6 +46,27 @@ type VideoCallProviderProps = {
  * transient UI mode, not a user preference).
  */
 export function VideoCallProvider({ workspaceId, children }: VideoCallProviderProps) {
+  // NOTE: this component MUST stay free of hooks that read DailyProvider
+  // context (e.g. useDaily, useVideoCall). All call logic lives in
+  // VideoCallProviderInner, which is a child of <DailyProvider>.
+  return (
+    <DailyProvider>
+      <VideoCallProviderInner workspaceId={workspaceId}>
+        {children}
+      </VideoCallProviderInner>
+    </DailyProvider>
+  );
+}
+
+/**
+ * Inner component that runs call logic. Mounted as a child of
+ * `<DailyProvider>` so `useDaily()` returns the actual DailyCall
+ * instance instead of the default `null`.
+ */
+function VideoCallProviderInner({
+  workspaceId,
+  children,
+}: VideoCallProviderProps) {
   const sessionQuery = useCurrentOrUpcomingSessionForWorkspace(workspaceId);
   const session = sessionQuery.data ?? null;
 
@@ -48,13 +80,14 @@ export function VideoCallProvider({ workspaceId, children }: VideoCallProviderPr
   });
 
   const call = useVideoCall({
-    enabled: session?.status === "active" || session?.status === "joinable",
-    workspaceId: workspaceId ?? ("_placeholder" as Id<"workspaces">),
-    sessionId: session?.sessionId ?? ("_placeholder" as Id<"sessions">),
-    roomName: session?.videoRoomName ?? "",
+    enabled:
+      session?.status === "active" || session?.status === "joinable",
+    workspaceId,
+    sessionId: session?.sessionId ?? null,
+    roomName: session?.videoRoomName ?? null,
   });
 
-  const joinCall = useCallback(async () => {
+  const joinCall = useCallback(async (): Promise<void> => {
     if (!session) return;
     if (session.status === "active") {
       await call.join();
@@ -78,7 +111,7 @@ export function VideoCallProvider({ workspaceId, children }: VideoCallProviderPr
     }
   }, [call, markCallStarted, session]);
 
-  const togglePictureInPicture = useCallback(() => {
+  const togglePictureInPicture = useCallback((): void => {
     setIsPictureInPicture((prev) => !prev);
   }, []);
 
@@ -92,7 +125,7 @@ export function VideoCallProvider({ workspaceId, children }: VideoCallProviderPr
         void call.leave();
       },
     }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- call is captured fresh on each render; the per-call handlers below are stable within a render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- call is captured fresh each render; the per-call handlers below are stable within a render
     [call.toggleMute, call.toggleCamera, call.toggleScreenShare, call.leave, togglePictureInPicture]
   );
 
@@ -113,31 +146,56 @@ export function VideoCallProvider({ workspaceId, children }: VideoCallProviderPr
       // No toast here — this path runs on initial mount and any
       // double-fire would spam the user.
     });
-  }, [call, session]);
+    // We intentionally depend on the primitive `call.status` and the
+    // stable `call.join` reference rather than the whole `call` object.
+    // `call` is memoized but its identity still shifts when device
+    // toggles fire; including it would cause spurious re-runs of
+    // this auto-join effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.join, call.status, session]);
 
-  const value: VideoCallContextValue = {
-    workspaceId,
-    session,
-    status: call.status,
-    isMuted: call.isMuted,
-    isCameraOff: call.isCameraOff,
-    isScreenSharing: call.isScreenSharing,
-    isPictureInPicture,
-    participantCount: call.participantCount,
-    remoteParticipantName: call.remoteParticipantName,
-    errorMessage: call.errorMessage,
-    durationSeconds: call.durationSeconds,
-    join: joinCall,
-    leave: call.leave,
-    toggleMute: call.toggleMute,
-    toggleCamera: call.toggleCamera,
-    toggleScreenShare: call.toggleScreenShare,
-    togglePictureInPicture,
-  };
+  const value: VideoCallContextValue = useMemo(
+    () => ({
+      workspaceId,
+      session,
+      status: call.status,
+      isMuted: call.isMuted,
+      isCameraOff: call.isCameraOff,
+      isScreenSharing: call.isScreenSharing,
+      isPictureInPicture,
+      participantCount: call.participantCount,
+      remoteParticipantName: call.remoteParticipantName,
+      errorMessage: call.errorMessage,
+      durationSeconds: call.durationSeconds,
+      join: joinCall,
+      leave: call.leave,
+      toggleMute: call.toggleMute,
+      toggleCamera: call.toggleCamera,
+      toggleScreenShare: call.toggleScreenShare,
+      togglePictureInPicture,
+    }),
+    [
+      workspaceId,
+      session,
+      call.status,
+      call.isMuted,
+      call.isCameraOff,
+      call.isScreenSharing,
+      call.participantCount,
+      call.remoteParticipantName,
+      call.errorMessage,
+      call.durationSeconds,
+      call.toggleMute,
+      call.toggleCamera,
+      call.toggleScreenShare,
+      call.leave,
+      joinCall,
+      togglePictureInPicture,
+      isPictureInPicture,
+    ]
+  );
 
   return (
-    <DailyProvider>
-      <VideoCallContext.Provider value={value}>{children}</VideoCallContext.Provider>
-    </DailyProvider>
+    <VideoCallContext.Provider value={value}>{children}</VideoCallContext.Provider>
   );
 }
