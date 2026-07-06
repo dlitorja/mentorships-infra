@@ -13,6 +13,8 @@
   "dependencies": {
     "@clerk/nextjs": "^7.3.4",
     "@convex-dev/react-query": "^0.1.0",
+    "@daily-co/daily-js": "^0.91.0",
+    "@daily-co/daily-react": "^0.25.3",
     "@mentorships/payments": "workspace:*",
     "@mentorships/schemas": "workspace:*",
     "@mentorships/ui": "workspace:*",
@@ -44,6 +46,7 @@
     "react-dom": "^19.2.0",
     "react-dropzone": "^14.4.1",
     "react-image-crop": "^11.0.10",
+    "react-resizable-panels": "^4.12.1",
     "resend": "^6.6.0",
     "sonner": "^2.0.7",
     "stripe": "^17.4.0",
