@@ -19,6 +19,15 @@ export type CurrentOrUpcomingSession = {
   participantName: string;
   windowOpensAt: number;
   windowClosesAt: number;
+  /**
+   * Last recorded consent value, or null if no consent has been captured
+   * yet (e.g., an ad-hoc session whose creator hasn't confirmed). The
+   * consent modal defaults to this when present and to `true` for
+   * newly-booked sessions (the booking form sets `recordingConsent:
+   * true`). Nullable so the UI can show "no choice yet" rather than
+   * guessing.
+   */
+  recordingConsent: boolean | null;
 };
 
 /**

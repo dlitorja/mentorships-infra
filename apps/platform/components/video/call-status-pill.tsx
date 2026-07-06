@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Phone,
   PhoneOff,
@@ -12,8 +12,11 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { ConsentModal } from "@/components/video/consent-modal";
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { cn } from "@/lib/utils";
+import { reportError } from "@/lib/observability";
+import type { Id } from "@/convex/_generated/dataModel";
 
 /**
  * Format `seconds` as `HH:MM:SS` for calls that cross the 1-hour
@@ -67,6 +70,13 @@ function formatCountdown(msUntil: number): string {
  * Used in the action row between the workspace header Card and the
  * TabsList. The full VideoPanel mounts below the tabs only when
  * `status === "joined"`.
+ *
+ * PR #4a: the Join button opens a consent modal before proceeding.
+ * Both parties must confirm recording preference before either
+ * `markCallStarted` (for scheduled sessions entering the join window)
+ * or `call.join` (for already-active sessions) fires. The choice is
+ * persisted via `POST /api/video/consent/[sessionId]` so the Daily
+ * room's `enable_recording` flag matches on the next room creation.
  */
 export function CallStatusPill({
   className,
@@ -96,12 +106,66 @@ export function CallStatusPill({
     };
   }, [session]);
 
-  const handleJoin = (): void => {
-    join().catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error("Could not join call", { description: message });
-    });
+  // PR #4a: consent modal state. The pill owns the modal lifecycle so
+  // it stays adjacent to the Join button that triggers it.
+  const [consentOpen, setConsentOpen] = useState(false);
+  // We capture the sessionId at the moment Join was clicked so the
+  // modal knows which session to persist consent for even if `session`
+  // changes (e.g., another tab starts a call) before the user confirms.
+  const [pendingJoinSessionId, setPendingJoinSessionId] = useState<
+    Id<"sessions"> | null
+  >(null);
+
+  const handleJoinClick = (): void => {
+    if (!session) return;
+    setPendingJoinSessionId(session.sessionId);
+    setConsentOpen(true);
   };
+
+  const handleConsentResolved = useCallback(
+    async (consent: boolean): Promise<void> => {
+      const target = pendingJoinSessionId;
+      setConsentOpen(false);
+      setPendingJoinSessionId(null);
+      if (!target) return;
+      try {
+        const res = await fetch(`/api/video/consent/${target}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ consent }),
+        });
+        if (!res.ok) {
+          const detail = await res.text().catch(() => "");
+          throw new Error(
+            `Failed to save consent (${res.status})${detail ? `: ${detail}` : ""}`
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await reportError({
+          source: "CallStatusPill.handleConsentResolved",
+          error: err instanceof Error ? err : new Error(message),
+          level: "error",
+          message: "Failed to save consent before joining",
+          context: { sessionId: target, consent },
+        });
+        toast.error("Could not save consent choice", { description: message });
+        return;
+      }
+      try {
+        await join();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error("Could not join call", { description: message });
+      }
+    },
+    [join, pendingJoinSessionId]
+  );
+
+  const handleConsentCancel = useCallback((): void => {
+    setConsentOpen(false);
+    setPendingJoinSessionId(null);
+  }, []);
 
   if (!session) {
     return null;
@@ -111,64 +175,93 @@ export function CallStatusPill({
     status === "joined" || status === "joining" || status === "leaving";
   const isError = status === "error";
 
+  // Default consent for the modal: if a previous consent was captured,
+  // match it; otherwise default to ON (matches the booking form's
+  // `recordingConsent: true` default — see
+  // `apps/platform/components/calendar/book-session-form.tsx:139`).
+  const defaultConsent = session.recordingConsent ?? true;
+
+  const consentModal = (
+    <ConsentModal
+      open={consentOpen}
+      defaultRecording={defaultConsent}
+      onResolved={(consent) => {
+        void handleConsentResolved(consent);
+      }}
+      onCancel={handleConsentCancel}
+    />
+  );
+
   if (isInCall) {
     return (
-      <div className={cn("flex items-center gap-3", className)}>
-        <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-          </span>
-          <span className="font-medium">In call</span>
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {formatDuration(durationSeconds)}
-          </span>
+      <>
+        <div className={cn("flex items-center gap-3", className)}>
+          <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            </span>
+            <span className="font-medium">In call</span>
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              {formatDuration(durationSeconds)}
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={() => void leave()}
+            disabled={status === "leaving"}
+          >
+            <PhoneOff className="h-4 w-4" />
+            End Call
+          </Button>
         </div>
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          onClick={() => void leave()}
-          disabled={status === "leaving"}
-        >
-          <PhoneOff className="h-4 w-4" />
-          End Call
-        </Button>
-      </div>
+        {consentModal}
+      </>
     );
   }
 
   if (isError) {
     return (
-      <div className={cn("flex items-center gap-2", className)}>
-        <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-sm text-destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <span className="truncate max-w-[200px]" title={errorMessage ?? "Call error"}>
-            {errorMessage ?? "Call error"}
-          </span>
+      <>
+        <div className={cn("flex items-center gap-2", className)}>
+          <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-sm text-destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="truncate max-w-[200px]" title={errorMessage ?? "Call error"}>
+              {errorMessage ?? "Call error"}
+            </span>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={handleJoinClick}>
+            Retry
+          </Button>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={handleJoin}>
-          Retry
-        </Button>
-      </div>
+        {consentModal}
+      </>
     );
   }
 
   if (session.status === "active") {
     return (
-      <Button type="button" variant="default" size="sm" onClick={handleJoin}>
-        <Video className="h-4 w-4" />
-        Open call
-      </Button>
+      <>
+        <Button type="button" variant="default" size="sm" onClick={handleJoinClick}>
+          <Video className="h-4 w-4" />
+          Open call
+        </Button>
+        {consentModal}
+      </>
     );
   }
 
   if (session.status === "joinable") {
     return (
-      <Button type="button" variant="default" size="sm" onClick={handleJoin}>
-        <Phone className="h-4 w-4" />
-        Join Call
-      </Button>
+      <>
+        <Button type="button" variant="default" size="sm" onClick={handleJoinClick}>
+          <Phone className="h-4 w-4" />
+          Join Call
+        </Button>
+        {consentModal}
+      </>
     );
   }
 
@@ -176,17 +269,20 @@ export function CallStatusPill({
   // countdown stays fresh without a parent re-render.
   const msUntil = session.windowOpensAt - now;
   return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground">
-        <VideoOff className="h-4 w-4" />
-        <span className="font-mono tabular-nums">
-          {formatCountdown(msUntil)}
-        </span>
+    <>
+      <div className={cn("flex items-center gap-2", className)}>
+        <div className="flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground">
+          <VideoOff className="h-4 w-4" />
+          <span className="font-mono tabular-nums">
+            {formatCountdown(msUntil)}
+          </span>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled>
+          <Loader2 className="h-4 w-4" />
+          Scheduled
+        </Button>
       </div>
-      <Button type="button" variant="outline" size="sm" disabled>
-        <Loader2 className="h-4 w-4" />
-        Scheduled
-      </Button>
-    </div>
+      {consentModal}
+    </>
   );
 }

@@ -1,0 +1,238 @@
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { z } from "zod";
+import { ConvexError } from "convex/values";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { convexIdSchema } from "@/lib/validators";
+import { reportError } from "@/lib/observability";
+import { DailyApiError, patchDailyRoomProperties } from "@/lib/daily";
+
+export const runtime = "nodejs";
+
+type ConsentConvexErrorCode =
+  | "VIDEO_UNAUTHORIZED"
+  | "VIDEO_SESSION_NOT_FOUND"
+  | "VIDEO_FORBIDDEN_NOT_PARTICIPANT";
+
+function getConsentConvexErrorCode(
+  error: unknown
+): ConsentConvexErrorCode | null {
+  if (
+    error instanceof ConvexError &&
+    typeof error.data === "object" &&
+    error.data !== null
+  ) {
+    const code = (error.data as { code?: unknown }).code;
+    if (
+      code === "VIDEO_UNAUTHORIZED" ||
+      code === "VIDEO_SESSION_NOT_FOUND" ||
+      code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT"
+    ) {
+      return code;
+    }
+  }
+  return null;
+}
+
+const consentSchema = z.object({
+  consent: z.boolean(),
+});
+
+/**
+ * Records a participant's recording consent on a session. Either
+ * party on the session (instructor OR student) may invoke this via
+ * the consent modal. PR #4a tracks consent per-party
+ * (`instructorRecordingConsent`, `studentRecordingConsent`) and
+ * derives the combined `recordingConsent` as
+ * `instructor && student` — so either party declining flips the
+ * combined value to `false` and disables Daily recording, matching
+ * the plan's "If either party declines consent, the call proceeds
+ * without recording" semantic (`docs/plans/video-calling.md:343`).
+ * An unanswered party is treated as "not yet declined" (not as a
+ * `false`), so early responses do not prematurely disable
+ * recording before the other party has had a chance to consent.
+ *
+ * Used by `ConsentModal` (PR #4a). The Daily room's
+ * `enable_recording` flag is reconciled by `POST /api/video/rooms`
+ * which reads the session's current `recordingConsent` on each room
+ * creation.
+ */
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ sessionId: string }> }
+): Promise<NextResponse> {
+  try {
+    const clerkAuth = await auth();
+    if (!clerkAuth.userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json(
+        { error: "Failed to acquire auth token" },
+        { status: 401 }
+      );
+    }
+
+    const { sessionId } = await params;
+    const parsedId = convexIdSchema.safeParse(sessionId);
+    if (!parsedId.success) {
+      return NextResponse.json(
+        { error: "Invalid sessionId" },
+        { status: 400 }
+      );
+    }
+
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      // Empty/malformed JSON is a client error, not a server fault —
+      // surface it as a 400 with the same shape used by safeParse
+      // failures below so the client always sees `error: "Invalid
+      // request body"`. Without this, the SyntaxError escapes to the
+      // outer catch and becomes a generic 500.
+      return NextResponse.json(
+        { error: "Invalid request body" },
+        { status: 400 }
+      );
+    }
+    const parsed = consentSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Invalid request body", details: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+
+    const sessionIdTyped = parsedId.data as Id<"sessions">;
+
+    // No pre-flight getSessionById — `recordConsent` independently
+    // validates session existence (throws VIDEO_SESSION_NOT_FOUND) and
+    // authorization (throws VIDEO_FORBIDDEN_NOT_PARTICIPANT), both of
+    // which are mapped to HTTP responses below. The pre-flight added a
+    // round-trip and a TOCTOU window where a session could be deleted
+    // between query and mutation.
+
+    const result = await fetchMutation(
+      api.sessions.recordConsent,
+      {
+        sessionId: sessionIdTyped,
+        consent: parsed.data.consent,
+      },
+      { token }
+    );
+
+    // If the combined consent now disagrees with the snapshot of
+    // Daily's `enable_recording` (e.g., the student declined AFTER
+    // the instructor had already provisioned the room with recording
+    // ON), reconcile via Daily's PATCH endpoint so the declining
+    // party's wishes are honored. The snapshot write is deferred
+    // until AFTER the PATCH succeeds — if PATCH fails, the snapshot
+    // stays unchanged and the drift detector in `recordConsent`
+    // remains armed for the next consent submission.
+    //
+    // This block is wrapped in its own try/catch (separate from the
+    // outer handler's catch) so that a transient Convex/Daily error
+    // here does NOT cause the client to see consent as unsaved. By
+    // the time we reach this point, `recordConsent` has already
+    // persisted the user's choice; the reconciliation is a
+    // best-effort follow-up that should never block the join.
+    if (result.needsRoomPatch) {
+      try {
+        const syncResult = await fetchQuery(
+          api.sessions.syncRoomRecording,
+          {
+            sessionId: sessionIdTyped,
+            enableRecording: result.recordingConsent,
+          },
+          { token }
+        );
+        if (syncResult.needsPatch && syncResult.videoRoomName !== null) {
+          let patchSucceeded = false;
+          try {
+            await patchDailyRoomProperties(syncResult.videoRoomName, {
+              enable_recording: syncResult.enableRecording ? "cloud" : "off",
+            });
+            patchSucceeded = true;
+          } catch (err) {
+            if (err instanceof DailyApiError) {
+              await reportError({
+                source: "api/video/consent",
+                error: err,
+                message: "Failed to PATCH Daily room after consent change",
+                level: "error",
+                context: {
+                  sessionId: sessionIdTyped,
+                  enableRecording: syncResult.enableRecording,
+                  statusCode: err.statusCode,
+                },
+              });
+            } else {
+              await reportError({
+                source: "api/video/consent",
+                error: err instanceof Error ? err : new Error(String(err)),
+                message: "Failed to PATCH Daily room after consent change",
+                level: "error",
+                context: { sessionId: sessionIdTyped },
+              });
+            }
+          }
+          if (patchSucceeded) {
+            await fetchMutation(
+              api.sessions.confirmRoomRecording,
+              {
+                sessionId: sessionIdTyped,
+                enableRecording: syncResult.enableRecording,
+              },
+              { token }
+            );
+          }
+        }
+      } catch (err) {
+        // Log and swallow — recordConsent already succeeded, so the
+        // user's choice is persisted. The next consent submission
+        // (or the 409-recovery PATCH in resolveDailyRoom) will
+        // re-attempt reconciliation.
+        await reportError({
+          source: "api/video/consent",
+          error: err instanceof Error ? err : new Error(String(err)),
+          message: "Failed to reconcile Daily recording after consent change",
+          level: "error",
+          context: { sessionId: sessionIdTyped },
+        });
+      }
+    }
+
+    return NextResponse.json({
+      recordingConsent: result.recordingConsent,
+      changed: result.changed,
+    });
+  } catch (error) {
+    const code = getConsentConvexErrorCode(error);
+    if (code === "VIDEO_FORBIDDEN_NOT_PARTICIPANT") {
+      return NextResponse.json(
+        { error: "Forbidden: only session participants can record consent" },
+        { status: 403 }
+      );
+    }
+    if (code === "VIDEO_SESSION_NOT_FOUND") {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+    if (code === "VIDEO_UNAUTHORIZED") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    await reportError({
+      source: "api/video/consent",
+      error,
+      message: "Unexpected error in POST /api/video/consent/[sessionId]",
+      level: "error",
+    });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
+}

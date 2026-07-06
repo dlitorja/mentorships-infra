@@ -192,6 +192,13 @@ export async function createDailyRoom(
         enable_recording: options.recordingEnabled ? "cloud" : "off",
         enable_emoji_reactions: true,
         enable_hand_raising: true,
+        // PR #4a: turn on Daily's built-in waiting room so a student
+        // who arrives while the instructor is already in the call
+        // lands in the lobby instead of being rejected by
+        // `max_participants: 2`. Owner-role meeting tokens (issued to
+        // the instructor per PR #2) bypass the lobby automatically,
+        // so the first-to-join instructor enters the room directly.
+        enable_knocking: true,
         // 1:1 mentorship — capped at 2 participants to prevent
         // uninvited observers. Trade-off: a user who disconnects on
         // a flaky network may need to wait briefly for Daily's stale
@@ -227,6 +234,88 @@ export async function deleteDailyRoom(roomName: string): Promise<void> {
 
   if (!response.ok) {
     throw await parseErrorResponse(response);
+  }
+}
+
+/**
+ * Updates an existing Daily room's properties. Used by PR #4a's consent
+ * reconciliation flow: when a participant records their consent AFTER
+ * the room was already provisioned (e.g., the student declines after
+ * the instructor already joined), `enable_recording` may need to flip
+ * from `"cloud"` to `"off"` so the call isn't recorded against the
+ * declining party's wishes. Daily's room-update endpoint is
+ * `POST /v1/rooms/{name}` (NOT PATCH) — the `method: "POST"` below
+ * is correct; do not "fix" it to PATCH or the update will 404.
+ *
+ * Only `properties` is updatable here — privacy, exp, eject, and the
+ * other non-property fields are immutable post-creation.
+ */
+export async function patchDailyRoomProperties(
+  roomName: string,
+  properties: Record<string, unknown>
+): Promise<void> {
+  const encoded = encodeURIComponent(roomName);
+  const response = await dailyFetch(`/rooms/${encoded}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ properties }),
+  });
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+}
+
+/**
+ * Creates a Daily room for a session, with 409-recovery: if Daily
+ * reports the room already exists (the stable name from
+ * `videoRoomNameForSession` collides with a prior partial-failure),
+ * look it up, reconcile its `enable_recording` to match the desired
+ * state, and reuse it. Extracted from the rooms/start-adhoc routes
+ * so the retry logic lives in one place — both flows need it.
+ *
+ * Why the PATCH-on-409 step: when a previous attempt crashed between
+ * `createDailyRoom` and `setVideoRoom`, the Daily room exists with
+ * whatever `enable_recording` was used at that time. If consent
+ * changed between the failed attempt and the retry (e.g., the user
+ * dismissed and re-opened the consent modal with a different choice),
+ * the room's `enable_recording` would diverge from the new desired
+ * state. Reconciling here keeps `setVideoRoom`'s `roomRecordingEnabled`
+ * snapshot consistent with the real Daily room.
+ *
+ * The PATCH is best-effort: a failure here logs but does NOT abort
+ * the resolution. The user can still join the existing room with its
+ * current recording setting; `syncRoomRecording` will reconcile later
+ * when either party records a fresh consent choice (which keeps the
+ * drift detector armed).
+ *
+ * Returns the `{ roomName, roomUrl }` pair to persist via
+ * `setVideoRoom`. `recordingEnabled` is forwarded to
+ * `createDailyRoom`.
+ */
+export async function resolveDailyRoom(
+  sessionId: Id<"sessions">,
+  options: { recordingEnabled: boolean }
+): Promise<DailyRoom> {
+  const roomName = videoRoomNameForSession(sessionId);
+  try {
+    return await createDailyRoom(sessionId, options);
+  } catch (error) {
+    if (error instanceof DailyApiError && error.statusCode === 409) {
+      const existing = await getDailyRoom(roomName);
+      if (existing !== null) {
+        try {
+          await patchDailyRoomProperties(roomName, {
+            enable_recording: options.recordingEnabled ? "cloud" : "off",
+          });
+        } catch {
+          // Best-effort reconciliation — the room is still usable
+          // with its current setting. Drift detection in
+          // `recordConsent` will fire on the next consent submission.
+        }
+        return existing;
+      }
+    }
+    throw error;
   }
 }
 

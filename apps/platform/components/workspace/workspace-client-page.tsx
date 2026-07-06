@@ -16,6 +16,8 @@ import { SessionCountControls } from "@/components/workspace/session-count-contr
 import { VideoCallProvider } from "@/components/video/video-call-provider";
 import { VideoPanel } from "@/components/video/video-panel";
 import { CallStatusPill } from "@/components/video/call-status-pill";
+import { StartAdhocButton } from "@/components/video/start-adhoc-button";
+import { WaitingRoom } from "@/components/video/waiting-room";
 import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { DEFAULT_SPLIT_RATIO, SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
@@ -134,9 +136,19 @@ function WorkspaceContent({
 
                 {/* PR #3: action row between header and tabs for the call pill
                  * and a one-line note that the workspace chat persists across
-                 * calls (Daily's in-call chat is disabled). */}
+                 * calls (Daily's in-call chat is disabled).
+                 * PR #4a adds the instructor-only "Start ad-hoc call" button
+                 * and the waiting-room admit control (also instructor-only;
+                 * `<WaitingRoom>` self-hides when there are no waiters). */}
                 <div className="px-6 pb-3 flex flex-wrap items-center gap-3 shrink-0">
                   <CallStatusPill />
+                  {selectedWorkspace && userRole === "instructor" && (
+                    <StartAdhocButton
+                      workspaceId={selectedWorkspace._id}
+                      role={userRole}
+                    />
+                  )}
+                  <WaitingRoom role={userRole} />
                   <p className="text-xs text-muted-foreground">
                     Chat here stays open during calls — Daily&apos;s in-call chat is disabled.
                   </p>
