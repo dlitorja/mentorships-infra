@@ -112,6 +112,9 @@ export function useVideoCall(input: {
         message: "Failed to join video call",
         context: { sessionId: input.sessionId, roomName: input.roomName },
       });
+      // Re-throw so manual Join button callers can surface a toast.
+      // The auto-join effect catches and ignores.
+      throw err;
     } finally {
       joinInFlight.current = false;
     }
@@ -269,12 +272,32 @@ export function useVideoCall(input: {
     )
   );
 
-  // Cleanup on unmount: leave the call so we don't leak Daily sessions
-  // across route changes (browser refreshes, navigation away, etc.).
+  // Cleanup on unmount: leave the Daily room AND mark callEndedAt in
+  // Convex so the session isn't stuck in "active" state. Without the
+  // endCall mutation, the next participant opening the workspace would
+  // see an "active" call and auto-join a Daily room that no one is in.
+  // The recording webhook (PR #1) is the backstop for cases where the
+  // browser crashes before this cleanup runs, but we shouldn't depend
+  // on it for the common case.
   useEffect(() => {
     return () => {
-      if (daily && daily.meetingState() === "joined-meeting") {
+      const wasJoined = daily && daily.meetingState() === "joined-meeting";
+      if (wasJoined) {
         void daily.leave();
+      }
+      // Only invoke endCall if the call actually started — avoid
+      // touching sessions that were never joined.
+      if (wasJoined) {
+        void endCall
+          .mutateAsync({ sessionId: input.sessionId })
+          .catch((err: unknown) => {
+            void reportError({
+              source: "useVideoCall.unmount.endCall",
+              error: err,
+              level: "warn",
+              message: "endCall failed during unmount cleanup",
+            });
+          });
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

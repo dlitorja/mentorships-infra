@@ -16,6 +16,8 @@ import { SessionCountControls } from "@/components/workspace/session-count-contr
 import { VideoCallProvider } from "@/components/video/video-call-provider";
 import { VideoPanel } from "@/components/video/video-panel";
 import { CallStatusPill } from "@/components/video/call-status-pill";
+import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
+import { DEFAULT_SPLIT_RATIO, SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
 import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
@@ -245,10 +247,13 @@ function ChatTabWithVideo({
   clerkUserId: string;
   role: UserRole;
 }) {
+  const { ratio } = useSplitRatio(SPLIT_RATIO_STORAGE_KEY, DEFAULT_SPLIT_RATIO);
+  const chatSize = ratio;
+  const videoSize = 100 - ratio;
   return (
     <div className="flex-1 min-h-0 mt-4">
       <Group orientation="horizontal" id={`workspace-${workspaceId}-chat-video`}>
-        <Panel id="chat" defaultSize={60} minSize={20}>
+        <Panel id="chat" defaultSize={chatSize} minSize={20}>
           <WorkspaceChat
             workspaceId={workspaceId}
             currentUserId={clerkUserId}
@@ -256,7 +261,7 @@ function ChatTabWithVideo({
           />
         </Panel>
         <Separator className="w-1.5 bg-border transition-colors hover:bg-primary" />
-        <Panel id="video" defaultSize={40} minSize={20}>
+        <Panel id="video" defaultSize={videoSize} minSize={20}>
           <VideoPanel className="h-full" />
         </Panel>
       </Group>

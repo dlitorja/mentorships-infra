@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import { Maximize2, X } from "lucide-react";
+import { Maximize2, PhoneOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { VideoCall } from "@/components/video/video-call";
@@ -14,8 +14,8 @@ type Position = { x: number; y: number };
  * Floating mini-window for an in-progress video call.
  *
  * Spawns bottom-right when the user clicks the Picture-in-Picture
- * button (or hits `P`). Drag to reposition; click ✕ to exit PiP
- * (returns to full VideoPanel); click ⤢ to swap back inline.
+ * button (or hits `P`). Drag to reposition; click ⤢ to restore inline;
+ * click ⏻ to leave the call.
  *
  * Position is in-memory only — refreshed on page reload. We
  * intentionally don't persist it: PiP is a transient UI mode, not
@@ -23,7 +23,7 @@ type Position = { x: number; y: number };
  * reconnect on a different monitor.
  */
 export function PictureInPicture({ className }: { className?: string }) {
-  const { togglePictureInPicture, remoteParticipantName } = useVideoCallContext();
+  const { togglePictureInPicture, leave, remoteParticipantName } = useVideoCallContext();
   const ref = useRef<HTMLDivElement | null>(null);
   const dragStartRef = useRef<{ pointerX: number; pointerY: number; pos: Position } | null>(null);
   const [pos, setPos] = useState<Position>({ x: 0, y: 0 });
@@ -88,8 +88,8 @@ export function PictureInPicture({ className }: { className?: string }) {
               e.stopPropagation();
               togglePictureInPicture();
             }}
-            title="Exit picture-in-picture"
-            aria-label="Exit picture-in-picture"
+            title="Restore inline"
+            aria-label="Restore video call to inline panel"
           >
             <Maximize2 className="h-3.5 w-3.5" />
           </Button>
@@ -97,15 +97,15 @@ export function PictureInPicture({ className }: { className?: string }) {
             type="button"
             variant="secondary"
             size="icon"
-            className="h-7 w-7 bg-black/60 text-white hover:bg-destructive"
+            className="h-7 w-7 bg-destructive/90 text-white hover:bg-destructive"
             onClick={(e) => {
               e.stopPropagation();
-              togglePictureInPicture();
+              void leave();
             }}
-            title="Close (X)"
-            aria-label="Close picture-in-picture"
+            title="Leave call"
+            aria-label="Leave call"
           >
-            <X className="h-3.5 w-3.5" />
+            <PhoneOff className="h-3.5 w-3.5" />
           </Button>
         </div>
       </div>

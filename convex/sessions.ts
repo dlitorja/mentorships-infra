@@ -1490,22 +1490,32 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
       return null;
     }
 
+    const now = Date.now();
+
+    // Bounded read: only the next ~30 days of sessions are candidates
+    // for "current or upcoming". Anything older than that is not
+    // joinable (the join window has already closed) and shouldn't be
+    // considered. Limits Convex read units per query and keeps the
+    // query responsive for users with long histories.
+    const historyStart = now - 4 * 60 * 60 * 1000;
+    const futureEnd = now + 30 * 24 * 60 * 60 * 1000;
+
     const sessions = await ctx.db
       .query("sessions")
       .withIndex("by_studentId", (q) => q.eq("studentId", workspace.ownerId))
       .filter((q) =>
         q.and(
           q.eq(q.field("instructorId"), workspace.instructorId!),
-          q.eq(q.field("deletedAt"), undefined)
+          q.eq(q.field("deletedAt"), undefined),
+          q.gte(q.field("scheduledAt"), historyStart),
+          q.lte(q.field("scheduledAt"), futureEnd)
         )
       )
-      .collect();
+      .take(50);
 
     if (sessions.length === 0) {
       return null;
     }
-
-    const now = Date.now();
 
     const active = sessions.find(
       (s) =>
@@ -1513,6 +1523,8 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
         s.callEndedAt === undefined &&
         s.videoRoomName !== undefined
     );
+    // The historyStart filter above can include active calls that
+    // started up to 4h ago — covers the post-call late-join window.
     if (active && active.callStartedAt !== undefined) {
       const participantName = isInstructor
         ? await resolveStudentName(ctx, active.studentId)
@@ -1536,8 +1548,7 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
       .filter(
         (s) =>
           s.status === "scheduled" &&
-          s.callStartedAt === undefined &&
-          s.scheduledAt <= upcomingWindowEnd
+          s.callStartedAt === undefined
       )
       .sort((a, b) => a.scheduledAt - b.scheduledAt)[0];
 

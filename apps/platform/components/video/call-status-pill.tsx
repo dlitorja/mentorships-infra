@@ -1,6 +1,7 @@
 "use client";
 
 import { Phone, PhoneOff, Video, VideoOff, Loader2, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useVideoCallContext } from "@/lib/video/video-context";
@@ -34,6 +35,13 @@ export function CallStatusPill({ className }: { className?: string }) {
     join,
     leave,
   } = useVideoCallContext();
+
+  const handleJoin = () => {
+    join().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error("Could not join call", { description: message });
+    });
+  };
 
   if (!session) {
     return null;
@@ -82,7 +90,7 @@ export function CallStatusPill({ className }: { className?: string }) {
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => void join()}
+          onClick={handleJoin}
         >
           Retry
         </Button>
@@ -92,7 +100,7 @@ export function CallStatusPill({ className }: { className?: string }) {
 
   if (session.status === "active") {
     return (
-      <Button type="button" variant="default" size="sm" onClick={() => void join()}>
+      <Button type="button" variant="default" size="sm" onClick={handleJoin}>
         <Video className="h-4 w-4" />
         Open call
       </Button>
@@ -101,7 +109,7 @@ export function CallStatusPill({ className }: { className?: string }) {
 
   if (session.status === "joinable") {
     return (
-      <Button type="button" variant="default" size="sm" onClick={() => void join()}>
+      <Button type="button" variant="default" size="sm" onClick={handleJoin}>
         <Phone className="h-4 w-4" />
         Join Call
       </Button>

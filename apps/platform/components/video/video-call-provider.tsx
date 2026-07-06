@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { reportError } from "@/lib/observability";
 
 import { VideoCallContext, type VideoCallContextValue } from "@/lib/video/video-context";
 import { useCurrentOrUpcomingSessionForWorkspace } from "@/lib/hooks/use-active-session";
@@ -63,8 +64,14 @@ export function VideoCallProvider({ workspaceId, children }: VideoCallProviderPr
       try {
         await markCallStarted.mutateAsync({ sessionId: session.sessionId });
       } catch (err) {
-        // Surface to UI; allow retry.
         const message = err instanceof Error ? err.message : String(err);
+        await reportError({
+          source: "videoCallProvider.join.markCallStarted",
+          error: err instanceof Error ? err : new Error(message),
+          level: "error",
+          message: "Failed to mark call started",
+          context: { sessionId: session.sessionId },
+        });
         throw new Error(`Failed to start call: ${message}`);
       }
       // sessionQuery refetches → session.status becomes "active" → call.join runs via effect.
@@ -94,12 +101,18 @@ export function VideoCallProvider({ workspaceId, children }: VideoCallProviderPr
   // If the session moves to "active" (either via join or by another
   // participant already having started), auto-join once. The PR #2
   // session API guarantees a `videoRoomName` for `status: "active"`.
+  // Errors here are silent — the manual Join button surfaces them
+  // via toast in CallStatusPill.
   useEffect(() => {
     if (!session) return;
     if (session.status !== "active") return;
     if (call.status !== "idle") return;
     if (!session.videoRoomName) return;
-    void call.join();
+    void call.join().catch(() => {
+      // Error already captured by useVideoCall state (errorMessage).
+      // No toast here — this path runs on initial mount and any
+      // double-fire would spam the user.
+    });
   }, [call, session]);
 
   const value: VideoCallContextValue = {
