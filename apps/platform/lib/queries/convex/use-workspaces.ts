@@ -73,6 +73,29 @@ export function useWorkspaceLinks(workspaceId: string) {
 }
 
 /**
+ * PR #4c-3: fetches links tagged to the currently active video-call
+ * session. Drives the "Shared during current call" subpanel that
+ * appears above the existing Links list while a call is active.
+ *
+ * `enabled` gates on `sessionId` so the query never fires with a
+ * `null` sessionId (which the Convex `v.id("sessions")` validator
+ * would reject). The `sessionId as Id<"sessions">` cast is safe
+ * behind the `enabled` guard.
+ */
+export function useSharedLinksForActiveSession(
+  workspaceId: string,
+  sessionId: string | null,
+) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getSharedLinksForActiveSession, {
+      workspaceId: workspaceId as Id<"workspaces">,
+      sessionId: sessionId as Id<"sessions">,
+    }),
+    enabled: !!workspaceId && !!sessionId,
+  });
+}
+
+/**
  * Fetches all images for a workspace.
  * Used in the Images tab of the workspace page.
  */
