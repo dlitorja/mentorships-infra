@@ -207,7 +207,7 @@ Key behaviors:
 
 ## Status
 
-**Plan approved. PR #1 → PR #4c-2 shipped; PR #4c-3 (student "Shared during current call" subpanel) and Phase 7 (mobile/narrow viewport) remaining.**
+**Plan approved. PR #1 → PR #4c-3 shipped; PR #4c-4 (Phase 7 mobile/narrow viewport polish) remaining.**
 
 - Plan merged via PR #593.
 - Instructor-dashboard `seatReservations` query P2s + Instructor Call Flows section landed via PR #594 (commit `803313ca`).
@@ -218,6 +218,7 @@ Key behaviors:
 - **PR #4b (Phase 4 — workspace content integration) — shipped.** See [PR #4b Delivery](#pr-4b-delivery--workspace-content-integration). All four todos (`auto-tag-content`, `live-session-note`, `clipboard-image-paste`, `quick-capture`) done. `recording-playback` deferred to PR #4c-1; student notification surface deferred to PR #4c-2.
 - **PR #4c-1 (Phase 5 — recording playback) — shipped.** See [PR #4c-1 Delivery](#pr-4c-1-delivery--recording-playback). Calls sub-section in Notes tab with Play (modal `<video>`) + Download (signed B2 URL with 1h TTL + refresh-on-view + queued-during-playback) + defensive `assertParticipantForSession` typed `QueryCtx` helper for cross-workspace access prevention.
 - **PR #4c-2 (Phase 5 — student ad-hoc notification surface) — shipped.** See [PR #4c-2 Delivery](#pr-4c-2-delivery--student-ad-hoc-notification-surface). Cross-workspace bell + per-workspace row badge + Sonner toast + Web Audio chime + browser Notification API (opt-in) + `/workspace/[id]?join={sessionId}` deep-link auto-join + Resend email via Trigger.dev with `(sessionId, recipientUserId)` idempotency.
+- **PR #4c-3 (Phase 5 — student "Shared during current call" Links subpanel) — shipped.** See [PR #4c-3 Delivery](#pr-4c-3-delivery--shared-during-current-call-links-subpanel). Indexed query (`by_workspaceId_sessionId`) auth-bound via `assertParticipantForSession` + a workspaceId cross-check; subpanel renders above the Links list while a call is active with loading/error/empty states; both roles see it; strict sessionId match (no call-window fallback for pre-#4b links).
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
@@ -231,8 +232,8 @@ Key behaviors:
 | 4 | Auto-tag composers + live session note + clipboard paste + Quick Capture | agent | PR #4b ✅ |
 | 5a | Calls sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh) | agent | PR #4c-1 ✅ |
 | 5b | Student notification surface (bell + badge + toast + deep-link + email) | agent | PR #4c-2 ✅ |
-| 5c | Student "Shared during current call" Links subpanel | agent | PR #4c-3 |
-| 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 |
+| 5c | Student "Shared during current call" Links subpanel | agent | PR #4c-3 ✅ |
+| 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 (next) |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -750,6 +751,7 @@ Recording-consent UI + Daily-room config + webhook handler + `recordingUrl` fiel
 - [x] Student receives Resend email via Trigger.dev with `(sessionId, recipientUserId)` idempotency — shipped in PR #4c-2
 - [x] `/workspace/[id]?join={sessionId}` deep-link route + auto-join via `VideoCallProvider.initialJoinSessionId` — shipped in PR #4c-2
 - [x] Recording playback sub-section at top of Notes tab (Play + Download) — shipped in PR #4c-1
+- [x] "Shared during current call" student subpanel in Links tab — shipped in PR #4c-3
 - [x] Greptile: no new P1; Vercel: all 4 apps READY
 
 ### Phase 7: Mobile & Narrow Viewport — PR #4c-4 (pending)
@@ -830,11 +832,10 @@ Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
 
 `convex/workspaces.ts` exports a typed `MutationCtx` helper that fetches the session and workspace rows in parallel and rejects when the session's instructor/student pair doesn't match the workspace's instructor/owner pair. Called by every PR #4b write path (`createWorkspaceNote`/`updateWorkspaceNote`/`createWorkspaceLink`/`createWorkspaceImage`/`createWorkspaceMessage`/`createWorkspaceImageAndMessage`/`createWorkspaceFileMessage`) AND by `getLiveSessionNote`. A non-participant who passes a "valid-looking" session id is rejected even after the role check, so the live note cannot leak across workspaces.
 
-### Deferred to PR #4c-3 / PR #4c-4
+### Deferred to PR #4c-4
 
-PR #4c was split into three sub-PRs for reviewability. As of 2026-07-07, #4c-1 + #4c-2 are merged and the following remain:
+PR #4c was split into four sub-PRs for reviewability. As of 2026-07-07, #4c-1 + #4c-2 + #4c-3 are merged and the following remains:
 
-- **PR #4c-3** — "Shared during current call" student subpanel in Links tab (resources surfaced without exposing the Resources management UI). Originally bundled in PR #4b but pulled out so the PR #4b diff stayed under review focus.
 - **PR #4c-4** — Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet workspace drawer). Phase 7 in the plan; the <900px/<600px layouts were scaffolded in PR #3 but not exercised in E2E, so this PR is the verification + UX polish pass.
 
 
@@ -909,6 +910,59 @@ When an instructor clicks "Start ad-hoc call" in a workspace, the student receiv
 - `workspace/[id]/page.tsx` — dedupes `requireAuth()` call.
 - `workspace/page.tsx` — defers `getServerUserRole` past the single-workspace redirect (the redirect path no longer hits Clerk API).
 - Wording — "mentorship call" → "video call" / "ad-hoc session" throughout student-facing surfaces (bell, toast, prefs).
+
+
+## PR #4c-3 Delivery — Shared During Current Call Links Subpanel
+
+**Branch:** `feat/video-calling-pr4c-3` (rebased onto `main`)
+**PR:** #603 — `feat(platform): video calling PR #4c-3 - shared during current call Links subpanel`
+**Commits:** `7b18fa8c` (feature) → `c4215cd4` (R1 fixes: Greptile P2 + CodeRabbit error-state)
+**Status:** MERGED as `713d8f97` on `main` (2026-07-07).
+
+### What shipped
+
+While a video call is active in the workspace, the Links tab now shows a **"Shared during current call"** subpanel above the existing list — surfacing links tagged to the active session via the PR #4b `workspaceLinks.sessionId` field. Originally bundled in PR #4b but pulled out so the PR #4b diff stayed under review focus.
+
+- **Convex query:** `convex/workspaces.ts getSharedLinksForActiveSession(workspaceId, sessionId)`.
+  - **Auth-bound via `assertParticipantForSession`** (typed `QueryCtx` helper from PR #4c-1). Cross-workspace leakage impossible: a caller who is a participant on workspace X cannot read another workspace's session links.
+  - **Indexed read** via the existing `by_workspaceId_sessionId` compound index — O(matched rows), not O(workspace links).
+  - **WorkspaceId cross-check** (R1 fix): after `assertParticipantForSession` returns, verifies `workspace._id === args.workspaceId` and throws on mismatch. Prevents a stale-cached workspaceId (e.g. workspace switch before provider remount) from silently returning empty.
+  - **Soft-delete filter** in JS after the indexed read (bounded set per call, single-digit rows typical).
+  - **Strict sessionId match** — no call-window fallback for pre-#4b links (documented limitation; resurfacing them would require a backfill or window-bounded scan — out of scope).
+- **React hook:** `useSharedLinksForActiveSession(workspaceId, sessionId | null)` with `enabled: !!workspaceId && !!sessionId`. The query never fires with a `null` sessionId (which Convex's `v.id("sessions")` validator would reject); the `as Id<"sessions">` cast is safe behind the `enabled` guard.
+- **UI:** `apps/platform/components/workspace/links.tsx` renders the subpanel above the existing list when `activeSessionId` is non-null.
+  - **Three render states** (R1 fix added the error branch): loading (`Loader2` spinner), error (destructive copy + Retry button via `refetch`), empty ("No links shared yet this call"), populated (compact rows with `LinkIcon` + title/url + ExternalLink).
+  - **Header:** `Shared during current call` with a 🔴 pulsing dot + link count (suppressed during loading + error).
+  - **Hidden entirely** outside an active call so the existing list's "No links shared yet" empty state still surfaces normally.
+  - **`data-testid="shared-during-call-subpanel"`** for future E2E selectors (PR #4c-4 will add Playwright coverage).
+  - **Both roles see it** (instructor + student) — the subpanel reflects "what was tagged to this call," regardless of who posted.
+
+### Greptile R0 → R2
+
+2 iterations. Greptile R0 was confidence 4/5 with one P2; R2 (after R1 fixes) is **confidence 5/5 — safe to merge**.
+
+- **R1 P2** — `args.workspaceId` was not cross-checked against the workspace `assertParticipantForSession` returned. A caller passing a mismatched id would silently get an empty result. Fixed: post-assertion `if (workspace._id !== args.workspaceId) throw new Error("Workspace does not match this session");`.
+
+### CodeRabbit R1 (CHANGES_REQUESTED)
+
+2 actionable comments; 1 fully addressed, 1 deliberately skipped with documented rationale.
+
+- **Addressed** — Treat a failed fetch differently from an empty result. The original `sharedLinksLoading ? Loader : sharedLinks.length > 0 ? map : empty` flow conflated error and empty. R1 fix destructured `isError`/`error`/`refetch` from the hook and added a distinct error branch with a Retry button + the server's error message.
+- **Skipped** (with rationale on the PR) — Extract a reusable `LinkRow` component shared by the subpanel and the main list. The two row shapes differ intentionally (subpanel: compact `h-7` button, no `Tagged` badge, no `Delete` since the subpanel doesn't claim ownership). Extracting would need a parameterized component for ~6 lines of shared anchor markup — not worth the indirection.
+
+### Verification
+
+- `pnpm typecheck` — clean (0 errors).
+- `pnpm lint` — 0 new warnings/errors from changed files (136 pre-existing warnings, none in this PR's diff).
+- `pnpm test:unit` — 73 passed, 3 pre-existing skipped, 0 failed.
+- `npx convex codegen` — succeeded; running TypeScript after upload.
+
+### Risks + naming
+
+- **No schema change.** `by_workspaceId_sessionId` index already exists from PR #4b.
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **Naming.** No `mentor`/`mentee` words in code. UI copy uses neutral "current call" wording — no "mentorship" / "mentor" / "mentee" (avoids the singular-mentorship CodeRabbit flag from PR #4c-2).
+- **Documentation limitation.** Pre-#4b links have `sessionId === undefined` and won't appear in the subpanel even when their `createdAt` overlaps a call window. Documented in the query's JSDoc; out of scope to fix in this PR.
 
 
 ## File Changes
@@ -1003,6 +1057,7 @@ DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 - Signed B2 URLs use 1-hour TTL with refresh-on-view (60s background check) and queued-during-playback (PR #4c-1).
 - Student ad-hoc call notifications are decoupled across three surfaces — bell (cross-workspace rollup), row badge (per-workspace context), toast/chime/desktop (liveness) — all reading the same `inCallNotifications` table with a 24h `expiresAt` and `(userId, sessionId)` dedupe index (PR #4c-2).
 - Email idempotency for ad-hoc call invites uses Trigger.dev's `idempotencyKey: ad-hoc-call-email:{sessionId}:{recipientUserId}` rather than a Convex `emailSentAt` marker — the marker would have been a writable public mutation exposed for any caller with the IDs (PR #4c-2).
+- The "Shared during current call" Links subpanel reads from `workspaceLinks` filtered by `sessionId` via `by_workspaceId_sessionId`. It is **not** sourced from `instructorResources` (the "My Resources" tab) — those have no `sessionId` field and would require a separate widen + backfill + share-to-links UI to surface in the subpanel. PR #4c-3 documented this scope boundary; surfacing instructorResources during a call is a follow-up.
 - Mark-read for an invite fires on the destination workspace mount (`<IncomingCallMarker>`), not on the bell click. Marking on click loses the navigation race: the bell query refetches before the per-workspace row badge mounts, hiding the red dot on landing (PR #4c-2).
 - Quick Capture shortcut `Cmd/Ctrl+K` lives in its own listener (`lib/hooks/use-quick-capture-shortcut.ts`) because `use-keyboard-shortcuts.ts:42` swallows `metaKey|ctrlKey|altKey`. It also skips events when target is `<input>`/`<textarea>`/`<select>`/contentEditable.
 - `useVideoCallContext()` is the bridge for active-call state on the workspace client. The session object (`session?.sessionId`, `session?.status`) plus `workspaceId` (set by the provider from `useCurrentOrUpcomingSessionForWorkspace`) are the props all PR #4b composers receive.
