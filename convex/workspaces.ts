@@ -1889,6 +1889,8 @@ export const getSessionParticipantForRecording = query({
           "Forbidden",
           "No workspace matches this session",
           "No active workspace matches this session",
+          "Session is not paired with an instructor",
+          "Instructor not found",
         ].includes(err.message)
       ) {
         return null;
