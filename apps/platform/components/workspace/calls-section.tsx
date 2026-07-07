@@ -4,11 +4,15 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
 import { Play, Download, Video, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { CallRecording } from "../../../../convex/sessions";
 import { Button } from "@/components/ui/button";
 import RecordingPlayerModal from "./recording-player-modal";
+
+type CallRecording = FunctionReturnType<
+  typeof api.sessions.getCallRecordingsForWorkspace
+>[number];
 
 /**
  * PR #4c-1: Calls sub-section at the top of the Notes tab.
