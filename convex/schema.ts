@@ -115,7 +115,15 @@ export default defineSchema({
     .index("by_googleCalendarEventId", ["googleCalendarEventId"])
     .index("by_instructorId_status_scheduledAt", ["instructorId", "status", "scheduledAt"])
     .index("by_videoRoomName", ["videoRoomName"])
-    .index("by_instructorId_isAdhoc", ["instructorId", "isAdhoc"]),
+    .index("by_instructorId_isAdhoc", ["instructorId", "isAdhoc"])
+    // PR #4c-1: lets `getCallRecordingsForWorkspace` return
+    // recordings for the exact (instructor, student) pair
+    // without filtering across the instructor's full session
+    // history. Without this index the previous `.take(50)` on
+    // `by_instructorId_status_scheduledAt` would silently drop
+    // recordings for any student whose sessions weren't among
+    // the instructor's 50 most recent overall.
+    .index("by_instructorId_studentId", ["instructorId", "studentId"]),
 
   seatReservations: defineTable({
     instructorId: v.id("instructors"),

@@ -1433,17 +1433,20 @@ export const getCallRecordingsForWorkspace = query({
       throw new Error("Forbidden");
     }
 
-    // Bounded read scoped to the workspace's instructor using the
-    // compound `by_instructorId_status_scheduledAt` index. The
-    // status filter is part of the index so we don't need an
-    // in-memory scan; `.take(50)` matches the documented 50-item
-    // cap for the Calls sub-section.
+    // Indexed read scoped to the exact (instructor, student) pair
+    // via `by_instructorId_studentId`. The previous approach
+    // queried `by_instructorId_status_scheduledAt` and `.take(50)`
+    // across the instructor's full session history — fine for a
+    // quiet roster but silently dropped recordings for any
+    // student whose sessions weren't among the instructor's 50
+    // most recent overall. The compound index makes the lookup
+    // exact and unbounded by that cap.
     const candidateSessions = await ctx.db
       .query("sessions")
-      .withIndex("by_instructorId_status_scheduledAt", (q) =>
+      .withIndex("by_instructorId_studentId", (q) =>
         q
           .eq("instructorId", workspace.instructorId!)
-          .eq("status", "completed")
+          .eq("studentId", workspace.ownerId)
       )
       .order("desc")
       .take(50);
@@ -1460,7 +1463,6 @@ export const getCallRecordingsForWorkspace = query({
     const recordings: CallRecording[] = candidateSessions
       .filter(
         (s) =>
-          s.studentId === workspace.ownerId &&
           s.deletedAt === undefined &&
           s.recordingUrl !== undefined
       )
