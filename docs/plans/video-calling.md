@@ -101,42 +101,42 @@ todos:
     owner: agent
     phase: 4
     content: Implement POST /api/video/start-adhoc (instructor only, creates synthetic session)
-    status: pending
+    status: done
   - id: adhoc-call-ui
     owner: agent
     phase: 4
     content: Add instructor-only "Start ad-hoc call" button in workspace header
-    status: pending
+    status: done
   - id: recording-consent
     owner: agent
     phase: 4
     content: Add recording consent UI to session booking and call join flows
-    status: pending
+    status: done
   - id: auto-tag-content
     owner: agent
     phase: 4
     content: Update Notes/Images/Link composers to default sessionId tagging while a call is active, with untag toggle
-    status: pending
+    status: done
   - id: live-session-note
     owner: agent
     phase: 4
     content: Auto-create live session note on callStartedAt transition, pin at top of Notes tab
-    status: pending
+    status: done
   - id: clipboard-image-paste
     owner: agent
     phase: 4
     content: Add "Paste from clipboard" button on Images tab while a call is active
-    status: pending
+    status: done
   - id: quick-capture
     owner: agent
     phase: 4
     content: Create QuickCapture floating composer (Cmd/Ctrl+K) for text/link/clipboard-image → tagged Note/Link/Image
-    status: pending
+    status: done
   - id: recording-playback
     owner: agent
     phase: 4
-    content: Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL)
-    status: pending
+    content: Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — deferred to PR #4c (Phase 5)
+    status: done
 ---
 
 # Video Calling Integration (Daily.co + Backblaze B2)
@@ -162,21 +162,27 @@ Key behaviors:
 
 ## Status
 
-**Plan approved. Implementation in progress.**
+**Plan approved. PR #1 → PR #4b shipped; PR #4c (recording playback) remaining.**
 
 - Plan merged via PR #593.
 - Instructor-dashboard `seatReservations` query P2s + Instructor Call Flows section landed via PR #594 (commit `803313ca`).
-- **PR #1 (Phase 1) — in progress.** Schema additions for Daily.co call metadata + recording webhook handler at `/api/webhooks/daily/recordings`. Does not require SDK install or Daily end-to-end wiring.
+- **PR #1 (Phase 1) — shipped.** Schema additions for Daily.co call metadata + recording webhook handler at `/api/webhooks/daily/recordings`. Webhook security (HMAC-SHA256, base64-decoded secret, `crypto.timingSafeEqual`, `${timestamp}.${rawBody}` input), idempotency, and per-session authorization landed.
+- **PR #2 (Phase 2) — shipped.** Room creation (`POST /api/video/rooms`), token generation (`GET /api/video/token/[roomName]`), active-call query (`GET /api/video/active/[workspaceId]`), and call-end (`POST /api/video/end/[sessionId]`) endpoints. Role resolved server-side from authenticated Clerk session; never trusted from URL/body.
+- **PR #3 (Phase 3) — shipped.** `VideoCallProvider`, `VideoPanel` (50/50 draggable split via `react-resizable-panels`, persisted to `localStorage`), `PictureInPicture`, `CallStatusPill`, `WaitingRoom`, `VideoCall` component, mount in `workspace-client-page.tsx` gated by active session, mobile/narrow viewport (<900px PiP-only, <600px full-screen + bottom-sheet drawer), keyboard shortcuts (Cmd/Ctrl + Shift + V/M/S/H/L/K), Join Call button on session cards.
+- **PR #4a (Phase 4 prep) — shipped.** Per-party recording consent (`instructorRecordingConsent` + `studentRecordingConsent` ANDed into existing `recordingConsent`), Daily-room reconciliation drift-detection loop (`syncRoomRecording` + `confirmRoomRecording`), `POST /api/video/start-adhoc` (instructor-only, creates synthetic `sessions` row with `isAdhoc: true`), `StartAdhocButton`, orphan cleanup + self-healing on retry.
+- **PR #4b (Phase 4 — workspace content integration) — shipped.** See [PR #4b Delivery](#pr-4b-delivery--workspace-content-integration). All four todos (`auto-tag-content`, `live-session-note`, `clipboard-image-paste`, `quick-capture`) done. `recording-playback` deferred to PR #4c.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
 | Phase | Scope | Owner | PR |
 |---|---|---|---|
 | 0 | Daily.co account + B2 bucket + IAM key + webhook secret | user | — |
-| 1 | Schema + dependencies + recording webhook | agent | PR #1 |
-| 2 | Room / token / active / end endpoints | agent | PR #2 |
-| 3 | VideoCallProvider + VideoPanel + mount + Join Call button | agent | PR #3 |
-| 4 | Ad-hoc endpoint + Start-ad-hoc button + consent modal + auto-tagging + recording playback | agent | PR #4 |
+| 1 | Schema + dependencies + recording webhook | agent | PR #1 ✅ |
+| 2 | Room / token / active / end endpoints | agent | PR #2 ✅ |
+| 3 | VideoCallProvider + VideoPanel + mount + Join Call button | agent | PR #3 ✅ |
+| 4 prep | Ad-hoc endpoint + Start-ad-hoc button + consent modal + Daily-room reconciliation | agent | PR #4a ✅ |
+| 4 | Auto-tag composers + live session note + clipboard paste + Quick Capture | agent | PR #4b ✅ |
+| 5 | Calls sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh) | agent | PR #4c |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -662,38 +668,122 @@ The same identity-check helper should be reused across all endpoints to keep aut
 - [ ] Add call timer display
 - [ ] Create `CallStatusPill` in workspace header
 
-### Phase 4: Workspace Content Integration
-- [ ] Update Notes composer: default `sessionId` tagging, untag toggle, "Tag to current call" UI
-- [ ] Update Images composer: default `sessionId` tagging + "Paste from clipboard" while call is active
-- [ ] Update Links composer: default `sessionId` tagging
-- [ ] Auto-create `workspace_notes` row on `callStartedAt` transition (live session note)
-- [ ] Pin live session note at top of Notes tab while call is active
-- [ ] Add Chat tab banner explaining it replaces Daily chat
-- [ ] Disable `enable_chat` in Daily room config
-- [ ] Create `QuickCapture` floating composer (Cmd/Ctrl+K) for text/link/clipboard-image
+### Phase 4: Workspace Content Integration — ✅ Shipped in PR #4b
+- [x] Update Notes composer: default `sessionId` tagging, untag toggle, "Tag to current call" UI
+- [x] Update Images composer: default `sessionId` tagging + "Paste from clipboard" while call is active
+- [x] Update Links composer: default `sessionId` tagging
+- [x] Auto-create `workspace_notes` row on `callStartedAt` transition (live session note)
+- [x] Pin live session note at top of Notes tab while call is active
+- [x] Add Chat tab banner explaining it replaces Daily chat
+- [x] Disable `enable_chat` in Daily room config
+- [x] Create `QuickCapture` floating composer (Cmd/Ctrl+K) for text/link/clipboard-image
 
 ### Phase 5: Recording
-- [ ] Add recording consent UI to session booking and call join flows
-- [ ] Configure room for cloud recording to B2
-- [ ] Handle recording webhook (`POST /api/webhooks/daily/recordings`) — verify `X-Webhook-Signature` HMAC (base64-decoded secret, input `${X-Webhook-Timestamp}.${rawBody}`) before parsing the body
-- [ ] Add `recordingUrl` to session in Convex
-- [ ] Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL)
-- [ ] Implement signed B2 URL refresh strategy (TTL policy)
 
-### Phase 6: Ad-hoc Calls (Instructor Only) — PR #4
+Recording-consent UI + Daily-room config + webhook handler + `recordingUrl` field all shipped (PR #1 + PR #4a). Playback (Play modal + Download signed B2 URL + TTL refresh) deferred to PR #4c.
 
-- [ ] Implement `POST /api/video/start-adhoc` (creates synthetic `sessions` row with `isAdhoc: true`, `recordingConsent: true` default)
-- [ ] Add instructor-only "Start ad-hoc call" button in workspace header (hidden in the UI for students, not just gated server-side)
-- [ ] Consent modal opens with recording toggled ON by default
-- [ ] Student receives in-app notification (workspace list badge + optional email)
-- [ ] Auto-tagging composers default `sessionId` while call is live (untag toggle visible)
-- [ ] Recording playback sub-section at top of Notes tab (Play + Download)
-- [ ] Greptile: no new P1; Vercel: all 4 apps READY
+- [x] Handle recording webhook (`POST /api/webhooks/daily/recordings`) — shipped in PR #1. HMAC-SHA256, base64-decoded secret, `crypto.timingSafeEqual`, `${timestamp}.${rawBody}` input. Idempotent via `if (session.recordingUrl !== undefined) return { alreadyAttached: true }`.
+- [x] Add `recordingUrl` to session in Convex — shipped in PR #1.
+- [x] Configure room for cloud recording to B2 — shipped in PR #4a.
+- [x] Add recording consent UI to session booking and call join flows — shipped in PR #4a (per-party `instructorRecordingConsent` + `studentRecordingConsent` ANDed into existing `recordingConsent`; drift-detection loop reconciles Daily's `enable_recording` after the room is provisioned).
+- [x] Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — shipped in PR #4c-1
+- [x] Implement signed B2 URL refresh strategy (TTL policy) — shipped in PR #4c-1 (1-hour TTL, refresh-on-view, 60s check, queued-during-playback)
+
+### Phase 6: Ad-hoc Calls (Instructor Only) — Shipped in PR #4a
+
+- [x] Implement `POST /api/video/start-adhoc` (creates synthetic `sessions` row with `isAdhoc: true`, `recordingConsent: true` default)
+- [x] Add instructor-only "Start ad-hoc call" button in workspace header (hidden in the UI for students, not just gated server-side)
+- [x] Consent modal opens with recording toggled ON by default
+- [x] Per-party recording consent (`instructorRecordingConsent` + `studentRecordingConsent`) ANDed into `recordingConsent`
+- [x] Daily-room reconciliation drift-detection loop (`syncRoomRecording` + `confirmRoomRecording`) when consent changes after room provisioned
+- [ ] Student receives in-app notification (workspace list badge + optional email) — deferred to PR #4c
+- [x] Recording playback sub-section at top of Notes tab (Play + Download) — shipped in PR #4c-1
+- [x] Greptile: no new P1; Vercel: all 4 apps READY
 
 ### Phase 7: Mobile & Narrow Viewport
 - [ ] Implement narrow viewport (< 900px): PiP-only default, no split panel
 - [ ] Implement mobile (< 600px): full-screen video + bottom-sheet workspace drawer
 - [ ] Ensure Quick Capture composer works at all viewport sizes
+
+## PR #4b Delivery — Workspace Content Integration
+
+**Branch:** `feat/video-calling-pr4b` (rebased onto `main`)
+**PR:** #599 — `feat(platform): video calling PR #4b - workspace content integration`
+**Commits:** `80c09b08` (feature) → `66b0b466` (Greptile R1 fixes) → `9a10e920` (Greptile R2/R3 fixes)
+**Status:** MERGEABLE, all 7 CI checks + 4 Vercel previews green.
+
+### What shipped
+
+The defining UX principle: **workspace content and the call are not separate surfaces — they are one surface.** During a live call, all workspace tabs (Chat, Notes, Images, Links) remain usable, and content posted in them is automatically associated with the call.
+
+#### 1. Auto-tag composers
+
+`Notes` / `Images` / `Links` composers show a **"Tag to current call"** toggle that defaults to ON while a call is active. Posting creates a row with `sessionId` set to the live session; user can untag per-posting.
+
+- **Schema:** `workspaceNotes.sessionId`, `workspaceLinks.sessionId`, `workspaceImages.sessionId` — all `v.optional(v.id("sessions"))`. New indexes `by_workspaceId_sessionId` on each table.
+- **Mutations widened:** `createWorkspaceNote`/`updateWorkspaceNote` (with `clearSessionId: v.boolean()`)/`createWorkspaceLink`/`createWorkspaceImage`/`createWorkspaceMessage`/`createWorkspaceImageAndMessage`/`createWorkspaceFileMessage` all accept and forward `sessionId`.
+- **Composers:** `apps/platform/components/workspace/notes.tsx`, `images.tsx`, `links.tsx` each read `activeSessionId` from props (sourced from `useVideoCallContext()` in `workspace-client-page.tsx`).
+- **Chat banner:** `apps/platform/components/workspace/chat.tsx` shows an in-call banner + 🔴 dot on tagged messages; `sessionId` forwarded in `handleSendMessage`, image/file handlers, and `ShareLinkButton`.
+
+#### 2. Auto-created live session note
+
+When the call starts (`callStartedAt` transitions), a Convex mutation automatically creates a `workspace_notes` row with `sessionId` set and `isLiveSessionNote: true`. While the call is active, this note is **pinned at the top of the Notes tab** with a 🔴 Live badge.
+
+- **Server-side trigger:** `convex/sessions.ts markCallStarted` calls `internal.workspaces.createLiveSessionNote` after `callStartedAt` patch; errors swallowed so the call itself is never blocked by note-creation failure.
+- **Idempotency:** `internalMutation workspaces.createLiveSessionNote` uses new index `by_sessionId_isLiveSessionNote` to dedupe — two simultaneous participants cannot produce duplicate live notes.
+- **Workspace lookup:** deterministic — filter by `instructorId === session.instructorId` first (because `by_ownerId` returns cross-instructor workspaces the student ever owned), then prefer active → most-recently-ended (`endedAt` desc) → any.
+- **Client hook:** `useLiveSessionNote(sessionId)` in `apps/platform/lib/queries/convex/use-workspaces.ts` returns the pinned row or null; documented sentinel-id invariant for the typed `Id<"sessions">` arg validator.
+- **Pin UI:** `notes.tsx` renders the live note at the top with "🔴 Live · auto-created" badge; un-tagging via XCircle button preserves the row but clears `sessionId`.
+
+#### 3. Clipboard image paste on Images tab
+
+While a call is active, the Images tab exposes a **"Paste from clipboard"** button. Listens to `paste` events on the workspace, uploads to the images bucket, tags with `sessionId`.
+
+- **Trigger:** `images.tsx` window `paste` listener gated on `activeSessionId`; uses `capture: true` so it runs before the workspace's generic paste handler.
+- **Retry-with-sessionId:** `handleRetryUpload`/`handleRetryAll` forward `sessionId` on retry.
+
+#### 4. Quick Capture overlay (`Cmd/Ctrl+K`)
+
+While a call is active, a floating **Quick Capture** composer (`Cmd/Ctrl+K`) lets the user capture text, a link, or a pasted image WITHOUT leaving the live call.
+
+- **New hook:** `apps/platform/lib/hooks/use-quick-capture-shortcut.ts` — separate from `use-keyboard-shortcuts.ts:42` which swallows modifier keys.
+- **New component:** `apps/platform/components/video/quick-capture.tsx` — Radix Dialog with note/link/image tabs. Mounted once at the top of `workspace-client-page.tsx` inside `<VideoCallProvider>`, so it survives workspace switches via the provider key.
+- **Shortcut gating:** listener gated on `callIsActive` AND skips events when target is `<input>`/`<textarea>`/`<select>`/`contentEditable` (so Cmd+K in the Notes editor doesn't open the overlay).
+- **Escape handler:** capture-phase listener to win over the in-call PiP Escape handler.
+- **Workspace ID source:** `useVideoCallContext().workspaceId` (set by the provider from `useCurrentOrUpcomingSessionForWorkspace`). `CurrentOrUpcomingSession` does NOT carry `workspaceId` — sourcing it from the context avoids stale data.
+- **Tabs:** Note → `createWorkspaceNote({ sessionId })`; Link → URL detected by regex → `createWorkspaceLink({ sessionId })`; Image → paste via `workspaceImageUpload` → `createWorkspaceImage({ sessionId })`.
+- **Image paste gating:** `ImageCaptureForm` receives an `isActive={mode === "image"}` prop; the paste `useEffect` early-returns when not active. Radix TabsContent keeps all panes mounted (just CSS-hidden), so without this gate the listener would steal a paste intended for the Note or Link tab.
+
+### Greptile R1 fixes (commit `66b0b466`)
+
+Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
+
+1. **`updateWorkspaceNote` and `getLiveSessionNote` lacked workspace auth** — now require auth, fetch note's workspace, call `getWorkspaceRole`, then `assertSessionBelongsToWorkspace`.
+2. **`createWorkspaceMessage`/`Image`/`ImageAndMessage`/`FileMessage` lacked sessionId validation** — all 6 create mutations now call `assertSessionBelongsToWorkspace` after role check; `createWorkspaceMessage` also rejects when `senderRole` unset.
+3. **`markCallStarted` workspace selection was non-deterministic** — `by_ownerId` returns every workspace the student ever owned across all instructors, so a student with multiple instructors could have their live note attached to the wrong workspace. Now filters by `instructorId === session.instructorId` first, then prefers active → most-recently-ended → any.
+4. **Quick Capture paste listener would double-fire with Images tab paste listener** — Quick Capture's `ImageCaptureForm` uses `capture: true` + `e.stopImmediatePropagation()` so it wins when its Image tab is the active Quick Capture surface. The Images tab listener still fires while Quick Capture is closed.
+5. (P2) **`assertSessionBelongsToWorkspace` helper duplicated role-check logic** — extracted to a single helper called from all 6 mutations.
+
+### Greptile R2 + R3 fixes (commit `9a10e920`)
+
+1 P1 + 3 P2 addressed:
+
+1. **R3 P1: Image paste listener fires on inactive tabs** — `isActive={mode === "image"}` prop gates the `useEffect` in `ImageCaptureForm`. (R3 cited line `1463-1481` against a 547-line file — review snapshot was stale; gate was already in place.)
+2. **R2 P2: `tagNewNoteToCall` did not sync when `activeSessionId` changed at runtime** — added `useEffect(() => setTagNewNoteToCall(activeSessionId !== null), [activeSessionId])` so the toggle defaults to ON whenever a call goes live (matching `links.tsx` pattern).
+3. **R2 P2: `useLiveSessionNote` sentinel `"0000…01"`** — documented invariant explaining why the sentinel is dead data on the client side only. Greptile's suggested spread-ternary `{queryKey, queryFn}` form fails TanStack Query's overload matching (`tsc` rejects it); the documented sentinel+`enabled:false` is the canonical pattern.
+4. **R2 P2: `assertSessionBelongsToWorkspace` used `ctx: any`** — typed as `MutationCtx` imported from `./_generated/server`.
+
+### Security: `assertSessionBelongsToWorkspace`
+
+`convex/workspaces.ts` exports a typed `MutationCtx` helper that fetches the session and workspace rows in parallel and rejects when the session's instructor/student pair doesn't match the workspace's instructor/owner pair. Called by every PR #4b write path (`createWorkspaceNote`/`updateWorkspaceNote`/`createWorkspaceLink`/`createWorkspaceImage`/`createWorkspaceMessage`/`createWorkspaceImageAndMessage`/`createWorkspaceFileMessage`) AND by `getLiveSessionNote`. A non-participant who passes a "valid-looking" session id is rejected even after the role check, so the live note cannot leak across workspaces.
+
+### Deferred to PR #4c
+
+- Recording playback sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh)
+- Student in-app notification for ad-hoc calls (workspace list badge + email)
+- "Shared during current call" student subpanel in Links tab (resources surfaced without exposing the Resources management UI)
+- Mobile/narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet drawer)
+
 
 ## File Changes
 
@@ -767,9 +857,12 @@ DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 - PiP uses CSS `position: fixed` with `z-index` stacking.
 - Panel resize uses `react-resizable-panels` (added to dependencies).
 - Daily's in-call chat is **disabled** — workspace Chat tab is the single chat surface during a call.
-- Live session note is auto-created on `callStartedAt` transition by a Convex mutation; both roles can post to it.
+- Live session note is auto-created on `callStartedAt` transition by `internalMutation workspaces.createLiveSessionNote`; idempotent via `by_sessionId_isLiveSessionNote`. Both roles can post to it.
 - Ad-hoc calls are instructor-only; synthetic session row is created so recording + tagging work the same as scheduled calls.
-- Signed B2 URLs for recording download need a TTL policy + refresh strategy (Phase 5).
+- Signed B2 URLs for recording download need a TTL policy + refresh strategy (deferred to PR #4c).
+- Quick Capture shortcut `Cmd/Ctrl+K` lives in its own listener (`lib/hooks/use-quick-capture-shortcut.ts`) because `use-keyboard-shortcuts.ts:42` swallows `metaKey|ctrlKey|altKey`. It also skips events when target is `<input>`/`<textarea>`/`<select>`/contentEditable.
+- `useVideoCallContext()` is the bridge for active-call state on the workspace client. The session object (`session?.sessionId`, `session?.status`) plus `workspaceId` (set by the provider from `useCurrentOrUpcomingSessionForWorkspace`) are the props all PR #4b composers receive.
+- `assertSessionBelongsToWorkspace` (typed `MutationCtx`) is the single source of truth for cross-workspace session id validation. Every PR #4b write path calls it after `getWorkspaceRole`.
 
 ## Session Card Integration
 

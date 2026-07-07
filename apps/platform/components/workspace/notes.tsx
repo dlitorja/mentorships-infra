@@ -27,6 +27,7 @@ import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import { useConvexAction } from '@convex-dev/react-query';
+import CallsSection from './calls-section';
 
 interface Note {
   _id: Id<'workspaceNotes'>;
@@ -570,6 +571,13 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         )}
 
         <div className="flex-1 overflow-y-auto space-y-1">
+          {/* PR #4c-1: Calls sub-section. Lists past call recordings
+           * with Play (modal) + Download (signed B2 URL) actions.
+           * Sits above the live-session note so users scrolling
+           * the list see recordings first, then the live note
+           * (which only renders while a call is active). */}
+          <CallsSection workspaceId={workspaceId} />
+
           {/* PR #4b: pinned live-session note. While a call is active,
            * `markCallStarted` has fired `createLiveSessionNote` and
            * the row exists with `isLiveSessionNote: true`. We render

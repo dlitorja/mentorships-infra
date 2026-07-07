@@ -1,8 +1,8 @@
 import { query, mutation, internalMutation, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 const WORKSPACE_IMAGE_CAPS = {
   student: 75,
@@ -161,6 +161,97 @@ async function assertSessionBelongsToWorkspace(
   if (session.studentId !== workspace.ownerId) {
     throw new Error("Session does not belong to this workspace");
   }
+}
+
+/**
+ * PR #4c-1: confirms the caller is a participant on the given
+ * session (either the session's instructor OR the student paired
+ * with that instructor on one of the caller's workspaces). Returns
+ * the session row + the matching workspace + the caller's role, so
+ * callers (the recording route, `getCallRecordingsForWorkspace`,
+ * etc.) don't have to re-query.
+ *
+ * Used as the single source of truth for "can this user see this
+ * call's recording?" — same role-resolution shape as
+ * `getSessionByVideoRoomName` (`convex/sessions.ts`) but flipped
+ * to take a `sessionId` instead of a `videoRoomName`.
+ *
+ * Implementation notes:
+ * - Both paths must come from the same identity derived from
+ *   `ctx.auth.getUserIdentity()` — caller-supplied user ids are
+ *   never accepted (Convex auth guideline).
+ * - The student path uses the `by_instructorId` index on workspaces
+ *   to bound the lookup (`.take(20)`), then matches `ownerId` in
+ *   memory. We cannot use `.filter()` per Convex query guidelines;
+ *   bounding with `.take` is the alternative.
+ * - `deletedAt`/`endedAt` are excluded so we never return a torn-down
+ *   workspace that an attacker could still claim a session for.
+ * - Returns role `"instructor"` if the caller's Clerk token matches
+ *   the session's instructor doc, else `"student"`. Never both.
+ */
+async function assertParticipantForSession(
+  ctx: QueryCtx,
+  args: { sessionId: Id<"sessions"> }
+): Promise<{
+  session: Doc<"sessions">;
+  workspace: Doc<"workspaces">;
+  role: "instructor" | "student";
+}> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+
+  const session = await ctx.db.get(args.sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (session.deletedAt !== undefined) {
+    throw new Error("Session not found");
+  }
+  if (session.instructorId === undefined) {
+    throw new Error("Session is not paired with an instructor");
+  }
+
+  const instructor = await ctx.db.get(session.instructorId);
+  if (!instructor) {
+    throw new Error("Instructor not found");
+  }
+
+  // Bounded lookup: get workspaces for this instructor, then find
+  // the one this caller participates in. `.take(20)` bounds the read
+  // so a runaway instructor's roster can't blow up the query.
+  const workspaces = await ctx.db
+    .query("workspaces")
+    .withIndex("by_instructorId", (q) =>
+      q.eq("instructorId", session.instructorId)
+    )
+    .take(20);
+
+  const activeWorkspaces = workspaces.filter(
+    (w) => w.deletedAt === undefined && w.endedAt === undefined
+  );
+
+  if (instructor.userId === identity.tokenIdentifier) {
+    const workspace = activeWorkspaces.find(
+      (w) => w.ownerId === session.studentId
+    );
+    if (!workspace) {
+      throw new Error("No workspace matches this session");
+    }
+    return { session, workspace, role: "instructor" };
+  }
+
+  const workspace = activeWorkspaces.find(
+    (w) => w.ownerId === identity.tokenIdentifier
+  );
+  if (!workspace) {
+    throw new Error("Forbidden");
+  }
+  if (workspace.ownerId !== session.studentId) {
+    throw new Error("Forbidden");
+  }
+  return { session, workspace, role: "student" };
 }
 
 /** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
@@ -1742,5 +1833,38 @@ export const canAccessWorkspaceQuery = internalQuery({
     }
 
     return false;
+  },
+});
+
+/**
+ * PR #4c-1: thin public query wrapper around the internal
+ * `assertParticipantForSession` helper. The Next.js recording
+ * route calls this via `fetchQuery` to gate access before issuing
+ * a signed B2 URL.
+ *
+ * Returns `null` when the caller is unauthenticated, the session
+ * is missing, or the caller is not a participant on the session —
+ * keeping the route layer free of thrown-error gymnastics.
+ *
+ * `CallEndedAt` and `recordingUrl` are surfaced so the route
+ * can short-circuit (404) when the call has no recording attached,
+ * instead of issuing a signed URL that 403s from B2.
+ */
+export const getSessionParticipantForRecording = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    const { session, workspace, role } = await assertParticipantForSession(
+      ctx,
+      { sessionId: args.sessionId }
+    );
+    return {
+      sessionId: session._id,
+      workspaceId: workspace._id,
+      role,
+      recordingS3Key: session.recordingUrl ?? null,
+      callStartedAt: session.callStartedAt ?? null,
+      callEndedAt: session.callEndedAt ?? null,
+      isAdhoc: session.isAdhoc ?? false,
+    };
   },
 });
