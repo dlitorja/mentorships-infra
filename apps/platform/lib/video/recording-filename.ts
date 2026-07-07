@@ -2,7 +2,7 @@
  * Returns a stable, human-readable filename for downloading a call
  * recording. Used as the `filename` argument to
  * `getDownloadUrlWithContentDisposition` so the file the user saves
- * has a recognizable name (e.g. `mentorship-call-2026-07-08.mp4`)
+ * has a recognizable name (e.g. `call-2026-07-08.mp4`)
  * instead of the raw Daily.co S3 key.
  *
  * PR #4c-1: keeps the filename out of personal-info by default —
@@ -10,6 +10,12 @@
  * `callStartedAt` is missing, invalid (NaN / Infinity), or the
  * stored S3 key lacks an extension, we fall back so the filename
  * is never empty or wrong-extension.
+ *
+ * CodeRabbit R5: the filename prefix avoids the project naming
+ * vocabulary per AGENTS.md (no "mentor" / "mentee" derived words
+ * in user-facing strings outside the "mentorships" UI exception).
+ * `call-` is the shortest stable prefix that still describes the
+ * file in the user's Downloads folder.
  *
  * Extension: derived from `recordingS3Key` when supplied so
  * non-MP4 recordings (`.mov`, `.webm`) save with the right file
@@ -29,7 +35,7 @@ export function recordingDownloadFilename(
       : Date.now();
   const date = new Date(ts).toISOString().slice(0, 10);
   const ext = recordingExtension(recordingS3Key ?? null);
-  return `mentorship-call-${date}${ext}`;
+  return `call-${date}${ext}`;
 }
 
 /**

@@ -19,30 +19,30 @@ describe("recordingDownloadFilename", () => {
     const result = recordingDownloadFilename(
       Date.UTC(2026, 6, 8, 14, 30, 0)
     );
-    expect(result).toBe("mentorship-call-2026-07-08.mp4");
+    expect(result).toBe("call-2026-07-08.mp4");
   });
 
   it("uses today's UTC date when callStartedAt is null", () => {
     expect(recordingDownloadFilename(null)).toBe(
-      "mentorship-call-2026-07-08.mp4"
+      "call-2026-07-08.mp4"
     );
   });
 
   it("uses today's UTC date when callStartedAt is undefined", () => {
     expect(recordingDownloadFilename(undefined)).toBe(
-      "mentorship-call-2026-07-08.mp4"
+      "call-2026-07-08.mp4"
     );
   });
 
   it("falls back to today's UTC date when callStartedAt is NaN", () => {
     expect(recordingDownloadFilename(Number.NaN)).toBe(
-      "mentorship-call-2026-07-08.mp4"
+      "call-2026-07-08.mp4"
     );
   });
 
   it("falls back to today's UTC date when callStartedAt is Infinity", () => {
     expect(recordingDownloadFilename(Number.POSITIVE_INFINITY)).toBe(
-      "mentorship-call-2026-07-08.mp4"
+      "call-2026-07-08.mp4"
     );
   });
 
@@ -52,14 +52,14 @@ describe("recordingDownloadFilename", () => {
     // we don't accidentally produce an invalid filename by
     // asserting against the resulting date.
     const result = recordingDownloadFilename(-1);
-    expect(result).toMatch(/^mentorship-call-1969-12-31\.mp4$/);
+    expect(result).toMatch(/^call-1969-12-31\.mp4$/);
   });
 
   it("handles leap-day boundary correctly", () => {
     const result = recordingDownloadFilename(
       Date.UTC(2024, 1, 29, 23, 59, 59)
     );
-    expect(result).toBe("mentorship-call-2024-02-29.mp4");
+    expect(result).toBe("call-2024-02-29.mp4");
   });
 
   it("uses .mov extension when the S3 key ends in .mov", () => {
@@ -68,7 +68,7 @@ describe("recordingDownloadFilename", () => {
         Date.UTC(2026, 6, 8, 14, 30, 0),
         "recordings/session-123.mov"
       )
-    ).toBe("mentorship-call-2026-07-08.mov");
+    ).toBe("call-2026-07-08.mov");
   });
 
   it("uses .webm extension when the S3 key ends in .webm", () => {
@@ -77,7 +77,7 @@ describe("recordingDownloadFilename", () => {
         Date.UTC(2026, 6, 8, 14, 30, 0),
         "recordings/session-123.webm"
       )
-    ).toBe("mentorship-call-2026-07-08.webm");
+    ).toBe("call-2026-07-08.webm");
   });
 
   it("falls back to .mp4 when the S3 key has no extension", () => {
@@ -86,6 +86,6 @@ describe("recordingDownloadFilename", () => {
         Date.UTC(2026, 6, 8, 14, 30, 0),
         "recordings/session-123"
       )
-    ).toBe("mentorship-call-2026-07-08.mp4");
+    ).toBe("call-2026-07-08.mp4");
   });
 });

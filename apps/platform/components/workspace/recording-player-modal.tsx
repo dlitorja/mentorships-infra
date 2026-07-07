@@ -75,6 +75,12 @@ export default function RecordingPlayerModal({
   // resets to position 0, so we save currentTime before the fetch
   // and restore it after the new src loads. Greptile R4 P0.
   const savedPlaybackPositionRef = useRef<number | null>(null);
+  // Whether the video was actively playing when we kicked off the
+  // refresh — used by `handleLoadedMetadata` to decide whether to
+  // call `play()` after restoring the position. CodeRabbit R5:
+  // without this, refreshing mid-play leaves the media element
+  // paused at the restored position, silently stopping playback.
+  const wasPlayingBeforeRefreshRef = useRef<boolean>(false);
 
   const fetchSignedStreamUrl = useCallback(async (): Promise<void> => {
     // If the video is currently playing, snapshot its position so
@@ -84,12 +90,21 @@ export default function RecordingPlayerModal({
     const video = videoRef.current;
     if (video && !video.paused && !video.ended) {
       savedPlaybackPositionRef.current = video.currentTime;
+      wasPlayingBeforeRefreshRef.current = true;
+    } else {
+      wasPlayingBeforeRefreshRef.current = false;
     }
     try {
       const res = await fetch(
         `/api/video/recording/${sessionId}?kind=stream`,
         { credentials: "include", cache: "no-store" }
       );
+      // CodeRabbit R5 "outside diff": if the dialog was closed
+      // while the fetch was in flight, drop the late result. We
+      // check `open` after the await because it's the only signal
+      // that's authoritative — by the time the response lands,
+      // the user may have closed the dialog.
+      if (!open) return;
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as
           | { error?: string }
@@ -105,20 +120,27 @@ export default function RecordingPlayerModal({
       setExpiresAt(data.expiresAt);
       setLoadState({ kind: "ready" });
     } catch (err) {
+      if (!open) return;
       setLoadState({
         kind: "error",
         message:
           err instanceof Error ? err.message : "Network error while loading",
       });
     }
-  }, [sessionId]);
+  }, [sessionId, open]);
 
-  // Open: fetch URL. Close: clear URL + reset state.
+  // Open: fetch URL. Close: clear URL + reset state and any
+  // pending refresh bookkeeping so an in-flight fetch doesn't
+  // repopulate state after the dialog is gone (CodeRabbit R5).
   useEffect(() => {
     if (!open) {
       setStreamUrl(null);
       setExpiresAt(0);
       setLoadState({ kind: "loading" });
+      pendingRefreshRef.current = false;
+      inFlightRefreshRef.current = false;
+      savedPlaybackPositionRef.current = null;
+      wasPlayingBeforeRefreshRef.current = false;
       return;
     }
     void fetchSignedStreamUrl();
@@ -173,10 +195,18 @@ export default function RecordingPlayerModal({
   // position snapshot if there is one. We clear the snapshot once
   // consumed so subsequent (non-force) refreshes don't try to
   // restore a stale position. Greptile R4 P0.
+  //
+  // CodeRabbit R5: also call `play()` after the seek if the video
+  // was playing before the refresh — without it the media element
+  // sits paused at the restored position, silently stopping
+  // playback. We tolerate the play() rejection (autoplay policy,
+  // element not yet ready) by logging and ignoring it.
   const handleLoadedMetadata = useCallback(() => {
     const saved = savedPlaybackPositionRef.current;
+    const wasPlaying = wasPlayingBeforeRefreshRef.current;
     if (saved === null) return;
     savedPlaybackPositionRef.current = null;
+    wasPlayingBeforeRefreshRef.current = false;
     const video = videoRef.current;
     if (!video) return;
     const clamp = Math.max(0, Math.min(saved, video.duration || saved));
@@ -186,6 +216,13 @@ export default function RecordingPlayerModal({
       // Some browsers throw if duration is Infinity (live streams)
       // or the media is not seekable yet — fail silently; the user
       // can re-seek manually.
+      return;
+    }
+    if (wasPlaying) {
+      void video.play().catch(() => {
+        // Autoplay policy or transient element-not-ready. The user
+        // can resume with the play control; we don't surface this.
+      });
     }
   }, []);
 

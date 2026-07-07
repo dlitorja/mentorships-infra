@@ -208,7 +208,14 @@ function classifyRecordingError(error: unknown): {
   ) {
     return {
       kind: "auth",
-      level: "warn",
+      // CodeRabbit R5: these are real availability incidents — a
+      // Convex outage or a broken network path should page on-call,
+      // not silently get tagged as warn. The "expected 401/403 for
+      // an unauthenticated caller" case is already handled in the
+      // explicit 401/403 branches above (lines ~47-55), so anything
+      // that lands here and matches this regex is an unexpected
+      // upstream failure.
+      level: "error",
       context: { category: "convex_or_auth" },
     };
   }

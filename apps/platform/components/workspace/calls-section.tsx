@@ -57,6 +57,12 @@ export default function CallsSection({
   // from a legitimate empty list. Previously a 403/500 from
   // `getCallRecordingsForWorkspace` surfaced as "no recordings
   // yet" — confusing for users (and masking real auth failures).
+  //
+  // CodeRabbit R5: don't surface the raw error message to the
+  // user — it can leak server-side details (token errors, Convex
+  // URLs, internal exception messages). Use a generic message;
+  // the detailed reason is already in the server-side
+  // observability layer.
   if (recordingsQuery.isError) {
     return (
       <section
@@ -68,9 +74,8 @@ export default function CallsSection({
           <span className="font-medium">Couldn&apos;t load recordings</span>
         </div>
         <p className="text-xs">
-          {recordingsQuery.error instanceof Error
-            ? recordingsQuery.error.message
-            : "Unknown error"}
+          Something went wrong loading the recordings list. Try again in
+          a moment.
         </p>
         <Button
           type="button"
@@ -85,7 +90,13 @@ export default function CallsSection({
     );
   }
 
-  const recordings = (recordingsQuery.data ?? []) as CallRecording[];
+  // CodeRabbit R5: the previous `as CallRecording[]` cast was a
+  // hand-rolled type mirror that drifted from the actual query
+  // return shape. We use the inferred type from
+  // `recordingsQuery.data ?? []` so any future shape change in
+  // `getCallRecordingsForWorkspace` surfaces as a tsc error here
+  // instead of silently being masked by the cast.
+  const recordings: CallRecording[] = recordingsQuery.data ?? [];
 
   if (recordings.length === 0) {
     return (
