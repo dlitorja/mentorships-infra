@@ -299,7 +299,13 @@ export default defineSchema({
     .index("by_instructorId_deletedAt", ["instructorId", "deletedAt"])
     .index("by_seatReservationId", ["seatReservationId"])
     .index("by_endedAt", ["endedAt"])
-    .index("by_type", ["type"]),
+    .index("by_type", ["type"])
+    // PR #4c-1: lets `assertParticipantForSession` look up the
+    // exact workspace for an instructor + student pair in one
+    // indexed read, instead of an unbounded `.take(N)` + in-memory
+    // scan that would silently deny access to instructors past
+    // the cap. Additive — no migration needed.
+    .index("by_instructorId_ownerId", ["instructorId", "ownerId"]),
 
   workspaceNotes: defineTable({
     workspaceId: v.id("workspaces"),

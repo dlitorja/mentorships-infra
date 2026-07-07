@@ -103,9 +103,15 @@ export async function GET(
           userId: clerkAuth.userId,
         },
       });
-      return withNoStore(
-        NextResponse.json({ url, expiresAt, filename })
-      );
+      // 302 redirect to the signed B2 URL so the browser follows
+      // the redirect and B2 serves the file with
+      // `Content-Disposition: attachment; filename="..."` baked
+      // into the signed URL by `getDownloadUrlWithContentDisposition`.
+      // Returning JSON here would cause the browser to save the
+      // JSON payload instead of the video.
+      const redirectResponse = NextResponse.redirect(url, 302);
+      redirectResponse.headers.set("Cache-Control", "no-store");
+      return redirectResponse;
     }
 
     const url = await getStreamUrl(

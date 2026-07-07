@@ -177,15 +177,16 @@ async function assertSessionBelongsToWorkspace(
  * to take a `sessionId` instead of a `videoRoomName`.
  *
  * Implementation notes:
- * - Both paths must come from the same identity derived from
- *   `ctx.auth.getUserIdentity()` — caller-supplied user ids are
- *   never accepted (Convex auth guideline).
- * - The student path uses the `by_instructorId` index on workspaces
- *   to bound the lookup (`.take(20)`), then matches `ownerId` in
- *   memory. We cannot use `.filter()` per Convex query guidelines;
- *   bounding with `.take` is the alternative.
- * - `deletedAt`/`endedAt` are excluded so we never return a torn-down
- *   workspace that an attacker could still claim a session for.
+ * - Identity derived from `ctx.auth.getUserIdentity()` only —
+ *   caller-supplied user ids are never accepted (Convex auth
+ *   guideline).
+ * - Workspace lookup uses the compound `by_instructorId_ownerId`
+ *   index (PR #4c-1) for an exact `.first()` lookup. No `.take()`
+ *   cap and no in-memory scan, so an instructor with thousands of
+ *   workspaces is served as fast as one with three.
+ * - `deletedAt`/`endedAt` are checked after the indexed lookup so
+ *   we never return a torn-down workspace that an attacker could
+ *   still claim a session for.
  * - Returns role `"instructor"` if the caller's Clerk token matches
  *   the session's instructor doc, else `"student"`. Never both.
  */
@@ -218,34 +219,41 @@ async function assertParticipantForSession(
     throw new Error("Instructor not found");
   }
 
-  // Bounded lookup: get workspaces for this instructor, then find
-  // the one this caller participates in. `.take(20)` bounds the read
-  // so a runaway instructor's roster can't blow up the query.
-  const workspaces = await ctx.db
-    .query("workspaces")
-    .withIndex("by_instructorId", (q) =>
-      q.eq("instructorId", session.instructorId)
-    )
-    .take(20);
-
-  const activeWorkspaces = workspaces.filter(
-    (w) => w.deletedAt === undefined && w.endedAt === undefined
-  );
-
   if (instructor.userId === identity.tokenIdentifier) {
-    const workspace = activeWorkspaces.find(
-      (w) => w.ownerId === session.studentId
-    );
+    // Instructor path: find the workspace where this student is
+    // the owner. Single indexed `.first()` — no cap.
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId_ownerId", (q) =>
+        q
+          .eq("instructorId", session.instructorId)
+          .eq("ownerId", session.studentId)
+      )
+      .first();
     if (!workspace) {
       throw new Error("No workspace matches this session");
+    }
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      throw new Error("No active workspace matches this session");
     }
     return { session, workspace, role: "instructor" };
   }
 
-  const workspace = activeWorkspaces.find(
-    (w) => w.ownerId === identity.tokenIdentifier
-  );
+  // Student path: find the workspace where the caller is the
+  // owner and the session's instructor is the workspace's
+  // instructor. Same indexed `.first()`.
+  const workspace = await ctx.db
+    .query("workspaces")
+    .withIndex("by_instructorId_ownerId", (q) =>
+      q
+        .eq("instructorId", session.instructorId)
+        .eq("ownerId", identity.tokenIdentifier)
+    )
+    .first();
   if (!workspace) {
+    throw new Error("Forbidden");
+  }
+  if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
     throw new Error("Forbidden");
   }
   if (workspace.ownerId !== session.studentId) {
@@ -1846,25 +1854,46 @@ export const canAccessWorkspaceQuery = internalQuery({
  * is missing, or the caller is not a participant on the session —
  * keeping the route layer free of thrown-error gymnastics.
  *
- * `CallEndedAt` and `recordingUrl` are surfaced so the route
+ * `callEndedAt` and `recordingUrl` are surfaced so the route
  * can short-circuit (404) when the call has no recording attached,
  * instead of issuing a signed URL that 403s from B2.
+ *
+ * PR #4c-1 Greptile R1 P1 fix: the helper throws on auth
+ * failures; we catch the auth-failure messages and return `null`
+ * so the route's `if (!participant) → 403` branch fires for
+ * forbidden callers instead of bubbling up as a 500.
  */
 export const getSessionParticipantForRecording = query({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
-    const { session, workspace, role } = await assertParticipantForSession(
-      ctx,
-      { sessionId: args.sessionId }
-    );
-    return {
-      sessionId: session._id,
-      workspaceId: workspace._id,
-      role,
-      recordingS3Key: session.recordingUrl ?? null,
-      callStartedAt: session.callStartedAt ?? null,
-      callEndedAt: session.callEndedAt ?? null,
-      isAdhoc: session.isAdhoc ?? false,
-    };
+    try {
+      const { session, workspace, role } = await assertParticipantForSession(
+        ctx,
+        { sessionId: args.sessionId }
+      );
+      return {
+        sessionId: session._id,
+        workspaceId: workspace._id,
+        role,
+        recordingS3Key: session.recordingUrl ?? null,
+        callStartedAt: session.callStartedAt ?? null,
+        callEndedAt: session.callEndedAt ?? null,
+        isAdhoc: session.isAdhoc ?? false,
+      };
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        [
+          "Unauthorized",
+          "Session not found",
+          "Forbidden",
+          "No workspace matches this session",
+          "No active workspace matches this session",
+        ].includes(err.message)
+      ) {
+        return null;
+      }
+      throw err;
+    }
   },
 });

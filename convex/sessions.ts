@@ -1397,7 +1397,6 @@ export const getSessionByVideoRoomName = query({
  */
 export type CallRecording = {
   sessionId: Id<"sessions">;
-  recordingS3Key: string;
   callStartedAt: number | null;
   callEndedAt: number | null;
   recordingDurationSeconds: number | null;
@@ -1434,13 +1433,11 @@ export const getCallRecordingsForWorkspace = query({
       throw new Error("Forbidden");
     }
 
-    // Bounded by `by_instructorId_status_scheduledAt` index. We
-    // filter `status === "completed"` in-memory because the
-    // recording webhook only fires after the call ends, and only
-    // ended calls produce recordings — same filter shape used
-    // elsewhere in this file. `.take(200)` bounds the read; we
-    // further filter to `recordingUrl !== undefined` and slice to
-    // the most-recent 50.
+    // Bounded read scoped to the workspace's instructor using the
+    // compound `by_instructorId_status_scheduledAt` index. The
+    // status filter is part of the index so we don't need an
+    // in-memory scan; `.take(50)` matches the documented 50-item
+    // cap for the Calls sub-section.
     const candidateSessions = await ctx.db
       .query("sessions")
       .withIndex("by_instructorId_status_scheduledAt", (q) =>
@@ -1449,7 +1446,7 @@ export const getCallRecordingsForWorkspace = query({
           .eq("status", "completed")
       )
       .order("desc")
-      .take(200);
+      .take(50);
 
     const ownerUser = await ctx.db
       .query("users")
@@ -1467,10 +1464,8 @@ export const getCallRecordingsForWorkspace = query({
           s.deletedAt === undefined &&
           s.recordingUrl !== undefined
       )
-      .slice(0, 50)
       .map((s) => ({
         sessionId: s._id,
-        recordingS3Key: s.recordingUrl!,
         callStartedAt: s.callStartedAt ?? null,
         callEndedAt: s.callEndedAt ?? null,
         recordingDurationSeconds: s.recordingDurationSeconds ?? null,
