@@ -20,10 +20,17 @@ import {
  * Replaces the "coming soon" placeholder card in
  * `app/settings/page.tsx`.
  *
- * Toggles are gated by capability checks (desktop requires
- * `Notification.permission === "granted"`) and explain inline why
- * an option is unavailable. Sound has a "Test" button so the user
- * can preview the chime without waiting for an incoming call.
+ * Toggles are always interactive — the desktop switch is NOT
+ * `disabled` when the browser permission is `"default"`, because
+ * that would prevent the user from ever triggering the permission
+ * prompt. Instead, clicking the switch on `"default"` calls
+ * `requestDesktopPermission()`; the switch only updates to `true`
+ * once permission becomes `"granted"`. When permission is
+ * `"denied"` or `"unsupported"`, the toggle visually reflects
+ * the disabled state but stays focusable for screen-reader users.
+ *
+ * Sound has a "Test" button so the user can preview the chime
+ * without waiting for an incoming call.
  *
  * Persisted to localStorage via `setNotificationPreferences` so
  * the choice is device-specific (per the AGENTS.md-style
@@ -50,17 +57,24 @@ export function NotificationPreferencesCard() {
 
   const onToggleDesktop = async (next: boolean) => {
     if (next) {
+      // First-time opt-in flow: trigger the browser permission
+      // prompt. The switch stays OFF until the user grants
+      // permission; otherwise we silently revert.
       const result = await requestDesktopPermission();
       setPermission(result);
       if (result === "granted") {
         update({ desktopEnabled: true });
       }
-    } else {
+      return;
+    }
+    // Turning off: only honored if the user previously opted in.
+    // If permission was denied by the user at the OS level, the
+    // stored `desktopEnabled` was never `true`, so this branch is
+    // a no-op for first-time users.
+    if (permission === "granted") {
       update({ desktopEnabled: false });
     }
   };
-
-  const desktopDisabled = permission !== "granted";
 
   return (
     <Card>
@@ -89,15 +103,19 @@ export function NotificationPreferencesCard() {
           <div className="flex-1">
             <div className="text-sm font-medium">Show desktop notification</div>
             <div className="text-xs text-muted-foreground">
-              {desktopDisabled
-                ? "Desktop notifications require browser permission. Click to enable."
-                : "Sends an OS-level notification on incoming call invites."}
+              {permission === "default"
+                ? "Click the switch to grant browser permission for OS-level notifications."
+                : permission === "granted"
+                  ? "Sends an OS-level notification on incoming call invites."
+                  : permission === "denied"
+                    ? "Browser permission was denied. Update it in your browser's site settings to enable."
+                    : "Desktop notifications are not supported in this browser."}
             </div>
           </div>
           <Switch
             checked={prefs?.desktopEnabled ?? false}
             onCheckedChange={(checked) => void onToggleDesktop(checked)}
-            disabled={desktopDisabled}
+            disabled={permission === "denied" || permission === "unsupported"}
             aria-label="Show desktop notification on incoming call"
           />
         </div>
