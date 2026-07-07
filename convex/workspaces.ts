@@ -896,6 +896,57 @@ export const getWorkspaceLinks = query({
   },
 });
 
+/**
+ * PR #4c-3: returns links tagged to the currently active call
+ * (`sessionId` set + non-deleted) for the given workspace. Drives
+ * the "Shared during current call" subpanel in the Links tab while
+ * a video call is in progress.
+ *
+ * Why a new query instead of reusing `getWorkspaceLinks`:
+ * 1. **Indexed.** Uses the existing `by_workspaceId_sessionId` index
+ *    (added in PR #4b) so the read is O(matched links), not
+ *    O(workspace links). For a typical call this is single-digit rows.
+ * 2. **Auth bound to the session, not the workspace.**
+ *    `assertParticipantForSession` rejects callers who supply a
+ *    valid-looking `sessionId` that doesn't belong to a workspace
+ *    they're a participant on — the same anti-leakage shape used by
+ *    `getCallRecordingsForWorkspace` (PR #4c-1) and every
+ *    PR #4b write path. A token from a different workspace that
+ *    passes `getWorkspaceLinks` auth (participant on workspace X)
+ *    cannot pass this query's auth (non-participant on session Y).
+ * 3. **No fallback to call-window timestamps.** Pre-PR #4b links
+ *    have `sessionId === undefined` and would not match the index.
+ *    Documented limitation: links posted before the sessionId
+ *    feature shipped cannot appear in this subpanel even if their
+ *    `createdAt` overlaps a call window. Resurfacing them would
+ *    require a backfill or a window-bounded scan — out of scope.
+ *
+ * Returned shape matches `getWorkspaceLinks` so callers can use
+ * the same row type in the Links list and the subpanel.
+ */
+export const getSharedLinksForActiveSession = query({
+  args: {
+    workspaceId: v.id("workspaces"),
+    sessionId: v.id("sessions"),
+  },
+  handler: async (ctx, args) => {
+    await assertParticipantForSession(ctx, args);
+
+    const rows = await ctx.db
+      .query("workspaceLinks")
+      .withIndex("by_workspaceId_sessionId", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("sessionId", args.sessionId)
+      )
+      .collect();
+
+    return rows
+      .filter((r) => r.deletedAt === undefined)
+      .sort((a, b) => b._creationTime - a._creationTime);
+  },
+});
+
 /** Creates a new link in a workspace. */
 export const createWorkspaceLink = mutation({
   args: {

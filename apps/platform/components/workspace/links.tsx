@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
   useWorkspaceLinks,
+  useSharedLinksForActiveSession,
   useCreateWorkspaceLink,
   useDeleteWorkspaceLink
 } from '@/lib/queries/convex/use-workspaces';
@@ -53,6 +54,11 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
   }, [activeSessionId]);
 
   const { data: links, isLoading } = useWorkspaceLinks(workspaceId);
+  // PR #4c-3: links tagged to the active session. Returns
+  // `undefined` while loading or when no session is active — see
+  // the `enabled` guard in `useSharedLinksForActiveSession`.
+  const { data: sharedLinks, isLoading: sharedLinksLoading } =
+    useSharedLinksForActiveSession(workspaceId, activeSessionId);
   const createLink = useCreateWorkspaceLink();
   const deleteLink = useDeleteWorkspaceLink();
 
@@ -211,6 +217,76 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PR #4c-3: "Shared during current call" subpanel. Renders
+       * only while a call is active (`activeSessionId` non-null)
+       * and shows links tagged to this session via the PR #4b
+       * `workspaceLinks.sessionId` field. Visually inset so users
+       * can tell it apart from the full history list below. */}
+      {activeSessionId && (
+        <div
+          data-testid="shared-during-call-subpanel"
+          className="mb-4 p-3 border rounded-lg bg-primary/5 border-primary/20 shrink-0"
+        >
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-hidden />
+              Shared during current call
+            </h4>
+            {!sharedLinksLoading && sharedLinks && (
+              <span className="text-xs text-muted-foreground">
+                {sharedLinks.length} link{sharedLinks.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+          {sharedLinksLoading ? (
+            <div className="flex items-center justify-center py-3">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : sharedLinks && sharedLinks.length > 0 ? (
+            <div className="space-y-1.5">
+              {sharedLinks.map((link: Link) => (
+                <div
+                  key={link._id}
+                  className="flex items-center justify-between gap-2 py-1.5 px-2 rounded bg-background/60 hover:bg-background transition-colors"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <LinkIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-medium text-primary hover:underline truncate"
+                    >
+                      {link.title || link.url}
+                    </a>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 shrink-0"
+                    asChild
+                  >
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open link"
+                      aria-label={`Open ${link.title || link.url} in a new tab`}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground py-1.5">
+              No links shared yet this call
+            </p>
+          )}
         </div>
       )}
 
