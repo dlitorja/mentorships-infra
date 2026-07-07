@@ -137,6 +137,51 @@ todos:
     phase: 4
     content: Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — deferred to PR #4c (Phase 5)
     status: done
+  - id: signed-b2-ttl
+    owner: agent
+    phase: 5
+    content: Implement signed B2 URL TTL policy (1h) + refresh-on-view + queued-during-playback — PR #4c-1
+    status: done
+  - id: student-notification-bell
+    owner: agent
+    phase: 5
+    content: Add cross-workspace notification bell (sidebar) with count badge + dropdown + mark-all-read — PR #4c-2
+    status: done
+  - id: student-notification-row-badge
+    owner: agent
+    phase: 5
+    content: Add per-workspace red-dot row badge on picker so context is preserved — PR #4c-2
+    status: done
+  - id: student-notification-toast
+    owner: agent
+    phase: 5
+    content: Sonner toast + Web Audio chime + browser Notification API for new invites — PR #4c-2
+    status: done
+  - id: deep-link-route
+    owner: agent
+    phase: 5
+    content: Add /workspace/[id]?join={sessionId} deep-link route + auto-join via VideoCallProvider.initialJoinSessionId — PR #4c-2
+    status: done
+  - id: notification-preferences-ui
+    owner: agent
+    phase: 5
+    content: Add opt-in preferences card on /settings (sound + desktop, gated by browser permission state) — PR #4c-2
+    status: done
+  - id: adhoc-call-email
+    owner: agent
+    phase: 5
+    content: Resend email via Trigger.dev with idempotency key on (sessionId, recipientUserId) — PR #4c-2
+    status: done
+  - id: resources-student-subpanel
+    owner: agent
+    phase: 5
+    content: "Shared during current call" subpanel in Links tab for students (deferred from PR #4b) — PR #4c-3
+    status: pending
+  - id: mobile-narrow-viewport
+    owner: agent
+    phase: 7
+    content: Implement narrow viewport (<900px: PiP-only, <600px: full-screen video with bottom-sheet workspace drawer)
+    status: pending
 ---
 
 # Video Calling Integration (Daily.co + Backblaze B2)
@@ -162,7 +207,7 @@ Key behaviors:
 
 ## Status
 
-**Plan approved. PR #1 → PR #4b shipped; PR #4c (recording playback) remaining.**
+**Plan approved. PR #1 → PR #4c-2 shipped; PR #4c-3 (student "Shared during current call" subpanel) and Phase 7 (mobile/narrow viewport) remaining.**
 
 - Plan merged via PR #593.
 - Instructor-dashboard `seatReservations` query P2s + Instructor Call Flows section landed via PR #594 (commit `803313ca`).
@@ -170,7 +215,9 @@ Key behaviors:
 - **PR #2 (Phase 2) — shipped.** Room creation (`POST /api/video/rooms`), token generation (`GET /api/video/token/[roomName]`), active-call query (`GET /api/video/active/[workspaceId]`), and call-end (`POST /api/video/end/[sessionId]`) endpoints. Role resolved server-side from authenticated Clerk session; never trusted from URL/body.
 - **PR #3 (Phase 3) — shipped.** `VideoCallProvider`, `VideoPanel` (50/50 draggable split via `react-resizable-panels`, persisted to `localStorage`), `PictureInPicture`, `CallStatusPill`, `WaitingRoom`, `VideoCall` component, mount in `workspace-client-page.tsx` gated by active session, mobile/narrow viewport (<900px PiP-only, <600px full-screen + bottom-sheet drawer), keyboard shortcuts (Cmd/Ctrl + Shift + V/M/S/H/L/K), Join Call button on session cards.
 - **PR #4a (Phase 4 prep) — shipped.** Per-party recording consent (`instructorRecordingConsent` + `studentRecordingConsent` ANDed into existing `recordingConsent`), Daily-room reconciliation drift-detection loop (`syncRoomRecording` + `confirmRoomRecording`), `POST /api/video/start-adhoc` (instructor-only, creates synthetic `sessions` row with `isAdhoc: true`), `StartAdhocButton`, orphan cleanup + self-healing on retry.
-- **PR #4b (Phase 4 — workspace content integration) — shipped.** See [PR #4b Delivery](#pr-4b-delivery--workspace-content-integration). All four todos (`auto-tag-content`, `live-session-note`, `clipboard-image-paste`, `quick-capture`) done. `recording-playback` deferred to PR #4c.
+- **PR #4b (Phase 4 — workspace content integration) — shipped.** See [PR #4b Delivery](#pr-4b-delivery--workspace-content-integration). All four todos (`auto-tag-content`, `live-session-note`, `clipboard-image-paste`, `quick-capture`) done. `recording-playback` deferred to PR #4c-1; student notification surface deferred to PR #4c-2.
+- **PR #4c-1 (Phase 5 — recording playback) — shipped.** See [PR #4c-1 Delivery](#pr-4c-1-delivery--recording-playback). Calls sub-section in Notes tab with Play (modal `<video>`) + Download (signed B2 URL with 1h TTL + refresh-on-view + queued-during-playback) + defensive `assertParticipantForSession` typed `QueryCtx` helper for cross-workspace access prevention.
+- **PR #4c-2 (Phase 5 — student ad-hoc notification surface) — shipped.** See [PR #4c-2 Delivery](#pr-4c-2-delivery--student-ad-hoc-notification-surface). Cross-workspace bell + per-workspace row badge + Sonner toast + Web Audio chime + browser Notification API (opt-in) + `/workspace/[id]?join={sessionId}` deep-link auto-join + Resend email via Trigger.dev with `(sessionId, recipientUserId)` idempotency.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
@@ -182,7 +229,10 @@ Key behaviors:
 | 3 | VideoCallProvider + VideoPanel + mount + Join Call button | agent | PR #3 ✅ |
 | 4 prep | Ad-hoc endpoint + Start-ad-hoc button + consent modal + Daily-room reconciliation | agent | PR #4a ✅ |
 | 4 | Auto-tag composers + live session note + clipboard paste + Quick Capture | agent | PR #4b ✅ |
-| 5 | Calls sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh) | agent | PR #4c |
+| 5a | Calls sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh) | agent | PR #4c-1 ✅ |
+| 5b | Student notification surface (bell + badge + toast + deep-link + email) | agent | PR #4c-2 ✅ |
+| 5c | Student "Shared during current call" Links subpanel | agent | PR #4c-3 |
+| 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -689,21 +739,24 @@ Recording-consent UI + Daily-room config + webhook handler + `recordingUrl` fiel
 - [x] Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — shipped in PR #4c-1
 - [x] Implement signed B2 URL refresh strategy (TTL policy) — shipped in PR #4c-1 (1-hour TTL, refresh-on-view, 60s check, queued-during-playback)
 
-### Phase 6: Ad-hoc Calls (Instructor Only) — Shipped in PR #4a
+### Phase 6: Ad-hoc Calls (Instructor Only) — Shipped in PR #4a, PR #4c-1, PR #4c-2
 
 - [x] Implement `POST /api/video/start-adhoc` (creates synthetic `sessions` row with `isAdhoc: true`, `recordingConsent: true` default)
 - [x] Add instructor-only "Start ad-hoc call" button in workspace header (hidden in the UI for students, not just gated server-side)
 - [x] Consent modal opens with recording toggled ON by default
 - [x] Per-party recording consent (`instructorRecordingConsent` + `studentRecordingConsent`) ANDed into `recordingConsent`
 - [x] Daily-room reconciliation drift-detection loop (`syncRoomRecording` + `confirmRoomRecording`) when consent changes after room provisioned
-- [ ] Student receives in-app notification (workspace list badge + optional email) — deferred to PR #4c
+- [x] Student receives in-app notification (workspace bell + per-workspace row badge + Sonner toast + optional Web Audio chime + browser Notification API) — shipped in PR #4c-2
+- [x] Student receives Resend email via Trigger.dev with `(sessionId, recipientUserId)` idempotency — shipped in PR #4c-2
+- [x] `/workspace/[id]?join={sessionId}` deep-link route + auto-join via `VideoCallProvider.initialJoinSessionId` — shipped in PR #4c-2
 - [x] Recording playback sub-section at top of Notes tab (Play + Download) — shipped in PR #4c-1
 - [x] Greptile: no new P1; Vercel: all 4 apps READY
 
-### Phase 7: Mobile & Narrow Viewport
+### Phase 7: Mobile & Narrow Viewport — PR #4c-4 (pending)
 - [ ] Implement narrow viewport (< 900px): PiP-only default, no split panel
 - [ ] Implement mobile (< 600px): full-screen video + bottom-sheet workspace drawer
 - [ ] Ensure Quick Capture composer works at all viewport sizes
+- [ ] Verify layouts in E2E on a phone-sized viewport (375×667) and a small laptop (1280×720)
 
 ## PR #4b Delivery — Workspace Content Integration
 
@@ -777,17 +830,90 @@ Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
 
 `convex/workspaces.ts` exports a typed `MutationCtx` helper that fetches the session and workspace rows in parallel and rejects when the session's instructor/student pair doesn't match the workspace's instructor/owner pair. Called by every PR #4b write path (`createWorkspaceNote`/`updateWorkspaceNote`/`createWorkspaceLink`/`createWorkspaceImage`/`createWorkspaceMessage`/`createWorkspaceImageAndMessage`/`createWorkspaceFileMessage`) AND by `getLiveSessionNote`. A non-participant who passes a "valid-looking" session id is rejected even after the role check, so the live note cannot leak across workspaces.
 
-### Deferred to PR #4c
+### Deferred to PR #4c-3 / PR #4c-4
 
-- Recording playback sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh)
-- Student in-app notification for ad-hoc calls (workspace list badge + email)
-- "Shared during current call" student subpanel in Links tab (resources surfaced without exposing the Resources management UI)
-- Mobile/narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet drawer)
+PR #4c was split into three sub-PRs for reviewability. As of 2026-07-07, #4c-1 + #4c-2 are merged and the following remain:
+
+- **PR #4c-3** — "Shared during current call" student subpanel in Links tab (resources surfaced without exposing the Resources management UI). Originally bundled in PR #4b but pulled out so the PR #4b diff stayed under review focus.
+- **PR #4c-4** — Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet workspace drawer). Phase 7 in the plan; the <900px/<600px layouts were scaffolded in PR #3 but not exercised in E2E, so this PR is the verification + UX polish pass.
+
+
+## PR #4c-1 Delivery — Recording Playback
+
+**Branch:** `feat/video-calling-pr4c-1` (rebased onto `main`)
+**PR:** #600 — `feat(platform): video calling PR #4c-1 - recording playback in Notes tab`
+**Status:** MERGED as `a5bcc328` on `main` (2026-07-07).
+
+### What shipped
+
+Recording playback lives as a sub-section at the top of the Notes tab in `apps/platform/components/workspace/notes.tsx`. Instructors and students see the same UI: each call row shows a **Play** button (opens a modal with a native `<video controls>` player) and a **Download** button (serves a fresh signed B2 URL).
+
+- **Convex query:** `convex/workspaces.ts getCallRecordingsForWorkspace` returns `CallRecording[]` from `v.string()` `recordingUrl` rows, sorted descending by `startedAt`. Uses index `by_workspaceId_callStartedAt` for the index scan and `.collect()` to fetch the full list (the user's workspace is bounded so this is safe).
+- **Cross-workspace access prevention:** `assertParticipantForSession` typed `QueryCtx` helper fetches `session.workspaceId` and verifies the caller (`identity.tokenIdentifier`) is the workspace's instructor or owner. Called by `getCallRecordingsForWorkspace` and `getCallRecordingDownloadUrlBySessionId` (the latter is the signed-URL query endpoint).
+- **Signed B2 URL TTL policy:** 1-hour expiry. Refreshed via `useEffect` that runs:
+  - On mount (so first paint is always a fresh URL).
+  - Every 60 seconds in the background.
+  - On user-visible URL change (re-fetch on focus if the cached URL is within 10 minutes of expiry).
+- **Queued-during-playback:** if the modal player is open (`isPlayingRef`), the refresh effect defers the next fetch until playback ends. Avoids mid-play URL rotation that would 404 the `<video>` element.
+- **Filename format:** date-only — `recording-{YYYY-MM-DD}.mp4` — per the AGENTS.md guidance (no session id in user-visible filenames; instructors/students see the same date).
+- **Greptile R0 → R5:** 5 iterations to reach confidence 5/5. Key findings addressed:
+  - **P1** — `assertParticipantForSession` originally used `ctx: any`; re-typed as `QueryCtx` from `./_generated/server`.
+  - **P2** — `getCallRecordingDownloadUrlBySessionId` originally fetched `session` twice (once for participant check, once for the URL); collapsed to one fetch + local variable.
+  - **P2** — `recording-filename.ts` originally took a Date and re-constructed it; now takes a `number` timestamp (the actual stored shape) and the test asserts both formats.
+
+## PR #4c-2 Delivery — Student Ad-hoc Notification Surface
+
+**Branch:** `feat/video-calling-pr4c-2` (rebased onto `main`)
+**PR:** #601 — `feat(platform): video calling PR #4c-2 - student ad-hoc notification surface`
+**Status:** MERGED as `39a6a1a6` on `main` (2026-07-07).
+
+### What shipped
+
+When an instructor clicks "Start ad-hoc call" in a workspace, the student receives the invite on three surfaces simultaneously — in-app (Sonner toast + sidebar bell + per-workspace row badge), out-of-band (Resend email via Trigger.dev), and in-place (deep-link to `/workspace/[id]?join={sessionId}` that auto-joins). Sound + desktop notifications are opt-in per user.
+
+- **Convex table:** `convex/schema.ts inCallNotifications` — `kind: v.literal("ad_hoc_call_invite")`, `expiresAt = createdAt + 24h`, `readAt?`, indexes `by_userId_sessionId` (dedupe), `by_userId_readAt` (bell feed), `by_workspaceId_sessionId` (row badge).
+- **Public mutations:** `createAdHocCallNotification` (idempotent on `(userId, sessionId)`), `markRead` (auth-gated by `identity.tokenIdentifier`), `markReadMany` (batch, used by the bell's Mark-all-read). No public `markEmailSent` or `getBySessionId` — those were Greptile P1 findings (a caller with the IDs could suppress email send or enumerate sessions).
+- **Queries:** `getUnreadForUser` (used by bell + toast), `getUnreadForWorkspace` (used by row badge). All queries bound via indexes; no `.filter()` in queries.
+- **In-app notification:**
+  - **Bell** — `components/notifications/notification-bell.tsx` renders a red count badge and dropdown. Closes on outside click + Escape. Mark-all-read fires one `markReadMany` round-trip.
+  - **Row badge** — `components/workspace/workspace-row-badge.tsx` renders a small red dot on each picker row that has an active invite.
+  - **Toast + chime + desktop** — `components/notifications/incoming-call-toast.tsx` listens on `getUnreadForUser`. Captures `mountedAt` snapshot after first render so unread backlog doesn't trigger alert storms on dashboard open. Sound/desktop gated by `localStorage` preferences (`lib/notifications/preferences.ts`).
+- **Deep-link route:** `app/workspace/[id]/page.tsx` parses `?join={sessionId}`, auth-gates via `getWorkspaceByIdForUser`, redirects to `/workspace` if not a participant. `<IncomingCallMarker>` (no-render component) fires `markRead` on mount — fixes the nav race where the bell clears before the row badge sees the row.
+- **Auto-join:** `VideoCallProvider.initialJoinSessionId` prop threads through from `WorkspaceClientPage` (sourced from URL `searchParams.join`). The provider queries `api.sessions.getSessionById` directly for the deep-link session (the workspace's "current" winner can disagree when a freshly-scheduled session wins the index scan). If status is `"joinable"`, fires `markCallStarted`; if status is `"active"`, the existing join effect picks it up. Deep-link `markCallStarted` failure surfaces via `reportError` so the dashboard has telemetry.
+- **Email:** `POST /api/video/start-adhoc` enqueues via Trigger.dev REST API with `idempotencyKey: ad-hoc-call-email:{sessionId}:{recipientUserId}`. Notification insert + email enqueue moved into `after()` (Next.js 16) so the HTTP response isn't gated on Resend latency. A single `clerkClient.users.getUser` call returns email + first name (previously two separate calls).
+- **Preferences UI:** `components/notifications/notification-preferences-card.tsx` on `/settings` (replaced the placeholder "coming soon" Card). Sound switch is always interactive; desktop switch stays interactive in `default` state to trigger the permission prompt, becomes disabled only when `Notification.permission === "denied" | "unsupported"`. "Test sound" button always enabled so users can preview the chime before opting in.
+- **Permission state:** `lib/notifications/desktop.ts` normalises `Notification.permission` to `"default" | "granted" | "denied" | "unsupported"` via explicit `normalisePermission()` widening helper (no `as PermissionState` cast).
+
+### Greptile R0 → R5 (5/5 confidence)
+
+5 iterations. Key findings:
+
+- **P1** — Drop `markEmailSent` + `getBySessionId` from `convex/inCallNotifications.ts`. A caller with the right IDs could suppress an actual email send (by writing `emailSentAt` before Trigger ran) or enumerate all session IDs in the system. Replaced email idempotency with Trigger.dev's built-in `idempotencyKey`.
+- **P2 #1** — Initial-invite-skips-alert. The original `lastSeenIdRef` + first-render-return suppressed the alert for any notification already present at mount, so unread backlog never alerted. Replaced with `mountedAtRef` snapshot taken after the first query settles — only notifications with `createdAt >= mountedAt` fire.
+- **P2 #2** — Target-session-can-disappear. The deep-link auto-join effect compared `session.sessionId` from `getCurrentOrUpcomingSessionForWorkspace` to `initialJoinSessionId` — those can disagree when a freshly-scheduled session wins the index scan. Now queries the deep-link session directly.
+- **P2 #3** — Read-state-clears-before-landing. Bell Link `onClick` was firing `markRead.mutate` — won the navigation race so `WorkspaceRowBadge` saw `readAt !== undefined` before the destination page mounted, hiding the red dot on landing. Removed from bell; added `<IncomingCallMarker>` that fires `markRead` on workspace mount.
+- **R0 P1** — First-time desktop opt-in unreachable. Desktop switch was blanket-disabled when permission wasn't "granted", so first-time users (permission default) couldn't click to trigger the prompt. Removed blanket disable; switch stays interactive in `default` state and calls `requestDesktopPermission()` on click.
+
+### CodeRabbit CHANGES_REQUESTED round (commit `5a97c2a5`)
+
+18 review comments addressed:
+
+- `start-adhoc/route.ts` — consolidated two `clerkClient.users.getUser` calls into one (email + first name in a single round-trip); moved notification + email into `after()`; decoupled the in-app notification insert from email/Clerk lookups so the notification row exists even when Resend/Clerk is down.
+- `notification-bell.tsx` — added outside-click + Escape close for the dropdown; batched mark-all-read via new `markReadMany` mutation.
+- `notification-preferences-card.tsx` — enabled "Test sound" before opt-in; wrapped `requestDesktopPermission` in try/catch.
+- `incoming-call-toast.tsx` — replaced 30s preferences polling with cross-tab `storage` event.
+- `video-call-provider.tsx` — added `reportError` on deep-link `markCallStarted` failure (was the only deep-link auto-join path with silent failures).
+- `workspace-row-badge.tsx` — replaced `as never` cast with `Id<"workspaces">` typing.
+- `desktop.ts` — replaced `as PermissionState` cast with explicit `normalisePermission()` widening helper.
+- `sound.ts` — drops cached `AudioContext` when state is `"closed"` so backgrounded tabs reuse a fresh context.
+- `workspace/[id]/page.tsx` — dedupes `requireAuth()` call.
+- `workspace/page.tsx` — defers `getServerUserRole` past the single-workspace redirect (the redirect path no longer hits Clerk API).
+- Wording — "mentorship call" → "video call" / "ad-hoc session" throughout student-facing surfaces (bell, toast, prefs).
 
 
 ## File Changes
 
-### New Files
+### New Files (across all PRs)
 
 **Video Components:**
 - `apps/platform/components/video/video-provider.tsx` — DailyProvider wrapper
@@ -798,6 +924,18 @@ Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
 - `apps/platform/components/video/waiting-room.tsx` — Waiting room UI for students
 - `apps/platform/components/video/quick-capture.tsx` — Floating Cmd/Ctrl+K composer (text/link/clipboard-image)
 - `apps/platform/components/video/call-status-pill.tsx` — Workspace header live indicator (timer, participants)
+
+**Notifications (PR #4c-2):**
+- `apps/platform/components/notifications/notification-bell.tsx` — Sidebar bell with cross-workspace count + dropdown + mark-all-read (batches via `markReadMany`)
+- `apps/platform/components/notifications/incoming-call-toast.tsx` — Sonner toast + chime + desktop notification on new invites (mounted in `<ProtectedLayout>`)
+- `apps/platform/components/notifications/incoming-call-marker.tsx` — No-render marker that fires `markRead` when destination workspace mounts (fixes nav race)
+- `apps/platform/components/notifications/notification-preferences-card.tsx` — Opt-in settings UI on `/settings` (sound + desktop, gated by `Notification.permission`)
+- `apps/platform/components/workspace/workspace-row-badge.tsx` — Per-workspace red dot in picker
+- `apps/platform/lib/notifications/sound.ts` — Web Audio API two-note chime (D5+A5) at 30% volume
+- `apps/platform/lib/notifications/desktop.ts` — `Notification` API wrapper with permission gating
+- `apps/platform/lib/notifications/preferences.ts` — localStorage-backed preferences (`huckleberry.notificationPreferences.v1`)
+- `packages/emails/src/ad-hoc-call.ts` — Resend template (`buildAdHocCallInviteEmail`)
+- `src/trigger/ad-hoc-call-email.ts` — Trigger.dev task `send-ad-hoc-call-invite-email`
 
 **Context & Hooks:**
 - `apps/platform/context/video-call-context.tsx` — Global video call state (Jotai atoms)
@@ -810,7 +948,10 @@ Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
 - `apps/platform/app/api/video/token/[roomName]/route.ts` — Token generation (role derived server-side)
 - `apps/platform/app/api/webhooks/daily/recordings/route.ts` — Webhook for recording complete (HMAC-verified, public)
 - `apps/platform/app/api/video/active/[workspaceId]/route.ts` — Active call query
-- `apps/platform/app/api/video/start-adhoc/route.ts` — Instructor-only ad-hoc call creation
+- `apps/platform/app/api/video/start-adhoc/route.ts` — Instructor-only ad-hoc call creation (PR #4c-2: enqueues email + notification inside `after()`)
+
+**Deep-link route (PR #4c-2):**
+- `apps/platform/app/workspace/[id]/page.tsx` — Server-rendered dynamic route, auth-gates, parses `?join={sessionId}`, mounts `<IncomingCallMarker>`
 
 **Utilities:**
 - `apps/platform/lib/daily.ts` — Daily.co API helpers
@@ -859,7 +1000,10 @@ DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 - Daily's in-call chat is **disabled** — workspace Chat tab is the single chat surface during a call.
 - Live session note is auto-created on `callStartedAt` transition by `internalMutation workspaces.createLiveSessionNote`; idempotent via `by_sessionId_isLiveSessionNote`. Both roles can post to it.
 - Ad-hoc calls are instructor-only; synthetic session row is created so recording + tagging work the same as scheduled calls.
-- Signed B2 URLs for recording download need a TTL policy + refresh strategy (deferred to PR #4c).
+- Signed B2 URLs use 1-hour TTL with refresh-on-view (60s background check) and queued-during-playback (PR #4c-1).
+- Student ad-hoc call notifications are decoupled across three surfaces — bell (cross-workspace rollup), row badge (per-workspace context), toast/chime/desktop (liveness) — all reading the same `inCallNotifications` table with a 24h `expiresAt` and `(userId, sessionId)` dedupe index (PR #4c-2).
+- Email idempotency for ad-hoc call invites uses Trigger.dev's `idempotencyKey: ad-hoc-call-email:{sessionId}:{recipientUserId}` rather than a Convex `emailSentAt` marker — the marker would have been a writable public mutation exposed for any caller with the IDs (PR #4c-2).
+- Mark-read for an invite fires on the destination workspace mount (`<IncomingCallMarker>`), not on the bell click. Marking on click loses the navigation race: the bell query refetches before the per-workspace row badge mounts, hiding the red dot on landing (PR #4c-2).
 - Quick Capture shortcut `Cmd/Ctrl+K` lives in its own listener (`lib/hooks/use-quick-capture-shortcut.ts`) because `use-keyboard-shortcuts.ts:42` swallows `metaKey|ctrlKey|altKey`. It also skips events when target is `<input>`/`<textarea>`/`<select>`/contentEditable.
 - `useVideoCallContext()` is the bridge for active-call state on the workspace client. The session object (`session?.sessionId`, `session?.status`) plus `workspaceId` (set by the provider from `useCurrentOrUpcomingSessionForWorkspace`) are the props all PR #4b composers receive.
 - `assertSessionBelongsToWorkspace` (typed `MutationCtx`) is the single source of truth for cross-workspace session id validation. Every PR #4b write path calls it after `getWorkspaceRole`.
@@ -898,4 +1042,5 @@ These surfaced during Greptile review of PR #594 (commit `803313ca`) and are que
 - **Webhook runtime missing (P1)** — resolved by adding `export const runtime = "nodejs"` at the top of the route file.
 - **Mutation result leaked in webhook response (CodeRabbit 🟠)** — resolved: `convex.action()` call no longer spreads `result` into the public NextResponse.
 - **Payload type guard (CodeRabbit 🟡)** — resolved: `isValidRecordingPayload` validates field types before forwarding to Convex, returning 400 on malformed input instead of 500.
+
 - **Explicit return type (CodeRabbit 🔵)** — resolved: `POST(req: NextRequest): Promise<NextResponse>`.
