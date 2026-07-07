@@ -1,6 +1,6 @@
 import { task, logger } from "@trigger.dev/sdk";
-import { sendEmail } from "../packages/emails/src/send";
-import { buildAdHocCallInviteEmail } from "../packages/emails/src/ad-hoc-call";
+import { sendEmail } from "../../packages/emails/src/send";
+import { buildAdHocCallInviteEmail } from "../../packages/emails/src/ad-hoc-call";
 
 type Payload = {
   notificationId: string;
