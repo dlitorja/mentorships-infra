@@ -19,6 +19,7 @@ import { CallStatusPill } from "@/components/video/call-status-pill";
 import { StartAdhocButton } from "@/components/video/start-adhoc-button";
 import { WaitingRoom } from "@/components/video/waiting-room";
 import QuickCapture from "@/components/video/quick-capture";
+import { WorkspaceRowBadge } from "@/components/workspace/workspace-row-badge";
 import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { DEFAULT_SPLIT_RATIO, SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
@@ -38,12 +39,18 @@ function WorkspaceContent({
   clerkUserId,
   workspaces,
   userRole,
+  initialWorkspaceId,
+  initialJoinSessionId,
 }: {
   clerkUserId: string;
   workspaces: UserWorkspace[] | undefined;
   userRole: UserRole;
+  initialWorkspaceId?: Id<"workspaces">;
+  initialJoinSessionId?: Id<"sessions">;
 }) {
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<"workspaces"> | null>(null);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<Id<"workspaces"> | null>(
+    initialWorkspaceId ?? null
+  );
   const [activeTab, setActiveTab] = useState("chat");
   // sessionId from the active call, passed down to Notes/Images/Links/Chat
   // composers for auto-tagging during the call. Read from
@@ -54,10 +61,15 @@ function WorkspaceContent({
   const workspacesLoading = false;
 
   useEffect(() => {
-    if (workspaces && workspaces.length > 0 && !selectedWorkspaceId) {
+    if (
+      workspaces &&
+      workspaces.length > 0 &&
+      !selectedWorkspaceId &&
+      initialWorkspaceId === undefined
+    ) {
       setSelectedWorkspaceId(workspaces[0]._id);
     }
-  }, [workspaces, selectedWorkspaceId]);
+  }, [workspaces, selectedWorkspaceId, initialWorkspaceId]);
 
   if (workspacesLoading) {
     return (
@@ -80,6 +92,7 @@ function WorkspaceContent({
       // session, and unmount cleanup of the old call would never fire.
       key={selectedWorkspaceId}
       workspaceId={selectedWorkspaceId}
+      initialJoinSessionId={initialJoinSessionId}
     >
       <WorkspaceInner
         clerkUserId={clerkUserId}
@@ -157,7 +170,13 @@ function WorkspaceInner({
                           : "hover:bg-muted"
                       }`}
                     >
-                      <div className="font-medium truncate">{workspace.name}</div>
+                      <div className="flex items-center">
+                        <div className="font-medium truncate flex-1">{workspace.name}</div>
+                        {/* PR #4c-2: red dot on the workspace picker
+                         * row when an ad-hoc call invite is active
+                         * for the current user in this workspace. */}
+                        <WorkspaceRowBadge workspaceId={workspace._id} />
+                      </div>
                       <div className="text-xs opacity-70 truncate">
                         Instructor workspace
                       </div>
@@ -426,8 +445,36 @@ interface WorkspaceClientPageProps {
   clerkUserId: string;
   workspaces?: UserWorkspace[];
   userRole: UserRole;
+  /**
+   * PR #4c-2: pre-select this workspace instead of defaulting to
+   * the first one in the list. Set by the `/workspace/[id]` route
+   * so the deep-link from a notification lands the user in the
+   * right workspace without a picker step.
+   */
+  initialWorkspaceId?: Id<"workspaces">;
+  /**
+   * PR #4c-2: auto-join the given session id once the page mounts.
+   * Set by the `/workspace/[id]?join={sessionId}` route so the
+   * deep-link from a notification skips the consent modal and
+   * lands the user directly in the join flow.
+   */
+  initialJoinSessionId?: Id<"sessions">;
 }
 
-export default function WorkspaceClientPage({ clerkUserId, workspaces, userRole }: WorkspaceClientPageProps) {
-  return <WorkspaceContent clerkUserId={clerkUserId} workspaces={workspaces} userRole={userRole} />;
+export default function WorkspaceClientPage({
+  clerkUserId,
+  workspaces,
+  userRole,
+  initialWorkspaceId,
+  initialJoinSessionId,
+}: WorkspaceClientPageProps) {
+  return (
+    <WorkspaceContent
+      clerkUserId={clerkUserId}
+      workspaces={workspaces}
+      userRole={userRole}
+      initialWorkspaceId={initialWorkspaceId}
+      initialJoinSessionId={initialJoinSessionId}
+    />
+  );
 }

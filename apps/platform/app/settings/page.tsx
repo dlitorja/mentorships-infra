@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { TimeZoneSelector } from "@/components/settings/timezone-selector";
 import { GoogleCalendarCard } from "@/components/settings/google-calendar-card";
+import { NotificationPreferencesCard } from "@/components/notifications/notification-preferences-card";
 
 export default async function SettingsPage() {
   const user = await requireDbUser();
@@ -64,17 +65,7 @@ export default async function SettingsPage() {
         </Card>
 
         {/* Notification Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Notifications</CardTitle>
-            <CardDescription>Manage how you receive updates</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              Notification preferences coming soon.
-            </p>
-          </CardContent>
-        </Card>
+        <NotificationPreferencesCard />
       </div>
     </ProtectedLayout>
   );

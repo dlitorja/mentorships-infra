@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { after } from "next/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { ConvexError } from "convex/values";
-import { fetchMutation } from "convex/nextjs";
+import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -11,7 +12,7 @@ import {
   resolveDailyRoom,
 } from "@/lib/daily";
 import { convexIdSchema } from "@/lib/validators";
-import { reportError } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 
 export const runtime = "nodejs";
 
@@ -182,6 +183,54 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw error;
     }
 
+    // PR #4c-2: notify the student that an ad-hoc call has started.
+    // Two channels: in-app notification row (read by the sidebar bell +
+    // per-workspace badge + toast), and a Resend email (for offline /
+    // away-from-UI cases). The email goes through Trigger.dev so the
+    // HTTP route returns immediately even if Resend is slow.
+    //
+    // The notification insert + email enqueue is moved into `after()`
+    // (Next.js 16) so the route returns the sessionId to the client
+    // without waiting on Trigger.dev network latency. Both steps are
+    // best-effort and never block the call: a failure here just means
+    // the student gets the workspace UI without an out-of-band
+    // notification, not a failed call. Errors are logged at `warn`
+    // (not `error`) because the user's experience is already
+    // acceptable.
+    after(async () => {
+      try {
+        const notificationId = await fetchMutation(
+          api.inCallNotifications.createAdHocCallNotification,
+          {
+            sessionId,
+            workspaceId: workspaceIdTyped,
+          },
+          { token }
+        );
+
+        await enqueueAdHocCallEmail({
+          sessionId,
+          workspaceId: workspaceIdTyped,
+          notificationId,
+          token,
+        });
+      } catch (notifyError) {
+        await reportError({
+          source: "api/video/start-adhoc.notify",
+          error:
+            notifyError instanceof Error
+              ? notifyError
+              : new Error(String(notifyError)),
+          level: "warn",
+          message: "Failed to create ad-hoc notification or enqueue email",
+          context: {
+            sessionId: String(sessionId),
+            workspaceId: String(workspaceIdTyped),
+          },
+        });
+      }
+    });
+
     return NextResponse.json({ sessionId, roomName, roomUrl });
   } catch (error) {
     if (error instanceof DailyApiError) {
@@ -210,5 +259,164 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       { error: "Internal server error" },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * PR #4c-2: best-effort Trigger.dev REST trigger for the ad-hoc call
+ * invite email. Runs inside `after()` so the route's HTTP response is
+ * not gated on Resend latency. Returns silently on any failure —
+ * the in-app notification row still shows in the bell + badge, so the
+ * student gets the message in-UI even if email is delayed.
+ *
+ * Idempotency: the `idempotencyKey` collapses duplicate triggers for
+ * the same `(sessionId, recipientUserId)` pair into a single
+ * execution, replacing the previously-proposed `markEmailSent`
+ * mutation (which was a Greptile P1 finding). A new ad-hoc call
+ * (different sessionId) intentionally produces a new key so the
+ * student is notified again.
+ *
+ * Skips silently if Trigger.dev credentials are missing or the
+ * workspace lookup fails — the in-app notification is the primary
+ * surface and email is a best-effort enhancement.
+ */
+async function enqueueAdHocCallEmail(args: {
+  sessionId: Id<"sessions">;
+  workspaceId: Id<"workspaces">;
+  notificationId: Id<"inCallNotifications">;
+  token: string;
+}): Promise<void> {
+  const triggerSecretKey =
+    process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
+  if (!triggerSecretKey) {
+    await reportInfo({
+      source: "api/video/start-adhoc.triggerEmail",
+      level: "warn",
+      message: "Trigger.dev credentials missing; skipping email enqueue",
+      context: { sessionId: String(args.sessionId) },
+    });
+    return;
+  }
+
+  const workspace = await fetchQuery(
+    api.workspaces.getWorkspaceById,
+    { id: args.workspaceId },
+    { token: args.token }
+  );
+  if (!workspace) {
+    await reportInfo({
+      source: "api/video/start-adhoc.triggerEmail",
+      message: "Workspace not found at email-enqueue time; skipping",
+      context: { workspaceId: String(args.workspaceId) },
+    });
+    return;
+  }
+
+  const studentClerkId = workspace.ownerId;
+  if (!studentClerkId) {
+    await reportInfo({
+      source: "api/video/start-adhoc.triggerEmail",
+      message: "Workspace has no ownerId; skipping email",
+      context: { workspaceId: String(args.workspaceId) },
+    });
+    return;
+  }
+
+  // Single Clerk fetch for both email and first-name lookups. The
+  // previous version called `clerkClient.users.getUser` twice (once
+  // for email, once for firstName); each call costs ~80-150ms and a
+  // Clerk rate-limit event would double the surface area. Returns
+  // `null` on any failure so the email path is never gating on
+  // Clerk — if Clerk is down, we still get the in-app notification.
+  const student = await fetchStudentContact(studentClerkId);
+  if (!student.email) {
+    await reportInfo({
+      source: "api/video/start-adhoc.triggerEmail",
+      message: "Student has no primary email; skipping email",
+      context: { studentClerkId },
+    });
+    return;
+  }
+
+  const instructorRecord = workspace.instructorId
+    ? await fetchQuery(
+        api.instructors.getInstructorById,
+        { id: workspace.instructorId },
+        { token: args.token }
+      )
+    : null;
+
+  const instructorName =
+    typeof instructorRecord?.name === "string" &&
+    instructorRecord.name.trim().length > 0
+      ? instructorRecord.name.trim()
+      : "Your instructor";
+
+  const idempotencyKey = `ad-hoc-call-email:${String(args.sessionId)}:${studentClerkId}`;
+
+  const response = await fetch(
+    "https://api.trigger.dev/api/v1/tasks/send-ad-hoc-call-invite-email/trigger",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${triggerSecretKey}`,
+      },
+      body: JSON.stringify({
+        payload: {
+          notificationId: String(args.notificationId),
+          recipientUserId: studentClerkId,
+          recipientEmail: student.email,
+          recipientFirstName: student.firstName,
+          sessionId: String(args.sessionId),
+          workspaceId: String(args.workspaceId),
+          instructorName,
+          workspaceName: workspace.name || "your mentorship workspace",
+        },
+        idempotencyKey,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    await reportError({
+      source: "api/video/start-adhoc.triggerEmail",
+      error: new Error(`Trigger.dev request failed: ${response.status}`),
+      level: "warn",
+      message: "Failed to enqueue ad-hoc call invite email",
+      context: {
+        sessionId: String(args.sessionId),
+        workspaceId: String(args.workspaceId),
+      },
+    });
+    return;
+  }
+
+  await reportInfo({
+    source: "api/video/start-adhoc.triggerEmail",
+    message: "Ad-hoc call invite email enqueued",
+    context: {
+      sessionId: String(args.sessionId),
+      workspaceId: String(args.workspaceId),
+      notificationId: String(args.notificationId),
+    },
+  });
+}
+
+async function fetchStudentContact(
+  clerkUserId: string
+): Promise<{ email: string | null; firstName: string | null }> {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(clerkUserId);
+    const primary = user.emailAddresses.find(
+      (e) => e.id === user.primaryEmailAddressId
+    );
+    return {
+      email: primary?.emailAddress.toLowerCase() ?? null,
+      firstName: user.firstName ?? null,
+    };
+  } catch {
+    return { email: null, firstName: null };
   }
 }

@@ -620,4 +620,27 @@ export default defineSchema({
     .index("by_role", ["role"])
     .index("by_email", ["email"])
     .index("by_invitedByUserId", ["invitedByUserId"]),
+
+  // PR #4c-2: in-app + email notification rows for ad-hoc call
+  // invitations. One row is created when an instructor starts an
+  // ad-hoc call and the student is the recipient. Deduped on
+  // `(userId, sessionId)` via `by_userId_sessionId` — re-starting
+  // the same call does not create a duplicate. `emailSentAt` marks
+  // the idempotency token for the Resend task (Trigger.dev retries
+  // can run the task repeatedly without spamming the recipient).
+  // 24-hour TTL on `expiresAt` so unread badges auto-expire and do
+  // not stay red forever when the student never opens them.
+  inCallNotifications: defineTable({
+    userId: v.string(),
+    sessionId: v.id("sessions"),
+    workspaceId: v.id("workspaces"),
+    kind: v.literal("ad_hoc_call_invite"),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    readAt: v.optional(v.number()),
+    emailSentAt: v.optional(v.number()),
+  }).index("by_userId_sessionId", ["userId", "sessionId"])
+    .index("by_userId_readAt", ["userId", "readAt"])
+    .index("by_sessionId", ["sessionId"])
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
 });
