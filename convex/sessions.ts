@@ -1441,6 +1441,18 @@ export const getCallRecordingsForWorkspace = query({
     // student whose sessions weren't among the instructor's 50
     // most recent overall. The compound index makes the lookup
     // exact and unbounded by that cap.
+    //
+    // Greptile R4 P2: the leftover `.take(50)` here is intentional
+    // pagination for the Calls sub-section, not a correctness
+    // bug — but the original ordering was by `_creationTime` while
+    // the UI sorts by `callStartedAt`, which means the last 50
+    // by creation could omit the most-recently-started recording
+    // if some sessions were created later than others. We bump
+    // the take to 200 as a generous pre-sort buffer (a typical
+    // (instructor, student) pair is well under 200 recordings;
+    // anything above 200 will require pagination in a follow-up
+    // PR — out of scope for PR #4c-1) and then sort the actual
+    // candidate set by `callStartedAt`.
     const candidateSessions = await ctx.db
       .query("sessions")
       .withIndex("by_instructorId_studentId", (q) =>
@@ -1449,7 +1461,7 @@ export const getCallRecordingsForWorkspace = query({
           .eq("studentId", workspace.ownerId)
       )
       .order("desc")
-      .take(50);
+      .take(200);
 
     const ownerUser = await ctx.db
       .query("users")
@@ -1481,7 +1493,8 @@ export const getCallRecordingsForWorkspace = query({
         if (a.callStartedAt === null) return 1;
         if (b.callStartedAt === null) return -1;
         return b.callStartedAt - a.callStartedAt;
-      });
+      })
+      .slice(0, 50);
 
     return recordings;
   },

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { convexQuery } from "@convex-dev/react-query";
-import { Play, Download, Video, Loader2 } from "lucide-react";
+import { Play, Download, Video, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { CallRecording } from "../../../../convex/sessions";
@@ -46,6 +46,38 @@ export default function CallsSection({
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
         Loading recordings…
       </div>
+    );
+  }
+
+  // Greptile R4 P4 / GitHub App: distinguish an actual query error
+  // from a legitimate empty list. Previously a 403/500 from
+  // `getCallRecordingsForWorkspace` surfaced as "no recordings
+  // yet" — confusing for users (and masking real auth failures).
+  if (recordingsQuery.isError) {
+    return (
+      <section
+        aria-label="Call recordings"
+        className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive space-y-2"
+      >
+        <div className="flex items-center gap-2">
+          <AlertCircle className="h-4 w-4" aria-hidden="true" />
+          <span className="font-medium">Couldn&apos;t load recordings</span>
+        </div>
+        <p className="text-xs">
+          {recordingsQuery.error instanceof Error
+            ? recordingsQuery.error.message
+            : "Unknown error"}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => recordingsQuery.refetch()}
+        >
+          <RefreshCw className="h-4 w-4 mr-1" aria-hidden="true" />
+          Retry
+        </Button>
+      </section>
     );
   }
 

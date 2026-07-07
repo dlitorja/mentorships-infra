@@ -7,17 +7,45 @@
  *
  * PR #4c-1: keeps the filename out of personal-info by default —
  * just the date the call started, in `YYYY-MM-DD` form (UTC). If
- * `callStartedAt` is missing (recordings for sessions that never
- * reached `callStartedAt`), falls back to today's date so the
- * filename is never empty.
+ * `callStartedAt` is missing, invalid (NaN / Infinity), or the
+ * stored S3 key lacks an extension, we fall back so the filename
+ * is never empty or wrong-extension.
+ *
+ * Extension: derived from `recordingS3Key` when supplied so
+ * non-MP4 recordings (`.mov`, `.webm`) save with the right file
+ * extension. Falls back to `.mp4` for keys without an extension
+ * (Daily.co defaults to MP4).
  *
  * Sanitization: the date format itself is already filesystem-safe
  * (digits + hyphens, ≤ 10 chars). No additional escaping needed.
  */
 export function recordingDownloadFilename(
-  callStartedAt: number | null | undefined
+  callStartedAt: number | null | undefined,
+  recordingS3Key?: string | null
 ): string {
-  const ts = typeof callStartedAt === "number" ? callStartedAt : Date.now();
+  const ts =
+    typeof callStartedAt === "number" && Number.isFinite(callStartedAt)
+      ? callStartedAt
+      : Date.now();
   const date = new Date(ts).toISOString().slice(0, 10);
-  return `mentorship-call-${date}.mp4`;
+  const ext = recordingExtension(recordingS3Key ?? null);
+  return `mentorship-call-${date}${ext}`;
+}
+
+/**
+ * Returns the lowercase file extension (including the leading
+ * dot) for a recording key. Defaults to `.mp4` if the key is
+ * empty or has no recognised video extension. PR #4c-1 R4 P2:
+ * callers used to hardcode `.mp4` which produced wrong extensions
+ * for `.mov` / `.webm` Daily outputs.
+ */
+function recordingExtension(recordingS3Key: string | null): string {
+  if (!recordingS3Key) return ".mp4";
+  const lower = recordingS3Key.toLowerCase();
+  if (lower.endsWith(".mov")) return ".mov";
+  if (lower.endsWith(".webm")) return ".webm";
+  if (lower.endsWith(".mp4")) return ".mp4";
+  if (lower.endsWith(".m4v")) return ".m4v";
+  if (lower.endsWith(".mkv")) return ".mkv";
+  return ".mp4";
 }

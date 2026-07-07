@@ -7,6 +7,7 @@ import {
   getStreamUrl,
   getDownloadUrlWithContentDisposition,
 } from "@mentorships/storage";
+import { convexIdSchema } from "@/lib/validators";
 import { recordingDownloadFilename } from "@/lib/video/recording-filename";
 import { reportError, reportInfo } from "@/lib/observability";
 
@@ -62,12 +63,20 @@ export async function GET(
         { status: 400 }
       );
     }
+    const parsedSessionId = convexIdSchema.safeParse(sessionId);
+    if (!parsedSessionId.success) {
+      return NextResponse.json(
+        { error: "Invalid sessionId format" },
+        { status: 400 }
+      );
+    }
+    const sessionIdTyped = parsedSessionId.data as Id<"sessions">;
 
     const kind = parseKind(req.nextUrl.searchParams.get("kind"));
 
     const participant = await fetchQuery(
       api.workspaces.getSessionParticipantForRecording,
-      { sessionId: sessionId as Id<"sessions"> },
+      { sessionId: sessionIdTyped },
       { token }
     );
 
@@ -85,7 +94,10 @@ export async function GET(
     const expiresAt = Date.now() + ttlSeconds * 1000;
 
     if (kind === "download") {
-      const filename = recordingDownloadFilename(participant.callStartedAt);
+      const filename = recordingDownloadFilename(
+        participant.callStartedAt,
+        participant.recordingS3Key
+      );
       const url = await getDownloadUrlWithContentDisposition(
         participant.recordingS3Key,
         filename,
@@ -116,7 +128,7 @@ export async function GET(
 
     const url = await getStreamUrl(
       participant.recordingS3Key,
-      "video/mp4",
+      participant.contentType,
       ttlSeconds
     );
     await reportInfo({
@@ -127,19 +139,26 @@ export async function GET(
         workspaceId: participant.workspaceId,
         role: participant.role,
         kind: "stream",
+        contentType: participant.contentType,
         expiresAt,
         userId: clerkAuth.userId,
       },
     });
     return withNoStore(
-      NextResponse.json({ url, expiresAt })
+      NextResponse.json({ url, expiresAt, contentType: participant.contentType })
     );
   } catch (error) {
+    // Categorise the failure so the observability dashboard can
+    // distinguish "auth/Convex went wrong" from "storage signing
+    // went wrong". Both still surface to the user as 500 (the
+    // generic catch-all) but we want alerts to triage separately.
+    const classification = classifyRecordingError(error);
     await reportError({
       source: "api/video/recording",
       error,
-      message: "Unexpected error in GET /api/video/recording/[sessionId]",
-      level: "error",
+      message: `Unexpected error in GET /api/video/recording/[sessionId] (${classification.kind})`,
+      level: classification.level,
+      context: classification.context,
     });
     return NextResponse.json(
       { error: "Internal server error" },
@@ -155,4 +174,47 @@ function parseKind(raw: string | null): "stream" | "download" {
 function withNoStore(res: NextResponse): NextResponse {
   res.headers.set("Cache-Control", "no-store");
   return res;
+}
+
+/**
+ * Bucket the throwable into one of three classes for the
+ * observability layer. The classification is intentionally
+ * conservative — anything that doesn't match a known B2 / S3 SDK
+ * error message falls into `unknown`, which is reported at error
+ * level so it pages on-call. We only suppress (warn level) the
+ * classes that are clearly transient or already-known.
+ */
+function classifyRecordingError(error: unknown): {
+  kind: "auth" | "storage" | "unknown";
+  level: "error" | "warn";
+  context: Record<string, string>;
+} {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    /credentials|AccessDenied|InvalidAccessKeyId|SignatureDoesNotMatch|NoSuchBucket|ENOTFOUND|ETIMEDOUT/i.test(
+      message
+    )
+  ) {
+    return {
+      kind: "storage",
+      level: "error",
+      context: { category: "b2_signing" },
+    };
+  }
+  if (
+    /Unauthorized|Forbidden|convex|fetch failed|TypeError|AbortError/i.test(
+      message
+    )
+  ) {
+    return {
+      kind: "auth",
+      level: "warn",
+      context: { category: "convex_or_auth" },
+    };
+  }
+  return {
+    kind: "unknown",
+    level: "error",
+    context: { category: "unclassified" },
+  };
 }

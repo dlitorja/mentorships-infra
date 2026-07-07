@@ -21,6 +21,13 @@ import { Id } from "@/convex/_generated/dataModel";
  * reload the media element (position + decoder state lost), so we
  * queue the refresh and fire it on the next `pause`/`ended`.
  *
+ * Greptile R4 P0: a recording longer than the 1-hour URL TTL
+ * would silently keep playing past expiry. We close that gap by
+ * adding `FORCE_REFRESH_THRESHOLD_MS`: when remaining time falls
+ * below this AND the video is playing, we force the refresh even
+ * though it costs the playback position. The alternative
+ * (playback stalling when B2 rejects the expired URL) is worse.
+ *
  * Auth: the route layer (`/api/video/recording/[sessionId]`)
  * resolves the caller's identity server-side via
  * `api.workspaces.getSessionParticipantForRecording`. We never
@@ -36,6 +43,7 @@ type LoadState =
   | { kind: "error"; message: string };
 
 const REFRESH_THRESHOLD_MS = 5 * 60_000;
+const FORCE_REFRESH_THRESHOLD_MS = 60_000;
 const CHECK_INTERVAL_MS = 60_000;
 const SIGNED_URL_TTL_SECONDS = 3600;
 
@@ -62,8 +70,21 @@ export default function RecordingPlayerModal({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pendingRefreshRef = useRef<boolean>(false);
   const inFlightRefreshRef = useRef<boolean>(false);
+  // Saved playback position for force-refresh during playback.
+  // When the URL gets force-refreshed mid-play the `<video>` element
+  // resets to position 0, so we save currentTime before the fetch
+  // and restore it after the new src loads. Greptile R4 P0.
+  const savedPlaybackPositionRef = useRef<number | null>(null);
 
   const fetchSignedStreamUrl = useCallback(async (): Promise<void> => {
+    // If the video is currently playing, snapshot its position so
+    // we can restore it on the new src. We only do this for the
+    // mid-play refresh path; on initial load the element is
+    // already at position 0.
+    const video = videoRef.current;
+    if (video && !video.paused && !video.ended) {
+      savedPlaybackPositionRef.current = video.currentTime;
+    }
     try {
       const res = await fetch(
         `/api/video/recording/${sessionId}?kind=stream`,
@@ -105,18 +126,27 @@ export default function RecordingPlayerModal({
 
   // 60 s timer: refresh the URL when within 5 min of expiry.
   // If the video is playing, queue the refresh for the next
-  // pause/ended so we don't drop the playback position.
+  // pause/ended so we don't drop the playback position — UNLESS
+  // we're within FORCE_REFRESH_THRESHOLD_MS of expiry, in which
+  // case we force the refresh so the URL doesn't expire under
+  // the user mid-playback (Greptile R4 P0 — applies to recordings
+  // longer than the 1-hour URL TTL).
   useEffect(() => {
     if (!open || expiresAt === 0) return;
     const id = window.setInterval(() => {
       const remaining = expiresAt - Date.now();
       if (remaining > REFRESH_THRESHOLD_MS) return;
+      if (inFlightRefreshRef.current) return;
       const video = videoRef.current;
-      if (video && !video.paused && !video.ended) {
+      const forceRefresh =
+        remaining <= FORCE_REFRESH_THRESHOLD_MS ||
+        !video ||
+        video.paused ||
+        video.ended;
+      if (!forceRefresh) {
         pendingRefreshRef.current = true;
         return;
       }
-      if (inFlightRefreshRef.current) return;
       inFlightRefreshRef.current = true;
       void fetchSignedStreamUrl().finally(() => {
         inFlightRefreshRef.current = false;
@@ -138,6 +168,26 @@ export default function RecordingPlayerModal({
   const handleRetry = useCallback(() => {
     void fetchSignedStreamUrl();
   }, [fetchSignedStreamUrl]);
+
+  // After the `<video>` finishes loading the new src, restore the
+  // position snapshot if there is one. We clear the snapshot once
+  // consumed so subsequent (non-force) refreshes don't try to
+  // restore a stale position. Greptile R4 P0.
+  const handleLoadedMetadata = useCallback(() => {
+    const saved = savedPlaybackPositionRef.current;
+    if (saved === null) return;
+    savedPlaybackPositionRef.current = null;
+    const video = videoRef.current;
+    if (!video) return;
+    const clamp = Math.max(0, Math.min(saved, video.duration || saved));
+    try {
+      video.currentTime = clamp;
+    } catch {
+      // Some browsers throw if duration is Infinity (live streams)
+      // or the media is not seekable yet — fail silently; the user
+      // can re-seek manually.
+    }
+  }, []);
 
   const callDateLabel = formatCallDate(callStartedAt);
   const titleLine = participantName
@@ -195,6 +245,7 @@ export default function RecordingPlayerModal({
               preload="metadata"
               onPause={handlePauseOrEnd}
               onEnded={handlePauseOrEnd}
+              onLoadedMetadata={handleLoadedMetadata}
               className="absolute inset-0 h-full w-full bg-black"
             >
               <track kind="captions" />

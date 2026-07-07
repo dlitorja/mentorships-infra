@@ -1854,9 +1854,11 @@ export const canAccessWorkspaceQuery = internalQuery({
  * is missing, or the caller is not a participant on the session —
  * keeping the route layer free of thrown-error gymnastics.
  *
- * `callEndedAt` and `recordingUrl` are surfaced so the route
- * can short-circuit (404) when the call has no recording attached,
- * instead of issuing a signed URL that 403s from B2.
+ * `callEndedAt`, `recordingUrl`, and `contentType` are surfaced so
+ * the route can short-circuit (404) when the call has no recording
+ * attached and so the route can sign the URL with the actual
+ * content-type Daily delivered (typically `video/mp4`, but the
+ * S3 key may end in `.mov`/`.webm` depending on the room config).
  *
  * PR #4c-1 Greptile R1 P1 fix: the helper throws on auth
  * failures; we catch the auth-failure messages and return `null`
@@ -1871,11 +1873,15 @@ export const getSessionParticipantForRecording = query({
         ctx,
         { sessionId: args.sessionId }
       );
+      const recordingS3Key = session.recordingUrl ?? null;
       return {
         sessionId: session._id,
         workspaceId: workspace._id,
         role,
-        recordingS3Key: session.recordingUrl ?? null,
+        recordingS3Key,
+        contentType: recordingS3Key
+          ? recordingContentType(recordingS3Key)
+          : "video/mp4",
         callStartedAt: session.callStartedAt ?? null,
         callEndedAt: session.callEndedAt ?? null,
         isAdhoc: session.isAdhoc ?? false,
@@ -1899,3 +1905,24 @@ export const getSessionParticipantForRecording = query({
     }
   },
 });
+
+/**
+ * Maps the B2 object key's extension to the MIME type we should
+ * sign the streaming URL with. Daily.co defaults to MP4 but can
+ * produce MOV (older mac clients) or WebM depending on room
+ * config, so we read the extension off the key instead of
+ * hardcoding MP4 — Greptile R4 P2 flagged the route's previous
+ * hardcoded `video/mp4` as wrong for non-MP4 recordings.
+ *
+ * Unknown extensions fall back to `video/mp4` (browsers can still
+ * play it through HTMLVideoElement.transcode heuristics), and the
+ * caller can re-fetch with the correct type if B2 reports a 415.
+ */
+function recordingContentType(key: string): string {
+  const lower = key.toLowerCase();
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+  if (lower.endsWith(".mkv")) return "video/x-matroska";
+  return "video/mp4";
+}
