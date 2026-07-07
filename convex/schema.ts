@@ -115,7 +115,15 @@ export default defineSchema({
     .index("by_googleCalendarEventId", ["googleCalendarEventId"])
     .index("by_instructorId_status_scheduledAt", ["instructorId", "status", "scheduledAt"])
     .index("by_videoRoomName", ["videoRoomName"])
-    .index("by_instructorId_isAdhoc", ["instructorId", "isAdhoc"]),
+    .index("by_instructorId_isAdhoc", ["instructorId", "isAdhoc"])
+    // PR #4c-1: lets `getCallRecordingsForWorkspace` return
+    // recordings for the exact (instructor, student) pair
+    // without filtering across the instructor's full session
+    // history. Without this index the previous `.take(50)` on
+    // `by_instructorId_status_scheduledAt` would silently drop
+    // recordings for any student whose sessions weren't among
+    // the instructor's 50 most recent overall.
+    .index("by_instructorId_studentId", ["instructorId", "studentId"]),
 
   seatReservations: defineTable({
     instructorId: v.id("instructors"),
@@ -299,7 +307,13 @@ export default defineSchema({
     .index("by_instructorId_deletedAt", ["instructorId", "deletedAt"])
     .index("by_seatReservationId", ["seatReservationId"])
     .index("by_endedAt", ["endedAt"])
-    .index("by_type", ["type"]),
+    .index("by_type", ["type"])
+    // PR #4c-1: lets `assertParticipantForSession` look up the
+    // exact workspace for an instructor + student pair in one
+    // indexed read, instead of an unbounded `.take(N)` + in-memory
+    // scan that would silently deny access to instructors past
+    // the cap. Additive — no migration needed.
+    .index("by_instructorId_ownerId", ["instructorId", "ownerId"]),
 
   workspaceNotes: defineTable({
     workspaceId: v.id("workspaces"),

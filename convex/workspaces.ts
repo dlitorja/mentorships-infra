@@ -1,8 +1,8 @@
 import { query, mutation, internalMutation, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
-import { Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 
 const WORKSPACE_IMAGE_CAPS = {
   student: 75,
@@ -161,6 +161,105 @@ async function assertSessionBelongsToWorkspace(
   if (session.studentId !== workspace.ownerId) {
     throw new Error("Session does not belong to this workspace");
   }
+}
+
+/**
+ * PR #4c-1: confirms the caller is a participant on the given
+ * session (either the session's instructor OR the student paired
+ * with that instructor on one of the caller's workspaces). Returns
+ * the session row + the matching workspace + the caller's role, so
+ * callers (the recording route, `getCallRecordingsForWorkspace`,
+ * etc.) don't have to re-query.
+ *
+ * Used as the single source of truth for "can this user see this
+ * call's recording?" — same role-resolution shape as
+ * `getSessionByVideoRoomName` (`convex/sessions.ts`) but flipped
+ * to take a `sessionId` instead of a `videoRoomName`.
+ *
+ * Implementation notes:
+ * - Identity derived from `ctx.auth.getUserIdentity()` only —
+ *   caller-supplied user ids are never accepted (Convex auth
+ *   guideline).
+ * - Workspace lookup uses the compound `by_instructorId_ownerId`
+ *   index (PR #4c-1) for an exact `.first()` lookup. No `.take()`
+ *   cap and no in-memory scan, so an instructor with thousands of
+ *   workspaces is served as fast as one with three.
+ * - `deletedAt`/`endedAt` are checked after the indexed lookup so
+ *   we never return a torn-down workspace that an attacker could
+ *   still claim a session for.
+ * - Returns role `"instructor"` if the caller's Clerk token matches
+ *   the session's instructor doc, else `"student"`. Never both.
+ */
+async function assertParticipantForSession(
+  ctx: QueryCtx,
+  args: { sessionId: Id<"sessions"> }
+): Promise<{
+  session: Doc<"sessions">;
+  workspace: Doc<"workspaces">;
+  role: "instructor" | "student";
+}> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+
+  const session = await ctx.db.get(args.sessionId);
+  if (!session) {
+    throw new Error("Session not found");
+  }
+  if (session.deletedAt !== undefined) {
+    throw new Error("Session not found");
+  }
+  if (session.instructorId === undefined) {
+    throw new Error("Session is not paired with an instructor");
+  }
+
+  const instructor = await ctx.db.get(session.instructorId);
+  if (!instructor) {
+    throw new Error("Instructor not found");
+  }
+
+  if (instructor.userId === identity.tokenIdentifier) {
+    // Instructor path: find the workspace where this student is
+    // the owner. Single indexed `.first()` — no cap.
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_instructorId_ownerId", (q) =>
+        q
+          .eq("instructorId", session.instructorId)
+          .eq("ownerId", session.studentId)
+      )
+      .first();
+    if (!workspace) {
+      throw new Error("No workspace matches this session");
+    }
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      throw new Error("No active workspace matches this session");
+    }
+    return { session, workspace, role: "instructor" };
+  }
+
+  // Student path: find the workspace where the caller is the
+  // owner and the session's instructor is the workspace's
+  // instructor. Same indexed `.first()`.
+  const workspace = await ctx.db
+    .query("workspaces")
+    .withIndex("by_instructorId_ownerId", (q) =>
+      q
+        .eq("instructorId", session.instructorId)
+        .eq("ownerId", identity.tokenIdentifier)
+    )
+    .first();
+  if (!workspace) {
+    throw new Error("Forbidden");
+  }
+  if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+    throw new Error("Forbidden");
+  }
+  if (workspace.ownerId !== session.studentId) {
+    throw new Error("Forbidden");
+  }
+  return { session, workspace, role: "student" };
 }
 
 /** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
@@ -1744,3 +1843,86 @@ export const canAccessWorkspaceQuery = internalQuery({
     return false;
   },
 });
+
+/**
+ * PR #4c-1: thin public query wrapper around the internal
+ * `assertParticipantForSession` helper. The Next.js recording
+ * route calls this via `fetchQuery` to gate access before issuing
+ * a signed B2 URL.
+ *
+ * Returns `null` when the caller is unauthenticated, the session
+ * is missing, or the caller is not a participant on the session —
+ * keeping the route layer free of thrown-error gymnastics.
+ *
+ * `callEndedAt`, `recordingUrl`, and `contentType` are surfaced so
+ * the route can short-circuit (404) when the call has no recording
+ * attached and so the route can sign the URL with the actual
+ * content-type Daily delivered (typically `video/mp4`, but the
+ * S3 key may end in `.mov`/`.webm` depending on the room config).
+ *
+ * PR #4c-1 Greptile R1 P1 fix: the helper throws on auth
+ * failures; we catch the auth-failure messages and return `null`
+ * so the route's `if (!participant) → 403` branch fires for
+ * forbidden callers instead of bubbling up as a 500.
+ */
+export const getSessionParticipantForRecording = query({
+  args: { sessionId: v.id("sessions") },
+  handler: async (ctx, args) => {
+    try {
+      const { session, workspace, role } = await assertParticipantForSession(
+        ctx,
+        { sessionId: args.sessionId }
+      );
+      const recordingS3Key = session.recordingUrl ?? null;
+      return {
+        sessionId: session._id,
+        workspaceId: workspace._id,
+        role,
+        recordingS3Key,
+        contentType: recordingS3Key
+          ? recordingContentType(recordingS3Key)
+          : "video/mp4",
+        callStartedAt: session.callStartedAt ?? null,
+        callEndedAt: session.callEndedAt ?? null,
+        isAdhoc: session.isAdhoc ?? false,
+      };
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        [
+          "Unauthorized",
+          "Session not found",
+          "Forbidden",
+          "No workspace matches this session",
+          "No active workspace matches this session",
+          "Session is not paired with an instructor",
+          "Instructor not found",
+        ].includes(err.message)
+      ) {
+        return null;
+      }
+      throw err;
+    }
+  },
+});
+
+/**
+ * Maps the B2 object key's extension to the MIME type we should
+ * sign the streaming URL with. Daily.co defaults to MP4 but can
+ * produce MOV (older mac clients) or WebM depending on room
+ * config, so we read the extension off the key instead of
+ * hardcoding MP4 — Greptile R4 P2 flagged the route's previous
+ * hardcoded `video/mp4` as wrong for non-MP4 recordings.
+ *
+ * Unknown extensions fall back to `video/mp4` (browsers can still
+ * play it through HTMLVideoElement.transcode heuristics), and the
+ * caller can re-fetch with the correct type if B2 reports a 415.
+ */
+function recordingContentType(key: string): string {
+  const lower = key.toLowerCase();
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4";
+  if (lower.endsWith(".mkv")) return "video/x-matroska";
+  return "video/mp4";
+}

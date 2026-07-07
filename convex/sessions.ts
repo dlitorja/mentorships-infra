@@ -1373,6 +1373,132 @@ export const getSessionByVideoRoomName = query({
   },
 });
 
+/**
+ * PR #4c-1: returns the list of call recordings that the caller can
+ * see for the given workspace. Each item has the S3 key the route
+ * layer turns into a signed URL — the key is safe to return because
+ * it never grants unauthenticated B2 access (the route gates first,
+ * then signs).
+ *
+ * Filter:
+ * - `recordingUrl !== undefined` (sessions that never produced a
+ *   recording, or recordings still being processed by Daily)
+ * - `deletedAt === undefined` (soft-deleted sessions hidden)
+ * - `instructorId === workspace.instructorId` (workspaces are 1:1
+ *   with an instructor in this app)
+ *
+ * Auth: re-uses the existing `getWorkspaceRole` shape (instructor on
+ * the workspace, owner of the workspace, or admin). Throws on
+ * forbidden so the caller can't enumerate recordings they don't own.
+ *
+ * Returns up to 50 sessions sorted by `callStartedAt` desc — bounded
+ * so a long-running instructor with hundreds of calls doesn't bloat
+ * the response. Pagination can come later if usage warrants it.
+ */
+export type CallRecording = {
+  sessionId: Id<"sessions">;
+  callStartedAt: number | null;
+  callEndedAt: number | null;
+  recordingDurationSeconds: number | null;
+  participantName: string | null;
+  isAdhoc: boolean;
+};
+
+export const getCallRecordingsForWorkspace = query({
+  args: { workspaceId: v.id("workspaces") },
+  handler: async (ctx, args): Promise<CallRecording[]> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return [];
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      return [];
+    }
+    if (workspace.instructorId === undefined) {
+      return [];
+    }
+
+    const instructor = await ctx.db.get(workspace.instructorId);
+    const isInstructor =
+      instructor !== null &&
+      instructor.userId === identity.tokenIdentifier;
+    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+
+    if (!isInstructor && !isOwner) {
+      throw new Error("Forbidden");
+    }
+
+    // Indexed read scoped to the exact (instructor, student) pair
+    // via `by_instructorId_studentId`. The previous approach
+    // queried `by_instructorId_status_scheduledAt` and `.take(50)`
+    // across the instructor's full session history — fine for a
+    // quiet roster but silently dropped recordings for any
+    // student whose sessions weren't among the instructor's 50
+    // most recent overall. The compound index makes the lookup
+    // exact and unbounded by that cap.
+    //
+    // Greptile R4 P2: the leftover `.take(50)` here is intentional
+    // pagination for the Calls sub-section, not a correctness
+    // bug — but the original ordering was by `_creationTime` while
+    // the UI sorts by `callStartedAt`, which means the last 50
+    // by creation could omit the most-recently-started recording
+    // if some sessions were created later than others. We bump
+    // the take to 200 as a generous pre-sort buffer (a typical
+    // (instructor, student) pair is well under 200 recordings;
+    // anything above 200 will require pagination in a follow-up
+    // PR — out of scope for PR #4c-1) and then sort the actual
+    // candidate set by `callStartedAt`.
+    const candidateSessions = await ctx.db
+      .query("sessions")
+      .withIndex("by_instructorId_studentId", (q) =>
+        q
+          .eq("instructorId", workspace.instructorId!)
+          .eq("studentId", workspace.ownerId)
+      )
+      .order("desc")
+      .take(200);
+
+    const ownerUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", workspace.ownerId))
+      .first();
+    const ownerFullName =
+      [ownerUser?.firstName, ownerUser?.lastName].filter(Boolean).join(" ") ||
+      ownerUser?.email ||
+      null;
+
+    const recordings: CallRecording[] = candidateSessions
+      .filter(
+        (s) =>
+          s.deletedAt === undefined &&
+          s.recordingUrl !== undefined
+      )
+      .map((s) => ({
+        sessionId: s._id,
+        callStartedAt: s.callStartedAt ?? null,
+        callEndedAt: s.callEndedAt ?? null,
+        recordingDurationSeconds: s.recordingDurationSeconds ?? null,
+        participantName: ownerFullName,
+        isAdhoc: s.isAdhoc ?? false,
+      }))
+      // Sort by callStartedAt desc — nulls last so ad-hoc calls
+      // with no start timestamp sink to the bottom.
+      .sort((a, b) => {
+        if (a.callStartedAt === null && b.callStartedAt === null) return 0;
+        if (a.callStartedAt === null) return 1;
+        if (b.callStartedAt === null) return -1;
+        return b.callStartedAt - a.callStartedAt;
+      })
+      .slice(0, 50);
+
+    return recordings;
+  },
+});
 export type ActiveSessionForWorkspace = {
   sessionId: Id<"sessions">;
   roomName: string;

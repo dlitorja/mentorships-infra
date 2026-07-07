@@ -18,6 +18,7 @@ export {
 export {
   getDownloadUrl,
   getDownloadUrlWithContentDisposition,
+  getStreamUrl,
   parseKeyFromS3Url,
   buildB2Url,
 } from "./downloads";
