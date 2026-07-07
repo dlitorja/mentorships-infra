@@ -41,11 +41,17 @@ export default async function WorkspacePage() {
     { ownerId: clerkUserId },
     { token: token ?? undefined }
   );
-  const userRole: UserRole = await getServerUserRole(clerkUserId);
 
   if (workspaces && workspaces.length === 1) {
     redirect(`/workspace/${workspaces[0]._id}`);
   }
+
+  // Only resolve the user role when we're actually rendering the
+  // picker. The single-workspace redirect above avoids the
+  // `getServerUserRole` call (a Clerk API lookup) entirely on the
+  // hot path so the user lands in their workspace without the
+  // extra round-trip.
+  const userRole: UserRole = await getServerUserRole(clerkUserId);
 
   return (
     <ProtectedLayout currentPath="/workspace">

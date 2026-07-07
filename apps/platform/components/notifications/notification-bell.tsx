@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bell, Check } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/convex/_generated/api";
@@ -21,8 +21,9 @@ import { cn } from "@/lib/utils";
  *   - Renders a red count badge when there are unread invites.
  *   - Dropdown is a small list (max 10 rendered) with each entry
  *     linking to `/workspace/{id}?join={sessionId}`. Newest first.
- *   - "Mark all as read" button clears the badge without forcing
- *     a full reload.
+ *   - "Mark all read" button clears the badge via the
+ *     `markReadMany` batch mutation in a single round-trip.
+ *   - Dropdown closes on outside click and Escape key.
  *
  * Does NOT mark read on item click — mark-read happens on the
  * destination workspace mount via `<IncomingCallMarker>`. Marking
@@ -40,12 +41,14 @@ export function NotificationBell() {
     convexQuery(api.inCallNotifications.getUnreadForUser, {})
   );
 
-  const markRead = useMutation({
-    mutationFn: useConvexMutation(api.inCallNotifications.markRead),
+  const markReadMany = useMutation({
+    mutationFn: useConvexMutation(api.inCallNotifications.markReadMany),
   });
 
   const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   // Re-render every minute so the relative timestamp
   // ("2m ago") stays current without spamming the server.
@@ -54,15 +57,43 @@ export function NotificationBell() {
     return () => window.clearInterval(id);
   }, []);
 
+  // Close on outside click or Escape so users don't have to click a
+  // link to dismiss the dropdown. Bound to `open` so the listener
+  // only attaches while the panel is visible.
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (dropdownRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   const list = notifications ?? [];
   const unreadCount = list.length;
 
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
+        aria-expanded={open}
         className="relative flex h-9 w-9 items-center justify-center rounded-md hover:bg-muted"
       >
         <Bell className="h-5 w-5" />
@@ -78,6 +109,9 @@ export function NotificationBell() {
 
       {open && (
         <div
+          ref={dropdownRef}
+          role="dialog"
+          aria-label="Notifications"
           className={cn(
             "absolute right-0 top-full z-50 mt-2 w-80 max-h-[28rem] overflow-auto",
             "rounded-md border bg-card text-card-foreground shadow-lg"
@@ -90,10 +124,10 @@ export function NotificationBell() {
                 variant="ghost"
                 size="sm"
                 onClick={() => {
-                  for (const n of list) {
-                    markRead.mutate({ notificationId: n._id });
-                  }
-                  setOpen(false);
+                  markReadMany.mutate(
+                    { notificationIds: list.map((n) => n._id) },
+                    { onSuccess: () => setOpen(false) }
+                  );
                 }}
               >
                 <Check className="mr-1 h-3 w-3" />
@@ -116,7 +150,7 @@ export function NotificationBell() {
                     }}
                     className="block text-sm hover:underline"
                   >
-                    <div className="font-medium">Mentorship call started</div>
+                    <div className="font-medium">Video call started</div>
                     <div className="text-xs text-muted-foreground">
                       {formatRelativeTime(now - n.createdAt)}
                     </div>

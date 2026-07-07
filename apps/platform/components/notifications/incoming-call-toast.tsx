@@ -37,10 +37,8 @@ import {
  *     mounts on the destination page.
  *
  * Sound/desktop gated by user preferences in localStorage and
- * OS-level permission state. If the user disabled sound in
- * settings but `Notification.permission === "granted"` from a
- * previous session, we still respect their preference and stay
- * silent.
+ * OS-level permission state. Preferences are read on mount and
+ * refreshed via the cross-tab `storage` event (no polling).
  */
 export function IncomingCallToast() {
   const router = useRouter();
@@ -56,10 +54,14 @@ export function IncomingCallToast() {
 
   useEffect(() => {
     setPreferences(getNotificationPreferences());
-    const id = window.setInterval(() => {
-      setPreferences(getNotificationPreferences());
-    }, 30_000);
-    return () => window.clearInterval(id);
+
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key === null || event.key.startsWith("huckleberry.notificationPreferences")) {
+        setPreferences(getNotificationPreferences());
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   useEffect(() => {
@@ -81,8 +83,8 @@ export function IncomingCallToast() {
 
     const deepLink = `/workspace/${fresh.workspaceId}?join=${fresh.sessionId}`;
 
-    toast("Ad-hoc call started", {
-      description: "Your instructor has started a mentorship call.",
+    toast("Video call started", {
+      description: "Your instructor has started an ad-hoc session.",
       icon: <Phone className="h-4 w-4" />,
       duration: 30_000,
       action: {
@@ -99,8 +101,8 @@ export function IncomingCallToast() {
 
     if (preferences.desktopEnabled && getDesktopPermission() === "granted") {
       showDesktopNotification({
-        title: "Ad-hoc call started",
-        body: "Your instructor has started a mentorship call.",
+        title: "Video call started",
+        body: "Your instructor has started an ad-hoc session.",
         onClick: () => {
           router.push(deepLink);
         },

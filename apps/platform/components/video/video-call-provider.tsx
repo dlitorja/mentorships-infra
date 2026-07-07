@@ -308,16 +308,28 @@ function VideoCallProviderInner({
     if (session.status === "joinable") {
       void markCallStarted
         .mutateAsync({ sessionId: session.sessionId })
-        .catch(() => {
-          // Error path: the workspace query will refetch and surface
-          // the failure state in CallStatusPill. Silently swallow
-          // here so we don't double-toast.
+        .catch(async (err) => {
+          // Telemetry: deep-link auto-join failures are otherwise
+          // invisible — the user lands in the workspace and sees a
+          // call that isn't joining. We capture the failure here so
+          // the dashboard has a signal to investigate; CallStatusPill
+          // surfaces the same failure to the user via toast.
+          await reportError({
+            source: "videoCallProvider.deepLink.markCallStarted",
+            error: err instanceof Error ? err : new Error(String(err)),
+            level: "warn",
+            message: "Deep-link auto-join markCallStarted failed",
+            context: {
+              sessionId: String(session.sessionId),
+              workspaceId: workspaceId ? String(workspaceId) : null,
+            },
+          });
         });
     }
     // `active` path is handled by the join effect above. We only
     // need to fire `markCallStarted` here when the deep-link session
     // is in the pre-join "joinable" state.
-  }, [session, initialJoinSessionId, markCallStarted]);
+  }, [session, initialJoinSessionId, markCallStarted, workspaceId]);
 
   const value: VideoCallContextValue = useMemo(
     () => ({

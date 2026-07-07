@@ -26,7 +26,15 @@ let cachedContext: AudioContext | null = null;
 
 function getContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
-  if (cachedContext) return cachedContext;
+  // AudioContext can transition to `"closed"` after the page has
+  // been backgrounded for a while or after an explicit close (e.g.
+  // some browsers on tab unload). A closed context throws on every
+  // node call, so we always drop the cache and allocate a fresh
+  // one rather than reusing a dead handle.
+  if (cachedContext && cachedContext.state !== "closed") {
+    return cachedContext;
+  }
+  cachedContext = null;
   try {
     const Ctor =
       window.AudioContext ||
@@ -48,7 +56,9 @@ export type PlayChimeOptions = {
  * Plays the two-note chime. Safe to call repeatedly; each call
  * schedules fresh oscillators. If the AudioContext is suspended
  * (autoplay policy), attempts to resume it (which will succeed
- * if called from a user-gesture handler, otherwise no-op).
+ * if called from a user-gesture handler, otherwise no-op). If the
+ * cached context is `"closed"`, `getContext()` allocates a fresh
+ * one before this function runs.
  */
 export function playIncomingCallChime(options: PlayChimeOptions = {}): void {
   const ctx = getContext();

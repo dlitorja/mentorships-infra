@@ -219,3 +219,45 @@ export const markRead = mutation({
     return await ctx.db.get(args.notificationId);
   },
 });
+
+/**
+ * PR #4c-2: batch-mark many notifications read in one transaction.
+ * Used by the sidebar bell's "Mark all read" button so the UI
+ * fires a single mutation round-trip instead of N — both for
+ * Clerk/convex latency and for partial-failure safety (a loop of
+ * N independent mutations leaves the badge inconsistent on a
+ * single failure).
+ *
+ * Authorization mirrors `markRead`: each row's `userId` must
+ * match the caller's `identity.tokenIdentifier`. Rows that don't
+ * match are skipped (not an error) so a stale client with a
+ * partially-deleted cache can't 403 the whole batch.
+ *
+ * Idempotent per row: rows with `readAt !== undefined` are
+ * skipped. The mutation returns the count of rows actually
+ * updated so the client can confirm.
+ */
+export const markReadMany = mutation({
+  args: {
+    notificationIds: v.array(v.id("inCallNotifications")),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ updatedCount: number }> => {
+    const identity = await requireIdentity(ctx);
+    const now = Date.now();
+    let updatedCount = 0;
+
+    for (const id of args.notificationIds) {
+      const row = await ctx.db.get(id);
+      if (!row) continue;
+      if (row.userId !== identity.tokenIdentifier) continue;
+      if (row.readAt !== undefined) continue;
+      await ctx.db.patch(id, { readAt: now });
+      updatedCount += 1;
+    }
+
+    return { updatedCount };
+  },
+});

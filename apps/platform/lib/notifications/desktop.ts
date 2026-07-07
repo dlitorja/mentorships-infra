@@ -14,10 +14,25 @@
 
 type PermissionState = "default" | "granted" | "denied" | "unsupported";
 
+/**
+ * Normalises the browser-reported `Notification.permission` value
+ * into our internal `PermissionState` union. The browser returns
+ * `"default" | "denied" | "granted"`; we widen to include the
+ * `"unsupported"` case for browsers without the API. No `as` cast
+ * is needed because we explicitly handle each value and fall back
+ * to `"unsupported"` for anything we don't recognise.
+ */
+function normalisePermission(value: string): PermissionState {
+  if (value === "default" || value === "granted" || value === "denied") {
+    return value;
+  }
+  return "unsupported";
+}
+
 export function getDesktopPermission(): PermissionState {
   if (typeof window === "undefined") return "unsupported";
   if (!("Notification" in window)) return "unsupported";
-  return Notification.permission as PermissionState;
+  return normalisePermission(Notification.permission);
 }
 
 /**
@@ -30,7 +45,7 @@ export async function requestDesktopPermission(): Promise<PermissionState> {
   if (!("Notification" in window)) return "unsupported";
   try {
     const result = await Notification.requestPermission();
-    return result as PermissionState;
+    return normalisePermission(result);
   } catch {
     return "denied";
   }

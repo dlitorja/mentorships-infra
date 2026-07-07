@@ -29,8 +29,10 @@ import {
  * `"denied"` or `"unsupported"`, the toggle visually reflects
  * the disabled state but stays focusable for screen-reader users.
  *
- * Sound has a "Test" button so the user can preview the chime
- * without waiting for an incoming call.
+ * "Test sound" is always available so users can preview the
+ * chime BEFORE opting in. Without that, the user has to enable
+ * sound, hear it once, decide to disable, and never know what
+ * they declined.
  *
  * Persisted to localStorage via `setNotificationPreferences` so
  * the choice is device-specific (per the AGENTS.md-style
@@ -58,19 +60,23 @@ export function NotificationPreferencesCard() {
   const onToggleDesktop = async (next: boolean) => {
     if (next) {
       // First-time opt-in flow: trigger the browser permission
-      // prompt. The switch stays OFF until the user grants
-      // permission; otherwise we silently revert.
-      const result = await requestDesktopPermission();
-      setPermission(result);
-      if (result === "granted") {
-        update({ desktopEnabled: true });
+      // prompt. Some browsers reject the promise outright (e.g.
+      // insecure contexts, iframe with restrictive permissions
+      // policy); `requestDesktopPermission` handles those by
+      // resolving to `"denied"`/`"unsupported"` rather than
+      // throwing, but we wrap defensively so a stray rejection
+      // never reaches the UI console.
+      try {
+        const result = await requestDesktopPermission();
+        setPermission(result);
+        if (result === "granted") {
+          update({ desktopEnabled: true });
+        }
+      } catch {
+        setPermission("denied");
       }
       return;
     }
-    // Turning off: only honored if the user previously opted in.
-    // If permission was denied by the user at the OS level, the
-    // stored `desktopEnabled` was never `true`, so this branch is
-    // a no-op for first-time users.
     if (permission === "granted") {
       update({ desktopEnabled: false });
     }
@@ -81,7 +87,7 @@ export function NotificationPreferencesCard() {
       <CardHeader>
         <CardTitle>Notifications</CardTitle>
         <CardDescription>
-          How you want to be notified when an ad-hoc mentorship call starts.
+          How you want to be notified when an ad-hoc video session starts.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -125,12 +131,11 @@ export function NotificationPreferencesCard() {
             variant="outline"
             size="sm"
             onClick={() => playIncomingCallChime()}
-            disabled={!prefs?.soundEnabled}
           >
             Test sound
           </Button>
           <span className="text-xs text-muted-foreground">
-            Verifies audio works without waiting for an incoming call.
+            Preview the chime without waiting for an incoming call.
           </span>
         </div>
       </CardContent>

@@ -58,7 +58,7 @@ export default async function WorkspaceIdPage({
   }
   const workspaceId = id as Id<"workspaces">;
 
-  await requireAuth();
+  const clerkUserId = await requireAuth();
   const token = await getConvexAuthToken();
 
   const workspace = await fetchQuery(
@@ -71,7 +71,6 @@ export default async function WorkspaceIdPage({
     redirect("/workspace");
   }
 
-  const clerkUserId = await requireAuth();
   const userRole: UserRole = await getServerUserRole(clerkUserId);
 
   const joinSessionId =
