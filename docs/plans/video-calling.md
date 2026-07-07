@@ -134,8 +134,8 @@ todos:
     status: done
   - id: recording-playback
     owner: agent
-    phase: 4
-    content: Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — deferred to PR #4c (Phase 5)
+    phase: 5
+    content: Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — PR #4c-1 ✅, PR #4c-2 (student notification + badge) + PR #4c-3 (mobile viewport) + PR #4c-4 (links subpanel — skipped) follow
     status: done
 ---
 
@@ -162,7 +162,7 @@ Key behaviors:
 
 ## Status
 
-**Plan approved. PR #1 → PR #4b shipped; PR #4c (recording playback) remaining.**
+**Plan approved. PR #1 → PR #4b shipped; PR #4c-1 (recording playback) shipped 2026-07-07. PR #4c-2 / 4c-3 remaining.**
 
 - Plan merged via PR #593.
 - Instructor-dashboard `seatReservations` query P2s + Instructor Call Flows section landed via PR #594 (commit `803313ca`).
@@ -171,6 +171,7 @@ Key behaviors:
 - **PR #3 (Phase 3) — shipped.** `VideoCallProvider`, `VideoPanel` (50/50 draggable split via `react-resizable-panels`, persisted to `localStorage`), `PictureInPicture`, `CallStatusPill`, `WaitingRoom`, `VideoCall` component, mount in `workspace-client-page.tsx` gated by active session, mobile/narrow viewport (<900px PiP-only, <600px full-screen + bottom-sheet drawer), keyboard shortcuts (Cmd/Ctrl + Shift + V/M/S/H/L/K), Join Call button on session cards.
 - **PR #4a (Phase 4 prep) — shipped.** Per-party recording consent (`instructorRecordingConsent` + `studentRecordingConsent` ANDed into existing `recordingConsent`), Daily-room reconciliation drift-detection loop (`syncRoomRecording` + `confirmRoomRecording`), `POST /api/video/start-adhoc` (instructor-only, creates synthetic `sessions` row with `isAdhoc: true`), `StartAdhocButton`, orphan cleanup + self-healing on retry.
 - **PR #4b (Phase 4 — workspace content integration) — shipped.** See [PR #4b Delivery](#pr-4b-delivery--workspace-content-integration). All four todos (`auto-tag-content`, `live-session-note`, `clipboard-image-paste`, `quick-capture`) done. `recording-playback` deferred to PR #4c.
+- **PR #4c-1 (Phase 5 — recording playback) — shipped 2026-07-07.** See [PR #4c-1 Delivery](#pr-4c-1-delivery--recording-playback). Calls sub-section at top of Notes tab with Play (modal video player with signed-URL refresh) + Download (302 to B2 signed URL with `Content-Disposition: attachment`). Two new compound indexes (`workspaces.by_instructorId_ownerId`, `sessions.by_instructorId_studentId`) replace previous `.take(N)` + in-memory scans. 13 files / +1604/-76 across 5 review rounds (Greptile local CLI ×3, Greptile GitHub App, CodeRabbit ×2) + the Vercel `ERR_PNPM_OUTDATED_LOCKFILE` outage. Squashed as `a5bcc328` on `main`. PR #600 closed.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
@@ -182,7 +183,10 @@ Key behaviors:
 | 3 | VideoCallProvider + VideoPanel + mount + Join Call button | agent | PR #3 ✅ |
 | 4 prep | Ad-hoc endpoint + Start-ad-hoc button + consent modal + Daily-room reconciliation | agent | PR #4a ✅ |
 | 4 | Auto-tag composers + live session note + clipboard paste + Quick Capture | agent | PR #4b ✅ |
-| 5 | Calls sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh) | agent | PR #4c |
+| 5a | Calls sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh) | agent | PR #4c-1 ✅ |
+| 5b | Student ad-hoc notification (in-app badge + optional email) | agent | PR #4c-2 (next) |
+| 5c | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet drawer) | agent | PR #4c-3 |
+| 5d | "Shared during current call" student subpanel in Links tab | agent | PR #4c-4 (deferred — may be skipped) |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -678,27 +682,26 @@ The same identity-check helper should be reused across all endpoints to keep aut
 - [x] Disable `enable_chat` in Daily room config
 - [x] Create `QuickCapture` floating composer (Cmd/Ctrl+K) for text/link/clipboard-image
 
-### Phase 5: Recording
-
-Recording-consent UI + Daily-room config + webhook handler + `recordingUrl` field all shipped (PR #1 + PR #4a). Playback (Play modal + Download signed B2 URL + TTL refresh) deferred to PR #4c.
+### Phase 5: Recording — Shipped (PR #1 webhook + storage, PR #4a consent + Daily room config, PR #4c-1 playback)
 
 - [x] Handle recording webhook (`POST /api/webhooks/daily/recordings`) — shipped in PR #1. HMAC-SHA256, base64-decoded secret, `crypto.timingSafeEqual`, `${timestamp}.${rawBody}` input. Idempotent via `if (session.recordingUrl !== undefined) return { alreadyAttached: true }`.
 - [x] Add `recordingUrl` to session in Convex — shipped in PR #1.
 - [x] Configure room for cloud recording to B2 — shipped in PR #4a.
 - [x] Add recording consent UI to session booking and call join flows — shipped in PR #4a (per-party `instructorRecordingConsent` + `studentRecordingConsent` ANDed into existing `recordingConsent`; drift-detection loop reconciles Daily's `enable_recording` after the room is provisioned).
-- [x] Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — shipped in PR #4c-1
-- [x] Implement signed B2 URL refresh strategy (TTL policy) — shipped in PR #4c-1 (1-hour TTL, refresh-on-view, 60s check, queued-during-playback)
+- [x] Add Calls sub-section in Notes tab with Play (modal video player) + Download (signed B2 URL) — shipped in PR #4c-1. See [PR #4c-1 Delivery](#pr-4c-1-delivery--recording-playback).
+- [x] Implement signed B2 URL refresh strategy (TTL policy) — shipped in PR #4c-1 (1-hour TTL, refresh-on-view, 60s check, queued-during-playback, force-refresh within 60s of expiry so recordings longer than the 1-hour URL TTL don't stall mid-play).
+- [x] Detect actual recording format (`.mov`/`.webm`/`.mp4`/`.m4v`/`.mkv`) — shipped in PR #4c-1. Extension read off the S3 key; `Content-Type` returned to the client so the modal `<video>` element signs with the right MIME.
 
-### Phase 6: Ad-hoc Calls (Instructor Only) — Shipped in PR #4a
+### Phase 6: Ad-hoc Calls (Instructor Only) — Shipped in PR #4a (recording playback) + PR #4c-1 (playback UI)
 
 - [x] Implement `POST /api/video/start-adhoc` (creates synthetic `sessions` row with `isAdhoc: true`, `recordingConsent: true` default)
 - [x] Add instructor-only "Start ad-hoc call" button in workspace header (hidden in the UI for students, not just gated server-side)
 - [x] Consent modal opens with recording toggled ON by default
 - [x] Per-party recording consent (`instructorRecordingConsent` + `studentRecordingConsent`) ANDed into `recordingConsent`
 - [x] Daily-room reconciliation drift-detection loop (`syncRoomRecording` + `confirmRoomRecording`) when consent changes after room provisioned
-- [ ] Student receives in-app notification (workspace list badge + optional email) — deferred to PR #4c
+- [ ] Student receives in-app notification (workspace list badge + optional email) — deferred to PR #4c-2
 - [x] Recording playback sub-section at top of Notes tab (Play + Download) — shipped in PR #4c-1
-- [x] Greptile: no new P1; Vercel: all 4 apps READY
+- [x] Greptile local CLI: 5/5 confidence (final round R3) → CodeRabbit approved (R5) → Vercel: 4/4 READY
 
 ### Phase 7: Mobile & Narrow Viewport
 - [ ] Implement narrow viewport (< 900px): PiP-only default, no split panel
@@ -777,12 +780,102 @@ Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
 
 `convex/workspaces.ts` exports a typed `MutationCtx` helper that fetches the session and workspace rows in parallel and rejects when the session's instructor/student pair doesn't match the workspace's instructor/owner pair. Called by every PR #4b write path (`createWorkspaceNote`/`updateWorkspaceNote`/`createWorkspaceLink`/`createWorkspaceImage`/`createWorkspaceMessage`/`createWorkspaceImageAndMessage`/`createWorkspaceFileMessage`) AND by `getLiveSessionNote`. A non-participant who passes a "valid-looking" session id is rejected even after the role check, so the live note cannot leak across workspaces.
 
-### Deferred to PR #4c
+### Deferred to PR #4c sub-PRs
 
-- Recording playback sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh)
-- Student in-app notification for ad-hoc calls (workspace list badge + email)
-- "Shared during current call" student subpanel in Links tab (resources surfaced without exposing the Resources management UI)
-- Mobile/narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet drawer)
+PR #4c was originally scoped as a single PR but split into four smaller PRs after Phase 5 shipped its first PR (#4c-1). The remaining items:
+
+- **PR #4c-2 (next)** — Student in-app notification for ad-hoc calls: workspace list badge + optional email deep-link. Owner: agent.
+- **PR #4c-3** — Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet drawer). Owner: agent.
+- **PR #4c-4 (deferred — may be skipped)** — "Shared during current call" student subpanel in Links tab (resources surfaced without exposing the Resources management UI). Owner: agent.
+
+## PR #4c-1 Delivery — Recording Playback
+
+**Branch:** `feat/video-calling-pr4c-1` (rebased onto `main`)
+**PR:** #600 — `feat(platform): video calling PR #4c-1 - recording playback in Notes tab`
+**Squash merge commit:** `a5bcc328` (merged 2026-07-07, branch auto-deleted)
+**Commits on branch:** `fb5baa58` (feature) → `83c95e9e` (R1 fixes) → `d7e3f6ed` (R2 fixes) → `50289ece` (R3 fixes) → `8a41d5a8` (R4: Vercel lockfile + CodeRabbit + Greptile App) → `48542a5f` (R4.1: relative-import nit) → `c150dbf6` (R5: CodeRabbit follow-up findings)
+**Status:** MERGED, all 9 GitHub CI checks + 4 Vercel previews + CodeRabbit approval.
+
+### What shipped
+
+A **Calls** sub-section at the top of the Notes tab that lets participants play past call recordings in a modal video player and download them with a human-readable filename. The recording list, signed-URL issuance, and download redirect all happen server-side; the raw S3 key is never exposed to the browser.
+
+#### 1. New API route
+
+`GET /api/video/recording/[sessionId]` issues 1-hour signed B2 URLs with two flavours:
+- `?kind=stream` → JSON `{ url, expiresAt, contentType }` for the modal `<video>` element.
+- `?kind=download` → **302 redirect** to B2 with `Content-Disposition: attachment; filename="…"` baked into the signed URL via `getDownloadUrlWithContentDisposition`, so the browser saves the file with the date-based name.
+
+Both paths set `Cache-Control: no-store` so intermediaries don't cache signed URLs.
+
+- **Auth** is resolved server-side via `fetchQuery(api.workspaces.getSessionParticipantForRecording)`. The `convexIdSchema.safeParse()` early validation matches the existing pattern in `/api/video/end/[sessionId]` and `/api/video/consent/[sessionId]`.
+- **Error categorisation** in `classifyRecordingError()` buckets throws into `storage` / `auth` / `unknown` and reports each at the right level with category context, so observability can triage without leaking detail to the user-facing 500 response.
+
+#### 2. New Convex queries
+
+- **`getCallRecordingsForWorkspace`** — uses the new compound `by_instructorId_studentId` index for an exact lookup on the workspace's (instructor, student) pair. Reads up to 200 candidates, sorts by `callStartedAt` (nulls last), slices to the documented 50-item UI cap. Pre-sort buffer prevents a `.take(50)` from dropping the most recent recording when index order and start-time order diverge.
+- **`getSessionParticipantForRecording`** — wraps `assertParticipantForSession` and converts the known auth error strings to `null`, so the route's `if (!participant) → 403` branch fires for non-participants instead of bubbling up as a 500. Returns a resolved `contentType` derived from the S3 key (`.mov`/`.webm`/`.mp4`/`.m4v`/`.mkv`) so the route signs with the actual recorded format, not a hardcoded `video/mp4`.
+
+#### 3. New compound indexes
+
+- **`workspaces.by_instructorId_ownerId`** (instructor, owner) — exact participant lookup. Replaces the previous `.take(20)` scan that silently denied access for instructors with more than 20 workspaces.
+- **`sessions.by_instructorId_studentId`** (instructor, student) — exact session lookup for the Calls list. Replaces a cross-student `.take(50)` cap that silently dropped recordings for instructors with busy rosters.
+
+#### 4. New components
+
+- **`CallsSection`** — subscribes to `getCallRecordingsForWorkspace`, renders one row per recording with Play / Download buttons. Distinguishes a **loading** state, an **error** state (destructive panel + Retry button calling `recordingsQuery.refetch()`), and an **empty** state (the genuine "no recordings yet" copy).
+- **`RecordingPlayerModal`** — Radix Dialog + `<video controls>`. Streams the signed URL, refreshes on a 60s interval while paused, queues a refresh while playback is active and fires it on the next `pause`/`ended` event. When remaining time falls below **60s** we **force-refresh** even during playback (saves and restores `currentTime` via `onLoadedMetadata`, then calls `play()` to resume) so a recording longer than the 1-hour URL TTL doesn't expire under the user.
+- Mounted in `notes.tsx` above the live-session-note block.
+
+#### 5. Filename helper
+
+`apps/platform/lib/video/recording-filename.ts` produces `call-{YYYY-MM-DD}.{ext}` (extension read from the S3 key). Falls back to today's UTC date on `null`/`NaN`/`Infinity`. 10 vitest cases (4 original + 6 new edge cases including `Number.isFinite()` guard and extension derivation).
+
+### `CallRecording` type discipline
+
+The `CallRecording` type is derived as `FunctionReturnType<typeof api.sessions.getCallRecordingsForWorkspace>[number]` so it stays in sync with the query return shape automatically. The list query intentionally omits `recordingS3Key` — display fields only. The single-session query (`getSessionParticipantForRecording`) returns the S3 key because the route needs it for signing, but the key is consumed by the route and never surfaces in the React tree.
+
+### Review rounds
+
+Five rounds of review across Greptile local CLI, Greptile GitHub App, CodeRabbit, and the Vercel preview deployments:
+
+| Round | Source | Issues | Resolution |
+|-------|--------|--------|------------|
+| R0 | local CLI | 4 (P0 download broken, P1 workspace cap, P1 null-vs-throw, P2 S3 key leak) | `83c95e9e` |
+| R1 | local CLI | 1 (`.take(50)` on cross-student session pool) | `d7e3f6ed` |
+| R2 | local CLI | 1 (catch allowlist missing 2 auth-error strings) | `50289ece` |
+| R3 | local CLI | 5/5 confidence | ✅ |
+| R4 | Greptile App + CodeRabbit + Vercel | 4 CodeRabbit findings + 4 Greptile findings + 1 lockfile (Vercel `ERR_PNPM_OUTDATED_LOCKFILE`) | `8a41d5a8` |
+| R4.1 | local CLI follow-up | 1 (replace relative `../../../convex/sessions` import) | `48542a5f` |
+| R5 | CodeRabbit follow-up | 6 (warn→error in classifyRecordingError, raw error leak in UI, redundant `as CallRecording[]` cast, `play()` after force-refresh, mid-play refresh resume, "mentorship-call-" banned word) | `c150dbf6` |
+
+### Verification
+
+```
+vitest:                                          64 passed + 3 skipped (was 58)
+tsc (convex):                                    0 errors
+tsc (apps/platform, --skipLibCheck):             0 errors
+eslint --max-warnings 0 (touched files):         0 errors / 0 warnings
+convex dev:                                      workspaces.by_instructorId_ownerId +
+                                                 sessions.by_instructorId_studentId +
+                                                 workspace.getSessionParticipantForRecording
+                                                 (with contentType) deployed to prod
+Vercel preview deployments:                      4/4 Ready (was 4/4 Error pre-lockfile-fix)
+Greptile local CLI:                              5/5 confidence, no blocking comments
+CodeRabbit:                                      approved
+GitHub CI:                                       9/9 SUCCESS (codegen + typecheck ×2 + lint + unit + E2E + build ×2)
+```
+
+### Security & auth
+
+- Auth resolved server-side in the route via `fetchQuery(api.workspaces.getSessionParticipantForRecording)`. The client only ever sees `{ url, expiresAt, contentType }` for streaming or follows a 302 to B2 for download — never the raw S3 key.
+- `Cache-Control: no-store` on both stream and download responses so signed URLs aren't cached by intermediaries.
+- Session IDs validated with `convexIdSchema.safeParse()` early; malformed IDs return 400 instead of bubbling as 500.
+- Errors categorised server-side; the user-facing 500 never leaks the raw error message.
+
+### Vercel `ERR_PNPM_OUTDATED_LOCKFILE` root cause
+
+`pnpm-lock.yaml` was not regenerated when `@mentorships/storage` was added to `apps/platform/package.json` because local pnpm wasn't available — I used a symlink instead. The CI install step failed with `ERR_PNPM_OUTDATED_LOCKFILE` on `pnpm install --ignore-scripts --frozen-lockfile`. **Fix:** regenerated `pnpm-lock.yaml` with `pnpm@9.15.9` (matches the `packageManager` field). All 4 preview deployments (`mentorships-infra`, `mentorships-infra-platform`, `mentorships-infra-web`, `mentorships-infra-huckleberry-drive`) went from Error → Ready.
 
 
 ## File Changes
@@ -811,22 +904,33 @@ Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
 - `apps/platform/app/api/webhooks/daily/recordings/route.ts` — Webhook for recording complete (HMAC-verified, public)
 - `apps/platform/app/api/video/active/[workspaceId]/route.ts` — Active call query
 - `apps/platform/app/api/video/start-adhoc/route.ts` — Instructor-only ad-hoc call creation
+- `apps/platform/app/api/video/recording/[sessionId]/route.ts` — PR #4c-1: signed B2 stream (JSON) + download (302 redirect), `Cache-Control: no-store`, `classifyRecordingError()`
 
 **Utilities:**
 - `apps/platform/lib/daily.ts` — Daily.co API helpers
+- `apps/platform/lib/video/recording-filename.ts` — PR #4c-1: download filename helper (`call-{YYYY-MM-DD}.{ext}`)
+- `apps/platform/lib/video/recording-filename.test.ts` — PR #4c-1: 10 vitest cases
+- `packages/storage/src/index.ts` — PR #4c-1: re-exports `getStreamUrl` from `packages/storage/src/downloads.ts`
+
+**Recording Playback Components (PR #4c-1):**
+- `apps/platform/components/workspace/calls-section.tsx` — Calls sub-section in Notes tab (loading / error / empty / list states; Play + Download actions)
+- `apps/platform/components/workspace/recording-player-modal.tsx` — Radix Dialog + `<video>` with 60s URL refresh, queued-during-playback refresh, force-refresh within 60s of expiry, `currentTime` save/restore + `play()` resume
 
 ### Modified Files
 
-- `convex/schema.ts` — Add `sessionId` to `workspace_notes/links/images`; add `callStartedAt`, `callEndedAt`, `isAdhoc` to `sessions`
-- `convex/sessions.ts` — Add room creation/query mutations; trigger live-session-note creation on `callStartedAt` transition
+- `convex/schema.ts` — Add `sessionId` to `workspace_notes/links/images`; add `callStartedAt`, `callEndedAt`, `isAdhoc` to `sessions`. PR #4c-1 added `workspaces.by_instructorId_ownerId` and `sessions.by_instructorId_studentId` compound indexes.
+- `convex/sessions.ts` — Add room creation/query mutations; trigger live-session-note creation on `callStartedAt` transition. PR #4c-1 added `getCallRecordingsForWorkspace` query with `CallRecording` type and pre-sort buffer.
+- `convex/workspaces.ts` — PR #4c-1 added `assertParticipantForSession` helper (typed `QueryCtx`), `getSessionParticipantForRecording` query (try/catch → null on auth failure), and `recordingContentType()` extension resolver.
 - `apps/platform/components/instructor/session-cards.tsx` — Add "Join Call" button
 - `apps/platform/components/workspace/workspace-client-page.tsx` — Mount `VideoPanel`, pass `isCallActive` to tabs, gate by active session
 - `apps/platform/components/workspace/workspace.tsx` — Wrap with `VideoCallProvider`
-- `apps/platform/components/workspace/notes.tsx` — Auto-create live session note, pin it, add Calls sub-section with Play/Download
+- `apps/platform/components/workspace/notes.tsx` — Auto-create live session note, pin it, mount `<CallsSection>` above live-session-note block (PR #4c-1)
 - `apps/platform/components/workspace/images.tsx` — Add "Paste from clipboard" while call is active; default `sessionId` tagging
-- `apps/platform/components/workspace/links.tsx` — Default `sessionId` tagging; show "Shared during current call" subpanel
+- `apps/platform/components/workspace/links.tsx` — Default `sessionId` tagging; show "Shared during current call" subpanel (deferred to PR #4c-4)
 - `apps/platform/components/workspace/chat.tsx` — Add banner explaining it replaces Daily chat while call is active
 - `apps/platform/components/workspace/resources.tsx` — (instructor-only) Surface resources shared during current call
+- `apps/platform/package.json` — PR #4c-1 added `@mentorships/storage: workspace:*`
+- `pnpm-lock.yaml` — PR #4c-1 regenerated with `pnpm@9.15.9` to include the new workspace dependency
 
 ## Environment Variables
 
@@ -853,16 +957,21 @@ DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 - Student joins waiting room, instructor admits.
 - Recording auto-stops at 4-hour limit.
 - B2 storage uses same bucket as existing uploads (`instructor-uploads`).
-- Recording files stored at: `recordings/{sessionId}/{timestamp}.mp4`.
+- Recording files stored at: `recordings/{sessionId}/{timestamp}.mp4` (or `.mov`/`.webm`/`.m4v`/`.mkv` depending on Daily.co room config — PR #4c-1 detects the extension from the S3 key).
 - PiP uses CSS `position: fixed` with `z-index` stacking.
 - Panel resize uses `react-resizable-panels` (added to dependencies).
 - Daily's in-call chat is **disabled** — workspace Chat tab is the single chat surface during a call.
 - Live session note is auto-created on `callStartedAt` transition by `internalMutation workspaces.createLiveSessionNote`; idempotent via `by_sessionId_isLiveSessionNote`. Both roles can post to it.
 - Ad-hoc calls are instructor-only; synthetic session row is created so recording + tagging work the same as scheduled calls.
-- Signed B2 URLs for recording download need a TTL policy + refresh strategy (deferred to PR #4c).
+- Signed B2 URLs for recording download use a 1-hour TTL with a 60s client-side check. While the modal is open and the video is paused, the URL is refreshed when within 5 min of expiry. While playing, the refresh is queued and fires on the next `pause`/`ended` event. When remaining time falls below 60s the refresh **forces** (drops `currentTime`, then restores it via `onLoadedMetadata` and calls `play()` to resume). PR #4c-1.
 - Quick Capture shortcut `Cmd/Ctrl+K` lives in its own listener (`lib/hooks/use-quick-capture-shortcut.ts`) because `use-keyboard-shortcuts.ts:42` swallows `metaKey|ctrlKey|altKey`. It also skips events when target is `<input>`/`<textarea>`/`<select>`/contentEditable.
 - `useVideoCallContext()` is the bridge for active-call state on the workspace client. The session object (`session?.sessionId`, `session?.status`) plus `workspaceId` (set by the provider from `useCurrentOrUpcomingSessionForWorkspace`) are the props all PR #4b composers receive.
 - `assertSessionBelongsToWorkspace` (typed `MutationCtx`) is the single source of truth for cross-workspace session id validation. Every PR #4b write path calls it after `getWorkspaceRole`.
+- `assertParticipantForSession` (typed `QueryCtx`) is the recording-route equivalent — fetches the session + workspace in parallel and rejects when the caller is not the session's instructor or the workspace's owner. PR #4c-1.
+- Two new compound indexes (`workspaces.by_instructorId_ownerId`, `sessions.by_instructorId_studentId`) make participant and session lookups exact and unbounded, replacing previous `.take(N)` + in-memory scans. PR #4c-1.
+- `getCallRecordingsForWorkspace` reads up to 200 candidates (pre-sort buffer) via `by_instructorId_studentId`, sorts by `callStartedAt` (nulls last), and slices to the documented 50-item UI cap. Beyond 200 recordings per (instructor, student) pair would require pagination in a follow-up PR (out of scope for PR #4c-1).
+- `pnpm-lock.yaml` is the source of truth for the Vercel CI install step (`pnpm install --ignore-scripts --frozen-lockfile`). Any new `workspace:*` dependency in any app's `package.json` requires regenerating the lockfile locally before push — symlinking alone is not enough.
+- The `CallRecording` type is derived as `FunctionReturnType<typeof api.X>[number]` so it stays in sync with the query return shape automatically. Avoid hand-rolled type mirrors that drift from the actual query return.
 
 ## Session Card Integration
 
