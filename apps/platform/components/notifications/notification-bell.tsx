@@ -24,6 +24,13 @@ import { cn } from "@/lib/utils";
  *   - "Mark all as read" button clears the badge without forcing
  *     a full reload.
  *
+ * Does NOT mark read on item click — mark-read happens on the
+ * destination workspace mount via `<IncomingCallMarker>`. Marking
+ * read on click here would race the navigation: the query
+ * refetches before the new page mounts and the per-workspace row
+ * badge query sees `readAt !== undefined` for the workspace the
+ * user is about to enter, hiding the red dot on landing.
+ *
  * Does NOT auto-play sound or desktop notification here — that
  * logic lives in `<IncomingCallToast>` so the two surfaces can
  * debounce independently. The bell is just the read surface.
@@ -105,7 +112,6 @@ export function NotificationBell() {
                   <Link
                     href={`/workspace/${n.workspaceId}?join=${n.sessionId}`}
                     onClick={() => {
-                      markRead.mutate({ notificationId: n._id });
                       setOpen(false);
                     }}
                     className="block text-sm hover:underline"

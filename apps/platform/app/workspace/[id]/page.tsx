@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/auth";
 import { getConvexAuthToken, getServerUserRole } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import WorkspaceClientPage from "@/components/workspace/workspace-client-page";
+import { IncomingCallMarker } from "@/components/notifications/incoming-call-marker";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -87,6 +88,9 @@ export default async function WorkspaceIdPage({
         initialWorkspaceId={workspaceId}
         initialJoinSessionId={joinSessionId}
       />
+      {joinSessionId && (
+        <IncomingCallMarker initialJoinSessionId={joinSessionId} />
+      )}
     </ProtectedLayout>
   );
 }

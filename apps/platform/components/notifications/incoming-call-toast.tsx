@@ -21,13 +21,20 @@ import {
  * from any page the user is on.
  *
  * Detection logic:
- *   - Tracks the latest notification id seen in `getUnreadForUser`.
- *   - When a new id appears that wasn't there on the previous
- *     render (debounced by 1.5s to absorb React Query refetch
- *     bursts), fire the toast + sound + desktop.
+ *   - Captures a `mountedAt` timestamp on first render (after the
+ *     initial query settles).
+ *   - Any notification whose `createdAt >= mountedAt` is treated
+ *     as "new since this listener attached" and fires the toast +
+ *     sound + desktop. The first paint (notifications already
+ *     present at mount time) does NOT fire — those are surfaced
+ *     silently via the bell + row badge so users opening the
+ *     dashboard don't get an alert storm for unread backlog.
  *   - The toast has a "Join" button that deep-links to
- *     `/workspace/{id}?join={sessionId}` and marks the notification
- *     read.
+ *     `/workspace/{id}?join={sessionId}`. Mark-read happens on the
+ *     destination workspace mount (see `<IncomingCallMarker>`),
+ *     not in the toast click handler — that avoids the navigation
+ *     race where the bell's badge clears before the row badge
+ *     mounts on the destination page.
  *
  * Sound/desktop gated by user preferences in localStorage and
  * OS-level permission state. If the user disabled sound in
@@ -41,8 +48,7 @@ export function IncomingCallToast() {
     convexQuery(api.inCallNotifications.getUnreadForUser, {})
   );
 
-  const lastSeenIdRef = useRef<string | null>(null);
-  const initialRenderRef = useRef(true);
+  const mountedAtRef = useRef<number | null>(null);
   const [preferences, setPreferences] = useState(() => ({
     soundEnabled: false,
     desktopEnabled: false,
@@ -59,19 +65,21 @@ export function IncomingCallToast() {
   useEffect(() => {
     if (!notifications) return;
     if (notifications.length === 0) {
-      lastSeenIdRef.current = null;
+      mountedAtRef.current = Date.now();
       return;
     }
-    const newest = notifications[0];
-    if (initialRenderRef.current) {
-      lastSeenIdRef.current = newest._id;
-      initialRenderRef.current = false;
-      return;
-    }
-    if (newest._id === lastSeenIdRef.current) return;
-    lastSeenIdRef.current = newest._id;
 
-    const deepLink = `/workspace/${newest.workspaceId}?join=${newest.sessionId}`;
+    if (mountedAtRef.current === null) {
+      const newest = notifications[0];
+      mountedAtRef.current = newest.createdAt;
+      return;
+    }
+
+    const mountedAt = mountedAtRef.current;
+    const fresh = notifications.find((n) => n.createdAt >= mountedAt);
+    if (!fresh) return;
+
+    const deepLink = `/workspace/${fresh.workspaceId}?join=${fresh.sessionId}`;
 
     toast("Ad-hoc call started", {
       description: "Your instructor has started a mentorship call.",

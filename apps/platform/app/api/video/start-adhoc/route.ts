@@ -234,6 +234,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               ? instructorRecord.name.trim()
               : "Your instructor";
 
+          // Trigger.dev idempotency key ensures the email is sent at
+          // most once per (sessionId, recipientUserId) pair. A
+          // duplicate `startAdhocCall` click within the idempotency
+          // window (or a transient Resend failure + retry) collapses
+          // to a single email. A *new* ad-hoc call (different
+          // sessionId) intentionally produces a new key so the
+          // student is notified again. This replaces the previous
+          // `emailSentAt` marker in `inCallNotifications` — that
+          // public mutation was the Greptile P1 security finding.
+          const idempotencyKey = `ad-hoc-call-email:${String(sessionId)}:${studentClerkId}`;
+
           const response = await fetch(
             "https://api.trigger.dev/api/v1/tasks/send-ad-hoc-call-invite-email/trigger",
             {
@@ -253,6 +264,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
                   instructorName,
                   workspaceName: workspace.name || "your mentorship workspace",
                 },
+                idempotencyKey,
               }),
             }
           );

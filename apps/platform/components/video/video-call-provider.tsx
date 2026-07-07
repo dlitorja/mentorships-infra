@@ -2,16 +2,88 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DailyProvider } from "@daily-co/daily-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useConvexMutation } from "@convex-dev/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { reportError } from "@/lib/observability";
 
 import { VideoCallContext, type VideoCallContextValue } from "@/lib/video/video-context";
 import { useCurrentOrUpcomingSessionForWorkspace } from "@/lib/hooks/use-active-session";
 import { useVideoCall } from "@/lib/hooks/use-video-call";
 import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
+
+const JOIN_WINDOW_BEFORE_MS = 15 * 60 * 1000;
+const JOIN_WINDOW_AFTER_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * PR #4c-2: derives the `CurrentOrUpcomingSession` shape that
+ * `useCurrentOrUpcomingSessionForWorkspace` returns, but starting
+ * from a raw `sessions` doc that we looked up directly via
+ * `api.sessions.getSessionById`. Used to wire `useVideoCall` to
+ * the deep-link target session even when the workspace's "current"
+ * session differs.
+ *
+ * Mirrors the priority logic in `convex/sessions.ts`:
+ *   1. `callEndedAt !== undefined` → return null (session ended).
+ *   2. `callStartedAt !== undefined` AND `videoRoomName !== undefined` → "active".
+ *   3. Otherwise, status is "joinable" when within the join window
+ *      around `scheduledAt`, "scheduled" otherwise.
+ *
+ * `participantName` is left empty because resolving it requires a
+ * server-side query; the deep-link UI doesn't display it for
+ * active call surfaces (`CallStatusPill` doesn't render the
+ * counterpart name), and the only consumer is the recording
+ * playback modal which already has the workspace context.
+ */
+function deriveCurrentOrUpcomingSession(raw: Doc<"sessions">): {
+  sessionId: Id<"sessions">;
+  scheduledAt: number;
+  status: "active" | "joinable" | "scheduled";
+  startedAt: number | null;
+  videoRoomName: string | null;
+  videoRoomUrl: string | null;
+  participantName: string;
+  windowOpensAt: number;
+  windowClosesAt: number;
+  recordingConsent: boolean | null;
+} | null {
+  if (raw.callEndedAt !== undefined) return null;
+  const now = Date.now();
+  const windowOpensAt = raw.scheduledAt - JOIN_WINDOW_BEFORE_MS;
+
+  if (raw.callStartedAt !== undefined && raw.videoRoomName !== undefined) {
+    return {
+      sessionId: raw._id,
+      scheduledAt: raw.scheduledAt,
+      status: "active",
+      startedAt: raw.callStartedAt,
+      videoRoomName: raw.videoRoomName,
+      videoRoomUrl: raw.videoRoomUrl ?? null,
+      participantName: "",
+      windowOpensAt,
+      windowClosesAt: raw.callStartedAt + JOIN_WINDOW_AFTER_MS,
+      recordingConsent: raw.recordingConsent ?? null,
+    };
+  }
+
+  const windowClosesAt = raw.scheduledAt + JOIN_WINDOW_AFTER_MS;
+  const status: "joinable" | "scheduled" =
+    now >= windowOpensAt && now <= windowClosesAt ? "joinable" : "scheduled";
+
+  return {
+    sessionId: raw._id,
+    scheduledAt: raw.scheduledAt,
+    status,
+    startedAt: null,
+    videoRoomName: null,
+    videoRoomUrl: null,
+    participantName: "",
+    windowOpensAt,
+    windowClosesAt,
+    recordingConsent: raw.recordingConsent ?? null,
+  };
+}
 
 type VideoCallProviderProps = {
   workspaceId: Id<"workspaces"> | null;
@@ -88,7 +160,47 @@ function VideoCallProviderInner({
   initialJoinSessionId,
 }: VideoCallProviderProps) {
   const sessionQuery = useCurrentOrUpcomingSessionForWorkspace(workspaceId);
-  const session = sessionQuery.data ?? null;
+
+  // PR #4c-2: when the user lands on `/workspace/[id]?join={sessionId}`,
+  // `getCurrentOrUpcomingSessionForWorkspace` may return a DIFFERENT
+  // session — e.g. a freshly-scheduled one that wins the index scan
+  // (it sorts by `callStartedAt desc`, but if neither has started
+  // yet, the priority logic can still pick a different scheduled
+  // session than the deep-link target). Querying the deep-link
+  // session directly ensures the auto-join path uses ITS status,
+  // not the workspace's "current" winner. Convex returns `null`
+  // when the session has been deleted/ended.
+  const deepLinkSessionQuery = useQuery(
+    convexQuery(
+      api.sessions.getSessionById,
+      initialJoinSessionId ? { id: initialJoinSessionId } : "skip"
+    )
+  );
+  const deepLinkRawSession = deepLinkSessionQuery.data ?? null;
+
+  // Merge logic: when the deep-link session matches the
+  // `initialJoinSessionId` AND the workspace's current session
+  // does NOT match, use the deep-link session for video-call
+  // wiring. Otherwise fall back to the workspace's current
+  // session so non-deep-link loads keep the existing behavior.
+  const deepLinkEffectiveSession: typeof sessionQuery.data = useMemo(() => {
+    if (
+      !initialJoinSessionId ||
+      !deepLinkRawSession ||
+      deepLinkSessionQuery.isLoading
+    ) {
+      return null;
+    }
+    if (String(deepLinkRawSession._id) !== String(initialJoinSessionId)) {
+      return null;
+    }
+    return deriveCurrentOrUpcomingSession(deepLinkRawSession);
+  }, [initialJoinSessionId, deepLinkRawSession, deepLinkSessionQuery.isLoading]);
+
+  const session = useMemo(() => {
+    if (deepLinkEffectiveSession) return deepLinkEffectiveSession;
+    return sessionQuery.data ?? null;
+  }, [deepLinkEffectiveSession, sessionQuery.data]);
 
   const [isPictureInPicture, setIsPictureInPicture] = useState(false);
   const queryClient = useQueryClient();
@@ -176,17 +288,14 @@ function VideoCallProviderInner({
 
   // PR #4c-2: deep-link auto-join. When the user lands on
   // `/workspace/[id]?join={sessionId}`, the page passes
-  // `initialJoinSessionId` down. We compare it to the session the
-  // workspace query found. Three outcomes:
-  //   1. The session matches AND status is "active" → `call.join()`
-  //      fires via the effect above (no extra work needed).
-  //   2. The session matches AND status is "joinable" → call
-  //      `markCallStarted` so it transitions to "active" and the
-  //      join effect above fires next render.
-  //   3. No matching session (ended/cancelled/expired) → no-op.
-  //      The workspace renders normally; the user sees a
-  //      non-call workspace. `CallStatusPill` shows the
-  //      appropriate "no call" state.
+  // `initialJoinSessionId` down. The merged `session` variable above
+  // already reflects the deep-link target (it prefers the deep-link
+  // effective session over the workspace's "current" session), so
+  // the existing join effect above will fire `call.join()` once the
+  // session becomes "active". This effect only handles the
+  // pre-join transition: if status is "joinable", call
+  // `markCallStarted` so the session transitions to "active" and
+  // the join effect above picks it up next render.
   //
   // Effect intentionally does not depend on `call.join` because
   // `call.join` can shift identity on device toggles and cause a
@@ -205,8 +314,9 @@ function VideoCallProviderInner({
           // here so we don't double-toast.
         });
     }
-    // `joinable` and `active` paths handled by the effect above
-    // and the markCallStarted mutation that follows.
+    // `active` path is handled by the join effect above. We only
+    // need to fire `markCallStarted` here when the deep-link session
+    // is in the pre-join "joinable" state.
   }, [session, initialJoinSessionId, markCallStarted]);
 
   const value: VideoCallContextValue = useMemo(
