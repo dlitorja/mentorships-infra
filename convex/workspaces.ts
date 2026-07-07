@@ -290,6 +290,50 @@ export const getWorkspaceById = query({
   },
 });
 
+/**
+ * PR #4c-2: workspace fetch for the `/workspace/[id]` dynamic route.
+ *
+ * Returns `null` if the workspace doesn't exist, is soft-deleted,
+ * or the caller is not a participant (owner OR instructor). Drives
+ * the auth gate at the route boundary — the server-side page
+ * renders a redirect to `/workspace` (the picker) if this returns
+ * `null`, so unauthorized users never see a 404 vs a 200 with
+ * leaked data.
+ *
+ * Uses the existing `getWorkspaceRole` helper so the role
+ * resolution is identical to every other workspace query
+ * (`getWorkspaceNotes`, `getUserWorkspaceRole`, etc.). The
+ * instructor-lookup branch is the same one as
+ * `getUserWorkspaces` — keeps the "instructor sees their own
+ * workspaces" rule consistent across read paths.
+ */
+export const getWorkspaceByIdForUser = query({
+  args: { id: v.id("workspaces") },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+    const workspace = await ctx.db.get(args.id);
+    if (!workspace) {
+      return null;
+    }
+    if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
+      return null;
+    }
+    const role = await getWorkspaceRole(ctx, workspace, identity.subject);
+    if (!role) {
+      return null;
+    }
+    let sessionPackId: Id<"sessionPacks"> | undefined = undefined;
+    if (workspace.seatReservationId) {
+      const seat = await ctx.db.get(workspace.seatReservationId);
+      sessionPackId = seat?.sessionPackId ?? undefined;
+    }
+    return { ...workspace, sessionPackId };
+  },
+});
+
 /** Returns all workspaces owned by a user OR where the user is the instructor. Requires auth. */
 export const getUserWorkspaces = query({
   args: { ownerId: v.string() },

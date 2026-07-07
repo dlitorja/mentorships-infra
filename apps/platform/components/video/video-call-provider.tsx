@@ -16,6 +16,18 @@ import { useKeyboardShortcuts } from "@/lib/hooks/use-keyboard-shortcuts";
 type VideoCallProviderProps = {
   workspaceId: Id<"workspaces"> | null;
   children: React.ReactNode;
+  /**
+   * PR #4c-2: optional session id to auto-join on mount. Set by the
+   * `/workspace/[id]?join={sessionId}` deep-link route. The provider
+   * effect below fires `markCallStarted` (if needed) and `call.join()`
+   * once the session becomes `active` — skipping the consent modal
+   * and the manual "Join" click.
+   *
+   * If the session is already ended by the time the user lands, the
+   * effect short-circuits silently and the workspace renders as a
+   * normal workspace (no error toast, no broken UI).
+   */
+  initialJoinSessionId?: Id<"sessions">;
 };
 
 /**
@@ -45,13 +57,20 @@ type VideoCallProviderProps = {
  * PiP state is local to the provider (no persistence — PiP is a
  * transient UI mode, not a user preference).
  */
-export function VideoCallProvider({ workspaceId, children }: VideoCallProviderProps) {
+export function VideoCallProvider({
+  workspaceId,
+  children,
+  initialJoinSessionId,
+}: VideoCallProviderProps) {
   // NOTE: this component MUST stay free of hooks that read DailyProvider
   // context (e.g. useDaily, useVideoCall). All call logic lives in
   // VideoCallProviderInner, which is a child of <DailyProvider>.
   return (
     <DailyProvider>
-      <VideoCallProviderInner workspaceId={workspaceId}>
+      <VideoCallProviderInner
+        workspaceId={workspaceId}
+        initialJoinSessionId={initialJoinSessionId}
+      >
         {children}
       </VideoCallProviderInner>
     </DailyProvider>
@@ -66,6 +85,7 @@ export function VideoCallProvider({ workspaceId, children }: VideoCallProviderPr
 function VideoCallProviderInner({
   workspaceId,
   children,
+  initialJoinSessionId,
 }: VideoCallProviderProps) {
   const sessionQuery = useCurrentOrUpcomingSessionForWorkspace(workspaceId);
   const session = sessionQuery.data ?? null;
@@ -153,6 +173,41 @@ function VideoCallProviderInner({
     // this auto-join effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [call.join, call.status, session]);
+
+  // PR #4c-2: deep-link auto-join. When the user lands on
+  // `/workspace/[id]?join={sessionId}`, the page passes
+  // `initialJoinSessionId` down. We compare it to the session the
+  // workspace query found. Three outcomes:
+  //   1. The session matches AND status is "active" → `call.join()`
+  //      fires via the effect above (no extra work needed).
+  //   2. The session matches AND status is "joinable" → call
+  //      `markCallStarted` so it transitions to "active" and the
+  //      join effect above fires next render.
+  //   3. No matching session (ended/cancelled/expired) → no-op.
+  //      The workspace renders normally; the user sees a
+  //      non-call workspace. `CallStatusPill` shows the
+  //      appropriate "no call" state.
+  //
+  // Effect intentionally does not depend on `call.join` because
+  // `call.join` can shift identity on device toggles and cause a
+  // duplicate trigger.
+  useEffect(() => {
+    if (!initialJoinSessionId) return;
+    if (!session) return;
+    if (String(session.sessionId) !== String(initialJoinSessionId)) return;
+
+    if (session.status === "joinable") {
+      void markCallStarted
+        .mutateAsync({ sessionId: session.sessionId })
+        .catch(() => {
+          // Error path: the workspace query will refetch and surface
+          // the failure state in CallStatusPill. Silently swallow
+          // here so we don't double-toast.
+        });
+    }
+    // `joinable` and `active` paths handled by the effect above
+    // and the markCallStarted mutation that follows.
+  }, [session, initialJoinSessionId, markCallStarted]);
 
   const value: VideoCallContextValue = useMemo(
     () => ({

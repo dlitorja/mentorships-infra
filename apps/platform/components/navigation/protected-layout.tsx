@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { MessageSquare, CalendarClock, type LucideIcon } from "lucide-react";
+import { NotificationBell } from "@/components/notifications/notification-bell";
+import { IncomingCallToast } from "@/components/notifications/incoming-call-toast";
 
 interface NavItem {
   href: string;
@@ -59,8 +61,8 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   return (
     <div className="min-h-screen bg-background">
       {/* Navigation Sidebar */}
-      <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 border-r bg-card">
-        <nav className="p-4 space-y-2">
+      <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 border-r bg-card flex flex-col">
+        <nav className="p-4 space-y-2 flex-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -79,6 +81,14 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
             );
           })}
         </nav>
+        {/* PR #4c-2: notification bell pinned to the bottom of the
+         * sidebar so it's visible on every protected page (dashboard,
+         * workspace, settings, instructor pages). Pairs with the
+         * per-workspace row badge in the workspace picker for the
+         * cross-workspace rollup. */}
+        <div className="p-4 border-t flex justify-end">
+          <NotificationBell />
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -86,6 +96,11 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
         {/* Page Content */}
         <main className="p-6">{children}</main>
       </div>
+
+      {/* PR #4c-2: invisible global listener that fires Sonner toasts
+       * + optional sound/desktop when a new ad-hoc call invite
+       * notification arrives. Renders nothing — pure side effect. */}
+      <IncomingCallToast />
     </div>
   );
 }
