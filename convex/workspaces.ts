@@ -930,7 +930,18 @@ export const getSharedLinksForActiveSession = query({
     sessionId: v.id("sessions"),
   },
   handler: async (ctx, args) => {
-    await assertParticipantForSession(ctx, args);
+    // Greptile R1 P2: cross-check the supplied workspaceId against
+    // the workspace the session actually belongs to. `assertParticipantForSession`
+    // returns `{ session, workspace }` from the session's own
+    // instructorId/ownerId lookup; if `args.workspaceId` does not
+    // match that workspace, the caller has passed a mismatched id
+    // (e.g. an old cached value from a workspace switch). Reject
+    // explicitly so a misuse surfaces as an error rather than a
+    // silent empty result.
+    const { workspace } = await assertParticipantForSession(ctx, args);
+    if (workspace._id !== args.workspaceId) {
+      throw new Error("Workspace does not match this session");
+    }
 
     const rows = await ctx.db
       .query("workspaceLinks")

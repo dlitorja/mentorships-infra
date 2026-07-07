@@ -57,8 +57,16 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
   // PR #4c-3: links tagged to the active session. Returns
   // `undefined` while loading or when no session is active — see
   // the `enabled` guard in `useSharedLinksForActiveSession`.
-  const { data: sharedLinks, isLoading: sharedLinksLoading } =
-    useSharedLinksForActiveSession(workspaceId, activeSessionId);
+  // CodeRabbit R1: also surface `error` so a failed fetch shows
+  // an explicit error state instead of the misleading empty-state
+  // "No links shared yet this call" copy.
+  const {
+    data: sharedLinks,
+    isLoading: sharedLinksLoading,
+    isError: sharedLinksErrored,
+    error: sharedLinksError,
+    refetch: refetchSharedLinks,
+  } = useSharedLinksForActiveSession(workspaceId, activeSessionId);
   const createLink = useCreateWorkspaceLink();
   const deleteLink = useDeleteWorkspaceLink();
 
@@ -244,6 +252,30 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
           {sharedLinksLoading ? (
             <div className="flex items-center justify-center py-3">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : sharedLinksErrored ? (
+            // CodeRabbit R1: distinguish a fetch failure from an
+            // empty result. Without this branch, the user sees
+            // "No links shared yet this call" even when the server
+            // rejected the request — misleading because the data
+            // may exist but be unavailable right now.
+            <div className="flex items-center justify-between gap-2 py-1.5">
+              <p className="text-xs text-destructive">
+                Couldn&apos;t load shared links
+                {sharedLinksError instanceof Error
+                  ? `: ${sharedLinksError.message}`
+                  : "."}
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => {
+                  void refetchSharedLinks();
+                }}
+              >
+                Retry
+              </Button>
             </div>
           ) : sharedLinks && sharedLinks.length > 0 ? (
             <div className="space-y-1.5">
