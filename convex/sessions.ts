@@ -1260,6 +1260,37 @@ export const setVideoRoom = mutation({
       });
     }
 
+    // PR #7: widen-phase uniqueness guard. Prevents two distinct
+    // sessions from claiming the same Daily room name — the original
+    // guard was only at the read sites
+    // (`attachRecordingFromDailyWebhook`, `getSessionByVideoRoomName`)
+    // which threw after a duplicate had already been written, so the
+    // webhook would 500 on delivery. Now we reject the conflicting
+    // assignment up front so the caller can retry with a fresh room.
+    //
+    // Uses `.first()` (not `.unique()`) so pre-existing duplicates
+    // from data drift survive the migrate phase without crashing
+    // this code path — `.unique()` would throw on the duplicate and
+    // block the new assignment. The actual uniqueness guarantee comes
+    // from Convex's serializable OCC: a concurrent `.first()` racing
+    // with our `.patch()` would either see our patch (and return
+    // non-null on its own `.first()`) or be rejected by OCC, never
+    // both. We choose `.first()` here because the schema index does
+    // not enforce uniqueness — the only way to prevent duplicates at
+    // the moment is this insert-time check.
+    const owner = await ctx.db
+      .query("sessions")
+      .withIndex("by_videoRoomName", (q) =>
+        q.eq("videoRoomName", args.videoRoomName),
+      )
+      .first();
+    if (owner !== null) {
+      throw new ConvexError({
+        code: "VIDEO_ROOM_NAME_TAKEN",
+        message: `videoRoomName already assigned to session ${owner._id}; pick a unique name`,
+      });
+    }
+
     await ctx.db.patch(args.sessionId, {
       videoRoomName: args.videoRoomName,
       videoRoomUrl: args.videoRoomUrl,
