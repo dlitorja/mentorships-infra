@@ -427,12 +427,14 @@ function ChatTabWithVideo({
   }
 
   // Phone (< 600px): full-screen video + bottom-sheet drawer with
-  // the workspace chat. WorkspaceChat only renders inside the drawer
-  // (not inline) — at this width the user can't see both surfaces at
-  // once, so we keep one DOM tree for chat instead of two.
+  // the workspace chat. `<VideoPanel>` mounts as a fixed fullscreen
+  // surface (z-40); the floating button + `<WorkspaceDrawer>` (z-50)
+  // sit above it so the user can open the chat without leaving the
+  // call.
   if (isPhoneResolved) {
     return (
       <>
+        <VideoPanel className="h-full" />
         <Button
           type="button"
           variant="secondary"
@@ -460,17 +462,20 @@ function ChatTabWithVideo({
   }
 
   // Tablet / small laptop (600–899px): chat full-width + floating
-  // `<VideoPanel>` PiP. The Panel component never renders the split
-  // group — `<VideoPanel>` reads its own viewport via `useIsBelow`
-  // and forces PiP at this width.
+  // `<VideoPanel>` PiP. `<VideoPanel>` reads its own viewport via
+  // `useIsBelow` and forces PiP at this width, so we just mount it
+  // without a `className` and let it pick the bottom-right position.
   if (isNarrowResolved) {
     return (
-      <WorkspaceChat
-        workspaceId={workspaceId}
-        currentUserId={clerkUserId}
-        role={role}
-        activeSessionId={activeSessionId}
-      />
+      <>
+        <WorkspaceChat
+          workspaceId={workspaceId}
+          currentUserId={clerkUserId}
+          role={role}
+          activeSessionId={activeSessionId}
+        />
+        <VideoPanel />
+      </>
     );
   }
 

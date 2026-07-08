@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { VideoCall } from "@/components/video/video-call";
@@ -45,12 +45,14 @@ export function VideoPanel({ className }: { className?: string }) {
 
   // Track the most recent auto-applied layout so a polite aria-live
   // region can announce the transition to screen-reader users. The
-  // effect only re-runs when the resolved breakpoint actually
-  // changes, so the announcement fires once per resize — not on
-  // every re-render.
+  // announcement only fires when the layout actually transitions
+  // from a previously-known value — not on initial mount, when
+  // `useIsBelow` first resolves from `null` to its actual boolean.
+  // Greptile R0 fix: previously fired on every mount.
   const [announcedLayout, setAnnouncedLayout] = useState<LayoutMode | null>(
     null
   );
+  const prevLayoutRef = useRef<LayoutMode | null>(null);
   useEffect(() => {
     if (!hasMounted) return;
     const next: LayoutMode = isPhoneResolved
@@ -58,7 +60,10 @@ export function VideoPanel({ className }: { className?: string }) {
       : isNarrowResolved
         ? "pip"
         : "inline";
-    setAnnouncedLayout(next);
+    if (prevLayoutRef.current !== null && prevLayoutRef.current !== next) {
+      setAnnouncedLayout(next);
+    }
+    prevLayoutRef.current = next;
   }, [hasMounted, isPhoneResolved, isNarrowResolved]);
 
   if (!session || !hasMounted) return null;
@@ -111,14 +116,17 @@ export function VideoPanel({ className }: { className?: string }) {
        * Polite aria-live announcer. Re-reads whenever the layout
        * changes — screen-reader users hear an explicit "Layout
        * switched to …" announcement on resize. Visual users see
-       * nothing (sr-only).
+       * nothing (sr-only). CodeRabbit R0 fix: announce the inline
+       * (desktop) branch too so resizing to desktop is signaled.
        */}
       <div role="status" aria-live="polite" className="sr-only">
         {announcedLayout === "fullscreen"
           ? "Layout switched to full-screen video. Open the workspace drawer to keep taking notes."
           : announcedLayout === "pip"
             ? "Layout switched to picture-in-picture."
-            : null}
+            : announcedLayout === "inline"
+              ? "Layout switched to split panel view."
+              : null}
       </div>
     </>
   );

@@ -20,8 +20,18 @@ import { cn } from "@/lib/utils";
  *
  * Drag-to-dismiss: pointerdown on the handle stores the starting Y;
  * pointermove translates the sheet down (RAF-throttled, same pattern
- * as `picture-in-picture.tsx:64-130`); pointerup releases. A drag
- * past 120px closes the sheet via the controlled `onOpenChange`.
+ * as `picture-in-picture.tsx:64-130`); pointerup reads the pointer's
+ * final clientY to compute the drag distance and either snaps back or
+ * dismisses via `onOpenChange`.
+ *
+ * Greptile R0 fix: the threshold previously read a stale `pending`
+ * ref that was cleared once the RAF fired, so smooth drags always
+ * snapped back. The pointerup handler now computes the final
+ * translateY directly from the pointer event.
+ *
+ * CodeRabbit R0 fix: `translateY` is reset to 0 in a `useEffect`
+ * keyed on `open` so the next open starts from a clean state even
+ * after a drag-to-dismiss.
  *
  * Why a custom drag instead of vaul / shadcn `Sheet`: the project has
  * no vaul dependency and the AGENTS.md "no new deps without clear
@@ -38,6 +48,7 @@ export function WorkspaceDrawer({
   children: React.ReactNode;
 }): React.ReactElement {
   const [translateY, setTranslateY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
   const dragStartRef = useRef<{ pointerY: number; start: number } | null>(
     null
   );
@@ -55,10 +66,19 @@ export function WorkspaceDrawer({
     };
   }, []);
 
+  // Reset the drag offset whenever the drawer closes so the next
+  // open starts from a clean translateY(0) — drag-to-dismiss leaves
+  // a stale value otherwise, and Radix's enter animation only
+  // overrides the inline transform during the animation itself.
+  useEffect(() => {
+    if (!open) setTranslateY(0);
+  }, [open]);
+
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       dragStartRef.current = { pointerY: e.clientY, start: translateY };
       e.currentTarget.setPointerCapture(e.pointerId);
+      setIsDragging(true);
     },
     [translateY]
   );
@@ -93,6 +113,7 @@ export function WorkspaceDrawer({
     (e: React.PointerEvent<HTMLDivElement>) => {
       const start = dragStartRef.current;
       dragStartRef.current = null;
+      setIsDragging(false);
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
       } catch {
@@ -106,13 +127,17 @@ export function WorkspaceDrawer({
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
-      const pending = pendingTranslateRef.current;
-      if (pending !== null) {
-        pendingTranslateRef.current = null;
-        setTranslateY(pending);
-      }
-      // Dismiss threshold: 120px of drag down closes the sheet.
-      if ((pending ?? start?.start ?? 0) > 120) {
+      pendingTranslateRef.current = null;
+
+      // Compute the final translateY from the pointer event itself
+      // — `pendingTranslateRef` is cleared by the RAF callback
+      // before pointerup on smooth drags, so reading it would always
+      // return null and fall back to the pre-drag `start.start` (0),
+      // making the dismiss threshold unreachable for smooth gestures.
+      const finalY =
+        start === null ? 0 : Math.max(0, start.start + (e.clientY - start.pointerY));
+
+      if (finalY > 120) {
         onOpenChange?.(false);
       } else {
         setTranslateY(0);
@@ -135,6 +160,10 @@ export function WorkspaceDrawer({
           // iOS Safari home-indicator safe-area padding; falls back to
           // `pb-4` automatically if env() resolves to undefined.
           "pb-[max(env(safe-area-inset-bottom),1rem)]",
+          // Animate the snap-back to translateY(0) after a partial
+          // drag — but not during active drag (would lag the
+          // pointermove handler).
+          !isDragging && "transition-transform duration-200 ease-out",
           // Slide animations: replace the shim's centered slide.
           "data-[state=open]:slide-in-from-bottom-full",
           "data-[state=closed]:slide-out-to-bottom-full"
