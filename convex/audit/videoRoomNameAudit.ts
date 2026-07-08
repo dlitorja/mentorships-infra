@@ -1,4 +1,4 @@
-import { query } from "../_generated/server";
+import { internalQuery } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
 type DuplicateGroup = {
@@ -28,11 +28,23 @@ type AuditResult = {
  * `convex/sessions.ts:1146-1151` and `1368-1372`, and whether to
  * pursue NARROW-phase `.unique()` schema enforcement.
  *
- * Public `query` rather than `internalQuery` so `npx convex run --prod`
- * can invoke it without admin-key ceremony. The data returned is
- * already reachable through `getSessionByVideoRoomName`
- * (`convex/sessions.ts:1381`) which is also public. The audit exposes
- * no new surface area.
+ * `internalQuery` (not `query`) so it is NOT publicly callable. The
+ * session inventory it returns is sensitive and would otherwise be
+ * reachable by any unauthenticated client. Verified: unauthenticated
+ * HTTP POST to `${CONVEX_DEPLOYMENT_URL}/api/query` returns
+ * "Server Error". Invocation paths for the audit:
+ *
+ *  - CLI (uses the deploy key from `deploy-prod.env`):
+ *      `npx convex run --prod 'audit/videoRoomNameAudit:auditVideoRoomNames' '{}'`
+ *    The `internal.` prefix is also accepted as the explicit form.
+ *  - Convex dashboard console: deploy `fine-bulldog-260`, navigate to
+ *    Functions → `audit/videoRoomNameAudit:auditVideoRoomNames` → Run.
+ *  - Admin HTTP API: POST to `${CONVEX_DEPLOYMENT_URL}/api/query` with
+ *    path `audit/videoRoomNameAudit:auditVideoRoomNames` and
+ *    `Authorization: Convex ${CONVEX_HTTP_KEY}`.
+ *  - Wrapper action / cron: invoke via `ctx.runQuery(internal.audit.
+ *    videoRoomNameAudit.auditVideoRoomNames, {})` from a server-side
+ *    function that already has the deployment's auth context.
  *
  * Exempts the "use bounded collections" guideline
  * (`convex/_generated/ai/guidelines.md:245`) because the purpose is
@@ -41,7 +53,7 @@ type AuditResult = {
  * limits. If session counts grow large enough that `.collect()` exceeds
  * 8192 docs, replace with a paginated audit scheduled via crons.
  */
-export const auditVideoRoomNames = query({
+export const auditVideoRoomNames = internalQuery({
   args: {},
   handler: async (ctx): Promise<AuditResult> => {
     const all = await ctx.db.query("sessions").collect();
