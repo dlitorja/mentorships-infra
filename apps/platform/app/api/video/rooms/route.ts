@@ -15,7 +15,9 @@ import { reportError } from "@/lib/observability";
 
 export const runtime = "nodejs";
 
-type VideoConvexErrorCode = "VIDEO_ROOM_NAME_CONFLICT";
+type VideoConvexErrorCode =
+  | "VIDEO_ROOM_NAME_CONFLICT"
+  | "VIDEO_ROOM_NAME_TAKEN";
 
 function getVideoRoomsConvexErrorCode(
   error: unknown
@@ -27,6 +29,12 @@ function getVideoRoomsConvexErrorCode(
   ) {
     const code = (error.data as { code?: unknown }).code;
     if (code === "VIDEO_ROOM_NAME_CONFLICT") return code;
+    // PR #7: widen-phase uniqueness guard. Triggered when another
+    // session already owns the room name we picked. Caller should
+    // resolve a fresh name and retry. The route's request lifecycle
+    // doesn't include a built-in retry, so the caller (UI) sees a
+    // 409 + this message and is expected to retry the POST.
+    if (code === "VIDEO_ROOM_NAME_TAKEN") return code;
   }
   return null;
 }
@@ -138,6 +146,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         {
           error:
             "Session already has a different videoRoomName; cannot create a new room",
+        },
+        { status: 409 }
+      );
+    }
+    if (conflictCode === "VIDEO_ROOM_NAME_TAKEN") {
+      await reportError({
+        source: "api/video/rooms",
+        error,
+        message: "videoRoomName already taken by another session; retry",
+        level: "warn",
+      });
+      return NextResponse.json(
+        {
+          error:
+            "Room name already in use by another session; retry with a fresh request",
         },
         { status: 409 }
       );

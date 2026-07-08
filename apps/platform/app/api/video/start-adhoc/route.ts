@@ -20,7 +20,8 @@ type AdhocConvexErrorCode =
   | "VIDEO_UNAUTHORIZED"
   | "VIDEO_SESSION_NOT_FOUND"
   | "VIDEO_FORBIDDEN_NOT_INSTRUCTOR"
-  | "VIDEO_FORBIDDEN_CALL_ACTIVE";
+  | "VIDEO_FORBIDDEN_CALL_ACTIVE"
+  | "VIDEO_ROOM_NAME_TAKEN";
 
 function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
   if (
@@ -33,7 +34,14 @@ function getAdhocConvexErrorCode(error: unknown): AdhocConvexErrorCode | null {
       code === "VIDEO_UNAUTHORIZED" ||
       code === "VIDEO_SESSION_NOT_FOUND" ||
       code === "VIDEO_FORBIDDEN_NOT_INSTRUCTOR" ||
-      code === "VIDEO_FORBIDDEN_CALL_ACTIVE"
+      code === "VIDEO_FORBIDDEN_CALL_ACTIVE" ||
+      // PR #7: widen-phase uniqueness guard. Triggered when the
+      // deterministic room name (mentorship-{sessionId}) already
+      // belongs to another session. Should NOT orphan-delete the
+      // new session because (a) the duplicate is in the OTHER
+      // session's row, and (b) the deterministic name means a
+      // retry will hit the same conflict. Caller must investigate.
+      code === "VIDEO_ROOM_NAME_TAKEN"
     ) {
       return code;
     }
@@ -150,6 +158,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { token }
       );
     } catch (error) {
+      // PR #7: skip orphan cleanup when the failure is
+      // VIDEO_ROOM_NAME_TAKEN. The deterministic room name
+      // (mentorship-{sessionId}) guarantees a retry will hit the
+      // same conflict, so orphan-deleting the new session only
+      // hides the underlying drift. Let the outer catch return 409
+      // so the caller can investigate which session owns the name.
+      const isRoomNameConflict =
+        getAdhocConvexErrorCode(error) === "VIDEO_ROOM_NAME_TAKEN";
+
       // The session row exists but the Daily room linkage (and
       // possibly the room itself) is incomplete. Without cleanup, the
       // session shows up to the student as a phantom upcoming session
@@ -157,27 +174,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // toward the account's 200-room quota until its 24h expiry.
       // Swallow cleanup errors and always re-throw the original so
       // the outer catch logs the root cause.
-      try {
-        await fetchMutation(
-          api.sessions.deleteOrphanedAdhocSession,
-          { sessionId },
-          { token }
-        );
-      } catch {
-        // best-effort cleanup; `startAdhocCall` self-heals stale
-        // roomless ad-hoc rows, so this no longer blocks retries.
-      }
-      // If `resolveDailyRoom` succeeded before the failure, the Daily
-      // room itself was created. Delete it so we don't leak the slot.
-      // `roomName` is undefined when `resolveDailyRoom` itself threw
-      // before returning, so we skip the cleanup in that case.
-      if (roomName !== undefined) {
+      if (!isRoomNameConflict) {
         try {
-          await deleteDailyRoom(roomName);
+          await fetchMutation(
+            api.sessions.deleteOrphanedAdhocSession,
+            { sessionId },
+            { token }
+          );
         } catch {
-          // best-effort; Daily's 24h `exp` reaps the room either way
-          // and the next attempt's `resolveDailyRoom` will reuse the
-          // existing room via the 409-recovery path.
+          // best-effort cleanup; `startAdhocCall` self-heals stale
+          // roomless ad-hoc rows, so this no longer blocks retries.
+        }
+        // If `resolveDailyRoom` succeeded before the failure, the Daily
+        // room itself was created. Delete it so we don't leak the slot.
+        // `roomName` is undefined when `resolveDailyRoom` itself threw
+        // before returning, so we skip the cleanup in that case.
+        if (roomName !== undefined) {
+          try {
+            await deleteDailyRoom(roomName);
+          } catch {
+            // best-effort; Daily's 24h `exp` reaps the room either way
+            // and the next attempt's `resolveDailyRoom` will reuse the
+            // existing room via the 409-recovery path.
+          }
         }
       }
       throw error;
@@ -233,6 +252,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ sessionId, roomName, roomUrl });
   } catch (error) {
+    // PR #7: handle the new VIDEO_ROOM_NAME_TAKEN before the
+    // DailyApiError / generic-error fallthroughs so the route
+    // returns a distinguishable 409 instead of a 500.
+    const adhocCode = getAdhocConvexErrorCode(error);
+    if (adhocCode === "VIDEO_ROOM_NAME_TAKEN") {
+      await reportError({
+        source: "api/video/start-adhoc",
+        error,
+        message:
+          "videoRoomName already taken by another session; deterministic name means a retry will not help — investigate duplicates",
+        level: "warn",
+      });
+      return NextResponse.json(
+        {
+          error:
+            "Room name already in use by another session; please retry shortly — if the error persists, contact support",
+        },
+        { status: 409 }
+      );
+    }
     if (error instanceof DailyApiError) {
       await reportError({
         source: "api/video/start-adhoc",
