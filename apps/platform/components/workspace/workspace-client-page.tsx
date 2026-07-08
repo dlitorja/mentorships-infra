@@ -2,10 +2,12 @@
 
 import { useCallback, useState, useEffect } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { MessageSquare, PanelBottomOpen } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X, FolderArchive } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X, FolderArchive } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
@@ -19,8 +21,10 @@ import { CallStatusPill } from "@/components/video/call-status-pill";
 import { StartAdhocButton } from "@/components/video/start-adhoc-button";
 import { WaitingRoom } from "@/components/video/waiting-room";
 import QuickCapture from "@/components/video/quick-capture";
+import { WorkspaceDrawer } from "@/components/video/workspace-drawer";
 import { WorkspaceRowBadge } from "@/components/workspace/workspace-row-badge";
 import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
+import { useIsBelow } from "@/lib/hooks/use-media-query";
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { DEFAULT_SPLIT_RATIO, SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
 import type { UserRole } from "@/lib/auth-helpers";
@@ -344,6 +348,13 @@ function WorkspaceInner({
  * split, no separator). When a call is active, splits horizontally
  * — chat on the left, video on the right. Default 60/40 split.
  *
+ * PR #4c-4 breakpoint logic (the desktop split only renders ≥ 900px):
+ *   - ≥ 900px: chat + resizable split with `<VideoPanel>` inline.
+ *   - 600–899px: chat full-width + floating `<VideoPanel>` PiP.
+ *   - < 600px: `<VideoPanel>` takes the full viewport; chat lives
+ *     behind a `<WorkspaceDrawer>` bottom-sheet that the user opens
+ *     via a "Workspace" button on the video chrome.
+ *
  * Reading from `VideoCallContext` here instead of taking the session
  * as a prop keeps the "should we split?" decision inside the same
  * tree that knows whether the user has joined a call, without
@@ -374,6 +385,23 @@ function ChatTabWithVideo({
   const isInCall =
     status === "joined" || status === "joining" || status === "leaving";
 
+  // PR #4c-4: narrow-viewport branches. `useIsBelow` returns `null`
+  // on first render — resolve to false so SSR paints the desktop
+  // branch on hydration. The first `change` event swaps the layout.
+  const isPhone = useIsBelow(600);
+  const isNarrow = useIsBelow(900);
+  const isPhoneResolved = isPhone ?? false;
+  const isNarrowResolved = isNarrow ?? false;
+
+  // PR #4c-4: phone-mode bottom-sheet drawer is local UI state —
+  // closed by default, opened via the floating "Workspace" button.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  // Reset to closed if the user resizes out of phone mode with the
+  // drawer open (avoids a stuck drawer the next time they shrink back).
+  useEffect(() => {
+    if (!isPhoneResolved && drawerOpen) setDrawerOpen(false);
+  }, [isPhoneResolved, drawerOpen]);
+
   const onLayoutChanged = useCallback(
     (layout: { [id: string]: number }) => {
       // react-resizable-panels calls `onLayoutChanged` once per
@@ -399,6 +427,60 @@ function ChatTabWithVideo({
     );
   }
 
+  // Phone (< 600px): full-screen video + bottom-sheet drawer with
+  // the workspace chat. `<VideoPanel>` mounts as a fixed fullscreen
+  // surface (z-40); the floating button + `<WorkspaceDrawer>` (z-50)
+  // sit above it so the user can open the chat without leaving the
+  // call.
+  if (isPhoneResolved) {
+    return (
+      <>
+        <VideoPanel className="h-full" />
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          onClick={() => setDrawerOpen(true)}
+          className="fixed top-3 right-3 z-50 h-10 w-10 rounded-full bg-background/90 shadow-lg backdrop-blur"
+          aria-label="Open workspace"
+          data-testid="workspace-drawer-open"
+        >
+          <PanelBottomOpen className="h-5 w-5" />
+        </Button>
+        <WorkspaceDrawer
+          open={drawerOpen}
+          onOpenChange={setDrawerOpen}
+        >
+          <WorkspaceChat
+            workspaceId={workspaceId}
+            currentUserId={clerkUserId}
+            role={role}
+            activeSessionId={activeSessionId}
+          />
+        </WorkspaceDrawer>
+      </>
+    );
+  }
+
+  // Tablet / small laptop (600–899px): chat full-width + floating
+  // `<VideoPanel>` PiP. `<VideoPanel>` reads its own viewport via
+  // `useIsBelow` and forces PiP at this width, so we just mount it
+  // without a `className` and let it pick the bottom-right position.
+  if (isNarrowResolved) {
+    return (
+      <>
+        <WorkspaceChat
+          workspaceId={workspaceId}
+          currentUserId={clerkUserId}
+          role={role}
+          activeSessionId={activeSessionId}
+        />
+        <VideoPanel />
+      </>
+    );
+  }
+
+  // Desktop (≥ 900px): the pre-PR #3 split-panel path.
   return (
     <Group
       orientation="horizontal"

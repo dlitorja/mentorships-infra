@@ -489,6 +489,7 @@ export function useEmbedImageInNote() {
 
 export interface InstructorResource {
   _id: Id<"instructorResources">;
+  _creationTime: number;
   instructorId: Id<"instructors">;
   workspaceId: Id<"workspaces">;
   storageId: Id<"_storage">;

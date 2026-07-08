@@ -17,6 +17,7 @@ import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag, FileText } 
 
 interface Link {
   _id: Id<'workspaceLinks'>;
+  _creationTime: number;
   workspaceId: Id<'workspaces'>;
   url: string;
   title?: string;

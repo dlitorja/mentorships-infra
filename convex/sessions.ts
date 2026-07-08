@@ -4,6 +4,37 @@ import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Id, Doc } from "./_generated/dataModel";
 
+/**
+ * Identity comparison convention used throughout this file.
+ *
+ * Convex guidelines recommend `identity.tokenIdentifier` for
+ * auth-linked database lookups because it is the canonical stable
+ * identifier. In this codebase, however, the values stored against
+ * `instructors.userId`, `workspaces.ownerId`, and
+ * `sessions.studentId` are the **bare Clerk user IDs** (e.g.
+ * `user_3FeL3ri6RljSpv3HDKxmWfnVPi7`) — written by
+ * `scripts/seed-test-workspaces.ts:12` and the Clerk lifecycle
+ * handler in `apps/platform/inngest/functions/clerk-user-instructor-lifecycle.ts`.
+ *
+ * For Convex 1.x with Clerk, `identity.subject` carries that bare
+ * Clerk user ID, while `identity.tokenIdentifier` carries the
+ * issuer-prefixed canonical form
+ * (`https://clerk.<subdomain>|user_...`). The two are not
+ * byte-equal, so a comparison against `instructor.userId` only
+ * matches `identity.subject`. This file uses `identity.subject`
+ * everywhere accordingly. Other files (`convex/bookings.ts`,
+ * `convex/instructors.ts`, `convex/seatReservations.ts`,
+ * `convex/instructorResources.ts`) already follow this convention;
+ * see the matching comment block in `convex/instructors.ts:43-58`
+ * for the cross-file rationale.
+ *
+ * Deviation from the guideline is acceptable here because the
+ * stored shape is the bare Clerk ID; switching the storage layer
+ * to the canonical tokenIdentifier is a wider refactor that would
+ * touch every `seed` / webhook / admin mutation and is out of
+ * scope for the PR #6-pre P1 fix.
+ */
+
 /** Returns a session by its ID. */
 export const getSessionById = query({
   args: { id: v.id("sessions") },
@@ -45,7 +76,7 @@ export const getInstructorSessions = query({
       return [];
     }
 
-    if (instructor.userId !== identity.tokenIdentifier) {
+    if (instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot access another instructor's sessions");
     }
 
@@ -73,7 +104,7 @@ export const getInstructorUpcomingSessions = query({
       return [];
     }
 
-    if (instructor.userId !== identity.tokenIdentifier) {
+    if (instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot access another instructor's sessions");
     }
 
@@ -138,7 +169,7 @@ export const getInstructorPastSessions = query({
       return [];
     }
 
-    if (instructor.userId !== identity.tokenIdentifier) {
+    if (instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot access another instructor's sessions");
     }
 
@@ -220,7 +251,7 @@ export const getInstructorAllSessions = query({
       return [];
     }
 
-    if (instructor.userId !== identity.tokenIdentifier) {
+    if (instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot access another instructor's sessions");
     }
 
@@ -411,7 +442,7 @@ export const getAllStudentSessionsWithInstructor = query({
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Unauthorized");
 
-    if (identity.tokenIdentifier !== args.studentId) {
+    if (identity.subject !== args.studentId) {
       throw new Error("Forbidden: cannot access another user's sessions");
     }
 
@@ -564,7 +595,7 @@ export const cancelSession = mutation({
     if (!identity) {
       throw new Error("Unauthorized");
     }
-    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot cancel another instructor's session");
     }
 
@@ -603,7 +634,7 @@ export const rescheduleSession = mutation({
     if (!identity) {
       throw new Error("Unauthorized");
     }
-    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot reschedule another instructor's session");
     }
 
@@ -632,7 +663,7 @@ export const updateSessionNotes = mutation({
     if (!identity) {
       throw new Error("Unauthorized");
     }
-    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.subject) {
       throw new Error("Forbidden: cannot update another instructor's session");
     }
 
@@ -1188,7 +1219,7 @@ export const setVideoRoom = mutation({
         message: "Unauthorized",
       });
     }
-    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.subject) {
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
         message: "Forbidden: only the session's instructor can create a room",
@@ -1272,8 +1303,8 @@ export const endCall = mutation({
 
     const instructor = await ctx.db.get(session.instructorId);
     const isInstructor =
-      instructor !== null && instructor.userId === identity.tokenIdentifier;
-    const isStudent = identity.tokenIdentifier === session.studentId;
+      instructor !== null && instructor.userId === identity.subject;
+    const isStudent = identity.subject === session.studentId;
 
     if (!isInstructor && !isStudent) {
       throw new ConvexError({
@@ -1346,7 +1377,7 @@ export const getSessionByVideoRoomName = query({
     }
 
     const instructor = await ctx.db.get(session.instructorId);
-    if (instructor && instructor.userId === identity.tokenIdentifier) {
+    if (instructor && instructor.userId === identity.subject) {
       return { sessionId: session._id, role: "owner" };
     }
 
@@ -1364,7 +1395,7 @@ export const getSessionByVideoRoomName = query({
 
     if (
       matchingWorkspace !== undefined &&
-      matchingWorkspace.ownerId === identity.tokenIdentifier
+      matchingWorkspace.ownerId === identity.subject
     ) {
       return { sessionId: session._id, role: "participant" };
     }
@@ -1426,8 +1457,8 @@ export const getCallRecordingsForWorkspace = query({
     const instructor = await ctx.db.get(workspace.instructorId);
     const isInstructor =
       instructor !== null &&
-      instructor.userId === identity.tokenIdentifier;
-    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+      instructor.userId === identity.subject;
+    const isOwner = workspace.ownerId === identity.subject;
 
     if (!isInstructor && !isOwner) {
       throw new Error("Forbidden");
@@ -1538,11 +1569,11 @@ export const getActiveSessionForWorkspace = query({
       return null;
     }
 
-    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+    const isOwner = workspace.ownerId === identity.subject;
     let isInstructor = false;
     if (workspace.instructorId !== undefined) {
       const instructor = await ctx.db.get(workspace.instructorId);
-      if (instructor && instructor.userId === identity.tokenIdentifier) {
+      if (instructor && instructor.userId === identity.subject) {
         isInstructor = true;
       }
     }
@@ -1667,10 +1698,10 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
       return null;
     }
 
-    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+    const isOwner = workspace.ownerId === identity.subject;
     let isInstructor = false;
     const instructor = await ctx.db.get(workspace.instructorId);
-    if (instructor && instructor.userId === identity.tokenIdentifier) {
+    if (instructor && instructor.userId === identity.subject) {
       isInstructor = true;
     }
 
@@ -1851,8 +1882,8 @@ async function resolveStudentName(
  * double-click and the same timestamp is used across reconnects.
  *
  * Authorization matches `endCall`: the caller must be the session's
- * instructor (matched via `instructor.userId === identity.tokenIdentifier`)
- * or the session's student (`session.studentId === identity.tokenIdentifier`).
+ * instructor (matched via `instructor.userId === identity.subject`)
+ * or the session's student (`session.studentId === identity.subject`).
  *
  * Used by the Join Call button on the workspace UI. After this mutation
  * returns, the caller fetches a Daily meeting token via
@@ -1879,8 +1910,8 @@ export const markCallStarted = mutation({
 
     const instructor = await ctx.db.get(session.instructorId);
     const isInstructor =
-      instructor !== null && instructor.userId === identity.tokenIdentifier;
-    const isStudent = identity.tokenIdentifier === session.studentId;
+      instructor !== null && instructor.userId === identity.subject;
+    const isStudent = identity.subject === session.studentId;
 
     if (!isInstructor && !isStudent) {
       throw new ConvexError({
@@ -2024,7 +2055,7 @@ export const markCallStarted = mutation({
  * here, transactionally.
  *
  * Auth: caller must be the workspace's instructor (matched via
- * `instructor.userId === identity.tokenIdentifier`). Students never
+ * `instructor.userId === identity.subject`). Students never
  * see the UI button (it's hidden at `workspace-client-page.tsx`) AND
  * the endpoint rejects them server-side.
  *
@@ -2077,7 +2108,7 @@ export const startAdhocCall = mutation({
     }
 
     const instructor = await ctx.db.get(workspace.instructorId);
-    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.subject) {
       throw new ConvexError({
         code: "VIDEO_FORBIDDEN_NOT_INSTRUCTOR",
         message: "Forbidden: only the workspace's instructor can start an ad-hoc call",
@@ -2189,8 +2220,8 @@ export const startAdhocCall = mutation({
  *
  * Authorization matches `endCall`/`markCallStarted` (PR #2/3): the
  * caller must be the session's instructor (matched via
- * `instructor.userId === identity.tokenIdentifier`) or the
- * session's student (`session.studentId === identity.tokenIdentifier`).
+ * `instructor.userId === identity.subject`) or the
+ * session's student (`session.studentId === identity.subject`).
  */
 export const recordConsent = mutation({
   args: {
@@ -2223,8 +2254,8 @@ export const recordConsent = mutation({
 
     const instructor = await ctx.db.get(session.instructorId);
     const isInstructor =
-      instructor !== null && instructor.userId === identity.tokenIdentifier;
-    const isStudent = identity.tokenIdentifier === session.studentId;
+      instructor !== null && instructor.userId === identity.subject;
+    const isStudent = identity.subject === session.studentId;
 
     if (!isInstructor && !isStudent) {
       throw new ConvexError({
@@ -2325,7 +2356,7 @@ export const deleteOrphanedAdhocSession = mutation({
     }
 
     const instructor = await ctx.db.get(session.instructorId);
-    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.subject) {
       return { deleted: false };
     }
 
@@ -2388,8 +2419,8 @@ export const syncRoomRecording = query({
 
     const instructor = await ctx.db.get(session.instructorId);
     const isInstructor =
-      instructor !== null && instructor.userId === identity.tokenIdentifier;
-    const isStudent = identity.tokenIdentifier === session.studentId;
+      instructor !== null && instructor.userId === identity.subject;
+    const isStudent = identity.subject === session.studentId;
 
     if (!isInstructor && !isStudent) {
       throw new ConvexError({
@@ -2460,8 +2491,8 @@ export const confirmRoomRecording = mutation({
 
     const instructor = await ctx.db.get(session.instructorId);
     const isInstructor =
-      instructor !== null && instructor.userId === identity.tokenIdentifier;
-    const isStudent = identity.tokenIdentifier === session.studentId;
+      instructor !== null && instructor.userId === identity.subject;
+    const isStudent = identity.subject === session.studentId;
 
     if (!isInstructor && !isStudent) {
       throw new ConvexError({
