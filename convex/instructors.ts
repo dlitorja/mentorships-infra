@@ -2025,7 +2025,7 @@ export const getStudentDetails = query({
     }
 
     const instructor = await ctx.db.get(args.instructorId);
-    if (!instructor || instructor.userId !== user.tokenIdentifier) {
+    if (!instructor || instructor.userId !== user.subject) {
       return null;
     }
 

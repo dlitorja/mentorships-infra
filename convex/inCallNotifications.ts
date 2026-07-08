@@ -9,18 +9,29 @@ const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
  * Identity resolved strictly from `ctx.auth.getUserIdentity()` so a
  * caller cannot spoof another user's notifications. The shape
  * mirrors `assertParticipantForSession` in `convex/workspaces.ts` —
- * uses `identity.tokenIdentifier` as the stable Clerk subject so
- * tokens across multiple sessions map to the same userId.
+ * uses `identity.subject` as the stable Clerk user ID so it
+ * matches the bare Clerk ID stored in `inCallNotifications.userId`
+ * (which equals `workspaces.ownerId`).
+ *
+ * The codebase stores bare Clerk user IDs (e.g.
+ * `user_3FeL3ri6RljSpv3HDKxmWfnVPi7`) in `workspaces.ownerId`,
+ * `instructors.userId`, and `inCallNotifications.userId`. For
+ * Convex 1.x with Clerk, `identity.subject` carries that bare
+ * Clerk user ID; `identity.tokenIdentifier` carries the
+ * issuer-prefixed canonical form. The two are not byte-equal, so
+ * the comparison only works against `identity.subject`. See the
+ * matching comment block in `convex/sessions.ts:6-37` and
+ * `convex/instructors.ts:43-58` for the cross-file rationale.
  *
  * Throws on no identity so callers can fail fast; every public
  * function below runs `requireIdentity` at the top.
  */
-async function requireIdentity(ctx: QueryCtx): Promise<{ subject: string; tokenIdentifier: string }> {
+async function requireIdentity(ctx: QueryCtx): Promise<{ subject: string }> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error("Unauthorized");
   }
-  return { subject: identity.subject, tokenIdentifier: identity.tokenIdentifier };
+  return { subject: identity.subject };
 }
 
 /**
@@ -66,7 +77,7 @@ export const createAdHocCallNotification = mutation({
       throw new Error("Workspace has no instructor");
     }
     const instructor = await ctx.db.get(workspace.instructorId);
-    if (!instructor || instructor.userId !== identity.tokenIdentifier) {
+    if (!instructor || instructor.userId !== identity.subject) {
       throw new Error("Forbidden: only the workspace's instructor can notify");
     }
 
@@ -127,7 +138,7 @@ export const getUnreadForUser = query({
     const candidates = await ctx.db
       .query("inCallNotifications")
       .withIndex("by_userId_readAt", (q) =>
-        q.eq("userId", identity.tokenIdentifier).eq("readAt", undefined)
+        q.eq("userId", identity.subject).eq("readAt", undefined)
       )
       .take(50);
 
@@ -147,7 +158,7 @@ export const getUnreadForUser = query({
  * Authorizes the caller as a participant on the workspace before
  * returning. Authorization mirrors `getWorkspaceById` shape —
  * fetches the workspace, then checks `ownerId` against the Clerk
- * tokenIdentifier OR instructor match. Admin tokens bypass via
+ * subject OR instructor match. Admin tokens bypass via
  * the `instructors.by_userId` lookup the same way `getUserWorkspaces`
  * does, but in practice this query is most often called by the
  * workspace owner (the student) from the picker UI.
@@ -162,11 +173,11 @@ export const getUnreadForWorkspace = query({
       return null;
     }
 
-    const isOwner = workspace.ownerId === identity.tokenIdentifier;
+    const isOwner = workspace.ownerId === identity.subject;
     let isInstructor = false;
     if (workspace.instructorId !== undefined && !isOwner) {
       const instructor = await ctx.db.get(workspace.instructorId);
-      isInstructor = instructor?.userId === identity.tokenIdentifier;
+      isInstructor = instructor?.userId === identity.subject;
     }
     if (!isOwner && !isInstructor) {
       return null;
@@ -184,7 +195,7 @@ export const getUnreadForWorkspace = query({
       candidates
         .filter(
           (n) =>
-            n.userId === identity.tokenIdentifier &&
+            n.userId === identity.subject &&
             n.expiresAt > now &&
             n.readAt === undefined
         )
@@ -210,7 +221,7 @@ export const markRead = mutation({
     if (!notification) {
       throw new Error("Notification not found");
     }
-    if (notification.userId !== identity.tokenIdentifier) {
+    if (notification.userId !== identity.subject) {
       throw new Error("Forbidden");
     }
     if (notification.readAt === undefined) {
@@ -229,7 +240,7 @@ export const markRead = mutation({
  * single failure).
  *
  * Authorization mirrors `markRead`: each row's `userId` must
- * match the caller's `identity.tokenIdentifier`. Rows that don't
+ * match the caller's `identity.subject`. Rows that don't
  * match are skipped (not an error) so a stale client with a
  * partially-deleted cache can't 403 the whole batch.
  *
@@ -252,7 +263,7 @@ export const markReadMany = mutation({
     for (const id of args.notificationIds) {
       const row = await ctx.db.get(id);
       if (!row) continue;
-      if (row.userId !== identity.tokenIdentifier) continue;
+      if (row.userId !== identity.subject) continue;
       if (row.readAt !== undefined) continue;
       await ctx.db.patch(id, { readAt: now });
       updatedCount += 1;
