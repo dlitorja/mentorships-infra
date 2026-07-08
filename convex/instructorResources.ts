@@ -83,7 +83,12 @@ export async function assertResourceBelongsToInstructor(
     resourceId: Id<"instructorResources">;
     expectedWorkspaceId?: Id<"workspaces">;
   }
-): Promise<{ resource: Doc<"instructorResources">; workspace: Doc<"workspaces"> }> {
+): Promise<{
+  resource: Doc<"instructorResources">;
+  workspace: Doc<"workspaces">;
+  identity: { subject: string };
+  role: WorkspaceRole;
+}> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error("Unauthorized");
@@ -106,16 +111,21 @@ export async function assertResourceBelongsToInstructor(
   if (role !== "instructor" && role !== "admin") {
     throw new Error("Only instructors and admins can modify resources");
   }
-  if (role === "instructor") {
-    const instructor = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q: any) => q.eq("userId", identity.subject))
-      .first();
-    if (!instructor || resource.instructorId !== instructor._id) {
-      throw new Error("Not authorized for this resource");
-    }
+  // Greptile R0 (PR #5): the original `deleteInstructorResource` had
+  // no admin bypass — only the owning instructor could mutate a
+  // resource. The PR #5 helper silently widened that to admins. Apply
+  // the instructorId check unconditionally (admins and instructors
+  // alike) so a platform admin cannot mutate another instructor's
+  // resources. An admin acting on a workspace must also be the owning
+  // instructor of the resource. Matches the JSDoc on this helper.
+  const instructor = await ctx.db
+    .query("instructors")
+    .withIndex("by_userId", (q: any) => q.eq("userId", identity.subject))
+    .first();
+  if (!instructor || resource.instructorId !== instructor._id) {
+    throw new Error("Not authorized for this resource");
   }
-  return { resource, workspace };
+  return { resource, workspace, identity: { subject: identity.subject }, role };
 }
 
 /** Returns all instructor resources for the current user's instructor record in a workspace. */
@@ -276,7 +286,7 @@ export const shareResourceToChat = mutation({
     workspaceId: v.id("workspaces"),
   },
   handler: async (ctx, args) => {
-    const { resource, workspace } = await assertResourceBelongsToInstructor(ctx, {
+    const { resource, workspace, identity, role } = await assertResourceBelongsToInstructor(ctx, {
       resourceId: args.resourceId,
       expectedWorkspaceId: args.workspaceId,
     });
@@ -290,11 +300,6 @@ export const shareResourceToChat = mutation({
       throw new Error("Failed to get image URL");
     }
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-    const role = await getWorkspaceRole(ctx, workspace, identity.subject);
     const isAdminRole = role === "admin";
     const currentCount = isAdminRole
       ? await countActiveWorkspaceImages(ctx, args.workspaceId)
@@ -336,7 +341,7 @@ export const embedResourceInNote = mutation({
       throw new Error("Note not found");
     }
 
-    const { resource, workspace } = await assertResourceBelongsToInstructor(ctx, {
+    const { resource, workspace, identity, role } = await assertResourceBelongsToInstructor(ctx, {
       resourceId: args.resourceId,
       expectedWorkspaceId: note.workspaceId,
     });
@@ -350,11 +355,6 @@ export const embedResourceInNote = mutation({
       throw new Error("Failed to get image URL");
     }
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Unauthorized");
-    }
-    const role = await getWorkspaceRole(ctx, workspace, identity.subject);
     const isAdminRole = role === "admin";
     const currentCount = isAdminRole
       ? await countActiveWorkspaceImages(ctx, note.workspaceId)
@@ -428,6 +428,14 @@ export const updateInstructorResource = mutation({
     }
     if (args.clearSessionId === true) {
       patch.sessionId = undefined;
+    }
+    // Greptile R0 (PR #5): surface the misuse immediately instead of
+    // silently writing an empty patch. Mirrors the no-op guards in
+    // `updateWorkspaceNote` and `createWorkspaceLink`.
+    if (Object.keys(patch).length === 0) {
+      throw new Error(
+        "updateInstructorResource: no fields to update — pass sessionId or clearSessionId",
+      );
     }
     await ctx.db.patch(args.id, patch);
     return await ctx.db.get(args.id);
