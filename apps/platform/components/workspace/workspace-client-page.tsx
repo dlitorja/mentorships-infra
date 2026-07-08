@@ -319,6 +319,7 @@ function WorkspaceInner({
                             workspaceId={selectedWorkspace._id}
                             currentUserId={clerkUserId}
                             role={userRole}
+                            activeSessionId={activeSessionId}
                           />
                         </TabsContent>
                       )}

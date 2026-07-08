@@ -489,6 +489,7 @@ export function useEmbedImageInNote() {
 
 export interface InstructorResource {
   _id: Id<"instructorResources">;
+  _creationTime: number;
   instructorId: Id<"instructors">;
   workspaceId: Id<"workspaces">;
   storageId: Id<"_storage">;
@@ -498,6 +499,12 @@ export interface InstructorResource {
   type: "image" | "file";
   createdAt: number;
   url: string | null;
+  // PR #5: tags the resource to an active video-call session.
+  // Drives the "Shared during current call" subpanel in the Links
+  // tab. Undefined on resources created before PR #5 — those don't
+  // appear in the subpanel (matches the documented pre-#4b links
+  // limitation at workspaces.ts:917).
+  sessionId?: Id<"sessions">;
 }
 
 /**
@@ -508,6 +515,32 @@ export function useInstructorResources(workspaceId: string) {
   return useQuery({
     ...convexQuery(api.instructorResources.getInstructorResources, { workspaceId: workspaceId as Id<"workspaces"> }),
     enabled: !!workspaceId,
+  });
+}
+
+/**
+ * PR #5: fetches instructor resources tagged to the currently
+ * active video-call session. Drives the resource side of the
+ * "Shared during current call" subpanel that appears above the
+ * Links list while a call is active. Role-agnostic — both
+ * instructor and student can read; auth is enforced server-side by
+ * `assertParticipantForSession`.
+ *
+ * `enabled` gates on `sessionId` so the query never fires with a
+ * `null` sessionId (which the Convex `v.id("sessions")` validator
+ * would reject). The `sessionId as Id<"sessions">` cast is safe
+ * behind the `enabled` guard.
+ */
+export function useSharedResourcesForActiveSession(
+  workspaceId: string,
+  sessionId: string | null,
+) {
+  return useQuery({
+    ...convexQuery(api.instructorResources.getSharedResourcesForActiveSession, {
+      workspaceId: workspaceId as Id<"workspaces">,
+      sessionId: sessionId as Id<"sessions">,
+    }),
+    enabled: !!workspaceId && !!sessionId,
   });
 }
 
@@ -537,6 +570,27 @@ export function useDeleteInstructorResource() {
     mutationFn: useConvexMutation(api.instructorResources.deleteInstructorResource),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
+    },
+  });
+}
+
+/**
+ * PR #5: mutation hook for updating an instructor resource.
+ * Refetches the instructor-resources list and the shared-during-call
+ * subpanel query on success so the Tag/Untag toggle stays in sync
+ * with the underlying data.
+ *
+ * Pass `clearSessionId: true` from the untag toggle to remove the
+ * resource's `sessionId`. Mirror of `useUpdateWorkspaceNote`.
+ */
+export function useUpdateInstructorResource() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: useConvexMutation(api.instructorResources.updateInstructorResource),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getInstructorResources"] });
+      queryClient.invalidateQueries({ queryKey: ["convexQuery", "instructorResources.getSharedResourcesForActiveSession"] });
     },
   });
 }

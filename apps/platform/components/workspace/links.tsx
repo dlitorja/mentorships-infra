@@ -1,26 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
   useWorkspaceLinks,
   useSharedLinksForActiveSession,
+  useSharedResourcesForActiveSession,
   useCreateWorkspaceLink,
-  useDeleteWorkspaceLink
+  useDeleteWorkspaceLink,
+  type InstructorResource,
 } from '@/lib/queries/convex/use-workspaces';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag } from 'lucide-react';
+import { Loader2, Plus, Trash2, Link as LinkIcon, ExternalLink, Tag, FileText } from 'lucide-react';
 
 interface Link {
   _id: Id<'workspaceLinks'>;
+  _creationTime: number;
   workspaceId: Id<'workspaces'>;
   url: string;
   title?: string;
   createdBy: string;
   deletedAt?: number;
   sessionId?: Id<'sessions'>;
+}
+
+// PR #5: union row type for the subpanel. Each row carries a `kind`
+// so the renderer knows whether to render an external link or a
+// resource file row. Created in the `useMemo` below.
+type SharedRow =
+  | { kind: 'link'; data: Link }
+  | { kind: 'resource'; data: InstructorResource };
+
+// PR #5: small byte formatter for resource row size labels. Mirrors
+// the helper in resources.tsx:23-27 — kept local here because the
+// subpanel is a separate component.
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 interface WorkspaceLinksProps {
@@ -67,10 +86,53 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
     error: sharedLinksError,
     refetch: refetchSharedLinks,
   } = useSharedLinksForActiveSession(workspaceId, activeSessionId);
+  // PR #5: instructor resources tagged to the active session. Same
+  // role-agnostic auth as the links query (assertParticipantForSession
+  // server-side), so both instructor and student see them in the
+  // subpanel. The Resources tab itself remains instructor-only
+  // (workspace-client-page.tsx:272), but the surfacing here widens
+  // the reach of shared-during-call content to students.
+  const {
+    data: sharedResources,
+    isLoading: sharedResourcesLoading,
+    isError: sharedResourcesErrored,
+    error: sharedResourcesError,
+    refetch: refetchSharedResources,
+  } = useSharedResourcesForActiveSession(workspaceId, activeSessionId);
   const createLink = useCreateWorkspaceLink();
   const deleteLink = useDeleteWorkspaceLink();
 
   const activeLinks = links?.filter((link: Link) => !link.deletedAt) || [];
+
+  // PR #5: union the two server-side results into a single row list
+  // for rendering. Sort by `_creationTime` desc so the subpanel
+  // matches the order the rest of the workspace uses (most recent
+  // first). Both `sharedLinks` and `sharedResources` are themselves
+  // sorted desc server-side; merging with `[...a, ...b].sort(...)`
+  // gives a stable cross-source order.
+  const sharedRows = useMemo<SharedRow[]>(() => {
+    const linkRows: SharedRow[] = (sharedLinks ?? []).map((link) => ({
+      kind: 'link',
+      data: link,
+    }));
+    const resourceRows: SharedRow[] = (sharedResources ?? []).map((resource) => ({
+      kind: 'resource',
+      data: resource,
+    }));
+    return [...linkRows, ...resourceRows].sort((a, b) => {
+      const aT = a.data._creationTime;
+      const bT = b.data._creationTime;
+      return bT - aT;
+    });
+  }, [sharedLinks, sharedResources]);
+  const sharedLoading = sharedLinksLoading || sharedResourcesLoading;
+  const sharedErrored = sharedLinksErrored || sharedResourcesErrored;
+  const sharedError =
+    sharedLinksError instanceof Error
+      ? sharedLinksError
+      : sharedResourcesError instanceof Error
+      ? sharedResourcesError
+      : null;
 
   const isValidUrl = (url: string): boolean => {
     try {
@@ -228,11 +290,17 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
         </div>
       )}
 
-      {/* PR #4c-3: "Shared during current call" subpanel. Renders
-       * only while a call is active (`activeSessionId` non-null)
-       * and shows links tagged to this session via the PR #4b
-       * `workspaceLinks.sessionId` field. Visually inset so users
-       * can tell it apart from the full history list below. */}
+      {/* PR #4c-3 + PR #5: "Shared during current call" subpanel.
+       * Renders only while a call is active (`activeSessionId`
+       * non-null) and shows links AND instructor resources tagged
+       * to this session. PR #4c-3 introduced this block for
+       * `workspaceLinks.sessionId`; PR #5 unions
+       * `instructorResources.sessionId` so instructors can share
+       * "My Resources" files into the same live subpanel. Both
+       * roles see it (the underlying queries are role-agnostic;
+       * `assertParticipantForSession` enforces participant-only).
+       * Visually inset so users can tell it apart from the full
+       * history list below. */}
       {activeSessionId && (
         <div
           data-testid="shared-during-call-subpanel"
@@ -243,28 +311,25 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
               <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-hidden />
               Shared during current call
             </h4>
-            {!sharedLinksLoading && sharedLinks && (
+            {!sharedLoading && (
               <span className="text-xs text-muted-foreground">
-                {sharedLinks.length} link{sharedLinks.length === 1 ? '' : 's'}
+                {sharedRows.length} item{sharedRows.length === 1 ? '' : 's'}
               </span>
             )}
           </div>
-          {sharedLinksLoading ? (
+          {sharedLoading ? (
             <div className="flex items-center justify-center py-3">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
-          ) : sharedLinksErrored ? (
-            // CodeRabbit R1: distinguish a fetch failure from an
-            // empty result. Without this branch, the user sees
-            // "No links shared yet this call" even when the server
-            // rejected the request — misleading because the data
-            // may exist but be unavailable right now.
+          ) : sharedErrored ? (
+            // PR #4c-3 CodeRabbit R1: distinguish a fetch failure
+            // from an empty result. PR #5 widens the retry button
+            // to refetch both sources independently so a transient
+            // failure on one doesn't leave the other stale.
             <div className="flex items-center justify-between gap-2 py-1.5">
               <p className="text-xs text-destructive">
-                Couldn&apos;t load shared links
-                {sharedLinksError instanceof Error
-                  ? `: ${sharedLinksError.message}`
-                  : "."}
+                Couldn&apos;t load shared items
+                {sharedError ? `: ${sharedError.message}` : "."}
               </p>
               <Button
                 size="sm"
@@ -272,51 +337,92 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
                 className="h-7 px-2 text-xs"
                 onClick={() => {
                   void refetchSharedLinks();
+                  void refetchSharedResources();
                 }}
               >
                 Retry
               </Button>
             </div>
-          ) : sharedLinks && sharedLinks.length > 0 ? (
+          ) : sharedRows.length > 0 ? (
             <div className="space-y-1.5">
-              {sharedLinks.map((link: Link) => (
-                <div
-                  key={link._id}
-                  className="flex items-center justify-between gap-2 py-1.5 px-2 rounded bg-background/60 hover:bg-background transition-colors"
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <LinkIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-medium text-primary hover:underline truncate"
-                    >
-                      {link.title || link.url}
-                    </a>
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 shrink-0"
-                    asChild
+              {sharedRows.map((row) =>
+                row.kind === 'link' ? (
+                  <div
+                    key={row.data._id}
+                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded bg-background/60 hover:bg-background transition-colors"
+                    data-testid="shared-during-call-subpanel-row-link"
                   >
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open link"
-                      aria-label={`Open ${link.title || link.url} in a new tab`}
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {/* PR #5: type badge. Link rows get a 🔗 icon
+                       * rendered as a LinkIcon; resource rows get a
+                       * FileText icon. Keeps the union visually
+                       * distinguishable at a glance. */}
+                      <LinkIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span
+                        className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0"
+                        title="Shared link"
+                      >
+                        Link
+                      </span>
+                      <a
+                        href={row.data.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-primary hover:underline truncate"
+                      >
+                        {row.data.title || row.data.url}
+                      </a>
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 shrink-0"
+                      asChild
                     >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  </Button>
-                </div>
-              ))}
+                      <a
+                        href={row.data.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open link"
+                        aria-label={`Open ${row.data.title || row.data.url} in a new tab`}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    key={row.data._id}
+                    className="flex items-center justify-between gap-2 py-1.5 px-2 rounded bg-background/60 hover:bg-background transition-colors"
+                    data-testid="shared-during-call-subpanel-row-resource"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span
+                        className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0"
+                        title="Shared resource"
+                      >
+                        Resource
+                      </span>
+                      <a
+                        href={row.data.url ?? "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-primary hover:underline truncate"
+                      >
+                        {row.data.fileName}
+                      </a>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {formatBytes(row.data.size)}
+                    </span>
+                  </div>
+                )
+              )}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground py-1.5">
-              No links shared yet this call
+              No links or resources shared yet this call
             </p>
           )}
         </div>
