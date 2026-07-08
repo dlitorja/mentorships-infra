@@ -404,14 +404,23 @@ export default function WorkspaceLinks({ workspaceId, currentUserId, activeSessi
                       >
                         Resource
                       </span>
-                      <a
-                        href={row.data.url ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-medium text-primary hover:underline truncate"
-                      >
-                        {row.data.fileName}
-                      </a>
+                      {row.data.url ? (
+                        <a
+                          href={row.data.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-primary hover:underline truncate"
+                        >
+                          {row.data.fileName}
+                        </a>
+                      ) : (
+                        <span
+                          className="text-sm font-medium text-muted-foreground truncate"
+                          title="Resource URL unavailable"
+                        >
+                          {row.data.fileName}
+                        </span>
+                      )}
                     </div>
                     <span className="text-[10px] text-muted-foreground shrink-0">
                       {formatBytes(row.data.size)}
