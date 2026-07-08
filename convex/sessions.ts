@@ -1267,10 +1267,17 @@ export const setVideoRoom = mutation({
     // which threw after a duplicate had already been written, so the
     // webhook would 500 on delivery. Now we reject the conflicting
     // assignment up front so the caller can retry with a fresh room.
-    // Use `.unique()` semantics — the by_videoRoomName index does not
-    // enforce uniqueness, but a single-result read returns the row
-    // that owns the name (or null) so a stale concurrent assignment
-    // cannot slip through.
+    //
+    // Uses `.first()` (not `.unique()`) so pre-existing duplicates
+    // from data drift survive the migrate phase without crashing
+    // this code path — `.unique()` would throw on the duplicate and
+    // block the new assignment. The actual uniqueness guarantee comes
+    // from Convex's serializable OCC: a concurrent `.first()` racing
+    // with our `.patch()` would either see our patch (and return
+    // non-null on its own `.first()`) or be rejected by OCC, never
+    // both. We choose `.first()` here because the schema index does
+    // not enforce uniqueness — the only way to prevent duplicates at
+    // the moment is this insert-time check.
     const owner = await ctx.db
       .query("sessions")
       .withIndex("by_videoRoomName", (q) =>
