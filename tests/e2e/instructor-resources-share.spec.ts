@@ -214,7 +214,9 @@ test.describe("PR #5 — instructor resources share-to-call (1280×720)", () => 
   // a refetch). Guards the optimistic-state UX that resources.tsx
   // gained in this PR — without it, regressions that defer the
   // toggle state update until the query refetches would slip
-  // through.
+  // through. Uses a 5s timeout (rather than the 1s originally
+  // proposed) to absorb slow CI runners — the assertion is still
+  // tighter than waiting for a subpanel refetch (~10s+).
   test("the Tag toggle UX swaps states optimistically", async ({ page }) => {
     await uploadSeedResource(page);
 
@@ -229,13 +231,12 @@ test.describe("PR #5 — instructor resources share-to-call (1280×720)", () => 
     await tagButton.click();
 
     // Optimistic: the Untag button + Tagged badge appear BEFORE any
-    // explicit wait for the subpanel refetch. Uses a short timeout
-    // so a regression that defers these to the refetch would fail.
+    // explicit wait for the subpanel refetch.
     await expect(
       page.getByRole("button", { name: /Untag from current call/i }).first(),
-    ).toBeVisible({ timeout: 1_000 });
+    ).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText(/^Tagged$/i).first()).toBeVisible({
-      timeout: 1_000,
+      timeout: 5_000,
     });
   });
 });

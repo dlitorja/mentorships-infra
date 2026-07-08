@@ -141,9 +141,12 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role, a
 
   // PR #5 R1 nit: tag a resource to the active call. Update the
   // optimistic override set BEFORE awaiting the mutation so the
-  // "Tagged" badge appears instantly. Revert on error.
+  // "Tagged" badge appears instantly. Revert on error so a failed
+  // mutation doesn't leave a stale badge (Greptile R0 finding on
+  // the R1 nits PR).
   const handleTagToCall = async (resourceId: Id<'instructorResources'>) => {
     if (!activeSessionId) return;
+    const wasInClearedSet = clearedSessionIdByResource.has(resourceId);
     setClearedSessionIdByResource((prev) => {
       if (!prev.has(resourceId)) return prev;
       const next = new Set(prev);
@@ -158,6 +161,14 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role, a
     } catch (error: any) {
       console.error('Failed to tag resource to call', error);
       toast.error('Failed to tag resource');
+      // Revert only if the override was previously set — adding
+      // back a non-existent entry would be a no-op and could mask
+      // other state. Use a functional setter to read latest state.
+      if (wasInClearedSet) {
+        setClearedSessionIdByResource((prev) =>
+          new Set(prev).add(resourceId),
+        );
+      }
     }
   };
 
