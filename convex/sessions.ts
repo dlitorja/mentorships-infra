@@ -1260,6 +1260,30 @@ export const setVideoRoom = mutation({
       });
     }
 
+    // PR #7: widen-phase uniqueness guard. Prevents two distinct
+    // sessions from claiming the same Daily room name — the original
+    // guard was only at the read sites
+    // (`attachRecordingFromDailyWebhook`, `getSessionByVideoRoomName`)
+    // which threw after a duplicate had already been written, so the
+    // webhook would 500 on delivery. Now we reject the conflicting
+    // assignment up front so the caller can retry with a fresh room.
+    // Use `.unique()` semantics — the by_videoRoomName index does not
+    // enforce uniqueness, but a single-result read returns the row
+    // that owns the name (or null) so a stale concurrent assignment
+    // cannot slip through.
+    const owner = await ctx.db
+      .query("sessions")
+      .withIndex("by_videoRoomName", (q) =>
+        q.eq("videoRoomName", args.videoRoomName),
+      )
+      .first();
+    if (owner !== null) {
+      throw new ConvexError({
+        code: "VIDEO_ROOM_NAME_TAKEN",
+        message: `videoRoomName already assigned to session ${owner._id}; pick a unique name`,
+      });
+    }
+
     await ctx.db.patch(args.sessionId, {
       videoRoomName: args.videoRoomName,
       videoRoomUrl: args.videoRoomUrl,
