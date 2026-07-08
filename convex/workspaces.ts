@@ -137,7 +137,7 @@ async function logWorkspaceAudit(
  * still use `ctx: any` — they predate this helper and are out
  * of scope to retype.
  */
-async function assertSessionBelongsToWorkspace(
+export async function assertSessionBelongsToWorkspace(
   ctx: MutationCtx,
   args: { sessionId?: Id<"sessions">; workspaceId: Id<"workspaces"> }
 ): Promise<void> {
@@ -190,7 +190,7 @@ async function assertSessionBelongsToWorkspace(
  * - Returns role `"instructor"` if the caller's Clerk token matches
  *   the session's instructor doc, else `"student"`. Never both.
  */
-async function assertParticipantForSession(
+export async function assertParticipantForSession(
   ctx: QueryCtx,
   args: { sessionId: Id<"sessions"> }
 ): Promise<{
