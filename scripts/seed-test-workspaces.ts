@@ -1,6 +1,6 @@
 /**
  * Seed script to create test workspaces for testing
- * 
+ *
  * Usage (from project root):
  *   npx tsx scripts/seed-test-workspaces.ts
  */
@@ -23,6 +23,12 @@ const TEST_USERS = {
     role: "student" as const,
   },
 };
+
+// PR #5: deterministic video room name for the seeded session. The
+// Daily stub (`tests/e2e/helpers/daily-stub.ts`) intercepts any
+// `createCallObject` / `join` call so the room name doesn't need to
+// match a real Daily room — it just needs to be unique per seed run.
+const SEED_VIDEO_ROOM_NAME = `seed-room-${Date.now()}`;
 
 function runConvexMutation(functionName: string, args: Record<string, any>): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -148,6 +154,71 @@ async function createMentorshipWorkspace(ownerId: string, instructorId: string, 
   }
 }
 
+// PR #5: seed a session pack so `seedActiveSessionForE2E` has a
+// `sessionPackId` to attach. The pack is what `getCurrentOrUpcomingSessionForWorkspace`
+// reads to find a session — without one, no session row would be
+// visible to the E2E spec.
+async function createSeedSessionPack(
+  userId: string,
+  instructorId: string,
+): Promise<string> {
+  console.log(`  Creating seed session pack for ${userId}...`);
+  try {
+    const result = await runConvexMutation("sessionPacks:createSessionPack", {
+      userId,
+      instructorId,
+      totalSessions: 4,
+      remainingSessions: 4,
+    });
+    console.log(`  ✓ Session pack created`);
+    if (typeof result === "string") return result;
+    return result._id || result;
+  } catch (e: any) {
+    if (e.message?.includes("already exists") || e.message?.includes("UNIQUE constraint")) {
+      console.log(`  ⏭️  Session pack already exists, skipping`);
+      return "existing";
+    }
+    throw e;
+  }
+}
+
+// PR #5: seed an active session row so the E2E spec sees
+// `useCurrentOrUpcomingSessionForWorkspace` returning
+// `status === "active"`. Calls the test-only mutation
+// `instructorResources:seedActiveSessionForE2E` (requires
+// `confirmSeed: true`) which inserts a session with
+// `callStartedAt` already populated — bypassing the join-window
+// check that `markCallStarted` (sessions.ts:1861) enforces for
+// real callers.
+async function createActiveSession(
+  instructorId: string,
+  studentId: string,
+  sessionPackId: string,
+): Promise<string> {
+  console.log(`  Creating active session for ${studentId}...`);
+  try {
+    const result = await runConvexMutation(
+      "instructorResources:seedActiveSessionForE2E",
+      {
+        instructorId,
+        studentId,
+        sessionPackId,
+        videoRoomName: SEED_VIDEO_ROOM_NAME,
+        confirmSeed: true,
+      },
+    );
+    console.log(`  ✓ Active session created`);
+    if (typeof result === "string") return result;
+    return result._id || result;
+  } catch (e: any) {
+    if (e.message?.includes("already exists") || e.message?.includes("UNIQUE constraint")) {
+      console.log(`  ⏭️  Active session already exists, skipping`);
+      return "existing";
+    }
+    throw e;
+  }
+}
+
 async function main() {
   console.log("=== Creating Test Workspaces ===\n");
 
@@ -172,6 +243,30 @@ async function main() {
       "Test Student-Instructor Workspace"
     );
     console.log("\n  Workspace links instructor and student for testing.");
+
+    // PR #5: seed a session pack + active session so the
+    // "Shared during current call" subpanel has data to render.
+    // The spec needs `useCurrentOrUpcomingSessionForWorkspace` to
+    // return an active session for the workspace; without these
+    // two extra entities, the subpanel never renders regardless
+    // of the Daily stub.
+    console.log("\n--- Creating Seed Session Pack ---");
+    const sessionPackId = await createSeedSessionPack(
+      TEST_USERS.student.userId,
+      instructorId,
+    );
+
+    if (sessionPackId !== "existing") {
+      console.log("\n--- Creating Active Session ---");
+      await createActiveSession(
+        instructorId,
+        TEST_USERS.student.userId,
+        sessionPackId,
+      );
+      console.log(`  Room name: ${SEED_VIDEO_ROOM_NAME}`);
+    } else {
+      console.log("  ⏭️  Skipping active session — session pack exists");
+    }
   } else {
     console.log("  ⏭️  Skipping - need valid instructor ID");
   }

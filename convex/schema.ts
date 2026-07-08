@@ -377,9 +377,16 @@ export default defineSchema({
     createdBy: v.string(),
     deletedAt: v.optional(v.number()),
     createdAt: v.number(),
+    // PR #5: tags the resource to an active video-call session. Drives
+    // the "Shared during current call" subpanel in the Links tab,
+    // unioned with `workspaceLinks.sessionId`. Optional so existing
+    // pre-#5 rows stay valid; pre-#5 resources do not appear in the
+    // subpanel (matches the documented pre-#4b links limitation).
+    sessionId: v.optional(v.id("sessions")),
   }).index("by_instructorId", ["instructorId"])
     .index("by_workspaceId", ["workspaceId"])
-    .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"]),
+    .index("by_instructorId_and_workspaceId", ["instructorId", "workspaceId"])
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
 
   workspaceMessages: defineTable({
     workspaceId: v.id("workspaces"),

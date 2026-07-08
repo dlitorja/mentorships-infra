@@ -233,7 +233,8 @@ Key behaviors:
 | 5a | Calls sub-section in Notes tab (Play + Download signed B2 URL + TTL refresh) | agent | PR #4c-1 ✅ |
 | 5b | Student notification surface (bell + badge + toast + deep-link + email) | agent | PR #4c-2 ✅ |
 | 5c | Student "Shared during current call" Links subpanel | agent | PR #4c-3 ✅ |
-| 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 (next) |
+| 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 ✅ |
+| 8 | `instructorResources` share-to-call — widen schema + union "Shared during current call" subpanel | agent | PR #5 (next) |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -965,6 +966,50 @@ While a video call is active in the workspace, the Links tab now shows a **"Shar
 - **Documentation limitation.** Pre-#4b links have `sessionId === undefined` and won't appear in the subpanel even when their `createdAt` overlaps a call window. Documented in the query's JSDoc; out of scope to fix in this PR.
 
 
+## PR #5 Delivery — instructorResources Share-to-Call
+
+**Branch:** `feat/video-calling-pr5-resources-share`
+**PR:** TBD — `feat(platform): video calling PR #5 - instructorResources share-to-call`
+**Status:** pending (this entry drafted ahead of merge).
+
+### What shipped
+
+While a video call is active in the workspace, instructors can now tag any resource in the **My Resources** tab to the active call. Tagged resources appear in the same "Shared during current call" subpanel that PR #4c-3 added inside the Links tab — alongside tagged links, with a type badge that distinguishes them.
+
+- **Schema widen** — `instructorResources.sessionId: v.optional(v.id("sessions"))` plus a new `by_workspaceId_sessionId` compound index (`schema.ts:369-383`). Pure schema add — pre-#5 rows default to `sessionId === undefined` and won't appear in the subpanel (matches the documented pre-#4b links limitation at `workspaces.ts:917`).
+- **Auth helper** — `assertResourceBelongsToInstructor(ctx: MutationCtx, args)` (`instructorResources.ts`) is the typed single-source-of-truth for resource-ownership checks. Mirrors `assertSessionBelongsToWorkspace` (`workspaces.ts:140`) and is called by all five mutations in `instructorResources.ts` (upload, delete, share, embed, update).
+- **Mutations**
+  - `uploadInstructorResource` — now accepts `sessionId: v.optional(v.id("sessions"))` and forwards it to the insert. Calls `assertSessionBelongsToWorkspace` after the role check.
+  - `deleteInstructorResource` — uses the helper instead of the inline ownership check.
+  - `shareResourceToChat` — uses the helper with `expectedWorkspaceId` so the resource's workspace is cross-checked against the caller-supplied workspaceId.
+  - `embedResourceInNote` — uses the helper with `expectedWorkspaceId` derived from the parent note's workspaceId.
+  - `updateInstructorResource` (NEW) — mirror of `updateWorkspaceNote` (`workspaces.ts:634`). Args: `{ id, sessionId?, clearSessionId? }`. The `sessionId + clearSessionId: v.optional(v.boolean())` arg pair matches the notes/links convention (boolean flag rather than `null` overloading). Calls `assertResourceBelongsToInstructor` + `assertSessionBelongsToWorkspace`.
+- **Query** — `getSharedResourcesForActiveSession` (NEW). Mirror of `getSharedLinksForActiveSession`. Auth via `assertParticipantForSession` + workspaceId cross-check (R1 P2 fix from PR #4c-3); indexed read via the new `by_workspaceId_sessionId`; soft-delete filter in JS after the indexed read.
+- **Hooks** — `useSharedResourcesForActiveSession` + `useUpdateInstructorResource` in `use-workspaces.ts`. `InstructorResource` interface gains an optional `sessionId?: Id<"sessions">`.
+- **UI**
+  - **Resources tab** (`apps/platform/components/workspace/resources.tsx`) — accepts `activeSessionId: Id<'sessions'> | null` (mirrors the prop added to `WorkspaceLinks` in PR #4b). Each resource row gains a `Tag` / `XCircle` toggle (visible on hover) that calls the new `useUpdateInstructorResource` mutation. Tag state is locally optimistic via a `clearedSessionIdByResource` Set (mirrors `clearedSessionIdByNote` in notes.tsx:115-117).
+  - **Links subpanel** (`apps/platform/components/workspace/links.tsx`) — `data-testid="shared-during-call-subpanel"` now renders BOTH `workspaceLinks` AND `instructorResources` rows. Each row carries `data-testid="shared-during-call-subpanel-row-link"` or `...-row-resource"` for downstream selectors. Loading/error/empty branches refactored to handle both sources independently — Retry refetches both. Header chip reads "X items" rather than "X links". Empty-state copy updated to "No links or resources shared yet this call".
+  - **Workspace client page** — single-line addition: `<WorkspaceResources>` now receives `activeSessionId={activeSessionId}` (the prop was already in scope from `useVideoCallContext()`).
+- **Seed script** — `scripts/seed-test-workspaces.ts` now creates a session pack and an active `sessions` row (via the test-only `instructorResources:seedActiveSessionForE2E` mutation which inserts a session with `callStartedAt` already populated — bypassing the join-window check that `markCallStarted` enforces for real callers).
+- **E2E spec** — `tests/e2e/instructor-resources-share.spec.ts` exercises the Resources-tab toggle + subpanel surfacing at 1280×720 (the desktop layout where the subpanel matters most). Modeled on `tests/e2e/video-call-mobile.spec.ts`. Three tests: tag+surface, untag+empty, row data-testid.
+
+### Greptile R0 expectations
+
+Expected findings (mitigations included):
+- **P1 candidate** — cross-instructor resource leak via `sessionId`. Mitigated: `assertResourceBelongsToInstructor` is called on every mutation; `assertSessionBelongsToWorkspace` is called on every mutation that takes a client-provided `sessionId`.
+- **P2 candidate** — subpanel query cardinality doubles (two indexed reads instead of one). Both reads are O(matched rows) via the new `by_workspaceId_sessionId` index; per-call cardinality is bounded by instructor action (typically single-digit rows).
+- **P3 candidate** — file-storage URL pre-signing for resource rows in the subpanel. PR #4c-1's TTL refresh pattern (`recording-filename.ts`) is out of scope here; resource URLs use Convex storage which is pre-signed by `ctx.storage.getUrl`.
+
+### Risks + naming
+
+- **No schema migration.** `v.optional` field; pre-#5 rows stay valid.
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **Naming.** No `mentor`/`mentee` words in code or UI copy. UI uses "instructor" / "student" / "Resources" / "My Resources".
+- **Test-only mutation `seedActiveSessionForE2E`** is the only public mutation added. Marked with `confirmSeed: v.literal(true)` so a misconfigured caller fails immediately.
+
+
+
+
 ## File Changes
 
 ### New Files (across all PRs)
@@ -1057,11 +1102,13 @@ DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 - Signed B2 URLs use 1-hour TTL with refresh-on-view (60s background check) and queued-during-playback (PR #4c-1).
 - Student ad-hoc call notifications are decoupled across three surfaces — bell (cross-workspace rollup), row badge (per-workspace context), toast/chime/desktop (liveness) — all reading the same `inCallNotifications` table with a 24h `expiresAt` and `(userId, sessionId)` dedupe index (PR #4c-2).
 - Email idempotency for ad-hoc call invites uses Trigger.dev's `idempotencyKey: ad-hoc-call-email:{sessionId}:{recipientUserId}` rather than a Convex `emailSentAt` marker — the marker would have been a writable public mutation exposed for any caller with the IDs (PR #4c-2).
-- The "Shared during current call" Links subpanel reads from `workspaceLinks` filtered by `sessionId` via `by_workspaceId_sessionId`. It is **not** sourced from `instructorResources` (the "My Resources" tab) — those have no `sessionId` field and would require a separate widen + backfill + share-to-links UI to surface in the subpanel. PR #4c-3 documented this scope boundary; surfacing instructorResources during a call is a follow-up.
+- The "Shared during current call" Links subpanel reads from `workspaceLinks` filtered by `sessionId` via `by_workspaceId_sessionId`. PR #5 (Phase 8) widens this to union `instructorResources` filtered by the same index — instructors can tag uploaded resources to the active call from the Resources tab (`Tag to current call` / `Untag from current call` per-row toggle, mirrors the Notes tab pattern). The subpanel renders both kinds with a type badge (`Link` vs `Resource`) and the existing `data-testid="shared-during-call-subpanel"` block.
 - Mark-read for an invite fires on the destination workspace mount (`<IncomingCallMarker>`), not on the bell click. Marking on click loses the navigation race: the bell query refetches before the per-workspace row badge mounts, hiding the red dot on landing (PR #4c-2).
 - Quick Capture shortcut `Cmd/Ctrl+K` lives in its own listener (`lib/hooks/use-quick-capture-shortcut.ts`) because `use-keyboard-shortcuts.ts:42` swallows `metaKey|ctrlKey|altKey`. It also skips events when target is `<input>`/`<textarea>`/`<select>`/contentEditable.
 - `useVideoCallContext()` is the bridge for active-call state on the workspace client. The session object (`session?.sessionId`, `session?.status`) plus `workspaceId` (set by the provider from `useCurrentOrUpcomingSessionForWorkspace`) are the props all PR #4b composers receive.
 - `assertSessionBelongsToWorkspace` (typed `MutationCtx`) is the single source of truth for cross-workspace session id validation. Every PR #4b write path calls it after `getWorkspaceRole`.
+- `assertResourceBelongsToInstructor` (typed `MutationCtx`, PR #5) is the single source of truth for instructor-resource ownership. Every `instructorResources` mutation (upload/delete/share/embed/update) calls it instead of inlining the role + instructorId check. Returns `{ resource, workspace }` so callers don't re-fetch.
+- `instructorResources.sessionId` is `v.optional` (PR #5). Pre-#5 resources do not appear in the subpanel even if their `createdAt` overlaps a call window — documented limitation matching the pre-#4b links behavior (`workspaces.ts:917`).
 
 ## Session Card Integration
 

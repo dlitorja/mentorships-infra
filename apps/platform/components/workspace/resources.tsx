@@ -2,14 +2,14 @@
 
 import { useState, useRef } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
-import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useWorkspaceNotes, InstructorResource } from '@/lib/queries/convex/use-workspaces';
+import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotes, InstructorResource } from '@/lib/queries/convex/use-workspaces';
 import { uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useDropzone } from 'react-dropzone';
-import { Loader2, Upload, FileText, ImageIcon, Share2, Trash2, X, AlertCircle } from 'lucide-react';
+import { Loader2, Upload, FileText, ImageIcon, Share2, Trash2, Tag, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import { useConvexAction } from '@convex-dev/react-query';
@@ -18,6 +18,12 @@ interface WorkspaceResourcesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
   role: 'instructor' | 'student' | 'admin';
+  // PR #5: id of the active video-call session, or null when no
+  // call is active. Drives the Tag/Untag toggle on each resource
+  // row + the "Shared during current call" surfacing on the Links
+  // tab subpanel (see links.tsx). Mirrors the prop shape added to
+  // `WorkspaceLinks` in PR #4b.
+  activeSessionId: Id<'sessions'> | null;
 }
 
 function formatBytes(bytes: number): string {
@@ -26,18 +32,29 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function WorkspaceResources({ workspaceId, currentUserId, role }: WorkspaceResourcesProps) {
+export default function WorkspaceResources({ workspaceId, currentUserId, role, activeSessionId }: WorkspaceResourcesProps) {
   const { data: resources, isLoading } = useInstructorResources(workspaceId as string);
   const uploadResource = useUploadInstructorResource();
   const deleteResource = useDeleteInstructorResource();
   const shareToChat = useShareResourceToChat();
   const embedInNote = useEmbedResourceInNote();
+  // PR #5: tag/untag the resource to the active call. Mirrors the
+  // note-side `useUpdateWorkspaceNote` so the toggle behavior matches
+  // the Notes tab exactly.
+  const updateResource = useUpdateInstructorResource();
   const generateUploadUrl = useConvexAction(api.workspaceActions.generateWorkspaceImageUploadUrl);
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<Id<'instructorResources'> | null>(null);
   const [embedNoteId, setEmbedNoteId] = useState<Id<'instructorResources'> | null>(null);
   const [selectedNoteForEmbed, setSelectedNoteForEmbed] = useState<Id<'workspaceNotes'> | null>(null);
   const [uploadingCount, setUploadingCount] = useState(0);
+  // PR #5: optimistic override set so the "Tagged" badge (and the
+  // Tag/XCircle button state) flips immediately before the Convex
+  // mutation round-trips back through the `resources` query. Mirrors
+  // `clearedSessionIdByNote` in notes.tsx:115-117.
+  const [clearedSessionIdByResource, setClearedSessionIdByResource] = useState<
+    Set<Id<'instructorResources'>>
+  >(new Set());
 
   const onDrop = async (acceptedFiles: File[]) => {
     for (const file of acceptedFiles) {
@@ -70,6 +87,11 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role }:
           contentType: file.type || 'application/octet-stream',
           size: file.size,
           type,
+          // PR #5: uploads during an active call are NOT auto-tagged
+          // — the instructor opts in via the per-row Tag toggle. This
+          // matches the PR #4b design rationale (instructor intent is
+          // explicit, not implicit) and avoids silently rebadging
+          // existing upload flows.
         });
 
         toast.success(`${file.name} uploaded`);
@@ -117,6 +139,43 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role }:
     }
   };
 
+  // PR #5: tag a resource to the active call. Optimistic override
+  // clear so a previously-untagged row no longer reads as cleared.
+  const handleTagToCall = async (resourceId: Id<'instructorResources'>) => {
+    if (!activeSessionId) return;
+    try {
+      await updateResource.mutateAsync({
+        id: resourceId,
+        sessionId: activeSessionId,
+      });
+      setClearedSessionIdByResource((prev) => {
+        if (!prev.has(resourceId)) return prev;
+        const next = new Set(prev);
+        next.delete(resourceId);
+        return next;
+      });
+    } catch (error: any) {
+      console.error('Failed to tag resource to call', error);
+      toast.error('Failed to tag resource');
+    }
+  };
+
+  // PR #5: untag a resource from the active call. Optimistic override
+  // add so the Tagged badge disappears before the query refetches —
+  // mirrors `handleUntagFromCall` in notes.tsx:376.
+  const handleUntagFromCall = async (resourceId: Id<'instructorResources'>) => {
+    try {
+      await updateResource.mutateAsync({
+        id: resourceId,
+        clearSessionId: true,
+      });
+      setClearedSessionIdByResource((prev) => new Set(prev).add(resourceId));
+    } catch (error: any) {
+      console.error('Failed to untag resource', error);
+      toast.error('Failed to untag resource');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -153,7 +212,12 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role }:
 
       {Array.isArray(resources) && resources.length > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 overflow-y-auto">
-          {resources.map((resource: InstructorResource) => (
+          {resources.map((resource: InstructorResource) => {
+            const isTaggedToCall =
+              !!activeSessionId &&
+              resource.sessionId === activeSessionId &&
+              !clearedSessionIdByResource.has(resource._id);
+            return (
             <div
               key={resource._id}
               className="group relative border rounded-lg overflow-hidden bg-card hover:border-primary/50 transition-colors"
@@ -185,6 +249,19 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role }:
                 <p className="text-xs text-muted-foreground">{formatBytes(resource.size)}</p>
               </div>
 
+              {/* PR #5: "Tagged" badge in the bottom-right corner
+               * while a call is active AND the resource is tagged
+               * to it. Mirrors the Links tab "Tagged" badge and the
+               * Notes tab "Tagged" badge. */}
+              {isTaggedToCall && (
+                <span
+                  className="absolute bottom-1 left-1 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-primary/20 text-primary"
+                  title="Tagged to current call"
+                >
+                  Tagged
+                </span>
+              )}
+
               <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 {resource.type === 'image' && (
                   <>
@@ -210,6 +287,36 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role }:
                     </Button>
                   </>
                 )}
+                {/* PR #5: Tag/Untag toggle. Render only while a call
+                 * is active. Mutually exclusive: Tag shows when the
+                 * resource is NOT yet tagged; XCircle shows when it
+                 * IS tagged. Mirrors the notes.tsx:673-702 pattern. */}
+                {activeSessionId && isTaggedToCall && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 bg-background/80"
+                    title="Untag from current call"
+                    onClick={() => void handleUntagFromCall(resource._id)}
+                    disabled={updateResource.isPending}
+                  >
+                    <XCircle className="h-3 w-3" />
+                  </Button>
+                )}
+                {activeSessionId && !isTaggedToCall && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 bg-background/80"
+                    title="Tag to current call"
+                    onClick={() => void handleTagToCall(resource._id)}
+                    disabled={updateResource.isPending}
+                  >
+                    <Tag className="h-3 w-3" />
+                  </Button>
+                )}
                 <Button
                   size="icon"
                   variant="destructive"
@@ -222,7 +329,8 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role }:
                 </Button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
