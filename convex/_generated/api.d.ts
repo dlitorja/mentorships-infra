@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
+import type * as audit_videoRoomNameAudit from "../audit/videoRoomNameAudit.js";
 import type * as bookings from "../bookings.js";
 import type * as cleanup from "../cleanup.js";
 import type * as clerkDeletion from "../clerkDeletion.js";
@@ -57,6 +58,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminWorkspaces: typeof adminWorkspaces;
+  "audit/videoRoomNameAudit": typeof audit_videoRoomNameAudit;
   bookings: typeof bookings;
   cleanup: typeof cleanup;
   clerkDeletion: typeof clerkDeletion;
