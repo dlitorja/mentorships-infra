@@ -139,20 +139,21 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role, a
     }
   };
 
-  // PR #5: tag a resource to the active call. Optimistic override
-  // clear so a previously-untagged row no longer reads as cleared.
+  // PR #5 R1 nit: tag a resource to the active call. Update the
+  // optimistic override set BEFORE awaiting the mutation so the
+  // "Tagged" badge appears instantly. Revert on error.
   const handleTagToCall = async (resourceId: Id<'instructorResources'>) => {
     if (!activeSessionId) return;
+    setClearedSessionIdByResource((prev) => {
+      if (!prev.has(resourceId)) return prev;
+      const next = new Set(prev);
+      next.delete(resourceId);
+      return next;
+    });
     try {
       await updateResource.mutateAsync({
         id: resourceId,
         sessionId: activeSessionId,
-      });
-      setClearedSessionIdByResource((prev) => {
-        if (!prev.has(resourceId)) return prev;
-        const next = new Set(prev);
-        next.delete(resourceId);
-        return next;
       });
     } catch (error: any) {
       console.error('Failed to tag resource to call', error);
@@ -160,19 +161,26 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role, a
     }
   };
 
-  // PR #5: untag a resource from the active call. Optimistic override
-  // add so the Tagged badge disappears before the query refetches —
-  // mirrors `handleUntagFromCall` in notes.tsx:376.
+  // PR #5 R1 nit: untag a resource from the active call. Update the
+  // optimistic override set BEFORE awaiting the mutation so the
+  // "Tagged" badge disappears instantly. Revert on error. Mirrors
+  // the notes.tsx pattern at notes.tsx:373-388.
   const handleUntagFromCall = async (resourceId: Id<'instructorResources'>) => {
+    setClearedSessionIdByResource((prev) => new Set(prev).add(resourceId));
     try {
       await updateResource.mutateAsync({
         id: resourceId,
         clearSessionId: true,
       });
-      setClearedSessionIdByResource((prev) => new Set(prev).add(resourceId));
     } catch (error: any) {
       console.error('Failed to untag resource', error);
       toast.error('Failed to untag resource');
+      setClearedSessionIdByResource((prev) => {
+        if (!prev.has(resourceId)) return prev;
+        const next = new Set(prev);
+        next.delete(resourceId);
+        return next;
+      });
     }
   };
 

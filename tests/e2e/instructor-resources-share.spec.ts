@@ -207,4 +207,35 @@ test.describe("PR #5 — instructor resources share-to-call (1280×720)", () => 
       ),
     ).toHaveCount(1, { timeout: 5_000 });
   });
+
+  // PR #5 R1 nit: assert the Tag toggle is rendered as a Tag button
+  // when the resource is untagged, swaps to an Untag button after a
+  // click, and the "Tagged" badge appears optimistically (not after
+  // a refetch). Guards the optimistic-state UX that resources.tsx
+  // gained in this PR — without it, regressions that defer the
+  // toggle state update until the query refetches would slip
+  // through.
+  test("the Tag toggle UX swaps states optimistically", async ({ page }) => {
+    await uploadSeedResource(page);
+
+    const tagButton = page.getByRole("button", {
+      name: /Tag to current call/i,
+    }).first();
+    await expect(tagButton).toBeVisible({ timeout: 10_000 });
+
+    // No "Tagged" badge before tagging.
+    await expect(page.getByText(/^Tagged$/i)).toHaveCount(0);
+
+    await tagButton.click();
+
+    // Optimistic: the Untag button + Tagged badge appear BEFORE any
+    // explicit wait for the subpanel refetch. Uses a short timeout
+    // so a regression that defers these to the refetch would fail.
+    await expect(
+      page.getByRole("button", { name: /Untag from current call/i }).first(),
+    ).toBeVisible({ timeout: 1_000 });
+    await expect(page.getByText(/^Tagged$/i).first()).toBeVisible({
+      timeout: 1_000,
+    });
+  });
 });
