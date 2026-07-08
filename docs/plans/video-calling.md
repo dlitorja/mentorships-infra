@@ -207,7 +207,7 @@ Key behaviors:
 
 ## Status
 
-**Plan approved. PR #1 → PR #4c-3 shipped; PR #4c-4 (Phase 7 mobile/narrow viewport polish) remaining.**
+**Plan approved. PR #1 → PR #5 shipped. Hotfix PR #607 (identity.subject vs tokenIdentifier) landed before PR #5.**
 
 - Plan merged via PR #593.
 - Instructor-dashboard `seatReservations` query P2s + Instructor Call Flows section landed via PR #594 (commit `803313ca`).
@@ -219,6 +219,9 @@ Key behaviors:
 - **PR #4c-1 (Phase 5 — recording playback) — shipped.** See [PR #4c-1 Delivery](#pr-4c-1-delivery--recording-playback). Calls sub-section in Notes tab with Play (modal `<video>`) + Download (signed B2 URL with 1h TTL + refresh-on-view + queued-during-playback) + defensive `assertParticipantForSession` typed `QueryCtx` helper for cross-workspace access prevention.
 - **PR #4c-2 (Phase 5 — student ad-hoc notification surface) — shipped.** See [PR #4c-2 Delivery](#pr-4c-2-delivery--student-ad-hoc-notification-surface). Cross-workspace bell + per-workspace row badge + Sonner toast + Web Audio chime + browser Notification API (opt-in) + `/workspace/[id]?join={sessionId}` deep-link auto-join + Resend email via Trigger.dev with `(sessionId, recipientUserId)` idempotency.
 - **PR #4c-3 (Phase 5 — student "Shared during current call" Links subpanel) — shipped.** See [PR #4c-3 Delivery](#pr-4c-3-delivery--shared-during-current-call-links-subpanel). Indexed query (`by_workspaceId_sessionId`) auth-bound via `assertParticipantForSession` + a workspaceId cross-check; subpanel renders above the Links list while a call is active with loading/error/empty states; both roles see it; strict sessionId match (no call-window fallback for pre-#4b links).
+- **PR #4c-4 (Phase 7 — mobile / narrow viewport polish) — shipped.** See PR #605. PiP-only below 900px, full-screen video with bottom-sheet workspace drawer below 600px, mobile-only E2E spec (`tests/e2e/video-call-mobile.spec.ts`) with Daily stub + Clerk auth fixture.
+- **PR #5 (Phase 8 — `instructorResources` share-to-call) — shipped.** See [PR #5 Delivery](#pr-5-delivery--instructorresources-share-to-call). Widen-only schema (`sessionId?` + `by_workspaceId_sessionId`), tagged resources surface in the PR #4c-3 subpanel alongside links with a type badge.
+- **Hotfix PR #607 (identity.subject) — shipped before PR #5.** P1: `POST /api/video/start-adhoc` returned 403 on `dev.mentorships.huckleberry.art` because `convex/sessions.ts` compared `instructor.userId` (bare Clerk ID) against `identity.tokenIdentifier` (issuer-prefixed canonical). Standardized 30+ comparisons across `convex/sessions.ts`, `convex/inCallNotifications.ts`, `convex/instructors.ts` on `identity.subject` (matches existing convention in `bookings.ts`, `seatReservations.ts`, `instructorResources.ts`); narrowed `requireIdentity` return type; added `clerk.dev.mentorships.huckleberry.art` to the auth.config.ts fallback for Vercel preview deploys.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
@@ -234,7 +237,7 @@ Key behaviors:
 | 5b | Student notification surface (bell + badge + toast + deep-link + email) | agent | PR #4c-2 ✅ |
 | 5c | Student "Shared during current call" Links subpanel | agent | PR #4c-3 ✅ |
 | 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 ✅ |
-| 8 | `instructorResources` share-to-call — widen schema + union "Shared during current call" subpanel | agent | PR #5 (next) |
+| 8 | `instructorResources` share-to-call — widen schema + union "Shared during current call" subpanel | agent | PR #5 ✅ |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -969,23 +972,24 @@ While a video call is active in the workspace, the Links tab now shows a **"Shar
 ## PR #5 Delivery — instructorResources Share-to-Call
 
 **Branch:** `feat/video-calling-pr5-resources-share`
-**PR:** TBD — `feat(platform): video calling PR #5 - instructorResources share-to-call`
-**Status:** pending (this entry drafted ahead of merge).
+**PR:** #608 — `feat(platform): video calling PR #5 — instructorResources share-to-call`
+**Commits:** `3debd48d` (feature) → `4259353b` (R0 fixes: restore strict ownership, surface no-op patches, dedupe auth fetch)
+**Status:** MERGED as `60e08ec6` on `main` (2026-07-08).
 
 ### What shipped
 
 While a video call is active in the workspace, instructors can now tag any resource in the **My Resources** tab to the active call. Tagged resources appear in the same "Shared during current call" subpanel that PR #4c-3 added inside the Links tab — alongside tagged links, with a type badge that distinguishes them.
 
 - **Schema widen** — `instructorResources.sessionId: v.optional(v.id("sessions"))` plus a new `by_workspaceId_sessionId` compound index (`schema.ts:369-383`). Pure schema add — pre-#5 rows default to `sessionId === undefined` and won't appear in the subpanel (matches the documented pre-#4b links limitation at `workspaces.ts:917`).
-- **Auth helper** — `assertResourceBelongsToInstructor(ctx: MutationCtx, args)` (`instructorResources.ts`) is the typed single-source-of-truth for resource-ownership checks. Mirrors `assertSessionBelongsToWorkspace` (`workspaces.ts:140`) and is called by all five mutations in `instructorResources.ts` (upload, delete, share, embed, update).
+- **Auth helper** — `assertResourceBelongsToInstructor(ctx: MutationCtx, args)` (`instructorResources.ts`) is the typed single-source-of-truth for resource-ownership checks. Returns `{ resource, workspace, identity, role }` so callers don't repeat the auth + role fetch. R0 fix: restored strict ownership check unconditionally (admins and instructors alike must be the owning instructor — matches the original `deleteInstructorResource` behavior and the JSDoc intent).
 - **Mutations**
   - `uploadInstructorResource` — now accepts `sessionId: v.optional(v.id("sessions"))` and forwards it to the insert. Calls `assertSessionBelongsToWorkspace` after the role check.
   - `deleteInstructorResource` — uses the helper instead of the inline ownership check.
-  - `shareResourceToChat` — uses the helper with `expectedWorkspaceId` so the resource's workspace is cross-checked against the caller-supplied workspaceId.
-  - `embedResourceInNote` — uses the helper with `expectedWorkspaceId` derived from the parent note's workspaceId.
-  - `updateInstructorResource` (NEW) — mirror of `updateWorkspaceNote` (`workspaces.ts:634`). Args: `{ id, sessionId?, clearSessionId? }`. The `sessionId + clearSessionId: v.optional(v.boolean())` arg pair matches the notes/links convention (boolean flag rather than `null` overloading). Calls `assertResourceBelongsToInstructor` + `assertSessionBelongsToWorkspace`.
+  - `shareResourceToChat` — uses the helper with `expectedWorkspaceId` so the resource's workspace is cross-checked against the caller-supplied workspaceId. R0 fix: reuses the helper's returned `identity` + `role` instead of re-fetching both.
+  - `embedResourceInNote` — uses the helper with `expectedWorkspaceId` derived from the parent note's workspaceId. R0 fix: same dedupe as `shareResourceToChat`.
+  - `updateInstructorResource` (NEW) — mirror of `updateWorkspaceNote` (`workspaces.ts:634`). Args: `{ id, sessionId?, clearSessionId? }`. The `sessionId + clearSessionId: v.optional(v.boolean())` arg pair matches the notes/links convention (boolean flag rather than `null` overloading). Calls `assertResourceBelongsToInstructor` + `assertSessionBelongsToWorkspace`. R0 fix: throws when neither `sessionId` nor `clearSessionId` is supplied (no silent empty patch).
 - **Query** — `getSharedResourcesForActiveSession` (NEW). Mirror of `getSharedLinksForActiveSession`. Auth via `assertParticipantForSession` + workspaceId cross-check (R1 P2 fix from PR #4c-3); indexed read via the new `by_workspaceId_sessionId`; soft-delete filter in JS after the indexed read.
-- **Hooks** — `useSharedResourcesForActiveSession` + `useUpdateInstructorResource` in `use-workspaces.ts`. `InstructorResource` interface gains an optional `sessionId?: Id<"sessions">`.
+- **Hooks** — `useSharedResourcesForActiveSession` + `useUpdateInstructorResource` in `use-workspaces.ts`. `InstructorResource` interface gains `_creationTime: number` (required for the subpanel sort) plus an optional `sessionId?: Id<"sessions">`.
 - **UI**
   - **Resources tab** (`apps/platform/components/workspace/resources.tsx`) — accepts `activeSessionId: Id<'sessions'> | null` (mirrors the prop added to `WorkspaceLinks` in PR #4b). Each resource row gains a `Tag` / `XCircle` toggle (visible on hover) that calls the new `useUpdateInstructorResource` mutation. Tag state is locally optimistic via a `clearedSessionIdByResource` Set (mirrors `clearedSessionIdByNote` in notes.tsx:115-117).
   - **Links subpanel** (`apps/platform/components/workspace/links.tsx`) — `data-testid="shared-during-call-subpanel"` now renders BOTH `workspaceLinks` AND `instructorResources` rows. Each row carries `data-testid="shared-during-call-subpanel-row-link"` or `...-row-resource"` for downstream selectors. Loading/error/empty branches refactored to handle both sources independently — Retry refetches both. Header chip reads "X items" rather than "X links". Empty-state copy updated to "No links or resources shared yet this call".
@@ -993,12 +997,26 @@ While a video call is active in the workspace, instructors can now tag any resou
 - **Seed script** — `scripts/seed-test-workspaces.ts` now creates a session pack and an active `sessions` row (via the test-only `instructorResources:seedActiveSessionForE2E` mutation which inserts a session with `callStartedAt` already populated — bypassing the join-window check that `markCallStarted` enforces for real callers).
 - **E2E spec** — `tests/e2e/instructor-resources-share.spec.ts` exercises the Resources-tab toggle + subpanel surfacing at 1280×720 (the desktop layout where the subpanel matters most). Modeled on `tests/e2e/video-call-mobile.spec.ts`. Three tests: tag+surface, untag+empty, row data-testid.
 
-### Greptile R0 expectations
+### Greptile R0 → R1
 
-Expected findings (mitigations included):
-- **P1 candidate** — cross-instructor resource leak via `sessionId`. Mitigated: `assertResourceBelongsToInstructor` is called on every mutation; `assertSessionBelongsToWorkspace` is called on every mutation that takes a client-provided `sessionId`.
-- **P2 candidate** — subpanel query cardinality doubles (two indexed reads instead of one). Both reads are O(matched rows) via the new `by_workspaceId_sessionId` index; per-call cardinality is bounded by instructor action (typically single-digit rows).
-- **P3 candidate** — file-storage URL pre-signing for resource rows in the subpanel. PR #4c-1's TTL refresh pattern (`recording-filename.ts`) is out of scope here; resource URLs use Convex storage which is pre-signed by `ctx.storage.getUrl`.
+2 iterations. Greptile R0 was confidence 3/5 with one P1 + two P2s; R1 (after fixes) is **confidence 5/5 — safe to merge**.
+
+- **R0 P1** — `assertResourceBelongsToInstructor` silently widened `deleteInstructorResource` to allow any platform admin to mutate another instructor's resources. The original handler had no admin bypass — only the owning instructor could mutate. Fixed: moved the `instructorId` ownership check unconditionally so admins and instructors must both be the owning instructor. Matches the helper's JSDoc intent.
+- **R0 P2** — `shareResourceToChat` and `embedResourceInNote` re-fetched identity + role after `assertResourceBelongsToInstructor` already did. Fixed: helper returns `{ identity, role }` so callers reuse them.
+- **R0 P2** — `updateInstructorResource` accepted a no-op patch (`{ id }` with no other args) and wrote an empty object silently. Fixed: throws `"updateInstructorResource: no fields to update — pass sessionId or clearSessionId"` on empty patch.
+
+### CodeRabbit R0
+
+Rate-limited — no review. R1 review available in 35 minutes; will be auto-triggered on the next push.
+
+### Verification
+
+- `pnpm typecheck` (root) — clean.
+- `pnpm --filter @mentorships/platform run typecheck` — clean.
+- `pnpm --filter @mentorships/convex typecheck` — clean (`npx tsc --noEmit --project convex/tsconfig.json`).
+- `pnpm lint` — 0 errors (136 pre-existing warnings unrelated).
+- `pnpm build` — clean.
+- CI: 16/16 jobs passed (Build, CodeRabbit, Detect Changes, E2E Tests, Greptile Review, Lint & Type Check, Unit Tests, Vercel Preview Comments, 4× Vercel previews READY, build-apps, convex-codegen, typecheck-apps, typecheck-convex).
 
 ### Risks + naming
 
@@ -1140,9 +1158,17 @@ These surfaced during Greptile review of PR #594 (commit `803313ca`) and are que
 - **TOCTOU gap in `/api/instructor/session-packs/[sessionPackId]/route.ts:142-147`** — resolved in PR #1. The upfront `deletedAt` check is now paired with a catch on `"Session pack not found"` errors thrown by the underlying mutations, returning 404 instead of 500. Same 404 also returned when `updatedPack === null`.
 - **Public mutation auth bypass (`api.sessions.attachRecordingFromDailyWebhook`)** — resolved in PR #1 by splitting into (a) `internalMutation` `attachRecordingFromDailyWebhook` in `convex/sessions.ts` (idempotent + duplicate-room-name guard) and (b) public `action` `attachRecordingFromDailyWebhookAction` in `convex/dailyRecordingActions.ts` (HMAC-verified wrapper that calls the internal mutation via `ctx.runMutation`). The Next.js route now forwards `rawBody + timestamp + signature` to the action, which re-verifies the HMAC against `DAILY_WEBHOOK_SECRET` before calling the mutation. Defence in depth: both layers verify the same secret.
 - **Duplicate recording events overwrite (P1)** — resolved by idempotency check: `if (session.recordingUrl !== undefined) return { alreadyAttached: true }`. Daily re-firing the same event no longer overwrites the original recording.
-- **Duplicate room names misroute recordings (P1)** — resolved by `.collect()` + `if (matches.length > 1) throw`. Future PR will enforce `by_videoRoomName` as a unique index once data drift is investigated.
+- **Duplicate room names misroute recordings (P1)** — resolved by `.collect()` + `if (matches.length > 1) throw`. Future PR (PR #7) will enforce `by_videoRoomName` as a unique index once data drift is investigated.
 - **Webhook runtime missing (P1)** — resolved by adding `export const runtime = "nodejs"` at the top of the route file.
 - **Mutation result leaked in webhook response (CodeRabbit 🟠)** — resolved: `convex.action()` call no longer spreads `result` into the public NextResponse.
 - **Payload type guard (CodeRabbit 🟡)** — resolved: `isValidRecordingPayload` validates field types before forwarding to Convex, returning 400 on malformed input instead of 500.
-
 - **Explicit return type (CodeRabbit 🔵)** — resolved: `POST(req: NextRequest): Promise<NextResponse>`.
+
+## Open Questions / Deferred (post-PR #5)
+
+These surfaced during Greptile / CodeRabbit review of PR #5 (commit `60e08ec6`) and are queued for a follow-up PR (not blocking):
+
+- **Subpanel sort key uses `_creationTime`** — links and resources are sorted by `_creationTime` desc in `links.tsx:121-125`. Same key for both sources. No issue observed, but if a future PR stores `createdAt` differently for one source this becomes load-bearing.
+- **R1 nits from PR #5 review** — 3 small items: (a) null-URL href fallback in `links.tsx:407` (current `url ?? "#"` is technically valid but degrades UX to a no-op anchor), (b) optimistic untag asymmetry in `resources.tsx:142-177` (Tag is optimistic, Untag is not — both should be), (c) E2E coverage gap for the Tag toggle itself (PR #5 only asserts the row data-testid, not the toggle UX).
+- **Unique index on `by_videoRoomName`** — duplicate-room-name guard at `convex/sessions.ts:1108-1117` and `1327-1340` is `.collect()` + manual `throw` today. PR #7 will migrate to `.unique()` after data drift is verified.
+- **Schema-wide identity.subject migration** — PR #607 standardized 30+ comparisons on `identity.subject` to match existing convention. A future PR could migrate the storage layer (seed scripts + Inngest lifecycle) to write `tokenIdentifier` instead of bare Clerk IDs, then standardize back on the canonical form per the Convex guideline. Out of scope for now.
