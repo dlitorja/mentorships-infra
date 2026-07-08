@@ -84,7 +84,10 @@ export default function QuickCapture() {
       onOpenChange={(next) => setOpen(next)}
     >
       <DialogContent
-        className="max-w-lg gap-0 p-0 overflow-hidden"
+        // PR #4c-4: at <640px, clamp to viewport width with a 1rem
+        // gutter so the dialog never overflows the screen. Above
+        // 640px (`sm:`), fall back to the desktop `max-w-lg`.
+        className="max-w-[calc(100vw-2rem)] sm:max-w-lg gap-0 p-0 overflow-hidden"
         // Stop the consumer's PiP-Escape from running first by
         // re-binding the listener above with capture:true.
         onEscapeKeyDown={(e) => {

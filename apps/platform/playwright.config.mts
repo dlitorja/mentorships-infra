@@ -50,22 +50,37 @@ export default defineConfig({
   /* Configure projects for major browsers */
   projects: process.env.CI
     ? [
+        // PR #4c-4: auth setup project runs first to populate
+        // `playwright/.auth/user.json`. The main project then reuses
+        // it via the spec's `test.use({ storageState: ... })`.
+        {
+          name: "setup",
+          testMatch: /auth\.setup\.ts/,
+        },
         {
           name: "chromium",
+          dependencies: ["setup"],
           use: { ...devices["Desktop Chrome"] },
         },
       ]
     : [
         {
+          name: "setup",
+          testMatch: /auth\.setup\.ts/,
+        },
+        {
           name: "chromium",
+          dependencies: ["setup"],
           use: { ...devices["Desktop Chrome"] },
         },
         {
           name: "firefox",
+          dependencies: ["setup"],
           use: { ...devices["Desktop Firefox"] },
         },
         {
           name: "webkit",
+          dependencies: ["setup"],
           use: { ...devices["Desktop Safari"] },
         },
       ],
