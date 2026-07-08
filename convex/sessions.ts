@@ -1112,9 +1112,13 @@ export const checkSeatExpiration = internalAction({
  * this guard the first recorded call would be silently overwritten by a
  * later delivery, surfacing the wrong playback item in PR #4's Notes tab.
  *
- * Also defends against duplicate room names: if more than one session
- * shares the same `videoRoomName` (data drift), this throws so the caller
- * can investigate rather than silently attaching to the wrong row.
+ * PR #7 MIGRATE phase removed the legacy "more than one session shares
+ * this `videoRoomName`" throw guard. Drift is now caught at write time by
+ * `setVideoRoom` (`convex/sessions.ts:1278-1296`, merged in PR #611) and
+ * verified on demand by `audit/videoRoomNameAudit:auditVideoRoomNames`
+ * (`convex/audit/videoRoomNameAudit.ts`). If `matches.length > 1` appears
+ * here in the future, re-run the audit query to surface the drift instead
+ * of patching the wrong row.
  *
  * Stored as `internalMutation` so the public action layer controls access;
  * the internal mutation is not callable from the Next.js route layer
@@ -1143,12 +1147,12 @@ export const attachRecordingFromDailyWebhook = internalMutation({
     if (matches.length === 0) {
       throw new Error(`No session found for videoRoomName: ${args.roomName}`);
     }
-    if (matches.length > 1) {
-      throw new Error(
-        `Multiple sessions (${matches.length}) share videoRoomName: ${args.roomName}. ` +
-          `Room names must be unique — investigate duplicates before re-running.`
-      );
-    }
+    // PR #7 MIGRATE phase: removed the legacy `if (matches.length > 1)
+    // throw` guard. Production audit confirmed zero drift
+    // (2026-07-08, totalSessions=2, sessionsWithVideoRoomName=0).
+    // Future drift is caught at write time by `setVideoRoom`
+    // (PR #611) and re-verifiable via
+    // `audit/videoRoomNameAudit:auditVideoRoomNames`.
     const session = matches[0];
 
     // Idempotency: if a recording is already attached, keep the original.
@@ -1396,11 +1400,12 @@ export const getSessionByVideoRoomName = query({
     if (matches.length === 0) {
       return null;
     }
-    if (matches.length > 1) {
-      throw new Error(
-        `Multiple sessions (${matches.length}) share videoRoomName: ${args.videoRoomName}`
-      );
-    }
+    // PR #7 MIGRATE phase: removed the legacy `if (matches.length > 1)
+    // throw` guard. Production audit confirmed zero drift
+    // (2026-07-08, totalSessions=2, sessionsWithVideoRoomName=0).
+    // Future drift is caught at write time by `setVideoRoom`
+    // (PR #611) and re-verifiable via
+    // `audit/videoRoomNameAudit:auditVideoRoomNames`.
     const session = matches[0];
 
     if (session.callEndedAt !== undefined) {
