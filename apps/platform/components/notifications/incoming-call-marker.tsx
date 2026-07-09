@@ -17,9 +17,9 @@ import type { Id } from "@/convex/_generated/dataModel";
  * finds the one matching `sessionId === initialJoinSessionId`. We
  * intentionally do NOT pass `notificationId` from the URL — that
  * would let any caller mark any notification as read. The query
- * is auth-gated to the current user (`requireIdentity` inside
+ * is scoped to the current user (`getIdentity` inside
  * `getUnreadForUser`), and the mark-read mutation enforces
- * `notification.userId === identity.tokenIdentifier`. So even if
+ * `notification.userId === identity.subject`. So even if
  * the URL is forged, the only notification we can mark is one
  * that already belongs to the current user.
  *

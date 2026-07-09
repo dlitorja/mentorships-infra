@@ -168,25 +168,22 @@ export function useUpdateWorkspaceNote() {
  * if it has not yet been created. Used by the Notes tab to pin it
  * at the top while the call is active.
  *
- * PR #4b (Greptile R2 P2): the sentinel `"0000…01"` is required by
- * Convex's typed argument validator (sessionId must be an
- * `Id<"sessions">` string, not null). When `sessionId` is null the
- * sentinel is substituted solely to satisfy the type, and the
- * `enabled: false` flag prevents the request from being executed.
- * In current TanStack Query versions (4.x, 5.x) `enabled` and
- * `queryKey` are evaluated together, so the sentinel never reaches
- * the server. Greptile flagged this as potentially fragile under
- * future TanStack Query changes; the mitigation here is the
- * explicit, narrowly-scoped cast and the documented invariant
- * that the sentinel is dead client-side data.
+ * Uses the `"skip"` arg pattern instead of a sentinel +
+ * `enabled: false`. `@convex-dev/react-query`'s `subscribeInner`
+ * unconditionally calls `convexClient.watchQuery(func, args)` on
+ * the React Query "added" event without honoring `enabled:
+ * false`, so the sentinel-shaped string leaks through to the
+ * server and fails `v.id("sessions")` validation. Passing
+ * `"skip"` short-circuits the subscription entirely, which is
+ * the library's documented disabled-query pattern.
  */
 export function useLiveSessionNote(sessionId: string | null | undefined) {
-  return useQuery({
-    ...convexQuery(api.workspaces.getLiveSessionNote, {
-      sessionId: (sessionId ?? "00000000000000000000000001") as Id<"sessions">,
-    }),
-    enabled: !!sessionId,
-  });
+  return useQuery(
+    convexQuery(
+      api.workspaces.getLiveSessionNote,
+      sessionId ? { sessionId: sessionId as Id<"sessions"> } : "skip"
+    )
+  );
 }
 
 /**
@@ -222,14 +219,18 @@ export interface NoteComment {
 /**
  * Fetches all comments for a specific note.
  * Returns comments ordered by creation time.
+ *
+ * Uses the `"skip"` arg pattern instead of a sentinel + `enabled:
+ * false` so we don't risk sending a non-Id string to the server
+ * (which would fail the `v.id("workspaceNotes")` validator).
  */
 export function useNoteComments(noteId: Id<"workspaceNotes"> | null) {
-  return useQuery({
-    ...convexQuery(api.workspaces.getNoteComments, { 
-      noteId: noteId ?? "00000000000000000000000001" as Id<"workspaceNotes">,
-    }),
-    enabled: !!noteId,
-  });
+  return useQuery(
+    convexQuery(
+      api.workspaces.getNoteComments,
+      noteId ? { noteId } : "skip"
+    )
+  );
 }
 
 /**
