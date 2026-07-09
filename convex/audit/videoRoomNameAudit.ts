@@ -125,24 +125,32 @@ export const auditVideoRoomNames = internalQuery({
 export const auditVideoRoomNameDriftMonitor = internalAction({
   args: {},
   handler: async (ctx): Promise<DriftMonitorResult> => {
-    const result = await ctx.runQuery(
-      internal.audit.videoRoomNameAudit.auditVideoRoomNames,
-      {}
-    );
     const ranAt = Date.now();
-
-    if (result.duplicates.length > 0) {
-      console.error(
-        `[videoRoomName drift] ${result.duplicates.length} duplicate group(s) across ${result.totalSessions} sessions (${result.sessionsWithVideoRoomName} with videoRoomName). Re-run 'npx convex run --prod audit/videoRoomNameAudit:auditVideoRoomNames {}' for details.`,
-        result.duplicates
+    try {
+      const result = await ctx.runQuery(
+        internal.audit.videoRoomNameAudit.auditVideoRoomNames,
+        {}
       );
-    }
 
-    return {
-      duplicatesCount: result.duplicates.length,
-      totalSessions: result.totalSessions,
-      ranAt,
-    };
+      if (result.duplicates.length > 0) {
+        console.error(
+          `[videoRoomName drift] ${result.duplicates.length} duplicate group(s) across ${result.totalSessions} sessions (${result.sessionsWithVideoRoomName} with videoRoomName). Re-run 'npx convex run --prod audit/videoRoomNameAudit:auditVideoRoomNames {}' for details.`,
+          result.duplicates
+        );
+      }
+
+      return {
+        duplicatesCount: result.duplicates.length,
+        totalSessions: result.totalSessions,
+        ranAt,
+      };
+    } catch (error) {
+      console.error(
+        `[videoRoomName drift] audit query threw — likely exceeded the 8192-doc \`.collect()\` ceiling (see auditVideoRoomNames JSDoc). Convex cron will mark this run as failed; investigate session count and consider paginating the audit before NARROW lands.`,
+        error
+      );
+      throw error;
+    }
   },
 });
 
