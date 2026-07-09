@@ -87,11 +87,6 @@ todos:
     phase: 3
     content: Wire keyboard shortcuts (Cmd/Ctrl+K quick capture, +Shift+L tag toggle, +Shift+H hide panel, +Shift+V toggle panel, +Shift+M mute, +Shift+S screenshare, Escape PiP)
     status: pending
-  - id: mobile-narrow-viewport
-    owner: agent
-    phase: 3
-    content: Implement narrow viewport (<900px: PiP-only, <600px: full-screen video with bottom-sheet workspace drawer)
-    status: pending
   - id: session-integration
     owner: agent
     phase: 3
@@ -177,11 +172,6 @@ todos:
     phase: 5
     content: "Shared during current call" subpanel in Links tab for students (deferred from PR #4b) — PR #4c-3
     status: pending
-  - id: mobile-narrow-viewport
-    owner: agent
-    phase: 7
-    content: Implement narrow viewport (<900px: PiP-only, <600px: full-screen video with bottom-sheet workspace drawer)
-    status: pending
 ---
 
 # Video Calling Integration (Daily.co + Backblaze B2)
@@ -221,6 +211,7 @@ Key behaviors:
 - **PR #4c-3 (Phase 5 — student "Shared during current call" Links subpanel) — shipped.** See [PR #4c-3 Delivery](#pr-4c-3-delivery--shared-during-current-call-links-subpanel). Indexed query (`by_workspaceId_sessionId`) auth-bound via `assertParticipantForSession` + a workspaceId cross-check; subpanel renders above the Links list while a call is active with loading/error/empty states; both roles see it; strict sessionId match (no call-window fallback for pre-#4b links).
 - **PR #4c-4 (Phase 7 — mobile / narrow viewport polish) — shipped.** See PR #605. PiP-only below 900px, full-screen video with bottom-sheet workspace drawer below 600px, mobile-only E2E spec (`tests/e2e/video-call-mobile.spec.ts`) with Daily stub + Clerk auth fixture.
 - **PR #5 (Phase 8 — `instructorResources` share-to-call) — shipped.** See [PR #5 Delivery](#pr-5-delivery--instructorresources-share-to-call). Widen-only schema (`sessionId?` + `by_workspaceId_sessionId`), tagged resources surface in the PR #4c-3 subpanel alongside links with a type badge.
+- **PR #7 WIDEN + MIGRATE — `videoRoomName` uniqueness — shipped.** See [PR #7 WIDEN + MIGRATE Delivery](#pr-7-widen--migrate-delivery--videoroomname-uniqueness). PR #611 added an insert-time `VIDEO_ROOM_NAME_TAKEN` guard inside `setVideoRoom` (`convex/sessions.ts:1278-1296`). PR #612 dropped the legacy `.collect()` + `if (matches.length > 1) throw` read-site guards at `convex/sessions.ts:1146-1164` and `1401-1426` after a production audit confirmed zero drift (`totalSessions=2, sessionsWithVideoRoomName=0`); new `internal.audit.videoRoomNameAudit.auditVideoRoomNames` query is the on-demand drift monitor. NARROW phase (replace `.collect()` with `.unique()`) is **deferred** until Convex ships schema-time uniqueness for `v.optional(v.string())` indexed fields.
 - **Hotfix PR #607 (identity.subject) — shipped before PR #5.** P1: `POST /api/video/start-adhoc` returned 403 on `dev.mentorships.huckleberry.art` because `convex/sessions.ts` compared `instructor.userId` (bare Clerk ID) against `identity.tokenIdentifier` (issuer-prefixed canonical). Standardized 30+ comparisons across `convex/sessions.ts`, `convex/inCallNotifications.ts`, `convex/instructors.ts` on `identity.subject` (matches existing convention in `bookings.ts`, `seatReservations.ts`, `instructorResources.ts`); narrowed `requireIdentity` return type; added `clerk.dev.mentorships.huckleberry.art` to the auth.config.ts fallback for Vercel preview deploys.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
@@ -238,6 +229,7 @@ Key behaviors:
 | 5c | Student "Shared during current call" Links subpanel | agent | PR #4c-3 ✅ |
 | 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 ✅ |
 | 8 | `instructorResources` share-to-call — widen schema + union "Shared during current call" subpanel | agent | PR #5 ✅ |
+| 9 | `videoRoomName` uniqueness — WIDEN (insert-time guard) + MIGRATE (drop legacy `.collect()` + `if (matches.length > 1) throw` read-site guards; ship `internal.audit.videoRoomNameAudit.auditVideoRoomNames`) | agent | PR #611 ✅ + PR #612 ✅ (NARROW phase deferred until Convex ships schema-time uniqueness for `v.optional(v.string())` indexed fields) |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -758,11 +750,11 @@ Recording-consent UI + Daily-room config + webhook handler + `recordingUrl` fiel
 - [x] "Shared during current call" student subpanel in Links tab — shipped in PR #4c-3
 - [x] Greptile: no new P1; Vercel: all 4 apps READY
 
-### Phase 7: Mobile & Narrow Viewport — PR #4c-4 (pending)
-- [ ] Implement narrow viewport (< 900px): PiP-only default, no split panel
-- [ ] Implement mobile (< 600px): full-screen video + bottom-sheet workspace drawer
-- [ ] Ensure Quick Capture composer works at all viewport sizes
-- [ ] Verify layouts in E2E on a phone-sized viewport (375×667) and a small laptop (1280×720)
+### Phase 7: Mobile & Narrow Viewport — Shipped in PR #4c-4
+- [x] Implement narrow viewport (< 900px): PiP-only default, no split panel
+- [x] Implement mobile (< 600px): full-screen video + bottom-sheet workspace drawer
+- [x] Ensure Quick Capture composer works at all viewport sizes
+- [x] Verify layouts in E2E on a phone-sized viewport (375×667) and a small laptop (1280×720)
 
 ## PR #4b Delivery — Workspace Content Integration
 
@@ -835,12 +827,6 @@ Confidence 4/5 → 3/5. 4 P1 + 1 P2 addressed:
 ### Security: `assertSessionBelongsToWorkspace`
 
 `convex/workspaces.ts` exports a typed `MutationCtx` helper that fetches the session and workspace rows in parallel and rejects when the session's instructor/student pair doesn't match the workspace's instructor/owner pair. Called by every PR #4b write path (`createWorkspaceNote`/`updateWorkspaceNote`/`createWorkspaceLink`/`createWorkspaceImage`/`createWorkspaceMessage`/`createWorkspaceImageAndMessage`/`createWorkspaceFileMessage`) AND by `getLiveSessionNote`. A non-participant who passes a "valid-looking" session id is rejected even after the role check, so the live note cannot leak across workspaces.
-
-### Deferred to PR #4c-4
-
-PR #4c was split into four sub-PRs for reviewability. As of 2026-07-07, #4c-1 + #4c-2 + #4c-3 are merged and the following remains:
-
-- **PR #4c-4** — Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + bottom-sheet workspace drawer). Phase 7 in the plan; the <900px/<600px layouts were scaffolded in PR #3 but not exercised in E2E, so this PR is the verification + UX polish pass.
 
 
 ## PR #4c-1 Delivery — Recording Playback
@@ -1026,6 +1012,46 @@ Rate-limited — no review. R1 review available in 35 minutes; will be auto-trig
 - **Test-only mutation `seedActiveSessionForE2E`** is the only public mutation added. Marked with `confirmSeed: v.literal(true)` so a misconfigured caller fails immediately.
 
 
+## PR #7 WIDEN + MIGRATE Delivery — `videoRoomName` Uniqueness
+
+**Branch:** `chore/convex-video-room-name-uniqueness` (squashed into `d8e04075`)
+**PRs:** #611 — `chore(convex): widen-phase uniqueness guard for videoRoomName` + #612 — `chore(convex): PR #7 MIGRATE phase — drop legacy duplicate videoRoomName guards`
+**Status:** MERGED as `d8e04075` on `main` (2026-07-08). All 16 CI checks green at merge; merge_state CLEAN.
+
+### What shipped
+
+Closes the duplicate-`videoRoomName` data-drift hole via a three-phase widen→migrate→narrow rollout. Two phases landed (WIDEN + MIGRATE); NARROW is deferred until Convex ships schema-time uniqueness for `v.optional(v.string())` indexed fields.
+
+- **PR #611 WIDEN — insert-time guard** (`convex/sessions.ts:1278-1296`, inside `setVideoRoom`). The original duplicate-room-name defense was at the read sites (`attachRecordingFromDailyWebhook`, `getSessionByVideoRoomName`) which threw AFTER a duplicate had been written, so the Daily recording webhook would 500 on delivery and the token endpoint would return the wrong `SessionRoleForVideo`. The new guard is at the write site and throws `ConvexError({ code: "VIDEO_ROOM_NAME_TAKEN", ... })` BEFORE the conflicting insert — caller can retry with a fresh room. Uses `.first()` (not `.unique()`) so pre-existing duplicates from data drift survive this phase without crashing; OCC + the read-site guards remain as a safety net.
+- **PR #612 MIGRATE — drop legacy read-site guards** (`convex/sessions.ts:1146-1164`, `1401-1426`). Production audit on 2026-07-08 confirmed zero drift (`totalSessions=2, sessionsWithVideoRoomName=0`), so the legacy `.collect()` + `if (matches.length > 1) throw` guards were removed. Inline comments at both removal sites spell out the three-layer safety case:
+  1. Write-time uniqueness enforced by `setVideoRoom` (PR #611).
+  2. Initial audit confirmed zero drift on 2026-07-08.
+  3. Continuous re-verification via the internal audit query (PR #613 cron, deferred to next PR).
+- **PR #612 audit query** — `convex/audit/videoRoomNameAudit.ts:auditVideoRoomNames` (NEW, `internalQuery`). Documents the four invocation paths (CLI / dashboard console / admin HTTP API / wrapper action + cron). Returns `{ totalSessions, sessionsWithVideoRoomName, distinctVideoRoomNames, duplicates, generatedAt }`. Self-exempted from the "use bounded collections" guideline (`convex/_generated/ai/guidelines.md:245`) because the purpose is an exhaustive drift audit; documented the 8192-doc ceiling with a paginated-audit fallback.
+- **PR #612 API surface hardening** — `apps/platform/app/api/video/rooms/route.ts` + `start-adhoc/route.ts` now translate `VIDEO_ROOM_NAME_TAKEN` into a 409 response so the instructor can see the conflict in the UI rather than a 500.
+
+### Greptile R0 → R1 (PR #612)
+
+2 iterations. Greptile R0 was confidence 4/5 with two P1s + one design-tradeoff note; R1 (after fixes) is **confidence 5/5 — safe to merge**.
+
+- **R0 P1** — Audit query was a `query` (publicly callable). Any unauthenticated client could pull session inventory. Fixed: switched to `internalQuery` so unauthenticated HTTP POST to `/api/query` returns "Server Error". CLI invocation via deploy key still works.
+- **R0 P1** — No documentation that the read-site guards were "fail open" on drift (the third layer of the safety case is re-verification, not enforcement). Fixed: expanded inline comments at both removal sites to spell out the three-layer case and the recovery path if drift reappears from an out-of-band source.
+- **Design-tradeoff (documented, not changed)** — Read-site code picks `matches[0]` by `_id` index order if drift reappears. This is the explicit MIGRATE-phase tradeoff: rather than throw (which would block the webhook and token endpoints), we let the patch land on the first match and rely on the cron/audit for visibility. Recovery is "re-run the audit, identify the duplicate, manually patch the wrong row, then resolve the conflict at the write site".
+
+### Verification
+
+- `pnpm --filter @mentorships/convex typecheck` — clean.
+- `pnpm lint` — 0 errors.
+- `npx convex codegen` — `convex/_generated/api.d.ts` updated to export `audit/videoRoomNameAudit` module.
+- Production audit ran on 2026-07-08 via `npx convex run --prod 'audit/videoRoomNameAudit:auditVideoRoomNames' '{}'` → `totalSessions=2, sessionsWithVideoRoomName=0, duplicates=[]`.
+- CI: 16/16 jobs passed (Build, CodeRabbit, Detect Changes, E2E Tests, Greptile Review, Lint & Type Check, Unit Tests, Vercel Preview Comments, 4× Vercel previews READY, build-apps, convex-codegen, typecheck-apps, typecheck-convex).
+
+### Risks + naming
+
+- **NARROW phase deferred** — when Convex ships `.unique()` for `v.optional(v.string())` indexes, replace `.collect()` + `matches[0]` with `.unique()` at the two read sites and drop the now-redundant `setVideoRoom` read-site guard. Tracked as a future PR.
+- **No schema migration.** Index `by_videoRoomName` was already present from PR #1.
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **Naming.** No `mentor`/`mentee` words in code or comments. Error code `VIDEO_ROOM_NAME_TAKEN` is descriptive; no platform-specific jargon.
 
 
 ## File Changes
@@ -1154,7 +1180,7 @@ DAILY_WEBHOOK_SECRET=<FROM_DAILY_DASHBOARD>
 
 These surfaced during Greptile review of PR #594 (commit `803313ca`) and are queued for a follow-up PR (planned alongside PR #4, not blocking):
 
-- **Workspace-only students sort to top of dashboard.** `getInstructorStudentsWithRemainingSessions` emits workspace rows with `sessionPack: null` and `remainingSessions: 0`. The final sort is ascending by `remainingSessions`, so these rows land at position zero — interleaved with students who have genuinely depleted packs. An instructor with several workspace-only students who haven't been assigned a pack will see them at the very top of the list. **Resolution:** push workspace rows with `hasSessionPack: false` to the bottom, or split them into a separate section.
+- **Workspace-only students sort to top of dashboard.** `getInstructorStudentsWithRemainingSessions` emits workspace rows with `sessionPack: null` and `remainingSessions: 0`. The final sort is ascending by `remainingSessions`, so these rows land at position zero — interleaved with students who have genuinely depleted packs. **Resolved:** workspace rows are now pushed to the end of the sort at `seatReservations.ts:296-313` (the `aIsWorkspace ? 1 : -1` branch in the comparator). Within each group the sort is still ascending by `remainingSessions`, then ascending by `expiresAt`, so genuinely-low students still surface first.
 - **TOCTOU gap in `/api/instructor/session-packs/[sessionPackId]/route.ts:142-147`** — resolved in PR #1. The upfront `deletedAt` check is now paired with a catch on `"Session pack not found"` errors thrown by the underlying mutations, returning 404 instead of 500. Same 404 also returned when `updatedPack === null`.
 - **Public mutation auth bypass (`api.sessions.attachRecordingFromDailyWebhook`)** — resolved in PR #1 by splitting into (a) `internalMutation` `attachRecordingFromDailyWebhook` in `convex/sessions.ts` (idempotent + duplicate-room-name guard) and (b) public `action` `attachRecordingFromDailyWebhookAction` in `convex/dailyRecordingActions.ts` (HMAC-verified wrapper that calls the internal mutation via `ctx.runMutation`). The Next.js route now forwards `rawBody + timestamp + signature` to the action, which re-verifies the HMAC against `DAILY_WEBHOOK_SECRET` before calling the mutation. Defence in depth: both layers verify the same secret.
 - **Duplicate recording events overwrite (P1)** — resolved by idempotency check: `if (session.recordingUrl !== undefined) return { alreadyAttached: true }`. Daily re-firing the same event no longer overwrites the original recording.
@@ -1170,5 +1196,5 @@ These surfaced during Greptile / CodeRabbit review of PR #5 (commit `60e08ec6`) 
 
 - **Subpanel sort key uses `_creationTime`** — links and resources are sorted by `_creationTime` desc in `links.tsx:121-125`. Same key for both sources. No issue observed, but if a future PR stores `createdAt` differently for one source this becomes load-bearing.
 - **R1 nits from PR #5 review** — 3 small items: (a) null-URL href fallback in `links.tsx:407` (current `url ?? "#"` is technically valid but degrades UX to a no-op anchor), (b) optimistic untag asymmetry in `resources.tsx:142-177` (Tag is optimistic, Untag is not — both should be), (c) E2E coverage gap for the Tag toggle itself (PR #5 only asserts the row data-testid, not the toggle UX).
-- **Unique index on `by_videoRoomName`** — duplicate-room-name guard at `convex/sessions.ts:1108-1117` and `1327-1340` is `.collect()` + manual `throw` today. PR #7 will migrate to `.unique()` after data drift is verified.
+- **Unique index on `by_videoRoomName`** — WIDEN phase shipped in PR #611 (insert-time guard at `convex/sessions.ts:1278-1296`); MIGRATE phase shipped in PR #612 (dropped legacy `.collect()` + `if (matches.length > 1) throw` read-site guards; new `audit/videoRoomNameAudit.ts:auditVideoRoomNames` `internalQuery` is the on-demand drift monitor). **NARROW phase deferred** until Convex ships `.unique()` support for `v.optional(v.string())` indexed fields — when it lands, replace `.collect()` + `matches[0]` with `.unique()` at the two read sites and drop the now-redundant `setVideoRoom` read-site guard.
 - **Schema-wide identity.subject migration** — PR #607 standardized 30+ comparisons on `identity.subject` to match existing convention. A future PR could migrate the storage layer (seed scripts + Inngest lifecycle) to write `tokenIdentifier` instead of bare Clerk IDs, then standardize back on the canonical form per the Convex guideline. Out of scope for now.
