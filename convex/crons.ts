@@ -8,7 +8,11 @@ import { internal } from "./_generated/api";
  * - send-grace-period-final-warning: Runs hourly, sends final warning to seats entering grace period
  * - check-seat-expiration: Runs hourly, processes expired seats and transitions to grace or released
  * - process-discord-action-queue: Runs every minute, processes pending Discord actions
+ * - process-pending-clerk-deletions: Runs every 5 minutes, processes pending Clerk deletions
  * - retry-pending-deletions: Runs hourly, retries uploads stuck in "deleting" state
+ * - audit-video-room-name-drift: Runs every 6 hours, calls the PR #7 audit
+ *   query and `console.error`s if any duplicate `videoRoomName` group
+ *   appears. See `convex/audit/videoRoomNameAudit.ts`.
  */
 const crons = cronJobs();
 
@@ -44,6 +48,13 @@ crons.interval(
   "retry-pending-deletions",
   { hours: 1 },
   internal.crons.retryStuckDeletions,
+  {}
+);
+
+crons.interval(
+  "audit-video-room-name-drift",
+  { hours: 6 },
+  internal.audit.videoRoomNameAudit.auditVideoRoomNameDriftMonitor,
   {}
 );
 
