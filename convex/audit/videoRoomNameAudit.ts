@@ -1,5 +1,6 @@
-import { internalQuery } from "../_generated/server";
+import { internalAction, internalQuery } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { internal } from "../_generated/api";
 
 type DuplicateGroup = {
   videoRoomName: string;
@@ -44,7 +45,10 @@ type AuditResult = {
  *    `Authorization: Convex ${CONVEX_HTTP_KEY}`.
  *  - Wrapper action / cron: invoke via `ctx.runQuery(internal.audit.
  *    videoRoomNameAudit.auditVideoRoomNames, {})` from a server-side
- *    function that already has the deployment's auth context.
+ *    function that already has the deployment's auth context. The
+ *    `auditVideoRoomNameDriftMonitor` action below is the production
+ *    cron wrapper, scheduled every 6h in `convex/crons.ts` and surfaced
+ *    via the dashboard log if any duplicate group appears.
  *
  * Exempts the "use bounded collections" guideline
  * (`convex/_generated/ai/guidelines.md:245`) because the purpose is
@@ -92,3 +96,66 @@ export const auditVideoRoomNames = internalQuery({
     };
   },
 });
+
+/**
+ * Scheduled drift monitor for `videoRoomName` uniqueness.
+ *
+ * Runs every 6 hours via `crons.interval` in `convex/crons.ts`. Wraps
+ * the `auditVideoRoomNames` internalQuery and surfaces any duplicate
+ * groups to the Convex dashboard log so drift does not silently
+ * accumulate between manual audit runs.
+ *
+ * `internalAction` (not `action`) so it is not publicly callable. The
+ * only legitimate trigger is the cron; an out-of-band caller has no
+ * reason to invoke it and would only see the same drift summary the
+ * dashboard log already captures.
+ *
+ * Alerting is intentionally minimal: `console.error` with the full
+ * duplicate groups so the failure mode is visible in the Convex
+ * dashboard Logs tab (and forwarded to Axiom via the project's
+ * existing Convex log export). No new schema, no email, no Slack —
+ * matches the MIGRATE-phase recovery path documented in the audit
+ * query's JSDoc and at `convex/sessions.ts:1146-1164` /
+ * `1401-1426`: re-run the audit CLI, identify the duplicate, manually
+ * patch the wrong row, then resolve the conflict at the write site.
+ *
+ * Returns a small summary so the cron run log has a structured record
+ * even when no drift is detected.
+ */
+export const auditVideoRoomNameDriftMonitor = internalAction({
+  args: {},
+  handler: async (ctx): Promise<DriftMonitorResult> => {
+    const ranAt = Date.now();
+    try {
+      const result = await ctx.runQuery(
+        internal.audit.videoRoomNameAudit.auditVideoRoomNames,
+        {}
+      );
+
+      if (result.duplicates.length > 0) {
+        console.error(
+          `[videoRoomName drift] ${result.duplicates.length} duplicate group(s) across ${result.totalSessions} sessions (${result.sessionsWithVideoRoomName} with videoRoomName). Re-run 'npx convex run --prod audit/videoRoomNameAudit:auditVideoRoomNames {}' for details.`,
+          result.duplicates
+        );
+      }
+
+      return {
+        duplicatesCount: result.duplicates.length,
+        totalSessions: result.totalSessions,
+        ranAt,
+      };
+    } catch (error) {
+      console.error(
+        `[videoRoomName drift] audit query threw. Convex cron will mark this run as failed; inspect the attached error, and if it is a query/read-limit failure, paginate the audit before NARROW lands.`,
+        error
+      );
+      throw error;
+    }
+  },
+});
+
+type DriftMonitorResult = {
+  duplicatesCount: number;
+  totalSessions: number;
+  ranAt: number;
+};
