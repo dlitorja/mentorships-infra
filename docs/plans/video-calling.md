@@ -212,6 +212,7 @@ Key behaviors:
 - **PR #4c-4 (Phase 7 — mobile / narrow viewport polish) — shipped.** See PR #605. PiP-only below 900px, full-screen video with bottom-sheet workspace drawer below 600px, mobile-only E2E spec (`tests/e2e/video-call-mobile.spec.ts`) with Daily stub + Clerk auth fixture.
 - **PR #5 (Phase 8 — `instructorResources` share-to-call) — shipped.** See [PR #5 Delivery](#pr-5-delivery--instructorresources-share-to-call). Widen-only schema (`sessionId?` + `by_workspaceId_sessionId`), tagged resources surface in the PR #4c-3 subpanel alongside links with a type badge.
 - **PR #7 WIDEN + MIGRATE — `videoRoomName` uniqueness — shipped.** See [PR #7 WIDEN + MIGRATE Delivery](#pr-7-widen--migrate-delivery--videoroomname-uniqueness). PR #611 added an insert-time `VIDEO_ROOM_NAME_TAKEN` guard inside `setVideoRoom` (`convex/sessions.ts:1278-1296`). PR #612 dropped the legacy `.collect()` + `if (matches.length > 1) throw` read-site guards at `convex/sessions.ts:1146-1164` and `1401-1426` after a production audit confirmed zero drift (`totalSessions=2, sessionsWithVideoRoomName=0`); new `internal.audit.videoRoomNameAudit.auditVideoRoomNames` query is the on-demand drift monitor. NARROW phase (replace `.collect()` with `.unique()`) is **deferred** until Convex ships schema-time uniqueness for `v.optional(v.string())` indexed fields.
+- **PR #613 — `videoRoomName` drift cron monitor — shipped.** See [PR #613 Delivery](#pr-613-delivery--videoroomname-drift-cron-monitor). Wraps the `auditVideoRoomNames` `internalQuery` in a `auditVideoRoomNameDriftMonitor` `internalAction` and wires it via `crons.interval` every 6 hours in `convex/crons.ts` (cron id `audit-video-room-name-drift`). Drift surfaces via `console.error` to the Convex dashboard log; no new schema, no email, no Slack — matches the MIGRATE-phase recovery path.
 - **Hotfix PR #607 (identity.subject) — shipped before PR #5.** P1: `POST /api/video/start-adhoc` returned 403 on `dev.mentorships.huckleberry.art` because `convex/sessions.ts` compared `instructor.userId` (bare Clerk ID) against `identity.tokenIdentifier` (issuer-prefixed canonical). Standardized 30+ comparisons across `convex/sessions.ts`, `convex/inCallNotifications.ts`, `convex/instructors.ts` on `identity.subject` (matches existing convention in `bookings.ts`, `seatReservations.ts`, `instructorResources.ts`); narrowed `requireIdentity` return type; added `clerk.dev.mentorships.huckleberry.art` to the auth.config.ts fallback for Vercel preview deploys.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
@@ -230,6 +231,7 @@ Key behaviors:
 | 7 | Mobile / narrow viewport polish (<900px PiP-only, <600px full-screen + drawer) | agent | PR #4c-4 ✅ |
 | 8 | `instructorResources` share-to-call — widen schema + union "Shared during current call" subpanel | agent | PR #5 ✅ |
 | 9 | `videoRoomName` uniqueness — WIDEN (insert-time guard) + MIGRATE (drop legacy `.collect()` + `if (matches.length > 1) throw` read-site guards; ship `internal.audit.videoRoomNameAudit.auditVideoRoomNames`) | agent | PR #611 ✅ + PR #612 ✅ (NARROW phase deferred until Convex ships schema-time uniqueness for `v.optional(v.string())` indexed fields) |
+| 10 | `videoRoomName` drift cron monitor — 6-hourly `internalAction` wrapping `auditVideoRoomNames`, `console.error` on duplicate groups | agent | PR #613 ✅ |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -1052,6 +1054,46 @@ Closes the duplicate-`videoRoomName` data-drift hole via a three-phase widen→m
 - **No schema migration.** Index `by_videoRoomName` was already present from PR #1.
 - **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
 - **Naming.** No `mentor`/`mentee` words in code or comments. Error code `VIDEO_ROOM_NAME_TAKEN` is descriptive; no platform-specific jargon.
+
+
+## PR #613 Delivery — `videoRoomName` Drift Cron Monitor
+
+**Branch:** `chore/convex-pr613-video-room-name-drift-monitor` (squashed into `8fca9adf`)
+**PR:** #614 — `chore(convex): PR #613 video-room-name drift cron monitor`
+**Status:** MERGED as `8fca9adf` on `main` (2026-07-09). All CI checks green at merge; merge_state CLEAN.
+
+### What shipped
+
+Closes the third layer of the three-layer `videoRoomName` uniqueness safety case promised in [PR #7 WIDEN + MIGRATE Delivery](#pr-7-widen--migrate-delivery--videoroomname-uniqueness): automated scheduling of the `auditVideoRoomNames` drift monitor so drift cannot silently accumulate between manual runs.
+
+- **`auditVideoRoomNameDriftMonitor` internalAction** (`convex/audit/videoRoomNameAudit.ts`). Wraps the `auditVideoRoomNames` `internalQuery` (added in PR #612). When `result.duplicates.length > 0`, calls `console.error` with the full duplicate groups so the failure mode is visible in the Convex dashboard Logs tab. Returns `{ duplicatesCount, totalSessions, ranAt }` so the cron run log has a structured record even when no drift is detected. `internalAction` (not `action`) so the only legitimate trigger is the cron — an out-of-band caller has no reason to invoke it and would only see the same drift summary the dashboard log already captures.
+- **`crons.interval("audit-video-room-name-drift", { hours: 6 }, ...)`** (`convex/crons.ts`). The 6-hour cadence is the explicit sweet spot from the design discussion: ~120 runs/month stays well under Convex plan tiers while still surfacing drift within a single working day. Updated the file-level JSDoc to list the cron alongside the existing 5 scheduled jobs.
+- **Failure-mode handling** — `try/catch` around `ctx.runQuery(internal.audit.videoRoomNameAudit.auditVideoRoomNames, {})` so a thrown query (e.g. the documented 8192-doc `.collect()` ceiling if session volume outgrows current bounds) is `console.error`-logged and re-thrown, causing the cron run to show as **failed** in the Convex dashboard rather than silently passing with stale data. The catch message is intentionally generic — it instructs the operator to inspect the attached error rather than over-attributing to the 8192 ceiling, which would mislead on unrelated failures.
+
+### Greptile R0 → R1
+
+2 iterations. R0 was confidence 5/5 with one P2 inline + one P2 R1 nit; R1 (after fixes) is **confidence 5/5 — safe to merge**.
+
+- **R0 P2 inline** — `ranAt = Date.now()` was captured *after* the `await ctx.runQuery(...)`, so the timestamp reflected drift detection rather than cron trigger time. Fixed: capture `ranAt` *before* the query so it correlates with the dashboard's cron-scheduled timestamp. Trivial enough that the bot rated 5/5 confidence regardless.
+- **R0 P2 (applied in R1)** — `catch (error)` block originally said "If the 8192-doc `.collect()` ceiling is exceeded..." — premature attribution. A query can throw for many reasons (transaction limit, OOM, network blip, auth misconfig). Fixed: rewrote the catch message to instruct the operator to inspect the attached error rather than assume the 8192 ceiling. The 8192 ceiling itself is still documented in the audit query's JSDoc as a real and known risk, but the runtime catch should not pre-bias the diagnosis.
+- **No P1s.** No schema change, no auth change, no public surface change. `internalAction` + `internalQuery` already restrict invocation to deploy-key / cron contexts.
+
+### Verification
+
+- `pnpm --filter @mentorships/convex typecheck` — clean.
+- `pnpm lint` — 0 errors.
+- `npx convex codegen` — `convex/_generated/api.d.ts` updated to export `audit/videoRoomNameAudit.auditVideoRoomNameDriftMonitor` reference.
+- Cron wiring verified post-merge by reading `convex/crons.ts:55-61` and confirming the cron id matches the one referenced in the audit file's JSDoc.
+- CI: 11+ jobs passed at squash-merge (Build, CodeRabbit APPROVED, Detect Changes, E2E Tests, Greptile Review, Lint & Type Check, Unit Tests, Vercel Preview Comments, 4× Vercel previews READY, build-apps, convex-codegen, typecheck-apps, typecheck-convex).
+- Production audit re-run on 2026-07-09 via `npx convex run --prod 'audit/videoRoomNameAudit:auditVideoRoomNames' '{}'` → `totalSessions=2, sessionsWithVideoRoomName=0, duplicates=[]` (still zero drift).
+
+### Risks + naming
+
+- **No schema migration.** Pure additive cron + internal action.
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **No new alerting surfaces.** `console.error` only — the project's existing Convex → Axiom log export forwards it; no email, no Slack, no new Inngest event. Matches the MIGRATE-phase recovery path documented at `convex/sessions.ts:1146-1164` / `1401-1426`.
+- **Naming.** No `mentor`/`mentee` words. Cron id `audit-video-room-name-drift` and function name `auditVideoRoomNameDriftMonitor` are descriptive and aligned with the existing `convex/crons.ts` naming convention (`send-grace-period-final-warning`, `check-seat-expiration`, `process-discord-action-queue`, `process-pending-clerk-deletions`, `retry-pending-deletions`).
+- **NARROW phase still deferred** — same condition as PR #7: when Convex ships `.unique()` for `v.optional(v.string())` indexes, replace `.collect()` + `matches[0]` with `.unique()` at the two read sites. Keep the `setVideoRoom` write-time `VIDEO_ROOM_NAME_TAKEN` guard unless schema-time uniqueness fully supersedes it. The cron monitor becomes redundant at that point but is harmless to leave running until schema-time uniqueness is proven stable.
 
 
 ## File Changes
