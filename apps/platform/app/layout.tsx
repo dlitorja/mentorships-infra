@@ -42,15 +42,15 @@ export default function RootLayout({
     return (
       <html lang="en" className="bg-background dark">
         <body className={`${inter.className} antialiased bg-background text-foreground`}>
-          <QueryProvider>
-            <ConvexClientProvider skipClerk={true}>
+          <ConvexClientProvider skipClerk={true}>
+            <QueryProvider>
               <HeaderErrorBoundary>
                 <Header hasClerk={hasValidClerkKey} />
               </HeaderErrorBoundary>
               {children}
               <Toaster />
-            </ConvexClientProvider>
-          </QueryProvider>
+            </QueryProvider>
+          </ConvexClientProvider>
         </body>
       </html>
     );
@@ -63,15 +63,15 @@ export default function RootLayout({
           publishableKey={clerkPublishableKey}
           {...(domainUrl && { domainUrl })}
         >
-          <QueryProvider>
-            <ConvexClientProvider>
+          <ConvexClientProvider>
+            <QueryProvider>
               <HeaderErrorBoundary>
                 <Header hasClerk={hasValidClerkKey} />
               </HeaderErrorBoundary>
               {children}
               <Toaster />
-            </ConvexClientProvider>
-          </QueryProvider>
+            </QueryProvider>
+          </ConvexClientProvider>
         </ClerkProvider>
       </body>
     </html>

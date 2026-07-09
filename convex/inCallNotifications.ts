@@ -23,10 +23,29 @@ const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
  * matching comment block in `convex/sessions.ts:6-37` and
  * `convex/instructors.ts:43-58` for the cross-file rationale.
  *
- * Throws on no identity so callers can fail fast; every public
- * function below runs `requireIdentity` at the top.
+ * Returns `null` on no identity. Read-side callers treat this as
+ * "no notifications for an unauthenticated viewer" so the bell
+ * and workspace badge can render empty without crashing the
+ * React tree on first render before Clerk has populated
+ * `useConvexAuth()`'s auth token. Mutations still throw via
+ * `requireIdentityForMutation`.
  */
-async function requireIdentity(ctx: QueryCtx): Promise<{ subject: string }> {
+async function getIdentity(
+  ctx: QueryCtx
+): Promise<{ subject: string } | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+  return { subject: identity.subject };
+}
+
+/**
+ * Identity required for write paths. Throws on missing identity
+ * so a forged request still fails closed; the read path uses
+ * `getIdentity` instead.
+ */
+async function requireIdentityForMutation(
+  ctx: QueryCtx
+): Promise<{ subject: string }> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
     throw new Error("Unauthorized");
@@ -64,7 +83,7 @@ export const createAdHocCallNotification = mutation({
     workspaceId: v.id("workspaces"),
   },
   handler: async (ctx, args): Promise<Id<"inCallNotifications">> => {
-    const identity = await requireIdentity(ctx);
+    const identity = await requireIdentityForMutation(ctx);
 
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
@@ -132,7 +151,8 @@ export const createAdHocCallNotification = mutation({
 export const getUnreadForUser = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await requireIdentity(ctx);
+    const identity = await getIdentity(ctx);
+    if (!identity) return [];
     const now = Date.now();
 
     const candidates = await ctx.db
@@ -166,7 +186,8 @@ export const getUnreadForUser = query({
 export const getUnreadForWorkspace = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    const identity = await getIdentity(ctx);
+    if (!identity) return null;
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) return null;
     if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) {
@@ -216,7 +237,7 @@ export const getUnreadForWorkspace = query({
 export const markRead = mutation({
   args: { notificationId: v.id("inCallNotifications") },
   handler: async (ctx, args) => {
-    const identity = await requireIdentity(ctx);
+    const identity = await requireIdentityForMutation(ctx);
     const notification = await ctx.db.get(args.notificationId);
     if (!notification) {
       throw new Error("Notification not found");
@@ -256,7 +277,7 @@ export const markReadMany = mutation({
     ctx,
     args
   ): Promise<{ updatedCount: number }> => {
-    const identity = await requireIdentity(ctx);
+    const identity = await requireIdentityForMutation(ctx);
     const now = Date.now();
     let updatedCount = 0;
 
