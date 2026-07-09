@@ -171,7 +171,7 @@ todos:
     owner: agent
     phase: 5
     content: "Shared during current call" subpanel in Links tab for students (deferred from PR #4b) — PR #4c-3
-    status: pending
+    status: done
 ---
 
 # Video Calling Integration (Daily.co + Backblaze B2)
@@ -1014,6 +1014,40 @@ Rate-limited — no review. R1 review available in 35 minutes; will be auto-trig
 - **Test-only mutation `seedActiveSessionForE2E`** is the only public mutation added. Marked with `confirmSeed: v.literal(true)` so a misconfigured caller fails immediately.
 
 
+## PR #610 Delivery — `instructorResources` Share-to-Call R1 Nits
+
+**Branch:** `fix/platform-pr610-r1-nits` (squashed into `822b44cd`)
+**PR:** #610 — `fix(platform): PR #5 R1 nits — null-URL fallback, optimistic tag/untag, E2E coverage`
+**Status:** MERGED as `822b44cd` on `main` (2026-07-08). All 16 CI checks green at merge; merge_state CLEAN.
+
+### What shipped
+
+Three low-risk review nits from the PR #5 Greptile/CodeRabbit cycle. Pure UX + test additions — no schema change, no auth change, no public API change.
+
+- **Null-URL fallback** (`apps/platform/components/workspace/links.tsx:407-423`). The "Shared during current call" subpanel renders both `workspaceLinks` AND `instructorResources` (PR #5). When an `instructorResources` row had a null/undefined `url`, the previous `url ?? "#"` produced a no-op anchor that silently degraded UX (clicking did nothing, no error surfaced). Replaced with an explicit truthiness check that renders a muted `<span>` with `title="Resource URL unavailable"` so the row stays visible-but-not-clickable — matches the "this isn't clickable" affordance the rest of the subpanel uses for missing data.
+- **Optimistic tag/untag symmetry** (`apps/platform/components/workspace/resources.tsx:142-196`). PR #5's `handleTagToCall` updated the `clearedSessionIdByResource` override set AFTER awaiting the mutation, but `handleUntagFromCall` updated it BEFORE — asymmetric UX where one toggle felt instant and the other waited for the round-trip. Both now update the override set BEFORE awaiting and revert on error, mirroring the `notes.tsx:373-388` pattern. `handleTagToCall` captures the previous membership in a `wasInClearedSet` local so the revert only adds back an entry that was actually present (avoiding no-op inserts that could mask unrelated state).
+- **E2E coverage for the Tag toggle UX** (`tests/e2e/instructor-resources-share.spec.ts`). PR #5 only asserted the row `data-testid` populated after a refetch — a regression that deferred the toggle state until the subpanel query settled would slip through. Added a third test ("the Tag toggle UX swaps states optimistically") that clicks `Tag to current call`, then asserts the `Untag from current call` button and `Tagged` badge appear within 5s (tighter than waiting for a subpanel refetch ~10s+). 5s timeout chosen to absorb slow CI runners while still guarding the optimistic-state contract.
+
+### Greptile + CodeRabbit
+
+- No P1s. Greptile R0 was 5/5 confidence at merge; no review rounds required.
+- CodeRabbit — rate-limited; no review comment for this PR.
+
+### Verification
+
+- `pnpm typecheck` — clean.
+- `pnpm lint` — 0 new warnings/errors from changed files.
+- `pnpm --filter @mentorships/platform run test:e2e instructor-resources-share` — green (3 tests passing, including the new optimistic-state test).
+- CI: 16/16 jobs passed at merge.
+
+### Risks + naming
+
+- **No schema migration.** Pure UX + test additions.
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **Naming.** No `mentor`/`mentee` words in code or UI copy.
+- **No new public mutation / query surface.** All three changes are client-side (component + test) — zero impact on the API contract.
+
+
 ## PR #7 WIDEN + MIGRATE Delivery — `videoRoomName` Uniqueness
 
 **Branch:** `chore/convex-video-room-name-uniqueness` (squashed into `d8e04075`)
@@ -1237,6 +1271,9 @@ These surfaced during Greptile review of PR #594 (commit `803313ca`) and are que
 These surfaced during Greptile / CodeRabbit review of PR #5 (commit `60e08ec6`) and are queued for a follow-up PR (not blocking):
 
 - **Subpanel sort key uses `_creationTime`** — links and resources are sorted by `_creationTime` desc in `links.tsx:121-125`. Same key for both sources. No issue observed, but if a future PR stores `createdAt` differently for one source this becomes load-bearing.
-- **R1 nits from PR #5 review** — 3 small items: (a) null-URL href fallback in `links.tsx:407` (current `url ?? "#"` is technically valid but degrades UX to a no-op anchor), (b) optimistic untag asymmetry in `resources.tsx:142-177` (Tag is optimistic, Untag is not — both should be), (c) E2E coverage gap for the Tag toggle itself (PR #5 only asserts the row data-testid, not the toggle UX).
+- **PR #5 R1 nits — RESOLVED in PR #610** (`fix(platform): PR #5 R1 nits — null-URL fallback, optimistic tag/untag, E2E coverage`, commit `822b44cd`, merged 2026-07-08). 3 items addressed:
+  - (a) null-URL fallback in `links.tsx:407-423` — was `url ?? "#"` no-op anchor; now renders a muted `<span>` with `title="Resource URL unavailable"` so the row is visible-but-not-clickable rather than silently degrading.
+  - (b) optimistic tag/untag symmetry in `resources.tsx:142-196` — both `handleTagToCall` and `handleUntagFromCall` now update `clearedSessionIdByResource` BEFORE awaiting the mutation and revert on error (mirrors `notes.tsx:373-388`).
+  - (c) E2E coverage for the Tag toggle UX — `tests/e2e/instructor-resources-share.spec.ts` now exercises the optimistic Tag→Untag state swap with a 5s timeout (asserts the `Tagged` badge appears before the subpanel refetch settles).
 - **Unique index on `by_videoRoomName`** — WIDEN phase shipped in PR #611 (insert-time guard at `convex/sessions.ts:1278-1296`); MIGRATE phase shipped in PR #612 (dropped legacy `.collect()` + `if (matches.length > 1) throw` read-site guards; new `audit/videoRoomNameAudit.ts:auditVideoRoomNames` `internalQuery` is the on-demand drift monitor). **NARROW phase deferred** until Convex ships `.unique()` support for `v.optional(v.string())` indexed fields — when it lands, replace `.collect()` + `matches[0]` with `.unique()` at the two read sites. Keep the `setVideoRoom` write-time `VIDEO_ROOM_NAME_TAKEN` guard unless schema-time uniqueness fully supersedes it.
 - **Schema-wide identity.subject migration** — PR #607 standardized 30+ comparisons on `identity.subject` to match existing convention. A future PR could migrate the storage layer (seed scripts + Inngest lifecycle) to write `tokenIdentifier` instead of bare Clerk IDs, then standardize back on the canonical form per the Convex guideline. Out of scope for now.
