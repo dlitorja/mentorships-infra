@@ -146,7 +146,7 @@ export const auditVideoRoomNameDriftMonitor = internalAction({
       };
     } catch (error) {
       console.error(
-        `[videoRoomName drift] audit query threw — likely exceeded the 8192-doc \`.collect()\` ceiling (see auditVideoRoomNames JSDoc). Convex cron will mark this run as failed; investigate session count and consider paginating the audit before NARROW lands.`,
+        `[videoRoomName drift] audit query threw. Convex cron will mark this run as failed; inspect the attached error, and if it is a query/read-limit failure, paginate the audit before NARROW lands.`,
         error
       );
       throw error;
