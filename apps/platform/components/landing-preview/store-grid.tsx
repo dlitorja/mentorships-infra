@@ -35,9 +35,9 @@ const STORE_ITEMS: StoreItem[] = [
     link: "https://home.huckleberry.art/resource_redirect/landing_pages/2150836416",
   },
   {
-    id: "mentor-kim",
+    id: "instructor-kim",
     title: "1-on-1 Mentorships: Kim Myatt",
-    image: "/images/preview/mentor-kim-myatt.jpg",
+    image: "/images/preview/instructor-kim-myatt.jpg",
     link: "https://mentorships.huckleberry.art",
   },
   {

@@ -106,3 +106,6 @@ local/
 .clerk/
 
 .triggermigration-data/
+
+# Trigger.dev local build output
+.trigger/
