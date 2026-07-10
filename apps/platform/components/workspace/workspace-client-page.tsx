@@ -279,6 +279,7 @@ function WorkspaceInner({
                   activeTab={activeTab}
                   onChangeTab={onChangeTab}
                   isInCall={isInCall}
+                  useFullHeight={useFullHeight}
                 />
               </CardContent>
             </Card>
@@ -402,6 +403,7 @@ function WorkspaceTabs({
   activeTab,
   onChangeTab,
   isInCall,
+  useFullHeight,
 }: {
   workspaceId: Id<"workspaces">;
   clerkUserId: string;
@@ -410,6 +412,13 @@ function WorkspaceTabs({
   activeTab: string;
   onChangeTab: (tab: string) => void;
   isInCall: boolean;
+  // `useFullHeight` is derived in `WorkspaceInner` (single source of
+  // truth — `isInCall || activeTab === "notes"`) and threaded down so
+  // the `<Tabs>` + `<TabsContent>` height constraint here stays in
+  // sync with the outer container / sidebar card / workspace card
+  // constraints up the tree. `isInCall` alone continues to gate the
+  // video split / PiP branches below.
+  useFullHeight: boolean;
 }): React.ReactElement {
   const { ratio, setRatio } = useSplitRatio(
     VERTICAL_SPLIT_RATIO_STORAGE_KEY,
@@ -417,13 +426,6 @@ function WorkspaceTabs({
   );
   const videoSize = ratio;
   const tabSize = 100 - ratio;
-  // Mirror `WorkspaceInner.useFullHeight`: Notes tab needs the same
-  // viewport-locked flex chain as an in-call layout so its inner
-  // `flex-1 overflow-y-auto` markup scrolls inside the panel. The
-  // video split / PiP branches below still gate on `isInCall` only —
-  // this constant only governs the height constraint on the `<Tabs>`
-  // subtree.
-  const useFullHeight = isInCall || activeTab === "notes";
 
   // `useIsBelow` returns `null` on first render — resolve to false so
   // SSR paints the desktop branch on hydration. The first `change`
