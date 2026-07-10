@@ -113,7 +113,7 @@ export function NotificationBell() {
           role="dialog"
           aria-label="Notifications"
           className={cn(
-            "absolute right-0 top-full z-50 mt-2 w-80 max-h-[28rem] overflow-auto",
+            "absolute left-0 bottom-full z-50 mb-2 w-80 max-h-[28rem] overflow-auto",
             "rounded-md border bg-card text-card-foreground shadow-lg"
           )}
         >
