@@ -137,8 +137,16 @@ test.describe("Video call — mobile (375×667)", () => {
   });
 });
 
-test.describe("Video call — tablet portrait (500×800)", () => {
-  test.use({ viewport: { width: 500, height: 800 } });
+test.describe("Video call — tablet portrait (768×800)", () => {
+  // 768px lands inside the 600–899px tablet (PiP) breakpoint
+  // (`useIsBelow(900)` in `video-call-provider.tsx`). The previous
+  // 500px width fell into the `<600px` phone breakpoint, so this
+  // describe block was exercising the phone full-screen branch
+  // instead of the PiP branch it claims to test — the assertions
+  // would pass for the wrong reason. Once the Clerk auth fixture is
+  // seeded in CI this would have surfaced as a green test for a
+  // broken layout.
+  test.use({ viewport: { width: 768, height: 800 } });
 
   test.beforeEach(async ({ page }) => {
     await installDailyStub(page);
