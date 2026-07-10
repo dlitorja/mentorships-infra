@@ -9,8 +9,18 @@ export type UseSplitRatioResult = {
 };
 
 /**
- * Persists a horizontal split ratio (0-100) to localStorage so users
- * keep their preferred chat/video panel proportions across reloads.
+ * Persists a `react-resizable-panels` split ratio (0-100) to
+ * localStorage so users keep their preferred panel proportions
+ * across reloads. Direction-agnostic — the consumer chooses
+ * `<Group orientation="horizontal">` for a left/right split or
+ * `<Group orientation="vertical">` for a top/bottom split; this
+ * hook just stores the first panel's percentage.
+ *
+ * Phase 11 (`feat/video-calling-phase-11-vertical-stack`) uses
+ * `orientation="vertical"` on desktop, so the persisted ratio is
+ * "video panel %" rather than the pre-Phase-11 "chat panel %".
+ * The `:v2` suffix on the storage key bumped by Phase 11 keeps
+ * existing users from silently inheriting a flipped semantic.
  *
  * No Jotai / Zustand — we use plain useState with manual persistence
  * to keep PR #3's state-management surface minimal. The split ratio is
