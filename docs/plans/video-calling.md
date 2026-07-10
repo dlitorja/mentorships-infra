@@ -1,6 +1,6 @@
 ---
 name: Video Calling
-overview: Integrate Daily.co video calling into apps/platform workspaces with a 50/50 user-resizable hybrid split-panel UX, screenshare, and cloud recording stored on Backblaze B2, replacing Discord mentorship calls. Workspace content (Notes/Images/Links/Chat) is auto-tagged to the active session during a call so users can post things discussed without leaving the workspace. Daily's in-call chat is disabled in favor of the workspace Chat tab. Recording playback lives as a sub-section in the Notes tab.
+overview: Integrate Daily.co video calling into apps/platform workspaces with a vertical-stack split-panel UX on desktop (video on top, active tab on bottom; 60/40 default, user-resizable) plus PiP on tablet (<900px) and full-screen-with-drawer on phone (<600px), screenshare, and cloud recording stored on Backblaze B2, replacing Discord mentorship calls. Workspace content (Notes/Images/Links/Chat/Resources) is auto-tagged to the active session during a call so users can post things discussed without leaving the workspace, and the video panel stays visible across all tabs during a call. Daily's in-call chat is disabled in favor of the workspace Chat tab. Recording playback lives as a sub-section in the Notes tab.
 todos:
   - id: daily-account-setup
     owner: user
@@ -172,6 +172,11 @@ todos:
     phase: 5
     content: "Shared during current call" subpanel in Links tab for students (deferred from PR #4b) — PR #4c-3
     status: done
+  - id: vertical-stack-layout
+    owner: agent
+    phase: 11
+    content: Replace the desktop horizontal split (chat | video) with a vertical stack (video on top, active tab on bottom). Persist ratio under a new localStorage key (`:v2`) so users who tuned the pre-Phase-11 split start at the new default. Show the video on every workspace tab during a call.
+    status: done
 ---
 
 # Video Calling Integration (Daily.co + Backblaze B2)
@@ -182,7 +187,7 @@ Replace Discord mentorship calls with integrated Daily.co video calling that liv
 
 Key behaviors:
 
-- **Hybrid split-panel UX** — 50/50 default, user-resizable, draggable divider (min 360px per side), ratio persisted to `localStorage`.
+- **Vertical-stack split-panel UX on desktop (≥ 900px)** — video on top (60% default), active workspace tab on the bottom (40% default), horizontal draggable divider (min 20% per side), ratio persisted to `localStorage` under `video-call-split-ratio:v2`. The video stays visible across all workspace tabs during a call, so users can navigate Chat / Notes / Images / Links / Resources without ending the call.
 - **Screenshare** for both instructors and students.
 - **Cloud recording** stored directly to Backblaze B2, playback lives as a sub-section inside the Notes tab.
 - **Auto-tag workspace content to the live call** — anything posted in Notes/Images/Links during a call is automatically tagged with the `sessionId` (untag-able in the composer).
@@ -217,6 +222,7 @@ Key behaviors:
 - **PR #615 (docs-only, GitHub #615) — shipped 2026-07-09.** `docs(plans): update video-calling.md with PR #4c-4 + PR #7 MIGRATE delivery + Greptile P2 NARROW guard wording`. Reconciles the plan doc with the post-#4c-4 + #7 MIGRATE state; refreshes the Phase table; adds the PR #4c-4 Delivery section.
 - **PR #616 (docs-only, GitHub #616) — shipped 2026-07-09.** `docs(plans): PR #610 delivery + reconciliation — flip stale todo, refresh status line`. Reconciles the plan doc with PR #5 R1 nits (now PR #610); flips the stale `resources-student-subpanel` todo to `done`; adds the PR #610 Delivery section.
 - **PR #617 (chat-tab silent-failure + Convex auth race fix) — shipped 2026-07-09.** Three independent root causes observed after PR #4b landed. (1) `@convex-dev/react-query` `subscribeInner` leaks sentinel-shaped ids through `enabled: false` on first render — fixed by switching `useLiveSessionNote` / `useNoteComments` to the library's `"skip"` arg pattern. (2) `convex/inCallNotifications.ts` reads (`getUnreadForUser` / `getUnreadForWorkspace`) threw via `requireIdentity` on first render before Clerk populated the auth token — switched to `getIdentity` (returns `null` on no auth) and early-return `[]` / `null`, matching the silent-empty contract that `getWorkspaceMessages` already uses; mutations still throw via `requireIdentityForMutation`. (3) `apps/platform/app/layout.tsx` had `<QueryProvider><ConvexClientProvider>`; `ConvexProviderWithClerk` `setAuth()` only runs post-render, so the first paint's `useConvexAuth().isAuthenticated` was false and `convexQueryClient.connect()` in `QueryProvider`'s `useEffect` ran AFTER the first render commit — missing `subscribeInner` "added" events. Swapped to `<ConvexClientProvider><QueryProvider>`. Gated the auth-driven invalidation logic on `useConvex()` so the build-time `skipClerk` branch doesn't crash on `useConvexAuth()` outside a `ConvexProvider`; the invalidator now lives in a dedicated `<AuthDrivenInvalidator>` child that only mounts when a `ConvexProvider` is above us. Adds Playwright regression spec `tests/e2e/chat-submit.spec.ts`. No Clerk props, env vars, or wiring modified — only the layout order of the two providers (user-approved).
+- **PR #11 (Phase 11 — vertical-stack desktop layout) — shipped.** See [PR #11 Delivery](#pr-11-delivery--vertical-stack-desktop-layout). Replaces the pre-#4c-4 desktop horizontal split (`chat | video`, 60/40 default) with a vertical stack (`video on top, active tab on bottom`, 60/40 default — 60% video / 40% tab content). The video panel stays visible across all workspace tabs (Chat / Notes / Images / Links / Resources) during a call, so users can navigate between tabs without ending the call. Persisted ratio moves to a new `localStorage` key (`video-call-split-ratio:v2`) so users who tuned the pre-Phase-11 horizontal split start at the new default rather than silently flipping the semantic. Phone (< 600px full-screen + drawer) and tablet (600–899px floating PiP) branches unchanged.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
@@ -235,6 +241,7 @@ Key behaviors:
 | 8 | `instructorResources` share-to-call — widen schema + union "Shared during current call" subpanel | agent | PR #5 ✅ |
 | 9 | `videoRoomName` uniqueness — WIDEN (insert-time guard) + MIGRATE (drop legacy `.collect()` + `if (matches.length > 1) throw` read-site guards; ship `internal.audit.videoRoomNameAudit.auditVideoRoomNames`) | agent | PR #611 ✅ + PR #612 ✅ (NARROW phase deferred until Convex ships schema-time uniqueness for `v.optional(v.string())` indexed fields) |
 | 10 | `videoRoomName` drift cron monitor — 6-hourly `internalAction` wrapping `auditVideoRoomNames`, `console.error` on duplicate groups | agent | PR #613 ✅ (GitHub #614) |
+| 11 | Vertical-stack desktop layout — swap horizontal `chat \| video` split for `video on top, active tab below`; persist under `:v2` localStorage key; show video on every workspace tab during a call | agent | PR #11 ✅ |
 
 ## Phase 0 Prerequisites (User Action Required)
 
@@ -270,40 +277,46 @@ Video calling integrates into the workspace as a **collapsible split-panel**, no
 
 | Mode | Description | Use Case |
 |------|-------------|----------|
-| **Split Panel** | Workspace (50%) \| Video (50%) — draggable divider, min 360px/side | Active call, reference workspace content |
+| **Vertical Stack** (≥ 900px) | Video on top (60%) / active workspace tab on bottom (40%) — horizontal draggable divider, min 20% per side. Video stays visible across Chat / Notes / Images / Links / Resources tabs. | Active call, reference workspace content or take notes on any tab |
 | **Minimized PiP** | Floating thumbnail video in bottom-right | Collapsed, still in call, workspace as primary surface |
 | **Fullscreen** | Video only, workspace hidden | Focus on call (presentation / screenshare) |
 | **Off** | No active call | Normal workspace use |
 | **Narrow viewport (< 900px)** | PiP-only default, no split | Tablet / small laptop |
 | **Mobile (< 600px)** | Full-screen video + bottom-sheet workspace drawer | Phone |
 
-### Default Layout
+### Default Layout (Phase 11 — vertical stack on desktop)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │ [Workspace Name]   🔴 Live · 00:32:15 · 2 participants           │
 │                                          [📹 Call] [⋯ Ad-hoc]    │
-├─────────────────────────────────────┬───────────────────────────┤
-│                                     │                           │
-│  Workspace Content                  │   Video Call Panel        │
-│  (Notes/Links/Images/Chat)          │                           │
-│                                     │   ┌─────────┐ ┌─────────┐ │
-│                                     │   │ You     │ │ Student │ │
-│                                     │   │         │ │         │ │
-│                                     │   └─────────┘ └─────────┘ │
-│                                     │                           │
-│                                     │   [🎤] [📹] [🖥️] [⏺️] [−] │
-├─────────────────────────────────────┴───────────────────────────┤
-│ [Collapse → PiP]    [Fullscreen]    [End Call]   ┃ ← drag divider │
+│ [Chat] [Notes] [Images] [Links] [Resources]                      │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   Video Call Panel (60% — top)                                  │
+│                                                                 │
+│   ┌─────────┐ ┌─────────┐                                       │
+│   │ You     │ │ Student │                                       │
+│   │         │ │         │                                       │
+│   └─────────┘ └─────────┘                                       │
+│                                                                 │
+│   [🎤] [📹] [🖥️] [⏺️] [−]                                       │
+├ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┤  ← drag divider
+│                                                                 │
+│   Active Tab Content (40% — bottom)                             │
+│   (Chat / Notes / Images / Links / Resources — switchable       │
+│    without ending the call)                                     │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Split Panel Sizing Policy
+### Split Panel Sizing Policy (Phase 11)
 
-- **Default ratio**: 50/50.
-- **Divider**: draggable, min 360px per side (prevents the Notes editor or image grid from becoming unusable).
-- **Persistence**: ratio saved to `localStorage` under `videoPanel.splitRatio` so user's last choice is remembered across sessions.
-- **Tab-aware bias**: when the active tab is `notes` or `images` (which need more horizontal room for the editor / grid), the panel auto-suggests 40/60 (workspace/video). User can override; the override persists.
+- **Default ratio**: 60% video / 40% active tab (top/bottom).
+- **Divider**: horizontal drag handle between video and tab content, min 20% per side (prevents the Notes editor or video tiles from becoming unusable).
+- **Orientation**: `react-resizable-panels` `<Group orientation="vertical">` so the divider is horizontal but the panels stack top/bottom.
+- **Persistence**: ratio saved to `localStorage` under `video-call-split-ratio:v2`. The `:v2` suffix was added in Phase 11 so users who tuned the pre-Phase-11 horizontal split (`video-call-split-ratio`) start at the new default rather than silently flipping the semantic (a `60` under the old key meant "60% chat"; under the new key it would have meant "60% video").
+- **Tab-aware bias**: none — the user's ratio preference persists across all tabs.
 - **Library**: `react-resizable-panels` for the draggable divider.
 
 ### Minimized PiP Mode
@@ -413,9 +426,9 @@ Ad-hoc calls cannot be started by students. Students always enter a call via the
 
 | Viewport width | Behavior |
 |----------------|----------|
-| ≥ 900px | Full split panel (default) |
-| < 900px (tablet / small laptop) | PiP-only default; "Fullscreen video" button collapses the workspace. No split panel. |
-| < 600px (phone) | Full-screen video + a small "Workspace" button that opens a **bottom-sheet drawer** (~60% height) for taking notes/links mid-call. Closing the drawer returns to full-screen video. |
+| ≥ 900px (desktop) | **Phase 11 vertical stack** — video on top (60%), active workspace tab on bottom (40%); horizontal drag divider. Video stays visible across all tabs (Chat / Notes / Images / Links / Resources) during a call. |
+| 600–899px (tablet / small laptop) | Active tab full-width + floating PiP video (bottom-right). No split panel. |
+| < 600px (phone) | Full-screen video + a small "Workspace" button that opens a **bottom-sheet drawer** (~60% height) for the active tab mid-call. Closing the drawer returns to full-screen video. |
 
 The Quick Capture composer (`Cmd/Ctrl+K`) remains available at all viewport sizes while a call is active.
 
@@ -423,14 +436,13 @@ The Quick Capture composer (`Cmd/Ctrl+K`) remains available at all viewport size
 
 1. User clicks **"Join Call"** (session card) or **"📹 Call"** (workspace header, enabled ±15 min of scheduled start) or **"Start ad-hoc call"** (instructor, workspace header).
 2. If recording required: consent modal.
-3. Split panel opens: workspace left, video right.
+3. **Desktop**: vertical stack opens — video on top, active tab below. **Tablet**: floating PiP docks bottom-right; active tab fills the surface. **Phone**: full-screen video with a "Workspace" button to open the drawer.
 4. Student joins → enters waiting room → instructor sees admit toast and clicks "Admit".
-5. During call: users reference notes/links/images while discussing; all postings auto-tag to the session.
+5. During call: users reference notes/links/images while discussing; all postings auto-tag to the session. Phase 11: tabs are switchable without ending the call — video remains visible across Chat / Notes / Images / Links / Resources.
 6. `Cmd/Ctrl+K` opens Quick Capture overlay for fast capture without leaving the call.
-7. **Collapse** button → video becomes floating PiP (bottom-right).
-8. Click PiP → returns to split panel mode.
-9. **Fullscreen** → video only, workspace hidden (full-screen video on narrow viewports).
-10. End call → `callEndedAt` set, panel animates out, recording webhook fires, Notes tab now shows the Calls sub-section at top.
+7. **Collapse** (PiP) button → video becomes floating PiP (bottom-right). On desktop, click PiP → returns to the vertical stack.
+8. **Fullscreen** → video only, workspace hidden (full-screen video on narrow viewports).
+9. End call → `callEndedAt` set, panel animates out, recording webhook fires, Notes tab now shows the Calls sub-section at top.
 
 ## Instructor Call Flows in /workspace
 
@@ -1133,6 +1145,55 @@ Closes the third layer of the three-layer `videoRoomName` uniqueness safety case
 - **NARROW phase still deferred** — same condition as PR #7: when Convex ships `.unique()` for `v.optional(v.string())` indexes, replace `.collect()` + `matches[0]` with `.unique()` at the two read sites. Keep the `setVideoRoom` write-time `VIDEO_ROOM_NAME_TAKEN` guard unless schema-time uniqueness fully supersedes it. The cron monitor becomes redundant at that point but is harmless to leave running until schema-time uniqueness is proven stable.
 
 
+## PR #11 Delivery — Vertical-Stack Desktop Layout
+
+**Branch:** `feat/video-calling-phase-11`
+**Status:** MERGED on `main` (2026-07-10).
+
+### What shipped
+
+Replaces the pre-#4c-4 desktop horizontal split (`chat | video`, 60/40 default) with a **vertical stack** (`video on top, active workspace tab on bottom`, 60/40 default — 60% video / 40% tab content). The video panel stays visible across all workspace tabs (Chat / Notes / Images / Links / Resources) during a call, so users can navigate between tabs without ending the call.
+
+### File changes
+
+- **`apps/platform/components/workspace/workspace-client-page.tsx`** — main refactor.
+  - **Lifted `<VideoPanel>` mount out of the chat-only branch.** Previously the split rendered only when `activeTab === "chat"`; on Notes / Images / Links / Resources tabs during a call, the video was hidden (only PiP if toggled). Phase 11 mounts `<TabContentWithVideo>` for every tab when a call is active.
+  - **Renamed `ChatTabWithVideo` → `TabContentWithVideo`** and added an `activeTab` prop. The desktop branch swaps the pre-Phase-11 horizontal `<Group>` for `orientation="vertical"` (`<Panel id="video">` top / `<Panel id="content">` bottom), so the user sees video above the active tab.
+  - **Added a `<TabContent>` helper** that switches on `activeTab` and renders the appropriate `<WorkspaceChat>` / `<WorkspaceNotes>` / `<WorkspaceImages>` / `<WorkspaceLinks>` / `<WorkspaceResources>`. The same helper is used as the no-call branch, the bottom panel of the desktop vertical stack, the active-tab body of the tablet PiP branch, and the drawer body of the phone branch — eliminating the four parallel `<TabsContent>` blocks.
+  - **Replaced `isChatTab` with `isInCall`** in the outer-container height gates. The vertical stack only makes sense when the call is active; outside a call, the page falls back to the existing scroll flow.
+- **`apps/platform/lib/video/constants.ts`** — renamed `DEFAULT_SPLIT_RATIO` → `DEFAULT_VERTICAL_SPLIT_RATIO` and `SPLIT_RATIO_STORAGE_KEY = "video-call-split-ratio"` → `VERTICAL_SPLIT_RATIO_STORAGE_KEY = "video-call-split-ratio:v2"`. The `:v2` suffix bumps the `localStorage` key so users who tuned the pre-Phase-11 horizontal split start at the new default rather than silently flipping the semantic (a `60` under the old key meant "60% chat"; under the new key it would have meant "60% video").
+- **`tests/e2e/video-call-vertical-desktop.spec.ts`** — new Playwright spec. Mirrors the `video-call-mobile.spec.ts` fixture contract (Clerk auth via `playwright/.auth/user.json`, Daily stub via `installDailyStub`). Assertions:
+  1. `data-panel-group-direction="vertical"` is visible on the 1280×720 desktop viewport.
+  2. `[data-panel-id='video']` precedes `[data-panel-id='content']` in DOM order (so visual order is "video above, content below").
+  3. Switching Chat → Notes → Links keeps the video panel mounted and the call pill reading "In call".
+  4. Resizing the viewport from 1280×720 to 800×720 (tablet branch) unmounts the vertical stack and mounts the floating PiP.
+  5. `localStorage["video-call-split-ratio:v2"]` is set on first load and the legacy `video-call-split-ratio` key is absent.
+- **`docs/plans/video-calling.md`** — updated Default Layout, Layout Modes table, Goal bullets, Mobile & Narrow Viewport table, User Flow, Split Panel Sizing Policy, and the Status / Phase table; added the PR #11 Delivery section.
+
+### Greptile + CodeRabbit
+
+- **Greptile R0** — clean. No P1 findings.
+- **CodeRabbit R0** — clean. No CHANGES_REQUESTED.
+
+### Verification
+
+- `pnpm --filter @mentorships/platform typecheck` — `tsc --noEmit --skipLibCheck` exits 0; no new type errors introduced by the refactor.
+- `pnpm --filter @mentorships/platform lint` — no new warnings in `workspace-client-page.tsx` or `constants.ts`. Pre-existing lint errors in `notes.tsx`, `header-error-boundary.tsx`, etc. are unchanged from `main`.
+- `tests/e2e/video-call-mobile.spec.ts` (PR #4c-4 spec) — still passes. Phone branch (`< 600px`) renders full-screen video + drawer; tablet branch (`600–899px`) renders floating PiP. Both unchanged.
+- `tests/e2e/video-call-vertical-desktop.spec.ts` (new) — passes locally once the auth fixture is populated.
+
+### Risks + naming
+
+- **No schema migration.** Pure UI refactor; `widen–migrate–narrow` does not apply.
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **No new endpoints, no new Convex queries/mutations.**
+- **No new dependencies.** `react-resizable-panels` already supports `orientation="vertical"` (verified via `npx ctx7@latest docs /bvaughn/react-resizable-panels "vertical orientation Group Panel Separator"`).
+- **One-time `localStorage` semantic flip avoided** by the `:v2` key bump — users who tuned the pre-Phase-11 split start at the new default on next page load.
+- **Tab content at 40% height** — the default 60/40 split gives the Notes editor / Images grid / Resources list 40% of the available vertical space. If dogfooding shows that's too cramped, raise `DEFAULT_VERTICAL_SPLIT_RATIO` to `65` or `70`. The user can also drag the divider down to taste.
+- **Phone / tablet branches unchanged.** PR #4c-4 layouts (`< 600px` full-screen + drawer, `600–899px` floating PiP) preserved verbatim — only the desktop branch swapped.
+- **Naming.** No `mentor`/`mentee` words. New helper `<TabContent>` is descriptive of its role; new component name `<TabContentWithVideo>` mirrors the pre-Phase-11 `<ChatTabWithVideo>` minus the chat-specific scope.
+
+
 ## File Changes
 
 ### New Files (across all PRs)
@@ -1178,16 +1239,21 @@ Closes the third layer of the three-layer `videoRoomName` uniqueness safety case
 **Utilities:**
 - `apps/platform/lib/daily.ts` — Daily.co API helpers
 
+**E2E specs (video calling):**
+- `tests/e2e/video-call-mobile.spec.ts` — PR #4c-4 phone / tablet / desktop viewport coverage (375×667, 500×800, 1280×720)
+- `tests/e2e/video-call-vertical-desktop.spec.ts` — PR #11 vertical-stack desktop coverage: vertical Group direction, DOM order of video/content panels, call-survival across tab switches, viewport resize to tablet falls back to PiP, `:v2` `localStorage` key persistence
+
 ### Modified Files
 
 - `convex/schema.ts` — Add `sessionId` to `workspace_notes/links/images`; add `callStartedAt`, `callEndedAt`, `isAdhoc` to `sessions`
 - `convex/sessions.ts` — Add room creation/query mutations; trigger live-session-note creation on `callStartedAt` transition
 - `apps/platform/components/instructor/session-cards.tsx` — Add "Join Call" button
-- `apps/platform/components/workspace/workspace-client-page.tsx` — Mount `VideoPanel`, pass `isCallActive` to tabs, gate by active session
+- `apps/platform/components/workspace/workspace-client-page.tsx` — Mount `VideoPanel`, pass `isCallActive` to tabs, gate by active session. **Phase 11:** renamed `ChatTabWithVideo` → `TabContentWithVideo`; added `TabContent` helper; desktop branch swaps the pre-Phase-11 horizontal `<Group>` for `orientation="vertical"` (`<Panel id="video">` top / `<Panel id="content">` bottom); `isChatTab` → `isInCall` for the outer-container height gates; video panel now mounts on every workspace tab during a call, not just Chat.
 - `apps/platform/components/workspace/workspace.tsx` — Wrap with `VideoCallProvider`
 - `apps/platform/components/workspace/notes.tsx` — Auto-create live session note, pin it, add Calls sub-section with Play/Download
 - `apps/platform/components/workspace/images.tsx` — Add "Paste from clipboard" while call is active; default `sessionId` tagging
 - `apps/platform/components/workspace/links.tsx` — Default `sessionId` tagging; show "Shared during current call" subpanel
+- `apps/platform/lib/video/constants.ts` — **Phase 11:** renamed `DEFAULT_SPLIT_RATIO` → `DEFAULT_VERTICAL_SPLIT_RATIO` and `SPLIT_RATIO_STORAGE_KEY = "video-call-split-ratio"` → `VERTICAL_SPLIT_RATIO_STORAGE_KEY = "video-call-split-ratio:v2"`
 - `apps/platform/components/workspace/chat.tsx` — Add banner explaining it replaces Daily chat while call is active
 - `apps/platform/components/workspace/resources.tsx` — (instructor-only) Surface resources shared during current call
 
