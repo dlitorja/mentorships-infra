@@ -152,11 +152,16 @@ test.describe("Video call — tablet portrait (500×800)", () => {
     // absent.
     await expect(page.getByTestId("video-panel-fullscreen")).toHaveCount(0);
     // The desktop split uses `react-resizable-panels`; assert it is
-    // NOT rendered. The Group container exposes `role="separator"`
-    // or a generic `[data-panel-group-direction="horizontal"]` we
-    // can query.
+    // NOT rendered at tablet-portrait width. Phase 11 flipped the
+    // desktop split direction from horizontal to vertical, so the
+    // selector must check BOTH orientations — otherwise a vertical
+    // split panel accidentally rendered at 500 px would slip through
+    // CI undetected.
     await expect(
       page.locator("[data-panel-group-direction='horizontal']")
+    ).toHaveCount(0);
+    await expect(
+      page.locator("[data-panel-group-direction='vertical']")
     ).toHaveCount(0);
     // Floating PiP mounts as a fixed-positioned dialog with a
     // known aria-label from picture-in-picture.tsx:140.
