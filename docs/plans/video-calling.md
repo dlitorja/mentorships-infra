@@ -699,7 +699,7 @@ The same identity-check helper should be reused across all endpoints to keep aut
 - [x] Configure B2 bucket with IAM role for Daily
 - [x] Add `@daily-co/daily-react` to apps/platform
 
-### Phase 2: Schema + Core Integration — ✅ Shipped in PR #2
+### Phase 2: Schema + Core Integration — ✅ Shipped in PR #1 + PR #2 + PR #3
 - [x] Add `sessionId` to `workspace_notes`, `workspace_links`, `workspace_images`
 - [x] Add `callStartedAt`, `callEndedAt`, `isAdhoc` to `sessions`
 - [x] Create `VideoCallProvider` context and Jotai atoms
