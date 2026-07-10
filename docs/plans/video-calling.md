@@ -6,92 +6,92 @@ todos:
     owner: user
     phase: 0
     content: Set up Daily.co account and API key
-    status: pending
+    status: done
   - id: b2-iam-role
     owner: user
     phase: 0
     content: Configure B2 bucket IAM role for Daily.co recording storage
-    status: pending
+    status: done
   - id: sdk-integration
     owner: agent
     phase: 1
     content: Add @daily-co/daily-react SDK to apps/platform
-    status: pending
+    status: done
   - id: schema-content-sessionid
     owner: agent
     phase: 1
     content: Add sessionId foreign key to workspace_notes, workspace_links, workspace_images + callStartedAt/callEndedAt to sessions
-    status: pending
+    status: done
   - id: recording-storage
     owner: agent
     phase: 1
     content: Add recording webhook (POST /api/webhooks/daily/recordings) and store recordingUrl in Convex
-    status: pending
+    status: done
   - id: room-creation-api
     owner: agent
     phase: 2
     content: Create room creation API endpoint (POST /api/video/rooms)
-    status: pending
+    status: done
   - id: token-generation
     owner: agent
     phase: 2
     content: Implement token generation with role derived server-side from authenticated session (GET /api/video/token/[roomName])
-    status: pending
+    status: done
   - id: active-call-query
     owner: agent
     phase: 2
     content: Implement GET /api/video/active/[workspaceId] to determine if a call is live in a workspace
-    status: pending
+    status: done
   - id: video-call-provider
     owner: agent
     phase: 3
     content: Create VideoCallProvider with Jotai atoms (panelMode, splitRatio, activeSessionId, callState, liveSessionNoteId)
-    status: pending
+    status: done
   - id: hybrid-panel-ui
     owner: agent
     phase: 3
     content: Create VideoPanel with 50/50 default + draggable divider (min 360px/side) using react-resizable-panels; persist ratio to localStorage
-    status: pending
+    status: done
   - id: picture-in-picture
     owner: agent
     phase: 3
     content: Create PictureInPicture floating component (bottom-right)
-    status: pending
+    status: done
   - id: call-status-pill
     owner: agent
     phase: 3
     content: Create CallStatusPill in workspace header (live indicator, timer, participants)
-    status: pending
+    status: done
   - id: waiting-room
     owner: agent
     phase: 3
     content: Create WaitingRoom UI for student admit by instructor
-    status: pending
+    status: done
   - id: video-component
     owner: agent
     phase: 3
     content: Create video call component with DailyProvider, DailyVideo, controls (chat disabled)
-    status: pending
+    status: done
   - id: workspace-mount
     owner: agent
     phase: 3
     content: Mount VideoPanel in workspace-client-page.tsx gated by active session
-    status: pending
+    status: done
   - id: chat-tab-banner
     owner: agent
     phase: 3
     content: Add banner on Chat tab explaining it replaces Daily chat while a call is active
-    status: pending
+    status: done
   - id: keyboard-shortcuts
     owner: agent
     phase: 3
     content: Wire keyboard shortcuts (Cmd/Ctrl+K quick capture, +Shift+L tag toggle, +Shift+H hide panel, +Shift+V toggle panel, +Shift+M mute, +Shift+S screenshare, Escape PiP)
-    status: pending
+    status: done
   - id: session-integration
     owner: agent
     phase: 3
     content: Add "Join Video Call" button on session cards (both roles)
-    status: pending
+    status: done
   - id: adhoc-call-api
     owner: agent
     phase: 4
@@ -213,6 +213,9 @@ Key behaviors:
 - **PR #5 (Phase 8 — `instructorResources` share-to-call) — shipped.** See [PR #5 Delivery](#pr-5-delivery--instructorresources-share-to-call). Widen-only schema (`sessionId?` + `by_workspaceId_sessionId`), tagged resources surface in the PR #4c-3 subpanel alongside links with a type badge.
 - **PR #7 WIDEN + MIGRATE — `videoRoomName` uniqueness — shipped.** See [PR #7 WIDEN + MIGRATE Delivery](#pr-7-widen--migrate-delivery--videoroomname-uniqueness). PR #611 added an insert-time `VIDEO_ROOM_NAME_TAKEN` guard inside `setVideoRoom` (`convex/sessions.ts:1278-1296`). PR #612 dropped the legacy `.collect()` + `if (matches.length > 1) throw` read-site guards at `convex/sessions.ts:1146-1164` and `1401-1426` after a production audit confirmed zero drift (`totalSessions=2, sessionsWithVideoRoomName=0`); new `internal.audit.videoRoomNameAudit.auditVideoRoomNames` query is the on-demand drift monitor. NARROW phase (replace `.collect()` with `.unique()`) is **deferred** until Convex ships schema-time uniqueness for `v.optional(v.string())` indexed fields.
 - **PR #613 (GitHub PR #614) — `videoRoomName` drift cron monitor — shipped.** See [PR #613 Delivery](#pr-613-delivery--videoroomname-drift-cron-monitor). Wraps the `auditVideoRoomNames` `internalQuery` in a `auditVideoRoomNameDriftMonitor` `internalAction` and wires it via `crons.interval` every 6 hours in `convex/crons.ts` (cron id `audit-video-room-name-drift`). Drift surfaces via `console.error` to the Convex dashboard log; no new schema, no email, no Slack — matches the MIGRATE-phase recovery path.
+- **PR #615 (docs-only, GitHub #615) — shipped 2026-07-09.** `docs(plans): update video-calling.md with PR #4c-4 + PR #7 MIGRATE delivery + Greptile P2 NARROW guard wording`. Reconciles the plan doc with the post-#4c-4 + #7 MIGRATE state; refreshes the Phase table; adds the PR #4c-4 Delivery section.
+- **PR #616 (docs-only, GitHub #616) — shipped 2026-07-09.** `docs(plans): PR #610 delivery + reconciliation — flip stale todo, refresh status line`. Reconciles the plan doc with PR #5 R1 nits (now PR #610); flips the stale `resources-student-subpanel` todo to `done`; adds the PR #610 Delivery section.
+- **PR #617 (chat-tab silent-failure + Convex auth race fix) — shipped 2026-07-09.** Three independent root causes observed after PR #4b landed. (1) `@convex-dev/react-query` `subscribeInner` leaks sentinel-shaped ids through `enabled: false` on first render — fixed by switching `useLiveSessionNote` / `useNoteComments` to the library's `"skip"` arg pattern. (2) `convex/inCallNotifications.ts` reads (`getUnreadForUser` / `getUnreadForWorkspace`) threw via `requireIdentity` on first render before Clerk populated the auth token — switched to `getIdentity` (returns `null` on no auth) and early-return `[]` / `null`, matching the silent-empty contract that `getWorkspaceMessages` already uses; mutations still throw via `requireIdentityForMutation`. (3) `apps/platform/app/layout.tsx` had `<QueryProvider><ConvexClientProvider>`; `ConvexProviderWithClerk` `setAuth()` only runs post-render, so the first paint's `useConvexAuth().isAuthenticated` was false and `convexQueryClient.connect()` in `QueryProvider`'s `useEffect` ran AFTER the first render commit — missing `subscribeInner` "added" events. Swapped to `<ConvexClientProvider><QueryProvider>`. Gated the auth-driven invalidation logic on `useConvex()` so the build-time `skipClerk` branch doesn't crash on `useConvexAuth()` outside a `ConvexProvider`; the invalidator now lives in a dedicated `<AuthDrivenInvalidator>` child that only mounts when a `ConvexProvider` is above us. Adds Playwright regression spec `tests/e2e/chat-submit.spec.ts`. No Clerk props, env vars, or wiring modified — only the layout order of the two providers (user-approved).
 - **Hotfix PR #607 (identity.subject) — shipped before PR #5.** P1: `POST /api/video/start-adhoc` returned 403 on `dev.mentorships.huckleberry.art` because `convex/sessions.ts` compared `instructor.userId` (bare Clerk ID) against `identity.tokenIdentifier` (issuer-prefixed canonical). Standardized 30+ comparisons across `convex/sessions.ts`, `convex/inCallNotifications.ts`, `convex/instructors.ts` on `identity.subject` (matches existing convention in `bookings.ts`, `seatReservations.ts`, `instructorResources.ts`); narrowed `requireIdentity` return type; added `clerk.dev.mentorships.huckleberry.art` to the auth.config.ts fallback for Vercel preview deploys.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
@@ -690,32 +693,32 @@ The same identity-check helper should be reused across all endpoints to keep aut
 
 ## Implementation Phases
 
-### Phase 1: Setup
-- [ ] Create Daily.co account (paid plan for recording)
-- [ ] Get Daily.co API key
-- [ ] Configure B2 bucket with IAM role for Daily
-- [ ] Add `@daily-co/daily-react` to apps/platform
+### Phase 1: Setup — ✅ Shipped in PR #1
+- [x] Create Daily.co account (paid plan for recording)
+- [x] Get Daily.co API key
+- [x] Configure B2 bucket with IAM role for Daily
+- [x] Add `@daily-co/daily-react` to apps/platform
 
-### Phase 2: Schema + Core Integration
-- [ ] Add `sessionId` to `workspace_notes`, `workspace_links`, `workspace_images`
-- [ ] Add `callStartedAt`, `callEndedAt`, `isAdhoc` to `sessions`
-- [ ] Create `VideoCallProvider` context and Jotai atoms
-- [ ] Create `VideoCall` component with DailyProvider
-- [ ] Create `VideoControls` component (mute, camera, screenshare, record)
-- [ ] Implement room creation endpoint (`POST /api/video/rooms`)
-- [ ] Implement token generation endpoint (`GET /api/video/token/[roomName]`) — role resolved server-side from authenticated session, never from request input
-- [ ] Implement active call query endpoint (`GET /api/video/active/[workspaceId]`)
-- [ ] Add "Join Video Call" button to session cards (both roles)
+### Phase 2: Schema + Core Integration — ✅ Shipped in PR #2
+- [x] Add `sessionId` to `workspace_notes`, `workspace_links`, `workspace_images`
+- [x] Add `callStartedAt`, `callEndedAt`, `isAdhoc` to `sessions`
+- [x] Create `VideoCallProvider` context and Jotai atoms
+- [x] Create `VideoCall` component with DailyProvider
+- [x] Create `VideoControls` component (mute, camera, screenshare, record)
+- [x] Implement room creation endpoint (`POST /api/video/rooms`)
+- [x] Implement token generation endpoint (`GET /api/video/token/[roomName]`) — role resolved server-side from authenticated session, never from request input
+- [x] Implement active call query endpoint (`GET /api/video/active/[workspaceId]`)
+- [x] Add "Join Video Call" button to session cards (both roles)
 
-### Phase 3: Hybrid Panel UI
-- [ ] Create `VideoPanel` container with 50/50 default + draggable divider (`react-resizable-panels`, min 360px/side)
-- [ ] Persist split ratio to `localStorage`
-- [ ] Create `PictureInPicture` floating component
-- [ ] Mount `VideoPanel` in `workspace-client-page.tsx` gated by `activeSessionIdAtom`
-- [ ] Implement keyboard shortcuts (Cmd/Ctrl + Shift + V, M, S, H, L, K)
-- [ ] Add minimize / expand / close / fullscreen controls
-- [ ] Add call timer display
-- [ ] Create `CallStatusPill` in workspace header
+### Phase 3: Hybrid Panel UI — ✅ Shipped in PR #3
+- [x] Create `VideoPanel` container with 50/50 default + draggable divider (`react-resizable-panels`, min 360px/side)
+- [x] Persist split ratio to `localStorage`
+- [x] Create `PictureInPicture` floating component
+- [x] Mount `VideoPanel` in `workspace-client-page.tsx` gated by `activeSessionIdAtom`
+- [x] Implement keyboard shortcuts (Cmd/Ctrl + Shift + V, M, S, H, L, K)
+- [x] Add minimize / expand / close / fullscreen controls
+- [x] Add call timer display
+- [x] Create `CallStatusPill` in workspace header
 
 ### Phase 4: Workspace Content Integration — ✅ Shipped in PR #4b
 - [x] Update Notes composer: default `sessionId` tagging, untag toggle, "Tag to current call" UI
