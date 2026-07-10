@@ -244,6 +244,14 @@ export function useVideoCall(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrorMessage(message);
+      // Reset `statusRef.current` synchronously alongside
+      // `setStatus("error")` so a rapid Retry click (or any caller
+      // that invokes `join()` before the React commit lands) is not
+      // silently blocked by the re-entrancy guard above. The
+      // mirror `useEffect` will eventually overwrite this with the
+      // committed `"error"`, so the manual write is purely a
+      // synchronous fallback for the in-between window.
+      statusRef.current = "error";
       setStatus("error");
       await reportError({
         source: "useVideoCall.join",
