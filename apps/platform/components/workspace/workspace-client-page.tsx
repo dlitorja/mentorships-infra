@@ -25,7 +25,7 @@ import { WorkspaceDrawer } from "@/components/video/workspace-drawer";
 import { WorkspaceRowBadge } from "@/components/workspace/workspace-row-badge";
 import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
 import { useIsBelow } from "@/lib/hooks/use-media-query";
-import { useVideoCallContext } from "@/lib/video/video-context";
+import { useVideoCallContext, useIsInCall } from "@/lib/video/video-context";
 import { DEFAULT_VERTICAL_SPLIT_RATIO, VERTICAL_SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
 import type { UserRole } from "@/lib/auth-helpers";
 
@@ -143,7 +143,7 @@ function WorkspaceInner({
   onChangeTab: (tab: string) => void;
   selectedWorkspace: UserWorkspace | undefined;
 }) {
-  const { session, status } = useVideoCallContext();
+  const { session } = useVideoCallContext();
   // PR #4b: pass `sessionId` down to composers so posts during the
   // active call are auto-tagged. `null` outside an active call.
   const activeSessionId: Id<"sessions"> | null =
@@ -152,9 +152,10 @@ function WorkspaceInner({
   // surface to the viewport height so the video + tab split can claim
   // 100% of the available vertical space. Outside a call we keep the
   // page in normal scroll flow so Notes / Images / Links don't get
-  // clipped.
-  const isInCall =
-    status === "joined" || status === "joining" || status === "leaving";
+  // clipped. The shared `useIsInCall()` hook keeps the status mapping
+  // in one place — adding a new transient status (e.g. "reconnecting")
+  // updates every call-aware consumer at once.
+  const isInCall = useIsInCall();
 
   return (
     <div className={`container mx-auto p-4 md:p-6 ${isInCall ? "h-[calc(100dvh-64px)]" : ""}`}>
