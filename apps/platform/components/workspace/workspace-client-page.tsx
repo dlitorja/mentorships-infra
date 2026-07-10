@@ -4,7 +4,7 @@ import { useCallback, useState, useEffect } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { MessageSquare, PanelBottomOpen } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X, FolderArchive } from "lucide-react";
@@ -253,65 +253,24 @@ function WorkspaceInner({
                     endedAt={selectedWorkspace.endedAt}
                   />
                 )}
-                <Tabs
-                  value={activeTab}
-                  onValueChange={onChangeTab}
-                  className={`flex flex-col ${isInCall ? "h-full min-h-0" : ""}`}
-                >
-                  <TabsList className="shrink-0">
-                    <TabsTrigger value="chat" className="gap-2">
-                      <MessageSquare className="h-4 w-4" />
-                      Chat
-                    </TabsTrigger>
-                    <TabsTrigger value="notes" className="gap-2">
-                      <FileText className="h-4 w-4" />
-                      Notes
-                    </TabsTrigger>
-                    <TabsTrigger value="images" className="gap-2">
-                      <ImageIcon className="h-4 w-4" />
-                      Images
-                    </TabsTrigger>
-                    <TabsTrigger value="links" className="gap-2">
-                      <LinkIcon className="h-4 w-4" />
-                      Links
-                    </TabsTrigger>
-                    {userRole !== 'student' && (
-                      <TabsTrigger value="resources" className="gap-2">
-                        <FolderArchive className="h-4 w-4" />
-                        My Resources
-                      </TabsTrigger>
-                    )}
-                  </TabsList>
-
-                  {/* Phase 11: when an active call is in progress, the
-                   * video panel sits in a vertical-stack split above the
-                   * active tab content (rendered by `<TabContentWithVideo>`)
-                   * so the call stays visible while the user navigates
-                   * Notes / Images / Links / Resources. Outside a call
-                   * we fall back to the plain tab content.
-                   *
-                   * Greptile P2 (Phase 11): Radix's `<TabsContent>` shim
-                   * renders `role="tabpanel"` and links each `<TabsTrigger>`'s
-                   * `aria-controls` to it. Phase 11 lifted the body out of
-                   * `<TabsContent>` (so the same body can mount in three
-                   * places — standalone, vertical stack bottom panel, drawer
-                   * body), so we add `role="tabpanel"` + `aria-label`
-                   * manually to keep the screen-reader association between
-                   * trigger and content. */}
-                  <div
-                    role="tabpanel"
-                    aria-label={activeTab}
-                    className={isInCall ? "flex-1 min-h-0 mt-4" : "mt-4"}
-                  >
-                    <TabContentWithVideo
-                      workspaceId={selectedWorkspace._id}
-                      clerkUserId={clerkUserId}
-                      role={userRole}
-                      activeSessionId={activeSessionId}
-                      activeTab={activeTab}
-                    />
-                  </div>
-                </Tabs>
+                {/* Phase 11: `<WorkspaceTabs>` always renders the same
+                 * `<Tabs>` + `<TabsList>` + `<TabsContent>` subtree so
+                 * Radix's generated `role="tabpanel"` + `id` +
+                 * `aria-labelledby` + `aria-controls` linkage between
+                 * each trigger and its panel is preserved on every
+                 * viewport and call-status branch. The viewport +
+                 * call-status branch decides only the outer wrapper
+                 * (no wrapper, vertical `<Group>`, drawer, or floating
+                 * PiP) — never the Radix surface. */}
+                <WorkspaceTabs
+                  workspaceId={selectedWorkspace._id}
+                  clerkUserId={clerkUserId}
+                  role={userRole}
+                  activeSessionId={activeSessionId}
+                  activeTab={activeTab}
+                  onChangeTab={onChangeTab}
+                  isInCall={isInCall}
+                />
               </CardContent>
             </Card>
           ) : (
@@ -329,10 +288,12 @@ function WorkspaceInner({
 }
 
 /**
- * Phase 11: renders the workspace body for whichever tab the user
- * picked. Phase 11 lifts the body out of `<TabsContent>` so the same
- * component can mount either standalone (no call) or as the bottom
- * panel of the desktop vertical stack / the drawer body on phone.
+ * Renders the workspace body for whichever tab the user picked.
+ * Centralizes the `activeTab` → workspace-component mapping so the
+ * `<TabsContent>` body, the drawer body, and the vertical-stack
+ * bottom panel all share one switch (instead of four parallel
+ * `<TabsContent>` blocks). Mounted inside `<TabsContent>` in
+ * `<WorkspaceTabs>`.
  */
 function TabContent({
   workspaceId,
@@ -402,53 +363,51 @@ function TabContent({
 }
 
 /**
- * Tab content with optional vertical-stack split for an active video
- * call. When no call is active, renders the active tab full-width.
- * When a call is active, splits vertically — video on top, active
- * tab on the bottom — so the call stays visible while the user
- * navigates Chat / Notes / Images / Links / Resources without
- * ending the call.
+ * Phase 11: owns the `<Tabs>` subtree and chooses the wrapper around
+ * it based on `(isInCall, viewport)`. Critically, the same
+ * `<TabsList>` + `<TabsContent>` Radix surface is rendered in every
+ * branch so the screen-reader linkage between each `<TabsTrigger>`'s
+ * `aria-controls` and the matching panel's `aria-labelledby` is
+ * always present — only the outer container changes (no wrapper,
+ * vertical `<Group>`, drawer, or floating PiP sibling).
  *
- * Phase 11 breakpoint logic (vertical stack only on desktop):
- *   - ≥ 900px: vertical `<Group>` (video on top, active tab below)
- *     with a horizontal resizable divider. Persisted ratio lives
- *     under `VERTICAL_SPLIT_RATIO_STORAGE_KEY` (Phase 11 bumped the
- *     storage key from `video-call-split-ratio` to `:v2` so users
- *     who tuned the pre-Phase-11 horizontal split start at the new
- *     default instead of silently flipping the semantic).
- *   - 600–899px: active tab full-width + floating `<VideoPanel>` PiP.
- *   - < 600px: `<VideoPanel>` takes the full viewport; the active
- *     tab lives behind a `<WorkspaceDrawer>` bottom-sheet that the
- *     user opens via a "Workspace" button on the video chrome.
- *
- * Reading from `VideoCallContext` here instead of taking the session
- * as a prop keeps the "should we split?" decision inside the same
- * tree that knows whether the user has joined a call, without
- * plumbing through extra props.
+ *   - No call: just the `<Tabs>` subtree.
+ *   - In call, ≥ 900px: vertical `<Group>` (video on top, `<Tabs>`
+ *     below) with a horizontal resizable divider. Persisted ratio
+ *     lives under `VERTICAL_SPLIT_RATIO_STORAGE_KEY` (Phase 11 bumped
+ *     the storage key from `video-call-split-ratio` to `:v2` so
+ *     users who tuned the pre-Phase-11 horizontal split start at
+ *     the new default instead of silently flipping the semantic).
+ *   - In call, 600–899px: `<Tabs>` full-width + floating
+ *     `<VideoPanel>` PiP.
+ *   - In call, < 600px: `<VideoPanel>` takes the full viewport;
+ *     the `<Tabs>` subtree lives behind a `<WorkspaceDrawer>`
+ *     bottom-sheet that the user opens via a "Workspace" button on
+ *     the video chrome.
  */
-function TabContentWithVideo({
+function WorkspaceTabs({
   workspaceId,
   clerkUserId,
   role,
   activeSessionId,
   activeTab,
+  onChangeTab,
+  isInCall,
 }: {
   workspaceId: Id<"workspaces">;
   clerkUserId: string;
   role: UserRole;
   activeSessionId: Id<"sessions"> | null;
   activeTab: string;
+  onChangeTab: (tab: string) => void;
+  isInCall: boolean;
 }): React.ReactElement {
-  const { status } = useVideoCallContext();
   const { ratio, setRatio } = useSplitRatio(
     VERTICAL_SPLIT_RATIO_STORAGE_KEY,
     DEFAULT_VERTICAL_SPLIT_RATIO
   );
   const videoSize = ratio;
   const tabSize = 100 - ratio;
-
-  const isInCall =
-    status === "joined" || status === "joining" || status === "leaving";
 
   // `useIsBelow` returns `null` on first render — resolve to false so
   // SSR paints the desktop branch on hydration. The first `change`
@@ -474,16 +433,59 @@ function TabContentWithVideo({
     [setRatio]
   );
 
+  // Single `<Tabs>` subtree reused by every branch so the Radix
+  // trigger ↔ tabpanel linkage (id, aria-labelledby, aria-controls)
+  // is generated once and never changes identity across branch
+  // switches — important because `<WorkspaceTabs>` can swap between
+  // no-call, phone, tablet, and desktop renderers as the viewport
+  // and call status change.
+  const tabsBlock = (
+    <Tabs
+      value={activeTab}
+      onValueChange={onChangeTab}
+      className={isInCall ? "flex flex-col h-full min-h-0" : ""}
+    >
+      <TabsList className="shrink-0">
+        <TabsTrigger value="chat" className="gap-2">
+          <MessageSquare className="h-4 w-4" />
+          Chat
+        </TabsTrigger>
+        <TabsTrigger value="notes" className="gap-2">
+          <FileText className="h-4 w-4" />
+          Notes
+        </TabsTrigger>
+        <TabsTrigger value="images" className="gap-2">
+          <ImageIcon className="h-4 w-4" />
+          Images
+        </TabsTrigger>
+        <TabsTrigger value="links" className="gap-2">
+          <LinkIcon className="h-4 w-4" />
+          Links
+        </TabsTrigger>
+        {role !== "student" && (
+          <TabsTrigger value="resources" className="gap-2">
+            <FolderArchive className="h-4 w-4" />
+            My Resources
+          </TabsTrigger>
+        )}
+      </TabsList>
+      <TabsContent
+        value={activeTab}
+        className={isInCall ? "flex-1 min-h-0 mt-4" : "mt-4"}
+      >
+        <TabContent
+          workspaceId={workspaceId}
+          clerkUserId={clerkUserId}
+          role={role}
+          activeSessionId={activeSessionId}
+          activeTab={activeTab}
+        />
+      </TabsContent>
+    </Tabs>
+  );
+
   if (!isInCall) {
-    return (
-      <TabContent
-        workspaceId={workspaceId}
-        clerkUserId={clerkUserId}
-        role={role}
-        activeSessionId={activeSessionId}
-        activeTab={activeTab}
-      />
-    );
+    return tabsBlock;
   }
 
   if (isPhoneResolved) {
@@ -501,17 +503,8 @@ function TabContentWithVideo({
         >
           <PanelBottomOpen className="h-5 w-5" />
         </Button>
-        <WorkspaceDrawer
-          open={drawerOpen}
-          onOpenChange={setDrawerOpen}
-        >
-          <TabContent
-            workspaceId={workspaceId}
-            clerkUserId={clerkUserId}
-            role={role}
-            activeSessionId={activeSessionId}
-            activeTab={activeTab}
-          />
+        <WorkspaceDrawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+          {tabsBlock}
         </WorkspaceDrawer>
       </>
     );
@@ -520,19 +513,16 @@ function TabContentWithVideo({
   if (isNarrowResolved) {
     return (
       <>
-        <TabContent
-          workspaceId={workspaceId}
-          clerkUserId={clerkUserId}
-          role={role}
-          activeSessionId={activeSessionId}
-          activeTab={activeTab}
-        />
+        {tabsBlock}
         <VideoPanel />
       </>
     );
   }
 
-  // Desktop (≥ 900px): vertical stack — video on top, active tab below.
+  // Desktop (≥ 900px): vertical stack — video on top, `<Tabs>`
+  // subtree below. Radix's `<TabsContent>` lives inside the bottom
+  // panel and keeps its generated id/aria-labelledby/aria-controls
+  // pairing with the `<TabsList>` triggers above.
   return (
     <Group
       orientation="vertical"
@@ -545,13 +535,7 @@ function TabContentWithVideo({
       </Panel>
       <Separator className="h-1.5 bg-border transition-colors hover:bg-primary" />
       <Panel id="content" defaultSize={tabSize} minSize={20}>
-        <TabContent
-          workspaceId={workspaceId}
-          clerkUserId={clerkUserId}
-          role={role}
-          activeSessionId={activeSessionId}
-          activeTab={activeTab}
-        />
+        {tabsBlock}
       </Panel>
     </Group>
   );

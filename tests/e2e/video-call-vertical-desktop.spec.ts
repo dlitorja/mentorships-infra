@@ -90,9 +90,10 @@ test.describe("Video call — vertical-stack desktop (1280×720)", () => {
     const group = page.locator("[data-panel-group-direction='vertical']");
     await expect(group).toBeVisible({ timeout: 15_000 });
 
-    // Phase 11 panel ids inside `<TabContentWithVideo>` desktop branch:
+    // Phase 11 panel ids inside `<WorkspaceTabs>` desktop branch:
     //   id="video"  — top panel, contains `<VideoPanel>`.
-    //   id="content" — bottom panel, contains the active tab body.
+    //   id="content" — bottom panel, contains the `<Tabs>` subtree
+    //                  (Radix `<TabsContent>` for the active tab).
     const videoPanel = page.locator("[data-panel-id='video']");
     const contentPanel = page.locator("[data-panel-id='content']");
     await expect(videoPanel).toBeVisible();
