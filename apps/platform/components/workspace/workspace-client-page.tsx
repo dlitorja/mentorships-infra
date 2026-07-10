@@ -288,8 +288,21 @@ function WorkspaceInner({
                    * active tab content (rendered by `<TabContentWithVideo>`)
                    * so the call stays visible while the user navigates
                    * Notes / Images / Links / Resources. Outside a call
-                   * we fall back to the plain tab content. */}
-                  <div className={isInCall ? "flex-1 min-h-0 mt-4" : "mt-4"}>
+                   * we fall back to the plain tab content.
+                   *
+                   * Greptile P2 (Phase 11): Radix's `<TabsContent>` shim
+                   * renders `role="tabpanel"` and links each `<TabsTrigger>`'s
+                   * `aria-controls` to it. Phase 11 lifted the body out of
+                   * `<TabsContent>` (so the same body can mount in three
+                   * places — standalone, vertical stack bottom panel, drawer
+                   * body), so we add `role="tabpanel"` + `aria-label`
+                   * manually to keep the screen-reader association between
+                   * trigger and content. */}
+                  <div
+                    role="tabpanel"
+                    aria-label={activeTab}
+                    className={isInCall ? "flex-1 min-h-0 mt-4" : "mt-4"}
+                  >
                     <TabContentWithVideo
                       workspaceId={selectedWorkspace._id}
                       clerkUserId={clerkUserId}
@@ -362,7 +375,8 @@ function TabContent({
       />
     );
   }
-  if (activeTab === "resources" && role !== "student") {
+  if (activeTab === "resources") {
+    if (role === "student") return <WorkspaceChat workspaceId={workspaceId} currentUserId={clerkUserId} role={role} activeSessionId={activeSessionId} />;
     return (
       <WorkspaceResources
         workspaceId={workspaceId}
@@ -372,6 +386,11 @@ function TabContent({
       />
     );
   }
+  // Greptile P2 (Phase 11): an explicit chat branch surfaces the
+  // default and keeps the activeTab-vs-renderer mapping in one place.
+  // An unknown tab value falls through to chat (the historical default)
+  // so a missing if-branch above still renders something useful rather
+  // than a blank surface.
   return (
     <WorkspaceChat
       workspaceId={workspaceId}

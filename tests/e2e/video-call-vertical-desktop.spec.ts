@@ -177,7 +177,6 @@ test.describe("Video call — desktop split ratio persistence", () => {
 
   test("persists the vertical split ratio under the Phase 11 v2 key", async ({
     page,
-    context,
   }) => {
     await page.goto(WORKSPACE_URL);
     const group = page.locator("[data-panel-group-direction='vertical']");
@@ -196,7 +195,6 @@ test.describe("Video call — desktop split ratio persistence", () => {
 
     // Clear the v2 entry and reload — the default ratio (60) should
     // be restored on the next mount.
-    await context.clearCookies();
     await page.evaluate(() => window.localStorage.removeItem("video-call-split-ratio:v2"));
     await page.reload();
     await expect(group).toBeVisible({ timeout: 15_000 });
