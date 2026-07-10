@@ -269,9 +269,14 @@ export function useVideoCall(
     if (meetingState !== "joined-meeting") {
       // We never successfully joined this session — don't burn the
       // `endCall` mutation by claiming we did.
+      // Mirror `join()`'s synchronous statusRef pattern so a rapid
+      // `join()` after this short-circuit isn't blocked by a stale
+      // ref value.
+      statusRef.current = "idle";
       setStatus("idle");
       return;
     }
+    statusRef.current = "leaving";
     setStatus("leaving");
     try {
       await daily.leave();
@@ -280,6 +285,10 @@ export function useVideoCall(
       }
       didJoinRef.current = false;
       setJoinedSessionId(null);
+      // Synchronously flip statusRef so a rapid rejoin after End Call
+      // (e.g., user immediately clicks Join again) doesn't see a
+      // stale `"leaving"` value before the `useEffect` mirror fires.
+      statusRef.current = "idle";
       setStatus("idle");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -290,6 +299,7 @@ export function useVideoCall(
         message: "Failed to leave video call cleanly",
         context: { workspaceId, sessionId },
       });
+      statusRef.current = "error";
       setStatus("error");
       setErrorMessage(message);
     }
