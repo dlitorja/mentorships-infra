@@ -116,6 +116,19 @@ export function useVideoCall(
   const remoteSessionIdRef = useRef<string | null>(null);
 
   const [status, setStatus] = useState<VideoCallStatus>("idle");
+  // Synchronous mirror of `status` so `join()` can re-entrancy-guard
+  // itself before the first `setStatus("joining")` has committed.
+  // Without this, two rapid callers (auto-join effect re-fire, button
+  // double-click) can both pass the `call.status !== "idle"` check at
+  // the provider level and issue duplicate `GET /api/video/token/...`
+  // fetches — each 403s after `endCall` because
+  // `getSessionByVideoRoomName` returns null for sessions whose
+  // `callEndedAt` is set. The ref updates synchronously inside `join`
+  // so the second caller bails before issuing the duplicate request.
+  const statusRef = useRef<VideoCallStatus>("idle");
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [remoteParticipantName, setRemoteParticipantName] = useState<
@@ -189,6 +202,23 @@ export function useVideoCall(
       setStatus("error");
       return;
     }
+    // Re-entrancy guard: bail if a join/leave round is in flight or
+    // the call is already joined. Two rapid callers (auto-join
+    // effect re-fire, button double-click) can both pass the
+    // provider-level `call.status !== "idle"` check before this
+    // hook's `setStatus("joining")` has committed, causing duplicate
+    // token fetches. `statusRef.current` updates synchronously below
+    // so the second caller sees `"joining"` / `"joined"` / `"leaving"`
+    // and bails. `"idle"` and `"error"` both allow entry — the
+    // latter so the Retry button works after a failed join.
+    if (
+      statusRef.current === "joining" ||
+      statusRef.current === "joined" ||
+      statusRef.current === "leaving"
+    ) {
+      return;
+    }
+    statusRef.current = "joining";
     setErrorMessage(null);
     setStatus("joining");
     try {
