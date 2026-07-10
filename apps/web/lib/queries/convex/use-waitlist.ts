@@ -10,7 +10,6 @@ import { Id } from "../../../../../convex/_generated/dataModel";
 export function useAddToWaitlist() {
   const queryClient = useQueryClient();
 
-  // @ts-ignore - Convex mutation typing issue with waitlist mutations
   return useMutation({
     mutationFn: useConvexMutation(api.waitlist.addToWaitlist),
     onSuccess: () => {
@@ -26,7 +25,6 @@ export function useAddToWaitlist() {
 export function useRemoveFromWaitlist() {
   const queryClient = useQueryClient();
 
-  // @ts-ignore - Convex mutation typing issue with waitlist mutations
   return useMutation({
     mutationFn: useConvexMutation(api.waitlist.removeFromWaitlist),
     onSuccess: () => {
@@ -42,7 +40,6 @@ export function useRemoveFromWaitlist() {
 export function useRemoveMultipleFromWaitlist() {
   const queryClient = useQueryClient();
 
-  // @ts-ignore - Convex mutation typing issue with waitlist mutations
   return useMutation({
     mutationFn: useConvexMutation(api.waitlist.removeMultipleFromWaitlist),
     onSuccess: () => {
@@ -58,7 +55,6 @@ export function useRemoveMultipleFromWaitlist() {
 export function useRemoveByEmail() {
   const queryClient = useQueryClient();
 
-  // @ts-ignore - Convex mutation typing issue with waitlist mutations
   return useMutation({
     mutationFn: useConvexMutation(api.waitlist.removeByEmail),
     onSuccess: () => {
@@ -74,7 +70,6 @@ export function useRemoveByEmail() {
 export function useMarkNotified() {
   const queryClient = useQueryClient();
 
-  // @ts-ignore - Convex mutation typing issue with waitlist mutations
   return useMutation({
     mutationFn: useConvexMutation(api.waitlist.markNotified),
     onSuccess: () => {
@@ -90,7 +85,6 @@ export function useMarkNotified() {
 export function useMarkNotifiedByInstructor() {
   const queryClient = useQueryClient();
 
-  // @ts-ignore - Convex mutation typing issue with waitlist mutations
   return useMutation({
     mutationFn: useConvexMutation(api.waitlist.markNotifiedByInstructor),
     onSuccess: () => {
@@ -115,5 +109,5 @@ export function useWaitlistForInstructor(
       mentorshipType,
     }),
     enabled: !!instructorSlug,
-  } as any);
+  });
 }
