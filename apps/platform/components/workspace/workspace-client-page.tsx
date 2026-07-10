@@ -156,12 +156,20 @@ function WorkspaceInner({
   // in one place — adding a new transient status (e.g. "reconnecting")
   // updates every call-aware consumer at once.
   const isInCall = useIsInCall();
+  // Notes tab gets the same viewport-locked inner-scroll layout as an
+  // active call: the page container, sidebar card, workspace card, and
+  // `<TabsContent>` all switch to fixed-height flex chains so the
+  // existing `flex-1 overflow-y-auto` markup inside `notes.tsx` lights
+  // up. Other tabs (Chat, Images, Links, Resources) keep the natural
+  // page-scroll behavior. `isInCall` still controls the video split /
+  // PiP routing — this only mirrors the height constraint for Notes.
+  const useFullHeight = isInCall || activeTab === "notes";
 
   return (
-    <div className={`container mx-auto p-4 md:p-6 ${isInCall ? "h-[calc(100dvh-64px)]" : ""}`}>
-      <div className={`flex flex-col md:flex-row gap-6 ${isInCall ? "h-full" : ""}`}>
+    <div className={`container mx-auto p-4 md:p-6 ${useFullHeight ? "h-[calc(100dvh-64px)]" : ""}`}>
+      <div className={`flex flex-col md:flex-row gap-6 ${useFullHeight ? "h-full" : ""}`}>
         <div className="w-full md:w-64 shrink-0">
-          <Card className={isInCall ? "h-full" : ""}>
+          <Card className={useFullHeight ? "h-full" : ""}>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Workspaces</CardTitle>
             </CardHeader>
@@ -206,7 +214,7 @@ function WorkspaceInner({
 
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
-            <Card className={`flex flex-col ${isInCall ? "h-full" : ""}`}>
+            <Card className={`flex flex-col ${useFullHeight ? "h-full" : ""}`}>
               <CardHeader className="pb-3 shrink-0">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
@@ -246,7 +254,7 @@ function WorkspaceInner({
                 </p>
               </div>
 
-              <CardContent className={isInCall ? "flex-1 min-h-0 pt-0 flex flex-col" : "pt-0"}>
+              <CardContent className={useFullHeight ? "flex-1 min-h-0 pt-0 flex flex-col" : "pt-0"}>
                 <WorkspacePolicyBanner />
                 {selectedWorkspace.endedAt && (
                   <RetentionWarningBanner
@@ -409,6 +417,13 @@ function WorkspaceTabs({
   );
   const videoSize = ratio;
   const tabSize = 100 - ratio;
+  // Mirror `WorkspaceInner.useFullHeight`: Notes tab needs the same
+  // viewport-locked flex chain as an in-call layout so its inner
+  // `flex-1 overflow-y-auto` markup scrolls inside the panel. The
+  // video split / PiP branches below still gate on `isInCall` only —
+  // this constant only governs the height constraint on the `<Tabs>`
+  // subtree.
+  const useFullHeight = isInCall || activeTab === "notes";
 
   // `useIsBelow` returns `null` on first render — resolve to false so
   // SSR paints the desktop branch on hydration. The first `change`
@@ -444,7 +459,7 @@ function WorkspaceTabs({
     <Tabs
       value={activeTab}
       onValueChange={onChangeTab}
-      className={isInCall ? "flex flex-col h-full min-h-0" : ""}
+      className={useFullHeight ? "flex flex-col h-full min-h-0" : ""}
     >
       <TabsList className="shrink-0">
         <TabsTrigger value="chat" className="gap-2">
@@ -472,7 +487,7 @@ function WorkspaceTabs({
       </TabsList>
       <TabsContent
         value={activeTab}
-        className={isInCall ? "flex-1 min-h-0 mt-4" : "mt-4"}
+        className={useFullHeight ? "flex-1 min-h-0 mt-4" : "mt-4"}
       >
         <TabContent
           workspaceId={workspaceId}
