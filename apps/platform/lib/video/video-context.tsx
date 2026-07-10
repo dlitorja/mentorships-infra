@@ -80,3 +80,18 @@ export function useVideoCallContext(): VideoCallContextValue {
   }
   return ctx;
 }
+
+/**
+ * True while the user has an active (or in-progress) video call —
+ * "joined", "joining", or "leaving". Centralizes the status check so
+ * adding a new transient status (e.g. "reconnecting") updates every
+ * consumer in one place instead of risking a missed search-and-replace
+ * across the workspace surface.
+ *
+ * Returns `false` for "idle" and "error" so the workspace chrome
+ * stays in its normal scroll-flow layout outside an active call.
+ */
+export function useIsInCall(): boolean {
+  const { status } = useVideoCallContext();
+  return status === "joined" || status === "joining" || status === "leaving";
+}

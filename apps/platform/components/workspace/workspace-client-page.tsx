@@ -4,7 +4,7 @@ import { useCallback, useState, useEffect } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { MessageSquare, PanelBottomOpen } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X, FolderArchive } from "lucide-react";
@@ -25,8 +25,8 @@ import { WorkspaceDrawer } from "@/components/video/workspace-drawer";
 import { WorkspaceRowBadge } from "@/components/workspace/workspace-row-badge";
 import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
 import { useIsBelow } from "@/lib/hooks/use-media-query";
-import { useVideoCallContext } from "@/lib/video/video-context";
-import { DEFAULT_SPLIT_RATIO, SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
+import { useVideoCallContext, useIsInCall } from "@/lib/video/video-context";
+import { DEFAULT_VERTICAL_SPLIT_RATIO, VERTICAL_SPLIT_RATIO_STORAGE_KEY } from "@/lib/video/constants";
 import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
@@ -84,7 +84,6 @@ function WorkspaceContent({
   }
 
   const selectedWorkspace = workspaces?.find((w: UserWorkspace) => w._id === selectedWorkspaceId);
-  const isChatTab = activeTab === "chat";
 
   return (
     <VideoCallProvider
@@ -107,7 +106,6 @@ function WorkspaceContent({
         activeTab={activeTab}
         onChangeTab={setActiveTab}
         selectedWorkspace={selectedWorkspace}
-        isChatTab={isChatTab}
       />
       {/*
        * PR #4b: QuickCapture mounts once inside the provider so
@@ -135,7 +133,6 @@ function WorkspaceInner({
   activeTab,
   onChangeTab,
   selectedWorkspace,
-  isChatTab,
 }: {
   clerkUserId: string;
   workspaces: UserWorkspace[] | undefined;
@@ -145,19 +142,26 @@ function WorkspaceInner({
   activeTab: string;
   onChangeTab: (tab: string) => void;
   selectedWorkspace: UserWorkspace | undefined;
-  isChatTab: boolean;
 }) {
   const { session } = useVideoCallContext();
   // PR #4b: pass `sessionId` down to composers so posts during the
   // active call are auto-tagged. `null` outside an active call.
   const activeSessionId: Id<"sessions"> | null =
     session?.sessionId ?? null;
+  // Phase 11: when an active call is in progress we pin the workspace
+  // surface to the viewport height so the video + tab split can claim
+  // 100% of the available vertical space. Outside a call we keep the
+  // page in normal scroll flow so Notes / Images / Links don't get
+  // clipped. The shared `useIsInCall()` hook keeps the status mapping
+  // in one place — adding a new transient status (e.g. "reconnecting")
+  // updates every call-aware consumer at once.
+  const isInCall = useIsInCall();
 
   return (
-    <div className={`container mx-auto p-4 md:p-6 ${isChatTab ? "h-[calc(100dvh-64px)]" : ""}`}>
-      <div className={`flex flex-col md:flex-row gap-6 ${isChatTab ? "h-full" : ""}`}>
+    <div className={`container mx-auto p-4 md:p-6 ${isInCall ? "h-[calc(100dvh-64px)]" : ""}`}>
+      <div className={`flex flex-col md:flex-row gap-6 ${isInCall ? "h-full" : ""}`}>
         <div className="w-full md:w-64 shrink-0">
-          <Card className={isChatTab ? "h-full" : ""}>
+          <Card className={isInCall ? "h-full" : ""}>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Workspaces</CardTitle>
             </CardHeader>
@@ -202,7 +206,7 @@ function WorkspaceInner({
 
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
-            <Card className={`flex flex-col ${isChatTab ? "h-full" : ""}`}>
+            <Card className={`flex flex-col ${isInCall ? "h-full" : ""}`}>
               <CardHeader className="pb-3 shrink-0">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
@@ -224,7 +228,10 @@ function WorkspaceInner({
                * calls (Daily's in-call chat is disabled).
                * PR #4a adds the instructor-only "Start ad-hoc call" button
                * and the waiting-room admit control (also instructor-only;
-               * `<WaitingRoom>` self-hides when there are no waiters). */}
+               * `<WaitingRoom>` self-hides when there are no waiters).
+               * Phase 11: the tab strip now stays above the video split
+               * so users can navigate Chat / Notes / Images / Links /
+               * Resources during a call without losing the call. */}
               <div className="px-6 pb-3 flex flex-wrap items-center gap-3 shrink-0">
                 <CallStatusPill />
                 {selectedWorkspace && userRole === "instructor" && (
@@ -239,7 +246,7 @@ function WorkspaceInner({
                 </p>
               </div>
 
-              <CardContent className={isChatTab ? "flex-1 min-h-0 pt-0" : "pt-0"}>
+              <CardContent className={isInCall ? "flex-1 min-h-0 pt-0 flex flex-col" : "pt-0"}>
                 <WorkspacePolicyBanner />
                 {selectedWorkspace.endedAt && (
                   <RetentionWarningBanner
@@ -247,85 +254,24 @@ function WorkspaceInner({
                     endedAt={selectedWorkspace.endedAt}
                   />
                 )}
-                <Tabs
-                  value={activeTab}
-                  onValueChange={onChangeTab}
-                  className={`flex flex-col ${isChatTab ? "h-full" : ""}`}
-                >
-                  <TabsList className="shrink-0">
-                    <TabsTrigger value="chat" className="gap-2">
-                      <MessageSquare className="h-4 w-4" />
-                      Chat
-                    </TabsTrigger>
-                    <TabsTrigger value="notes" className="gap-2">
-                      <FileText className="h-4 w-4" />
-                      Notes
-                    </TabsTrigger>
-                    <TabsTrigger value="images" className="gap-2">
-                      <ImageIcon className="h-4 w-4" />
-                      Images
-                    </TabsTrigger>
-                    <TabsTrigger value="links" className="gap-2">
-                      <LinkIcon className="h-4 w-4" />
-                      Links
-                    </TabsTrigger>
-                    {userRole !== 'student' && (
-                      <TabsTrigger value="resources" className="gap-2">
-                        <FolderArchive className="h-4 w-4" />
-                        My Resources
-                      </TabsTrigger>
-                    )}
-                  </TabsList>
-
-                  {isChatTab ? (
-                    <TabsContent
-                      value="chat"
-                      className="flex-1 min-h-0 mt-4 flex flex-col"
-                    >
-                      <ChatTabWithVideo
-                        workspaceId={selectedWorkspace._id}
-                        clerkUserId={clerkUserId}
-                        role={userRole}
-                        activeSessionId={activeSessionId}
-                      />
-                    </TabsContent>
-                  ) : (
-                    <>
-                      <TabsContent value="notes" className="mt-4">
-                        <WorkspaceNotes
-                          workspaceId={selectedWorkspace._id}
-                          currentUserId={clerkUserId}
-                          activeSessionId={activeSessionId}
-                        />
-                      </TabsContent>
-                      <TabsContent value="images" className="mt-4">
-                        <WorkspaceImages
-                          workspaceId={selectedWorkspace._id}
-                          currentUserId={clerkUserId}
-                          role={userRole}
-                          activeSessionId={activeSessionId}
-                        />
-                      </TabsContent>
-                      <TabsContent value="links" className="flex-1 min-h-0 mt-4">
-                        <WorkspaceLinks
-                          workspaceId={selectedWorkspace._id}
-                          currentUserId={clerkUserId}
-                          activeSessionId={activeSessionId}
-                        />
-                      </TabsContent>
-                      {userRole !== 'student' && (
-                        <TabsContent value="resources" className="flex-1 min-h-0 mt-4">
-                          <WorkspaceResources
-                            workspaceId={selectedWorkspace._id}
-                            currentUserId={clerkUserId}
-                            role={userRole}
-                            activeSessionId={activeSessionId}
-                          />
-                        </TabsContent>
-                      )}
-                    </>
-                  )}
-                </Tabs>
+                {/* Phase 11: `<WorkspaceTabs>` always renders the same
+                 * `<Tabs>` + `<TabsList>` + `<TabsContent>` subtree so
+                 * Radix's generated `role="tabpanel"` + `id` +
+                 * `aria-labelledby` + `aria-controls` linkage between
+                 * each trigger and its panel is preserved on every
+                 * viewport and call-status branch. The viewport +
+                 * call-status branch decides only the outer wrapper
+                 * (no wrapper, vertical `<Group>`, drawer, or floating
+                 * PiP) — never the Radix surface. */}
+                <WorkspaceTabs
+                  workspaceId={selectedWorkspace._id}
+                  clerkUserId={clerkUserId}
+                  role={userRole}
+                  activeSessionId={activeSessionId}
+                  activeTab={activeTab}
+                  onChangeTab={onChangeTab}
+                  isInCall={isInCall}
+                />
               </CardContent>
             </Card>
           ) : (
@@ -343,82 +289,38 @@ function WorkspaceInner({
 }
 
 /**
- * Chat tab content with optional resizable split for an active video
- * call. When no call is active, renders the chat full-width (no
- * split, no separator). When a call is active, splits horizontally
- * — chat on the left, video on the right. Default 60/40 split.
- *
- * PR #4c-4 breakpoint logic (the desktop split only renders ≥ 900px):
- *   - ≥ 900px: chat + resizable split with `<VideoPanel>` inline.
- *   - 600–899px: chat full-width + floating `<VideoPanel>` PiP.
- *   - < 600px: `<VideoPanel>` takes the full viewport; chat lives
- *     behind a `<WorkspaceDrawer>` bottom-sheet that the user opens
- *     via a "Workspace" button on the video chrome.
- *
- * Reading from `VideoCallContext` here instead of taking the session
- * as a prop keeps the "should we split?" decision inside the same
- * tree that knows whether the user has joined a call, without
- * plumbing through extra props.
+ * Renders the workspace body for whichever tab the user picked.
+ * Centralizes the `activeTab` → workspace-component mapping so the
+ * `<TabsContent>` body, the drawer body, and the vertical-stack
+ * bottom panel all share one switch (instead of four parallel
+ * `<TabsContent>` blocks). Mounted inside `<TabsContent>` in
+ * `<WorkspaceTabs>`.
  */
-function ChatTabWithVideo({
+function TabContent({
   workspaceId,
   clerkUserId,
   role,
   activeSessionId,
+  activeTab,
 }: {
   workspaceId: Id<"workspaces">;
   clerkUserId: string;
   role: UserRole;
   activeSessionId: Id<"sessions"> | null;
+  activeTab: string;
 }): React.ReactElement {
-  const { status } = useVideoCallContext();
-  const { ratio, setRatio } = useSplitRatio(
-    SPLIT_RATIO_STORAGE_KEY,
-    DEFAULT_SPLIT_RATIO
-  );
-  const chatSize = ratio;
-  const videoSize = 100 - ratio;
-
-  // Render the split only when an active call is in progress. When no
-  // call is active, give the chat full width so users aren't looking
-  // at a blank 40% right column.
-  const isInCall =
-    status === "joined" || status === "joining" || status === "leaving";
-
-  // PR #4c-4: narrow-viewport branches. `useIsBelow` returns `null`
-  // on first render — resolve to false so SSR paints the desktop
-  // branch on hydration. The first `change` event swaps the layout.
-  const isPhone = useIsBelow(600);
-  const isNarrow = useIsBelow(900);
-  const isPhoneResolved = isPhone ?? false;
-  const isNarrowResolved = isNarrow ?? false;
-
-  // PR #4c-4: phone-mode bottom-sheet drawer is local UI state —
-  // closed by default, opened via the floating "Workspace" button.
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  // Reset to closed if the user resizes out of phone mode with the
-  // drawer open (avoids a stuck drawer the next time they shrink back).
-  useEffect(() => {
-    if (!isPhoneResolved && drawerOpen) setDrawerOpen(false);
-  }, [isPhoneResolved, drawerOpen]);
-
-  const onLayoutChanged = useCallback(
-    (layout: { [id: string]: number }) => {
-      // react-resizable-panels calls `onLayoutChanged` once per
-      // completed resize (e.g. on pointerup) — much better than
-      // `onLayoutChange` which fires on every pointermove. Layout is
-      // keyed by panel id (we have id="chat" and id="video").
-      const chatPanelSize = layout["chat"];
-      if (typeof chatPanelSize === "number") {
-        setRatio(chatPanelSize);
-      }
-    },
-    [setRatio]
-  );
-
-  if (!isInCall) {
+  if (activeTab === "notes") {
     return (
-      <WorkspaceChat
+      <WorkspaceNotes
+        workspaceId={workspaceId}
+        currentUserId={clerkUserId}
+        activeSessionId={activeSessionId}
+      />
+    );
+  }
+  if (activeTab === "images") {
+    return (
+      <WorkspaceImages
         workspaceId={workspaceId}
         currentUserId={clerkUserId}
         role={role}
@@ -426,12 +328,167 @@ function ChatTabWithVideo({
       />
     );
   }
+  if (activeTab === "links") {
+    return (
+      <WorkspaceLinks
+        workspaceId={workspaceId}
+        currentUserId={clerkUserId}
+        activeSessionId={activeSessionId}
+      />
+    );
+  }
+  if (activeTab === "resources") {
+    if (role === "student") return <WorkspaceChat workspaceId={workspaceId} currentUserId={clerkUserId} role={role} activeSessionId={activeSessionId} />;
+    return (
+      <WorkspaceResources
+        workspaceId={workspaceId}
+        currentUserId={clerkUserId}
+        role={role}
+        activeSessionId={activeSessionId}
+      />
+    );
+  }
+  // Greptile P2 (Phase 11): an explicit chat branch surfaces the
+  // default and keeps the activeTab-vs-renderer mapping in one place.
+  // An unknown tab value falls through to chat (the historical default)
+  // so a missing if-branch above still renders something useful rather
+  // than a blank surface.
+  return (
+    <WorkspaceChat
+      workspaceId={workspaceId}
+      currentUserId={clerkUserId}
+      role={role}
+      activeSessionId={activeSessionId}
+    />
+  );
+}
 
-  // Phone (< 600px): full-screen video + bottom-sheet drawer with
-  // the workspace chat. `<VideoPanel>` mounts as a fixed fullscreen
-  // surface (z-40); the floating button + `<WorkspaceDrawer>` (z-50)
-  // sit above it so the user can open the chat without leaving the
-  // call.
+/**
+ * Phase 11: owns the `<Tabs>` subtree and chooses the wrapper around
+ * it based on `(isInCall, viewport)`. Critically, the same
+ * `<TabsList>` + `<TabsContent>` Radix surface is rendered in every
+ * branch so the screen-reader linkage between each `<TabsTrigger>`'s
+ * `aria-controls` and the matching panel's `aria-labelledby` is
+ * always present — only the outer container changes (no wrapper,
+ * vertical `<Group>`, drawer, or floating PiP sibling).
+ *
+ *   - No call: just the `<Tabs>` subtree.
+ *   - In call, ≥ 900px: vertical `<Group>` (video on top, `<Tabs>`
+ *     below) with a horizontal resizable divider. Persisted ratio
+ *     lives under `VERTICAL_SPLIT_RATIO_STORAGE_KEY` (Phase 11 bumped
+ *     the storage key from `video-call-split-ratio` to `:v2` so
+ *     users who tuned the pre-Phase-11 horizontal split start at
+ *     the new default instead of silently flipping the semantic).
+ *   - In call, 600–899px: `<Tabs>` full-width + floating
+ *     `<VideoPanel>` PiP.
+ *   - In call, < 600px: `<VideoPanel>` takes the full viewport;
+ *     the `<Tabs>` subtree lives behind a `<WorkspaceDrawer>`
+ *     bottom-sheet that the user opens via a "Workspace" button on
+ *     the video chrome.
+ */
+function WorkspaceTabs({
+  workspaceId,
+  clerkUserId,
+  role,
+  activeSessionId,
+  activeTab,
+  onChangeTab,
+  isInCall,
+}: {
+  workspaceId: Id<"workspaces">;
+  clerkUserId: string;
+  role: UserRole;
+  activeSessionId: Id<"sessions"> | null;
+  activeTab: string;
+  onChangeTab: (tab: string) => void;
+  isInCall: boolean;
+}): React.ReactElement {
+  const { ratio, setRatio } = useSplitRatio(
+    VERTICAL_SPLIT_RATIO_STORAGE_KEY,
+    DEFAULT_VERTICAL_SPLIT_RATIO
+  );
+  const videoSize = ratio;
+  const tabSize = 100 - ratio;
+
+  // `useIsBelow` returns `null` on first render — resolve to false so
+  // SSR paints the desktop branch on hydration. The first `change`
+  // event swaps us into the right branch.
+  const isPhone = useIsBelow(600);
+  const isNarrow = useIsBelow(900);
+  const isPhoneResolved = isPhone ?? false;
+  const isNarrowResolved = isNarrow ?? false;
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!isPhoneResolved && drawerOpen) setDrawerOpen(false);
+  }, [isPhoneResolved, drawerOpen]);
+
+  const onLayoutChanged = useCallback(
+    (layout: { [id: string]: number }) => {
+      // Layout is keyed by panel id (id="video" and id="content").
+      const videoPanelSize = layout["video"];
+      if (typeof videoPanelSize === "number") {
+        setRatio(videoPanelSize);
+      }
+    },
+    [setRatio]
+  );
+
+  // Single `<Tabs>` subtree reused by every branch so the Radix
+  // trigger ↔ tabpanel linkage (id, aria-labelledby, aria-controls)
+  // is generated once and never changes identity across branch
+  // switches — important because `<WorkspaceTabs>` can swap between
+  // no-call, phone, tablet, and desktop renderers as the viewport
+  // and call status change.
+  const tabsBlock = (
+    <Tabs
+      value={activeTab}
+      onValueChange={onChangeTab}
+      className={isInCall ? "flex flex-col h-full min-h-0" : ""}
+    >
+      <TabsList className="shrink-0">
+        <TabsTrigger value="chat" className="gap-2">
+          <MessageSquare className="h-4 w-4" />
+          Chat
+        </TabsTrigger>
+        <TabsTrigger value="notes" className="gap-2">
+          <FileText className="h-4 w-4" />
+          Notes
+        </TabsTrigger>
+        <TabsTrigger value="images" className="gap-2">
+          <ImageIcon className="h-4 w-4" />
+          Images
+        </TabsTrigger>
+        <TabsTrigger value="links" className="gap-2">
+          <LinkIcon className="h-4 w-4" />
+          Links
+        </TabsTrigger>
+        {role !== "student" && (
+          <TabsTrigger value="resources" className="gap-2">
+            <FolderArchive className="h-4 w-4" />
+            My Resources
+          </TabsTrigger>
+        )}
+      </TabsList>
+      <TabsContent
+        value={activeTab}
+        className={isInCall ? "flex-1 min-h-0 mt-4" : "mt-4"}
+      >
+        <TabContent
+          workspaceId={workspaceId}
+          clerkUserId={clerkUserId}
+          role={role}
+          activeSessionId={activeSessionId}
+          activeTab={activeTab}
+        />
+      </TabsContent>
+    </Tabs>
+  );
+
+  if (!isInCall) {
+    return tabsBlock;
+  }
+
   if (isPhoneResolved) {
     return (
       <>
@@ -447,57 +504,39 @@ function ChatTabWithVideo({
         >
           <PanelBottomOpen className="h-5 w-5" />
         </Button>
-        <WorkspaceDrawer
-          open={drawerOpen}
-          onOpenChange={setDrawerOpen}
-        >
-          <WorkspaceChat
-            workspaceId={workspaceId}
-            currentUserId={clerkUserId}
-            role={role}
-            activeSessionId={activeSessionId}
-          />
+        <WorkspaceDrawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+          {tabsBlock}
         </WorkspaceDrawer>
       </>
     );
   }
 
-  // Tablet / small laptop (600–899px): chat full-width + floating
-  // `<VideoPanel>` PiP. `<VideoPanel>` reads its own viewport via
-  // `useIsBelow` and forces PiP at this width, so we just mount it
-  // without a `className` and let it pick the bottom-right position.
   if (isNarrowResolved) {
     return (
       <>
-        <WorkspaceChat
-          workspaceId={workspaceId}
-          currentUserId={clerkUserId}
-          role={role}
-          activeSessionId={activeSessionId}
-        />
+        {tabsBlock}
         <VideoPanel />
       </>
     );
   }
 
-  // Desktop (≥ 900px): the pre-PR #3 split-panel path.
+  // Desktop (≥ 900px): vertical stack — video on top, `<Tabs>`
+  // subtree below. Radix's `<TabsContent>` lives inside the bottom
+  // panel and keeps its generated id/aria-labelledby/aria-controls
+  // pairing with the `<TabsList>` triggers above.
   return (
     <Group
-      orientation="horizontal"
-      id={`workspace-${workspaceId}-chat-video`}
+      orientation="vertical"
+      id={`workspace-${workspaceId}-video-tabs`}
       onLayoutChanged={onLayoutChanged}
+      className="h-full"
     >
-      <Panel id="chat" defaultSize={chatSize} minSize={20}>
-        <WorkspaceChat
-          workspaceId={workspaceId}
-          currentUserId={clerkUserId}
-          role={role}
-          activeSessionId={activeSessionId}
-        />
-      </Panel>
-      <Separator className="w-1.5 bg-border transition-colors hover:bg-primary" />
       <Panel id="video" defaultSize={videoSize} minSize={20}>
         <VideoPanel className="h-full" />
+      </Panel>
+      <Separator className="h-1.5 bg-border transition-colors hover:bg-primary" />
+      <Panel id="content" defaultSize={tabSize} minSize={20}>
+        {tabsBlock}
       </Panel>
     </Group>
   );
