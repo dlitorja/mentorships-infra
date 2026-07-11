@@ -59,7 +59,7 @@ export async function ProtectedLayout({ children, currentPath }: ProtectedLayout
   const navItems = [...commonItems, ...roleSpecificItems];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-[calc(100vh-5rem)] bg-background">
       {/* Navigation Sidebar */}
       <aside className="fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 border-r bg-card flex flex-col">
         <nav className="p-4 space-y-2 flex-1">
