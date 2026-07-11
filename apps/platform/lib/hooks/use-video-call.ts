@@ -271,9 +271,16 @@ export function useVideoCall(
       // `endCall` mutation by claiming we did.
       // Mirror `join()`'s synchronous statusRef pattern so a rapid
       // `join()` after this short-circuit isn't blocked by a stale
-      // ref value.
-      statusRef.current = "idle";
-      setStatus("idle");
+      // ref value. But don't clobber a `"joining"` or `"leaving"`
+      // statusRef value — an in-flight join/leave is managing its
+      // own status transitions, and resetting would reopen the
+      // re-entrancy guard at the top of `join()`, allowing a
+      // duplicate `GET /api/video/token/...` fetch to race the
+      // first one.
+      if (statusRef.current !== "joining" && statusRef.current !== "leaving") {
+        statusRef.current = "idle";
+        setStatus("idle");
+      }
       return;
     }
     statusRef.current = "leaving";
