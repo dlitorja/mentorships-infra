@@ -137,8 +137,16 @@ test.describe("Video call — mobile (375×667)", () => {
   });
 });
 
-test.describe("Video call — tablet portrait (500×800)", () => {
-  test.use({ viewport: { width: 500, height: 800 } });
+test.describe("Video call — tablet portrait (768×800)", () => {
+  // 768px lands inside the 600–899px tablet (PiP) breakpoint
+  // (`useIsBelow(900)` in `video-call-provider.tsx`). The previous
+  // 500px width fell into the `<600px` phone breakpoint, so this
+  // describe block was exercising the phone full-screen branch
+  // instead of the PiP branch it claims to test — the assertions
+  // would pass for the wrong reason. Once the Clerk auth fixture is
+  // seeded in CI this would have surfaced as a green test for a
+  // broken layout.
+  test.use({ viewport: { width: 768, height: 800 } });
 
   test.beforeEach(async ({ page }) => {
     await installDailyStub(page);
@@ -152,11 +160,16 @@ test.describe("Video call — tablet portrait (500×800)", () => {
     // absent.
     await expect(page.getByTestId("video-panel-fullscreen")).toHaveCount(0);
     // The desktop split uses `react-resizable-panels`; assert it is
-    // NOT rendered. The Group container exposes `role="separator"`
-    // or a generic `[data-panel-group-direction="horizontal"]` we
-    // can query.
+    // NOT rendered at tablet-portrait width. Phase 11 flipped the
+    // desktop split direction from horizontal to vertical, so the
+    // selector must check BOTH orientations — otherwise a vertical
+    // split panel accidentally rendered at 500 px would slip through
+    // CI undetected.
     await expect(
       page.locator("[data-panel-group-direction='horizontal']")
+    ).toHaveCount(0);
+    await expect(
+      page.locator("[data-panel-group-direction='vertical']")
     ).toHaveCount(0);
     // Floating PiP mounts as a fixed-positioned dialog with a
     // known aria-label from picture-in-picture.tsx:140.
@@ -176,8 +189,12 @@ test.describe("Video call — small laptop (1280×720)", () => {
   test("renders the resizable split panel at ≥ 900px", async ({ page }) => {
     await page.goto(WORKSPACE_URL);
     // `react-resizable-panels` Group container has
-    // `data-panel-group-direction="horizontal"` on the root.
-    const group = page.locator("[data-panel-group-direction='horizontal']");
+    // `data-panel-group-direction="vertical"` on the root (Phase 11
+    // flipped desktop from horizontal to vertical — the previous
+    // `horizontal` assertion was only passing because the Clerk
+    // fixture isn't seeded in CI; once it is, the old selector would
+    // have missed the visible group).
+    const group = page.locator("[data-panel-group-direction='vertical']");
     await expect(group).toBeVisible({ timeout: 15_000 });
     // The phone full-screen branch must NOT be active.
     await expect(page.getByTestId("video-panel-fullscreen")).toHaveCount(0);

@@ -116,6 +116,19 @@ export function useVideoCall(
   const remoteSessionIdRef = useRef<string | null>(null);
 
   const [status, setStatus] = useState<VideoCallStatus>("idle");
+  // Synchronous mirror of `status` so `join()` can re-entrancy-guard
+  // itself before the first `setStatus("joining")` has committed.
+  // Without this, two rapid callers (auto-join effect re-fire, button
+  // double-click) can both pass the `call.status !== "idle"` check at
+  // the provider level and issue duplicate `GET /api/video/token/...`
+  // fetches — each 403s after `endCall` because
+  // `getSessionByVideoRoomName` returns null for sessions whose
+  // `callEndedAt` is set. The ref updates synchronously inside `join`
+  // so the second caller bails before issuing the duplicate request.
+  const statusRef = useRef<VideoCallStatus>("idle");
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [remoteParticipantName, setRemoteParticipantName] = useState<
@@ -189,6 +202,23 @@ export function useVideoCall(
       setStatus("error");
       return;
     }
+    // Re-entrancy guard: bail if a join/leave round is in flight or
+    // the call is already joined. Two rapid callers (auto-join
+    // effect re-fire, button double-click) can both pass the
+    // provider-level `call.status !== "idle"` check before this
+    // hook's `setStatus("joining")` has committed, causing duplicate
+    // token fetches. `statusRef.current` updates synchronously below
+    // so the second caller sees `"joining"` / `"joined"` / `"leaving"`
+    // and bails. `"idle"` and `"error"` both allow entry — the
+    // latter so the Retry button works after a failed join.
+    if (
+      statusRef.current === "joining" ||
+      statusRef.current === "joined" ||
+      statusRef.current === "leaving"
+    ) {
+      return;
+    }
+    statusRef.current = "joining";
     setErrorMessage(null);
     setStatus("joining");
     try {
@@ -214,6 +244,14 @@ export function useVideoCall(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrorMessage(message);
+      // Reset `statusRef.current` synchronously alongside
+      // `setStatus("error")` so a rapid Retry click (or any caller
+      // that invokes `join()` before the React commit lands) is not
+      // silently blocked by the re-entrancy guard above. The
+      // mirror `useEffect` will eventually overwrite this with the
+      // committed `"error"`, so the manual write is purely a
+      // synchronous fallback for the in-between window.
+      statusRef.current = "error";
       setStatus("error");
       await reportError({
         source: "useVideoCall.join",
@@ -231,9 +269,21 @@ export function useVideoCall(
     if (meetingState !== "joined-meeting") {
       // We never successfully joined this session — don't burn the
       // `endCall` mutation by claiming we did.
-      setStatus("idle");
+      // Mirror `join()`'s synchronous statusRef pattern so a rapid
+      // `join()` after this short-circuit isn't blocked by a stale
+      // ref value. But don't clobber a `"joining"` or `"leaving"`
+      // statusRef value — an in-flight join/leave is managing its
+      // own status transitions, and resetting would reopen the
+      // re-entrancy guard at the top of `join()`, allowing a
+      // duplicate `GET /api/video/token/...` fetch to race the
+      // first one.
+      if (statusRef.current !== "joining" && statusRef.current !== "leaving") {
+        statusRef.current = "idle";
+        setStatus("idle");
+      }
       return;
     }
+    statusRef.current = "leaving";
     setStatus("leaving");
     try {
       await daily.leave();
@@ -242,6 +292,10 @@ export function useVideoCall(
       }
       didJoinRef.current = false;
       setJoinedSessionId(null);
+      // Synchronously flip statusRef so a rapid rejoin after End Call
+      // (e.g., user immediately clicks Join again) doesn't see a
+      // stale `"leaving"` value before the `useEffect` mirror fires.
+      statusRef.current = "idle";
       setStatus("idle");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -252,6 +306,7 @@ export function useVideoCall(
         message: "Failed to leave video call cleanly",
         context: { workspaceId, sessionId },
       });
+      statusRef.current = "error";
       setStatus("error");
       setErrorMessage(message);
     }
