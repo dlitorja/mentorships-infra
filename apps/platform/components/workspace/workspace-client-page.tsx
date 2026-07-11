@@ -156,14 +156,14 @@ function WorkspaceInner({
   // in one place — adding a new transient status (e.g. "reconnecting")
   // updates every call-aware consumer at once.
   const isInCall = useIsInCall();
-  // Notes tab gets the same viewport-locked inner-scroll layout as an
+  // Chat tab gets the same viewport-locked inner-scroll layout as an
   // active call: the page container, sidebar card, workspace card, and
   // `<TabsContent>` all switch to fixed-height flex chains so the
-  // existing `flex-1 overflow-y-auto` markup inside `notes.tsx` lights
-  // up. Other tabs (Chat, Images, Links, Resources) keep the natural
+  // existing `flex-1 overflow-y-auto` markup inside `chat.tsx` lights
+  // up. Other tabs (Notes, Images, Links, Resources) keep the natural
   // page-scroll behavior. `isInCall` still controls the video split /
-  // PiP routing — this only mirrors the height constraint for Notes.
-  const useFullHeight = isInCall || activeTab === "notes";
+  // PiP routing — this only mirrors the height constraint for Chat.
+  const useFullHeight = isInCall || activeTab === "chat";
 
   return (
     <div className={`container mx-auto p-4 md:p-6 ${useFullHeight ? "h-[calc(100dvh-128px)]" : ""}`}>
@@ -413,7 +413,7 @@ function WorkspaceTabs({
   onChangeTab: (tab: string) => void;
   isInCall: boolean;
   // `useFullHeight` is derived in `WorkspaceInner` (single source of
-  // truth — `isInCall || activeTab === "notes"`) and threaded down so
+  // truth — `isInCall || activeTab === "chat"`) and threaded down so
   // the `<Tabs>` + `<TabsContent>` height constraint here stays in
   // sync with the outer container / sidebar card / workspace card
   // constraints up the tree. `isInCall` alone continues to gate the
@@ -463,7 +463,7 @@ function WorkspaceTabs({
       onValueChange={onChangeTab}
       className={useFullHeight ? "flex flex-col h-full min-h-0" : ""}
     >
-      <TabsList className="shrink-0">
+      <TabsList className="shrink-0 self-center">
         <TabsTrigger value="chat" className="gap-2">
           <MessageSquare className="h-4 w-4" />
           Chat
