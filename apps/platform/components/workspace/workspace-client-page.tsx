@@ -461,7 +461,7 @@ function WorkspaceTabs({
     <Tabs
       value={activeTab}
       onValueChange={onChangeTab}
-      className={useFullHeight ? "flex flex-col h-full min-h-0" : ""}
+      className={useFullHeight ? "flex flex-col h-full min-h-0" : "flex flex-col"}
     >
       <TabsList className="shrink-0 self-center">
         <TabsTrigger value="chat" className="gap-2">
