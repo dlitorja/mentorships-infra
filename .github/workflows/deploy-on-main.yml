@@ -58,7 +58,7 @@ jobs:
           fi
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_PLATFORM_DEPLOY_HOOK_URL")
           echo "Platform HTTP Status: $code"
-          if [ "$code" != "200" ] && [ "$code" != "202" ]; then
+          if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
             echo "Platform deploy hook call failed" >&2
             exit 1
           fi
@@ -96,7 +96,7 @@ jobs:
           fi
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_WEB_DEPLOY_HOOK_URL")
           echo "Web HTTP Status: $code"
-          if [ "$code" != "200" ] && [ "$code" != "202" ]; then
+          if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
             echo "Web deploy hook call failed" >&2
             exit 1
           fi
@@ -135,7 +135,7 @@ jobs:
           fi
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$VERCEL_DRIVE_DEPLOY_HOOK_URL")
           echo "Drive HTTP Status: $code"
-          if [ "$code" != "200" ] && [ "$code" != "202" ]; then
+          if [ "$code" != "200" ] && [ "$code" != "201" ] && [ "$code" != "202" ]; then
             echo "::error::Drive deploy hook call failed with status $code"
             exit 1
           fi
