@@ -166,7 +166,7 @@ function WorkspaceInner({
   const useFullHeight = isInCall || activeTab === "notes";
 
   return (
-    <div className={`container mx-auto p-4 md:p-6 ${useFullHeight ? "h-[calc(100dvh-64px)]" : ""}`}>
+    <div className={`container mx-auto p-4 md:p-6 ${useFullHeight ? "h-[calc(100dvh-128px)]" : ""}`}>
       <div className={`flex flex-col md:flex-row gap-6 ${useFullHeight ? "h-full" : ""}`}>
         <div className="w-full md:w-64 shrink-0">
           <Card className={useFullHeight ? "h-full" : ""}>
