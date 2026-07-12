@@ -34,23 +34,34 @@ interface StartAdhocSuccess {
  * Flow:
  *   1. Open the consent modal (default recording = ON per
  *      `docs/plans/video-calling.md:343`).
- *   2. On confirm: POST /api/video/start-adhoc with the chosen
- *      consent value. The server creates the synthetic session row
- *      at `status: "scheduled"`, provisions the Daily room, and
- *      returns `{ sessionId, roomName, roomUrl }`.
- *   3. Call `markCallStarted` to flip the row to `status: "active"`.
- *      The reactive `getCurrentOrUpcomingSessionForWorkspace` query
- *      refetches, `VideoCallProvider`'s auto-join effect (gated on
+ *   2. On confirm, branch on the current session state:
+ *
+ *      a) No session exists for this workspace → POST
+ *         /api/video/start-adhoc. The server creates the synthetic
+ *         session row at `status: "scheduled"`, provisions the
+ *         Daily room, and returns `{ sessionId, roomName, roomUrl }`.
+ *
+ *      b) Session exists at `status: "joinable"` (POST succeeded but
+ *         `markCallStarted` failed previously, e.g. transient
+ *         network blip) → call `markCallStarted` directly on the
+ *         existing session. Re-POSTing would hit the active-call
+ *         409 in `convex/sessions.startAdhocCall`. `markCallStarted`
+ *         is idempotent — if `callStartedAt` is already set, it
+ *         returns the existing value without throwing.
+ *
+ *   3. The `markCallStarted` mutation flips the row to
+ *      `status: "active"`. The reactive
+ *      `getCurrentOrUpcomingSessionForWorkspace` query refetches,
+ *      `VideoCallProvider`'s auto-join effect (gated on
  *      `status === "active"`) fires, and the instructor transitions
  *      straight into the call without an intermediate Join gesture.
  *
- * The button hides itself whenever `useVideoCallContext().session`
- * is non-null (a joinable or active session exists for this
- * workspace), so a second click while a call is in progress is
- * impossible from the UI. This prevents the active-candidate 409
- * thrown by `convex/sessions.startAdhocCall` (`isAdhoc === true`
- * guard). The button reappears once the call ends and the
- * workspace's session query returns null.
+ * Visibility:
+ *   - Hides on `session.status === "active"` to prevent a second
+ *     start attempt while the call is in progress.
+ *   - Stays visible at `session.status === "joinable"` so the
+ *     instructor can retry `markCallStarted` if it failed.
+ *   - Hides once the call ends and the session query returns null.
  *
  * Notification to the student is deferred via `after()` in the
  * route handler (in-app notification row + Trigger.dev email).
@@ -73,13 +84,29 @@ export function StartAdhocButton({
   if (role !== "instructor") {
     return null;
   }
-  if (session !== null) {
+  // Hide only once the call is active — leave the button visible at
+  // `joinable` so a previous partial failure (POST ok, markCallStarted
+  // threw) is recoverable: clicking again retries markCallStarted
+  // directly instead of POSTing (which would 409).
+  if (session?.status === "active") {
     return null;
   }
 
   const startAdhoc = async (recordingConsent: boolean): Promise<void> => {
     setIsStarting(true);
     try {
+      // Branch (b): session already exists at "joinable" — retry the
+      // markCallStarted flip without re-POSTing. Re-POSTing would
+      // hit the active-candidate 409 in startAdhocCall because the
+      // previous session row is still there.
+      if (session?.status === "joinable" && session.videoRoomName !== null) {
+        await markCallStarted.mutateAsync({ sessionId: session.sessionId });
+        setIsStarting(false);
+        setModalOpen(false);
+        return;
+      }
+      // Branch (a): no session yet — POST to create the synthetic row
+      // and provision the Daily room.
       const res = await fetch("/api/video/start-adhoc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,11 +119,6 @@ export function StartAdhocButton({
         );
       }
       const body = (await res.json()) as StartAdhocSuccess;
-      // Flip the row to "active" so VideoCallProvider's auto-join
-      // effect (gated on status === "active") fires. Mirrors the
-      // joinable → active path in VideoCallProvider.joinCall but
-      // skips the manual Join Call gesture since the instructor
-      // explicitly invoked Start.
       await markCallStarted.mutateAsync({
         sessionId: body.sessionId as Id<"sessions">,
       });
