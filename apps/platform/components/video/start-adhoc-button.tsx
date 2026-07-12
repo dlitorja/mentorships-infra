@@ -3,13 +3,15 @@
 import { useState } from "react";
 import { PhoneCall, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
+import { useMutation } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
 
 import { Button } from "@/components/ui/button";
 import { ConsentModal } from "@/components/video/consent-modal";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
 import type { UserRole } from "@/lib/auth-helpers";
 import { useVideoCallContext } from "@/lib/video/video-context";
@@ -19,11 +21,11 @@ export type StartAdhocButtonProps = {
   role: UserRole;
 };
 
-interface StartAdhocSuccess {
-  sessionId: string;
-  roomName: string;
-  roomUrl: string;
-}
+const startAdhocResponseSchema = z.object({
+  sessionId: convexIdSchema,
+  roomName: z.string().min(1),
+  roomUrl: z.string().url(),
+});
 
 /**
  * Instructor-only "Start ad-hoc call" button. The button itself is
@@ -47,7 +49,11 @@ interface StartAdhocSuccess {
  *         existing session. Re-POSTing would hit the active-call
  *         409 in `convex/sessions.startAdhocCall`. `markCallStarted`
  *         is idempotent — if `callStartedAt` is already set, it
- *         returns the existing value without throwing.
+ *         returns the existing value without throwing. The
+ *         mutation throws `VIDEO_ROOM_NAME_CONFLICT` for orphan
+ *         ad-hoc rows that never had a Daily room (caught below
+ *         and surfaced as a toast; the user can refresh to trigger
+ *         `startAdhocCall`'s self-heal cleanup on the next POST).
  *
  *   3. The `markCallStarted` mutation flips the row to
  *      `status: "active"`. The reactive
@@ -73,12 +79,8 @@ export function StartAdhocButton({
   const [modalOpen, setModalOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const { session } = useVideoCallContext();
-  const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-    },
   });
 
   if (role !== "instructor") {
@@ -99,10 +101,8 @@ export function StartAdhocButton({
       // markCallStarted flip without re-POSTing. Re-POSTing would
       // hit the active-candidate 409 in startAdhocCall because the
       // previous session row is still there.
-      if (session?.status === "joinable" && session.videoRoomName !== null) {
+      if (session?.status === "joinable") {
         await markCallStarted.mutateAsync({ sessionId: session.sessionId });
-        setIsStarting(false);
-        setModalOpen(false);
         return;
       }
       // Branch (a): no session yet — POST to create the synthetic row
@@ -118,12 +118,10 @@ export function StartAdhocButton({
           `Failed to start ad-hoc call (${res.status})${detail ? `: ${detail}` : ""}`
         );
       }
-      const body = (await res.json()) as StartAdhocSuccess;
+      const body = startAdhocResponseSchema.parse(await res.json());
       await markCallStarted.mutateAsync({
         sessionId: body.sessionId as Id<"sessions">,
       });
-      setIsStarting(false);
-      setModalOpen(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       await reportError({
@@ -134,6 +132,7 @@ export function StartAdhocButton({
         context: { workspaceId, recordingConsent },
       });
       toast.error("Could not start ad-hoc call", { description: message });
+    } finally {
       setIsStarting(false);
       // Close the modal so the next open gets a fresh `hasChosen=false`
       // (the ConsentModal only resets on `open` flipping to true).
