@@ -3,17 +3,27 @@
 import { useState } from "react";
 import { PhoneCall, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useConvexMutation } from "@convex-dev/react-query";
 
 import { Button } from "@/components/ui/button";
 import { ConsentModal } from "@/components/video/consent-modal";
+import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { reportError } from "@/lib/observability";
 import type { UserRole } from "@/lib/auth-helpers";
+import { useVideoCallContext } from "@/lib/video/video-context";
 
 export type StartAdhocButtonProps = {
   workspaceId: Id<"workspaces">;
   role: UserRole;
 };
+
+interface StartAdhocSuccess {
+  sessionId: string;
+  roomName: string;
+  roomUrl: string;
+}
 
 /**
  * Instructor-only "Start ad-hoc call" button. The button itself is
@@ -25,16 +35,25 @@ export type StartAdhocButtonProps = {
  *   1. Open the consent modal (default recording = ON per
  *      `docs/plans/video-calling.md:343`).
  *   2. On confirm: POST /api/video/start-adhoc with the chosen
- *      consent value. Server creates the synthetic session + Daily
- *      room and returns `{ sessionId, roomName, roomUrl }`.
- *   3. The VideoCallProvider subscribes to the workspace's session
- *      via `getCurrentOrUpcomingSessionForWorkspace` (PR #3). The
- *      synthetic row has DB `status: "scheduled"` with `scheduledAt ≈
- *      now` and a populated `videoRoomName`; the query returns it as
- *      `"joinable"`, so the existing auto-join effect kicks in.
+ *      consent value. The server creates the synthetic session row
+ *      at `status: "scheduled"`, provisions the Daily room, and
+ *      returns `{ sessionId, roomName, roomUrl }`.
+ *   3. Call `markCallStarted` to flip the row to `status: "active"`.
+ *      The reactive `getCurrentOrUpcomingSessionForWorkspace` query
+ *      refetches, `VideoCallProvider`'s auto-join effect (gated on
+ *      `status === "active"`) fires, and the instructor transitions
+ *      straight into the call without an intermediate Join gesture.
  *
- * Notification to the student is deferred — instructor tells them
- * manually for now; email + in-app notification are PR #5+ work.
+ * The button hides itself whenever `useVideoCallContext().session`
+ * is non-null (a joinable or active session exists for this
+ * workspace), so a second click while a call is in progress is
+ * impossible from the UI. This prevents the active-candidate 409
+ * thrown by `convex/sessions.startAdhocCall` (`isAdhoc === true`
+ * guard). The button reappears once the call ends and the
+ * workspace's session query returns null.
+ *
+ * Notification to the student is deferred via `after()` in the
+ * route handler (in-app notification row + Trigger.dev email).
  */
 export function StartAdhocButton({
   workspaceId,
@@ -42,8 +61,19 @@ export function StartAdhocButton({
 }: StartAdhocButtonProps): React.ReactElement | null {
   const [modalOpen, setModalOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const { session } = useVideoCallContext();
+  const queryClient = useQueryClient();
+  const markCallStarted = useMutation({
+    mutationFn: useConvexMutation(api.sessions.markCallStarted),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    },
+  });
 
   if (role !== "instructor") {
+    return null;
+  }
+  if (session !== null) {
     return null;
   }
 
@@ -61,10 +91,15 @@ export function StartAdhocButton({
           `Failed to start ad-hoc call (${res.status})${detail ? `: ${detail}` : ""}`
         );
       }
-      // Provider picks up the new session via the existing PR #3
-      // subscription; no client-side join dispatch needed. Reset both
-      // flags so the button is enabled again if the instructor wants
-      // to start another ad-hoc call later in this session.
+      const body = (await res.json()) as StartAdhocSuccess;
+      // Flip the row to "active" so VideoCallProvider's auto-join
+      // effect (gated on status === "active") fires. Mirrors the
+      // joinable → active path in VideoCallProvider.joinCall but
+      // skips the manual Join Call gesture since the instructor
+      // explicitly invoked Start.
+      await markCallStarted.mutateAsync({
+        sessionId: body.sessionId as Id<"sessions">,
+      });
       setIsStarting(false);
       setModalOpen(false);
     } catch (err) {
