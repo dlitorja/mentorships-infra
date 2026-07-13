@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import { MessageSquare } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Image as ImageIcon, Link as LinkIcon, Loader2, Info, X, FolderArchive } from "lucide-react";
+import { Loader2, Info, X } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
@@ -13,6 +13,7 @@ import WorkspaceLinks from "@/components/workspace/links";
 import WorkspaceResources from "@/components/workspace/resources";
 import { RetentionWarningBanner } from "@/components/workspace/retention-warning-banner";
 import { SessionCountControls } from "@/components/workspace/session-count-controls";
+import { WorkspaceTabsList } from "@/components/workspace/workspace-tabs-list";
 import { VideoCallProvider } from "@/components/video/video-call-provider";
 import { CallStatusPill } from "@/components/video/call-status-pill";
 import { CallOverlay } from "@/components/video/call-overlay";
@@ -20,7 +21,7 @@ import { StartAdhocButton } from "@/components/video/start-adhoc-button";
 import { WaitingRoom } from "@/components/video/waiting-room";
 import QuickCapture from "@/components/video/quick-capture";
 import { WorkspaceRowBadge } from "@/components/workspace/workspace-row-badge";
-import { useVideoCallContext } from "@/lib/video/video-context";
+import { useVideoCallContext, useIsInCall } from "@/lib/video/video-context";
 import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
@@ -147,6 +148,7 @@ function WorkspaceInner({
   // active call are auto-tagged. `null` outside an active call.
   const activeSessionId: Id<"sessions"> | null =
     session?.sessionId ?? null;
+  const isInCall = useIsInCall();
   // Chat tab gets the viewport-locked inner-scroll layout: the page
   // container, sidebar card, workspace card, and `<TabsContent>` all
   // switch to fixed-height flex chains so the existing
@@ -224,18 +226,23 @@ function WorkspaceInner({
 
               {/* Action row: call status pill + start call button
                * (instructor only) + waiting-room admit control.
-               * During an active call the overlay re-renders these
-               * surfaces in its own header. */}
-              <div className="px-6 pb-3 flex flex-wrap items-center gap-3 shrink-0">
-                <CallStatusPill />
-                {selectedWorkspace && userRole === "instructor" && (
-                  <StartAdhocButton
-                    workspaceId={selectedWorkspace._id}
-                    role={userRole}
-                  />
-                )}
-                <WaitingRoom role={userRole} />
-              </div>
+               * Hidden during an active call — `<CallOverlay />`
+               * renders these surfaces in its own header, so we
+               * avoid duplicate live instances (CodeRabbit review).
+               * The card still renders its header so the user keeps
+               * context about which workspace the call belongs to. */}
+              {!isInCall && (
+                <div className="px-6 pb-3 flex flex-wrap items-center gap-3 shrink-0">
+                  <CallStatusPill />
+                  {selectedWorkspace && userRole === "instructor" && (
+                    <StartAdhocButton
+                      workspaceId={selectedWorkspace._id}
+                      role={userRole}
+                    />
+                  )}
+                  <WaitingRoom role={userRole} />
+                </div>
+              )}
 
               <CardContent className={useFullHeight ? "flex-1 min-h-0 pt-0 flex flex-col" : "pt-0"}>
                 <WorkspacePolicyBanner />
@@ -245,15 +252,22 @@ function WorkspaceInner({
                     endedAt={selectedWorkspace.endedAt}
                   />
                 )}
-                <WorkspaceTabs
-                  workspaceId={selectedWorkspace._id}
-                  clerkUserId={clerkUserId}
-                  role={userRole}
-                  activeSessionId={activeSessionId}
-                  activeTab={activeTab}
-                  onChangeTab={onChangeTab}
-                  useFullHeight={useFullHeight}
-                />
+                {/* During an active call `<CallOverlay />` owns the
+                 * `<Tabs>` subtree (mounted via portal). Rendering
+                 * `<WorkspaceTabs />` here too would double-mount
+                 * `<TabContent />` and trigger duplicate Convex
+                 * subscriptions and effects (Greptile P2). */}
+                {!isInCall && (
+                  <WorkspaceTabs
+                    workspaceId={selectedWorkspace._id}
+                    clerkUserId={clerkUserId}
+                    role={userRole}
+                    activeSessionId={activeSessionId}
+                    activeTab={activeTab}
+                    onChangeTab={onChangeTab}
+                    useFullHeight={useFullHeight}
+                  />
+                )}
               </CardContent>
             </Card>
           ) : (
@@ -368,8 +382,9 @@ export function TabContent({
  * Renders the `<Tabs>` subtree for the workspace view (no active
  * call). The call UI lives in `<CallOverlay />` which portals to
  * `document.body` and renders its own `<Tabs>` subtree during an
- * active call. Sharing `TabContent` between the two surfaces keeps
- * the activeTab → component mapping in one place.
+ * active call. Sharing `TabContent` and `WorkspaceTabsList` between
+ * the two surfaces keeps the activeTab → component mapping and the
+ * trigger strip in one place each.
  */
 function WorkspaceTabs({
   workspaceId,
@@ -394,30 +409,7 @@ function WorkspaceTabs({
       onValueChange={onChangeTab}
       className={useFullHeight ? "flex flex-col h-full min-h-0" : "flex flex-col"}
     >
-      <TabsList className="shrink-0 self-center">
-        <TabsTrigger value="chat" className="gap-2">
-          <MessageSquare className="h-4 w-4" />
-          Chat
-        </TabsTrigger>
-        <TabsTrigger value="notes" className="gap-2">
-          <FileText className="h-4 w-4" />
-          Notes
-        </TabsTrigger>
-        <TabsTrigger value="images" className="gap-2">
-          <ImageIcon className="h-4 w-4" />
-          Images
-        </TabsTrigger>
-        <TabsTrigger value="links" className="gap-2">
-          <LinkIcon className="h-4 w-4" />
-          Links
-        </TabsTrigger>
-        {role !== "student" && (
-          <TabsTrigger value="resources" className="gap-2">
-            <FolderArchive className="h-4 w-4" />
-            My Resources
-          </TabsTrigger>
-        )}
-      </TabsList>
+      <WorkspaceTabsList role={role} />
       <TabsContent
         value={activeTab}
         className={useFullHeight ? "flex-1 min-h-0 mt-4" : "mt-4"}

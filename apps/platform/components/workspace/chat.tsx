@@ -58,9 +58,8 @@ interface WorkspaceChatProps {
   role?: 'student' | 'instructor' | 'admin';
   // PR #4b: id of the active video-call session, or null when no
   // call is active. New messages, images, and files posted during
-  // the call are auto-tagged with this sessionId. While non-null,
-  // an in-call banner is shown explaining the chat replaces Daily's
-  // in-call chat.
+  // the call are auto-tagged with this sessionId, and tagged
+  // messages get a small dot indicator in the message list.
   activeSessionId: Id<'sessions'> | null;
 }
 
