@@ -371,40 +371,79 @@ export const deleteSessionPack = mutation({
   },
 });
 
-/** Adds sessions to a session pack. */
+/**
+ * Verify the caller is allowed to mutate a session pack. Either a
+ * platform admin (via users.role) or the instructor that owns the
+ * pack. Throws on auth failure. Defense-in-depth: the REST routes
+ * already verify ownership before calling these mutations, but the
+ * Convex HTTP client exposes public mutations to any caller, so
+ * every mutation that touches packs must enforce this check itself.
+ */
+async function assertCanModifySessionPack(
+  ctx: any,
+  packId: Id<"sessionPacks">,
+  userSubject: string
+): Promise<Doc<"sessionPacks">> {
+  const pack = await ctx.db.get(packId);
+  if (!pack || pack.deletedAt) {
+    throw new Error("Session pack not found");
+  }
+
+  const admin = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q: any) => q.eq("userId", userSubject))
+    .first();
+  if (admin?.role === "admin") {
+    return pack;
+  }
+
+  const instructor = await ctx.db
+    .query("instructors")
+    .withIndex("by_userId", (q: any) => q.eq("userId", userSubject))
+    .first();
+  if (!instructor || pack.instructorId !== instructor._id) {
+    throw new Error("Not authorized for this session pack");
+  }
+
+  return pack;
+}
+
+/** Adds sessions to a session pack. Requires auth — admin or the owning instructor. */
 export const addSessionsToPack = mutation({
   args: {
     id: v.id("sessionPacks"),
     amount: v.number(),
   },
   handler: async (ctx, args) => {
-    const pack = await ctx.db.get(args.id);
-    if (!pack || pack.deletedAt) {
-      throw new Error("Session pack not found");
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
     }
-    
+    const pack = await assertCanModifySessionPack(ctx, args.id, user.subject);
+
     const newRemaining = pack.remainingSessions + args.amount;
     await ctx.db.patch(args.id, {
       totalSessions: pack.totalSessions + args.amount,
       remainingSessions: newRemaining,
       status: pack.status === "depleted" && newRemaining > 0 ? "active" : pack.status,
     });
-    
+
     return await ctx.db.get(args.id);
   },
 });
 
-/** Removes sessions from a session pack. */
+/** Removes sessions from a session pack. Requires auth — admin or the owning instructor. */
 export const removeSessionsFromPack = mutation({
   args: {
     id: v.id("sessionPacks"),
     amount: v.number(),
   },
   handler: async (ctx, args) => {
-    const pack = await ctx.db.get(args.id);
-    if (!pack || pack.deletedAt) {
-      throw new Error("Session pack not found");
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
     }
+    const pack = await assertCanModifySessionPack(ctx, args.id, user.subject);
 
     const newRemaining = pack.remainingSessions - args.amount;
     if (newRemaining < 0) {
@@ -423,17 +462,18 @@ export const removeSessionsFromPack = mutation({
   },
 });
 
-/** Atomically sets the remaining sessions for a session pack. */
+/** Atomically sets the remaining sessions for a session pack. Requires auth — admin or the owning instructor. */
 export const setRemainingSessions = mutation({
   args: {
     id: v.id("sessionPacks"),
     amount: v.number(),
   },
   handler: async (ctx, args) => {
-    const pack = await ctx.db.get(args.id);
-    if (!pack || pack.deletedAt) {
-      return null;
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
     }
+    const pack = await assertCanModifySessionPack(ctx, args.id, user.subject);
 
     const newRemaining = Math.max(0, Math.min(args.amount, pack.totalSessions));
     const status = newRemaining === 0
@@ -448,7 +488,7 @@ export const setRemainingSessions = mutation({
   },
 });
 
-/** Restores the total and remaining session counts for a session pack. */
+/** Restores the total and remaining session counts for a session pack. Requires auth — admin or the owning instructor. */
 export const restoreSessionCounts = mutation({
   args: {
     id: v.id("sessionPacks"),
@@ -458,10 +498,11 @@ export const restoreSessionCounts = mutation({
     expectedRemainingSessions: v.number(),
   },
   handler: async (ctx, args) => {
-    const pack = await ctx.db.get(args.id);
-    if (!pack || pack.deletedAt) {
-      return null;
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
     }
+    const pack = await assertCanModifySessionPack(ctx, args.id, user.subject);
 
     if (
       pack.totalSessions !== args.expectedTotalSessions ||
