@@ -88,8 +88,27 @@ export function useVideoCall(
   const { enabled, workspaceId, sessionId, roomName } = options;
   const daily = useDaily();
   const meetingState = useMeetingState();
+
+  const handleScreenShareError = useCallback(
+    (ev: { errorMsg?: string | { message?: string } }) => {
+      const message =
+        typeof ev.errorMsg === "string"
+          ? ev.errorMsg
+          : ev.errorMsg?.message ?? "Screen share failed";
+      setErrorMessage(message);
+      void reportError({
+        source: "useVideoCall.toggleScreenShare",
+        error: new Error(message),
+        level: "error",
+        message: "Screen share failed",
+        context: { workspaceId, sessionId },
+      });
+    },
+    [sessionId, workspaceId]
+  );
+
   const { isSharingScreen, startScreenShare, stopScreenShare } =
-    useScreenShare();
+    useScreenShare({ onError: handleScreenShareError });
 
   const queryClient = useQueryClient();
   const endCall = useMutation({
@@ -295,7 +314,7 @@ export function useVideoCall(
         // `useIsCallOverlayVisible`. Without this, the user is
         // stuck on the error UI with no way back to the workspace.
         if (statusRef.current === "error" && sessionId) {
-          endCall.mutate({ sessionId }).catch(() => {});
+          endCall.mutateAsync({ sessionId }).catch(() => {});
         }
       }
       return;
