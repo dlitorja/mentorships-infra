@@ -219,7 +219,7 @@ export async function assertParticipantForSession(
     throw new Error("Instructor not found");
   }
 
-  if (instructor.userId === identity.tokenIdentifier) {
+  if (instructor.userId === identity.subject) {
     // Instructor path: find the workspace where this student is
     // the owner. Single indexed `.first()` — no cap.
     const workspace = await ctx.db
@@ -247,7 +247,7 @@ export async function assertParticipantForSession(
     .withIndex("by_instructorId_ownerId", (q) =>
       q
         .eq("instructorId", session.instructorId)
-        .eq("ownerId", identity.tokenIdentifier)
+        .eq("ownerId", identity.subject)
     )
     .first();
   if (!workspace) {
@@ -260,6 +260,44 @@ export async function assertParticipantForSession(
     throw new Error("Forbidden");
   }
   return { session, workspace, role: "student" };
+}
+
+/**
+ * Resolve the workspace to link to from an instructor + student pair
+ * in the student list / dashboard. Used by
+ * `getInstructorStudentsWithRemainingSessions` and
+ * `getInstructorStudentsWithSessionInfo` to populate the
+ * `workspaceId` column so the UI can route to `/workspace/{id}`
+ * instead of the stale per-student detail page.
+ *
+ * Returns the active workspace (`endedAt` undefined, `deletedAt`
+ * undefined) for the pair, or `null` if none exists. We deliberately
+ * do NOT fall back to ended workspaces because `getWorkspaceByIdForUser`
+ * and the `/workspace/[id]` page reject ended workspaces (they
+ * redirect to the picker), so a link to one would just bounce.
+ *
+ * Uses the `by_instructorId_ownerId` index (PR #4c-1) so this is
+ * O(1) for the common case. We collect all matches because the
+ * index does not narrow to a single row — historically the same
+ * pair could end and re-open a new workspace, so we sort in memory.
+ */
+export async function resolveActiveWorkspaceForPair(
+  ctx: QueryCtx,
+  args: { instructorId: Id<"instructors">; studentUserId: string }
+): Promise<Doc<"workspaces"> | null> {
+  const candidates = await ctx.db
+    .query("workspaces")
+    .withIndex("by_instructorId_ownerId", (q) =>
+      q
+        .eq("instructorId", args.instructorId)
+        .eq("ownerId", args.studentUserId)
+    )
+    .collect();
+
+  const active = candidates.find(
+    (w) => w.deletedAt === undefined && w.endedAt === undefined
+  );
+  return active ?? null;
 }
 
 /** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
@@ -690,10 +728,30 @@ export const updateWorkspaceNote = mutation({
   },
 });
 
-/** Soft-deletes a workspace note by setting deletedAt. */
+/** Soft-deletes a workspace note by setting deletedAt. Requires auth and workspace access — anyone in the workspace (instructor or student) can delete any note, including the auto-generated live session notes. Soft-delete is idempotent. */
 export const deleteWorkspaceNote = mutation({
   args: { id: v.id("workspaceNotes") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const note = await ctx.db.get(args.id);
+    if (!note) {
+      throw new Error("Note not found");
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to delete this note");
+    }
+
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });

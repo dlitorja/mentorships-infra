@@ -117,8 +117,15 @@ export function useWorkspaceImages(workspaceId: string) {
  * in-call banner.
  */
 export function useCreateWorkspaceMessage() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceMessage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
+      });
+    },
   });
 }
 
@@ -318,6 +325,9 @@ export function useCreateWorkspaceImageAndMessage() {
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceImageAndMessage),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["convexQuery", "workspaces.getWorkspaceImages"] });
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
+      });
     },
   });
 }
@@ -327,8 +337,15 @@ export function useCreateWorkspaceImageAndMessage() {
  * Used for uploading non-image files directly to chat.
  */
 export function useCreateWorkspaceFileMessage() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: useConvexMutation(api.workspaces.createWorkspaceFileMessage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["convexQuery", "workspaces.getWorkspaceMessages"],
+      });
+    },
   });
 }
 

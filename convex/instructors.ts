@@ -3,6 +3,24 @@ import { internal, api } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { resolveActiveWorkspaceForPair } from "./workspaces";
+
+/**
+ * True if `id` matches the Clerk user ID format. Clerk user IDs always
+ * start with `user_` followed by base62 characters
+ * (e.g. `user_2abcDEF...`). Any other value (e.g. `seed-${slug}` or
+ * `admin-${slug}` placeholders written by seed/admin-sync scripts)
+ * is treated as a placeholder, safe to overwrite with a real Clerk
+ * user ID when the user signs in.
+ *
+ * Discriminating by format instead of by prefix list is the most
+ * correct fix: any future placeholder convention is also covered
+ * without maintenance.
+ */
+const CLERK_USER_ID_PATTERN = /^user_[a-zA-Z0-9]+$/;
+function isClerkUserId(id: string | undefined): boolean {
+  return typeof id === "string" && CLERK_USER_ID_PATTERN.test(id);
+}
 
 export const getStorageUrl = query({
   args: { storageId: v.string() },
@@ -947,7 +965,7 @@ export const getInstructorBySlugForAdmin = query({
 /** Creates a new instructor or returns the existing instructor id if one already exists. */
 export const createInstructor = mutation({
   args: {
-    userId: v.string(),
+    userId: v.optional(v.string()),
     name: v.optional(v.string()),
     slug: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -973,11 +991,18 @@ export const createInstructor = mutation({
     profileImageStorageId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-      .first();
-    
+    // Skip the userId dedup check when no userId is supplied — the
+    // index lookup can't match `undefined`. Seed/admin-sync callers
+    // intentionally omit userId so the Clerk webhook can claim the
+    // row with the real Clerk user ID later.
+    let existing = null;
+    if (args.userId !== undefined) {
+      existing = await ctx.db
+        .query("instructors")
+        .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+        .first();
+    }
+
     if (existing) {
       return existing._id;
     }
@@ -991,9 +1016,9 @@ export const createInstructor = mutation({
         .query("instructors")
         .withIndex("by_slug", (q) => q.eq("slug", args.slug!))
         .first();
-      
+
       if (existingBySlug) {
-        throw new Error("Slug already exists");
+        return existingBySlug._id;
       }
     }
     
@@ -1950,18 +1975,23 @@ export const getInstructorStudentsWithSessionInfo = query({
           .query("users")
           .withIndex("by_userId", (q) => q.eq("userId", m.userId))
           .first();
-        
+
         const sessions = await ctx.db
           .query("sessions")
           .withIndex("by_studentId", (q) => q.eq("studentId", m.userId))
 .filter((q) => q.eq(q.field("instructorId"), args.instructorId))
           .collect();
-        
+
         const completedSessions = sessions.filter(s => s.status === "completed");
         const lastSession = completedSessions.length > 0
           ? completedSessions.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))[0]
           : null;
-        
+
+        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+          instructorId: args.instructorId,
+          studentUserId: m.userId,
+        });
+
         return {
           userId: m.userId,
           email: user?.email ?? null,
@@ -1972,10 +2002,11 @@ export const getInstructorStudentsWithSessionInfo = query({
           status: m.status,
           lastSessionCompletedAt: lastSession?.completedAt ?? null,
           completedSessionCount: completedSessions.length,
+          workspaceId: workspace?._id ?? null,
         };
       })
     );
-    
+
     return result;
   },
 });
@@ -2384,8 +2415,15 @@ export const linkClerkUserToInstructor = internalAction({
     if (instructorsWithEmail.length > 0) {
       const instructor = instructorsWithEmail[0];
 
-      // If userId is set and different, check if it's a placeholder (admin-*) that should be updated
-      if (instructor.userId && instructor.userId !== userId && !instructor.userId.startsWith("admin-")) {
+      // If userId is set and different, only refuse if it already
+      // matches a real Clerk user ID format. Anything else (the
+      // `seed-${slug}` and `admin-${slug}` placeholders written by
+      // `seed-instructors.ts` and `httpAdminSyncInventory`, plus
+      // any future placeholder convention) is safe to overwrite
+      // with the real Clerk user ID — otherwise the existing
+      // placeholder would block the instructor from ever signing
+      // in as themselves.
+      if (instructor.userId && instructor.userId !== userId && isClerkUserId(instructor.userId)) {
         instructorResult = { linked: false, reason: "Instructor already linked to a different Clerk user", instructorId: instructor._id };
       } else {
         // Update with the Clerk userId (handles placeholder userIds like "admin-slug")
@@ -2496,7 +2534,7 @@ export const getInstructorByUserIdInternal = internalQuery({
 
 export const createInstructorInternal = internalMutation({
   args: {
-    userId: v.string(),
+    userId: v.optional(v.string()),
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     isActive: v.boolean(),

@@ -105,14 +105,23 @@ export function useIsInCall(): boolean {
  *
  * Returns true when:
  *   - `status` is "joining" / "joined" / "leaving" (call is live)
- *   - `status` is "error" (join failed; user needs to see the error
- *     UI and the Leave button to recover)
+ *   - `status` is "error" AND `session` is non-null (join failed;
+ *     user needs to see the error UI and the Retry/Leave buttons
+ *     to recover)
  *   - `session.status` is "active" (user just clicked Start call;
  *     `markCallStarted` flipped the session, but the Daily join
  *     hasn't fired yet — or, in the React 18 batched-update case,
  *     `setStatus("joining")` and `setStatus("error")` were committed
  *     in the same render so the "joining" state is invisible to
  *     subscribers)
+ *
+ * The `status === "error" && session !== null` clause is the exit
+ * path for the Leave button on the error UI. `useVideoCall.leave()`
+ * fires `endCall` from the error short-circuit, which marks
+ * `callEndedAt` server-side; the `["sessions"]` query refetch
+ * resolves `session` to null; the overlay then unmounts cleanly.
+ * Without the `session !== null` guard, the overlay would stay
+ * mounted after Leave, trapping the user on the error UI.
  *
  * The `session.status === "active"` clause is the load-bearing piece
  * for the modal-must-appear-on-Start-call requirement. Without it,
@@ -134,7 +143,7 @@ export function useIsCallOverlayVisible(): boolean {
     status === "joining" ||
     status === "joined" ||
     status === "leaving" ||
-    status === "error" ||
+    (status === "error" && session !== null) ||
     session?.status === "active"
   );
 }

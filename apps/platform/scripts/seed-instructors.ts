@@ -88,13 +88,16 @@ function runConvexMutation(functionName: string, args: Record<string, any>): Pro
 async function seedInstructor(instructor: any): Promise<any> {
   console.log(`  Creating instructor...`);
 
-  const userId = `seed-${instructor.slug}`;
-
-  // Create instructor - idempotent via userId
+  // Create instructor - intentionally omit `userId` so the Clerk
+  // `user.created` webhook can claim the row with the real Clerk
+  // user ID once the instructor signs in. (Previously this wrote a
+  // `seed-${slug}` placeholder that the webhook refused to overwrite
+  // because it didn't match the `admin-*` prefix whitelist — the
+  // placeholder looked like a real-but-different userId, blocking
+  // the instructor from ever using video calling.)
   let instructorId;
   try {
     const instructorResult = await runConvexMutation("instructors:createInstructor", {
-      userId,
       name: instructor.name,
       slug: instructor.slug,
       tagline: instructor.tagline,

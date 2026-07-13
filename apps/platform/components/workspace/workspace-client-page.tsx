@@ -218,14 +218,12 @@ function WorkspaceInner({
                       </p>
                     )}
                   </div>
-                  {userRole === "instructor" && selectedWorkspace.sessionPackId && (
-                    <SessionCountControls sessionPackId={selectedWorkspace.sessionPackId} />
-                  )}
                 </div>
               </CardHeader>
 
               {/* Action row: call status pill + start call button
-               * (instructor only) + waiting-room admit control.
+               * (instructor only) + session-count pill (instructor only)
+               * + waiting-room admit control.
                * Hidden during an active call — `<CallOverlay />`
                * renders these surfaces in its own header, so we
                * avoid duplicate live instances (CodeRabbit review).
@@ -239,6 +237,9 @@ function WorkspaceInner({
                       workspaceId={selectedWorkspace._id}
                       role={userRole}
                     />
+                  )}
+                  {userRole === "instructor" && selectedWorkspace.sessionPackId && (
+                    <SessionCountControls sessionPackId={selectedWorkspace.sessionPackId} />
                   )}
                   <WaitingRoom role={userRole} />
                 </div>

@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
         status: m.status,
         lastSessionCompletedAt: m.lastSessionCompletedAt ? new Date(m.lastSessionCompletedAt).toISOString() : null,
         completedSessionCount: m.completedSessionCount,
+        workspaceId: m.workspaceId ?? null,
       })),
     });
   } catch (error) {

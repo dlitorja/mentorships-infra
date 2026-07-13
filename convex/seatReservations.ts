@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, internalAction, internalQuery, actio
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { resolveActiveWorkspaceForPair } from "./workspaces";
 
 const SERVER_SHARED_SECRET = process.env.CONVEX_SERVER_SHARED_SECRET;
 
@@ -203,6 +204,22 @@ export const getInstructorStudentsWithRemainingSessions = query({
 
     const dedupedSeatRows = Array.from(seatRowByUserId.values());
 
+    const workspaceByUserId = new Map<string, Id<"workspaces"> | null>();
+    await Promise.all(
+      dedupedSeatRows.map(async (row) => {
+        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+          instructorId: args.instructorId,
+          studentUserId: row.userId,
+        });
+        workspaceByUserId.set(row.userId, workspace?._id ?? null);
+      })
+    );
+
+    const dedupedSeatRowsWithWorkspace = dedupedSeatRows.map((row) => ({
+      ...row,
+      workspaceId: workspaceByUserId.get(row.userId) ?? null,
+    }));
+
     const userIdsWithSeats = new Set(dedupedSeatRows.map((row) => row.userId));
     const workspaces = await ctx.db
       .query("workspaces")
@@ -293,7 +310,7 @@ export const getInstructorStudentsWithRemainingSessions = query({
       };
     });
 
-    return [...dedupedSeatRows, ...workspaceRows].sort((a, b) => {
+    return [...dedupedSeatRowsWithWorkspace, ...workspaceRows].sort((a, b) => {
       // Workspace-only rows are a background state, not urgent — push them to
       // the end so they don't interleave with seat-based students who are
       // genuinely running low. Within each group, sort by remaining sessions

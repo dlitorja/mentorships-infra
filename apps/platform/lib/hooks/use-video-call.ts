@@ -88,8 +88,27 @@ export function useVideoCall(
   const { enabled, workspaceId, sessionId, roomName } = options;
   const daily = useDaily();
   const meetingState = useMeetingState();
+
+  const handleScreenShareError = useCallback(
+    (ev: { errorMsg?: string | { message?: string } }) => {
+      const message =
+        typeof ev.errorMsg === "string"
+          ? ev.errorMsg
+          : ev.errorMsg?.message ?? "Screen share failed";
+      setErrorMessage(message);
+      void reportError({
+        source: "useVideoCall.toggleScreenShare",
+        error: new Error(message),
+        level: "error",
+        message: "Screen share failed",
+        context: { workspaceId, sessionId },
+      });
+    },
+    [sessionId, workspaceId]
+  );
+
   const { isSharingScreen, startScreenShare, stopScreenShare } =
-    useScreenShare();
+    useScreenShare({ onError: handleScreenShareError });
 
   const queryClient = useQueryClient();
   const endCall = useMutation({
@@ -278,8 +297,34 @@ export function useVideoCall(
       // duplicate `GET /api/video/token/...` fetch to race the
       // first one.
       if (statusRef.current !== "joining" && statusRef.current !== "leaving") {
-        statusRef.current = "idle";
-        setStatus("idle");
+        // Don't reset to "idle" — that's what triggers the auto-join
+        // effect in <VideoCallProvider> to immediately retry the
+        // failed join, looping `GET /api/video/token/...` until the
+        // server-side guard (callEndedAt set, or instructor userId
+        // mismatch) 403s again. Instead, keep the current status so
+        // the auto-join effect's `call.status !== "idle"` guard
+        // blocks the retry. The `join()` re-entrancy guard already
+        // accepts `"error"` so the Retry button still works.
+        //
+        // When the user clicked Leave specifically because they
+        // want OUT (not Retry), also fire `endCall` so the session
+        // is marked ended server-side — the `["sessions"]` query
+        // refetch makes `session` null, the auto-join effect short-
+        // circuits on `!session`, and the overlay unmounts via
+        // `useIsCallOverlayVisible`. Without this, the user is
+        // stuck on the error UI with no way back to the workspace.
+        if (statusRef.current === "error" && sessionId) {
+          endCall.mutateAsync({ sessionId }).catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            void reportError({
+              source: "useVideoCall.leave.endCall",
+              error: err instanceof Error ? err : new Error(message),
+              level: "warn",
+              message: "endCall from leave-from-error path failed; session may remain active server-side",
+              context: { workspaceId, sessionId },
+            });
+          });
+        }
       }
       return;
     }
