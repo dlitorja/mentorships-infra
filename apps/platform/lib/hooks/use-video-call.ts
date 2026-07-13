@@ -278,8 +278,25 @@ export function useVideoCall(
       // duplicate `GET /api/video/token/...` fetch to race the
       // first one.
       if (statusRef.current !== "joining" && statusRef.current !== "leaving") {
-        statusRef.current = "idle";
-        setStatus("idle");
+        // Don't reset to "idle" — that's what triggers the auto-join
+        // effect in <VideoCallProvider> to immediately retry the
+        // failed join, looping `GET /api/video/token/...` until the
+        // server-side guard (callEndedAt set, or instructor userId
+        // mismatch) 403s again. Instead, keep the current status so
+        // the auto-join effect's `call.status !== "idle"` guard
+        // blocks the retry. The `join()` re-entrancy guard already
+        // accepts `"error"` so the Retry button still works.
+        //
+        // When the user clicked Leave specifically because they
+        // want OUT (not Retry), also fire `endCall` so the session
+        // is marked ended server-side — the `["sessions"]` query
+        // refetch makes `session` null, the auto-join effect short-
+        // circuits on `!session`, and the overlay unmounts via
+        // `useIsCallOverlayVisible`. Without this, the user is
+        // stuck on the error UI with no way back to the workspace.
+        if (statusRef.current === "error" && sessionId) {
+          endCall.mutate({ sessionId }).catch(() => {});
+        }
       }
       return;
     }

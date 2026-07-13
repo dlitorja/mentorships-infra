@@ -302,9 +302,16 @@ export const httpAdminSyncInventory = httpAction(async (ctx, request) => {
         headers: { "Content-Type": "application/json" },
       });
     } else {
-      // Create new instructor record using runMutation
+      // Create new instructor record using runMutation. Intentionally
+      // omit `userId` so the Clerk `user.created` webhook can claim
+      // the row with the real Clerk user ID when the instructor signs
+      // in. (Previously this wrote an `admin-${slug}` placeholder
+      // that the webhook DID recognize and overwrite — but the
+      // matching `seed-${slug}` placeholder from `seed-instructors.ts`
+      // was not recognized, leaving some instructors unable to use
+      // video calling. With the format-based placeholder check, both
+      // legacy rows are healed on the next Clerk sign-in.)
       const id = await ctx.runMutation(api.instructors.createInstructor, {
-        userId: `admin-${slug}`,
         name: name ?? undefined,
         slug: slug,
         email: email ?? undefined,
