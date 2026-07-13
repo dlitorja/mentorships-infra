@@ -1,26 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { UnauthorizedError } from "@/lib/errors";
 
-function getPrimaryEmail(user: Awaited<ReturnType<typeof currentUser>>): string | null {
-  if (!user?.emailAddresses?.length) return null;
-  
-  const primary = user.emailAddresses.find(e => e.id === user.primaryEmailAddressId);
-  if (primary) return primary.emailAddress;
-  
-  return user.emailAddresses[0]?.emailAddress ?? null;
-}
-
-async function requireAdminOrMentor(convex: ReturnType<typeof getConvexClient>, sessionPackId: string) {
-  const { userId } = await auth();
-  if (!userId) {
-    throw new UnauthorizedError("Authentication required");
-  }
-
+async function requireAdminOrMentor(
+  convex: ReturnType<typeof getConvexClient>,
+  sessionPackId: string,
+  userId: string
+) {
   const dbUser = await convex.query(api.users.getUserByUserId, { userId });
   const isAdmin = dbUser?.role === "admin";
 
@@ -73,9 +63,14 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const { sessionPackId, action } = parseResult.data;
-    await requireAdminOrMentor(convex, sessionPackId);
 
     const clerkAuth = await auth();
+    const userId = clerkAuth.userId;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    await requireAdminOrMentor(convex, sessionPackId, userId);
+
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

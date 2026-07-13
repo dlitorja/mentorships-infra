@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 
 /** Returns a session pack by its ID, or null if not authenticated. */
 export const getSessionPackById = query({
@@ -380,7 +381,7 @@ export const deleteSessionPack = mutation({
  * every mutation that touches packs must enforce this check itself.
  */
 async function assertCanModifySessionPack(
-  ctx: any,
+  ctx: QueryCtx,
   packId: Id<"sessionPacks">,
   userSubject: string
 ): Promise<Doc<"sessionPacks">> {
@@ -391,7 +392,7 @@ async function assertCanModifySessionPack(
 
   const admin = await ctx.db
     .query("users")
-    .withIndex("by_userId", (q: any) => q.eq("userId", userSubject))
+    .withIndex("by_userId", (q) => q.eq("userId", userSubject))
     .first();
   if (admin?.role === "admin") {
     return pack;
@@ -399,7 +400,7 @@ async function assertCanModifySessionPack(
 
   const instructor = await ctx.db
     .query("instructors")
-    .withIndex("by_userId", (q: any) => q.eq("userId", userSubject))
+    .withIndex("by_userId", (q) => q.eq("userId", userSubject))
     .first();
   if (!instructor || pack.instructorId !== instructor._id) {
     throw new Error("Not authorized for this session pack");

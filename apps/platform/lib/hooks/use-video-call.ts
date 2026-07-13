@@ -314,7 +314,16 @@ export function useVideoCall(
         // `useIsCallOverlayVisible`. Without this, the user is
         // stuck on the error UI with no way back to the workspace.
         if (statusRef.current === "error" && sessionId) {
-          endCall.mutateAsync({ sessionId }).catch(() => {});
+          endCall.mutateAsync({ sessionId }).catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            void reportError({
+              source: "useVideoCall.leave.endCall",
+              error: err instanceof Error ? err : new Error(message),
+              level: "warn",
+              message: "endCall from leave-from-error path failed; session may remain active server-side",
+              context: { workspaceId, sessionId },
+            });
+          });
         }
       }
       return;

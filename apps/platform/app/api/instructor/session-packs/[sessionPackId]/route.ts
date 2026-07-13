@@ -5,8 +5,7 @@ import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
-import { requireRoleForApi } from "@/lib/auth-helpers";
-import { auth } from "@clerk/nextjs/server";
+import { requireRoleForApi, getConvexAuthToken } from "@/lib/auth-helpers";
 
 const sessionPackIdSchema = z.string().min(1, "Session pack ID is required");
 const sessionPackErrorSchema = z.object({
@@ -61,8 +60,7 @@ export async function PATCH(
   try {
     const user = await requireRoleForApi("instructor");
     const convex = getConvexClient();
-    const clerkAuth = await auth();
-    const token = await clerkAuth.getToken({ template: "convex" });
+    const token = await getConvexAuthToken();
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
