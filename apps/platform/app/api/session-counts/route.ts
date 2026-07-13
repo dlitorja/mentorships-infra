@@ -6,7 +6,7 @@ import { getConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { UnauthorizedError } from "@/lib/errors";
 
-async function requireAdminOrMentor(
+async function requireAdminOrInstructor(
   convex: ReturnType<typeof getConvexClient>,
   sessionPackId: string,
   userId: string
@@ -32,7 +32,7 @@ async function requireAdminOrMentor(
   }
 
   if (instructor._id !== pack.instructorId) {
-    throw new UnauthorizedError("You can only modify session packs for your own mentees");
+    throw new UnauthorizedError("You can only modify session packs for your own students");
   }
 
   return { userId, isAdmin: false };
@@ -69,13 +69,14 @@ export async function POST(request: Request): Promise<Response> {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    await requireAdminOrMentor(convex, sessionPackId, userId);
 
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     convex.setAuth(token);
+
+    await requireAdminOrInstructor(convex, sessionPackId, userId);
 
     if (action === "increment") {
       const updated = await convex.mutation(api.sessionPacks.addSessionsToPack, {

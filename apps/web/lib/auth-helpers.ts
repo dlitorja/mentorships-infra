@@ -3,6 +3,20 @@ import { auth } from "@clerk/nextjs/server";
 import { UnauthorizedError, ForbiddenError } from "./errors";
 
 /**
+ * Get a Convex-compatible JWT for the current Clerk session, or null
+ * if the user is not signed in. Mirrors the helper in
+ * `apps/platform/lib/auth-helpers.ts` so REST routes in both apps can
+ * call it directly without re-importing Clerk.
+ */
+export async function getConvexAuthToken(): Promise<string | null> {
+  const clerkAuth = await auth();
+  if (!clerkAuth.userId) {
+    return null;
+  }
+  return clerkAuth.getToken({ template: "convex" });
+}
+
+/**
  * Redirect to sign-in if user is not authenticated
  * Use this in Server Components that require authentication
  */

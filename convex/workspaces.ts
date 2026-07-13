@@ -270,9 +270,11 @@ export async function assertParticipantForSession(
  * `workspaceId` column so the UI can route to `/workspace/{id}`
  * instead of the stale per-student detail page.
  *
- * Priority: active (deletedAt undefined AND endedAt undefined) >
- * most-recently-ended (max endedAt) > any non-deleted. Returns null
- * when no live workspace exists for the pair.
+ * Returns the active workspace (`endedAt` undefined, `deletedAt`
+ * undefined) for the pair, or `null` if none exists. We deliberately
+ * do NOT fall back to ended workspaces because `getWorkspaceByIdForUser`
+ * and the `/workspace/[id]` page reject ended workspaces (they
+ * redirect to the picker), so a link to one would just bounce.
  *
  * Uses the `by_instructorId_ownerId` index (PR #4c-1) so this is
  * O(1) for the common case. We collect all matches because the
@@ -292,16 +294,10 @@ export async function resolveActiveWorkspaceForPair(
     )
     .collect();
 
-  const live = candidates.filter((w) => w.deletedAt === undefined);
-  if (live.length === 0) return null;
-
-  const active = live.find((w) => w.endedAt === undefined);
-  if (active) return active;
-
-  const sortedByEndedDesc = [...live].sort(
-    (a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0)
+  const active = candidates.find(
+    (w) => w.deletedAt === undefined && w.endedAt === undefined
   );
-  return sortedByEndedDesc[0] ?? null;
+  return active ?? null;
 }
 
 /** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */

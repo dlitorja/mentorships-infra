@@ -63,13 +63,14 @@ export async function POST(request: Request): Promise<Response> {
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    await requireAdminOrInstructor(convex, sessionPackId, userId);
 
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     convex.setAuth(token);
+
+    await requireAdminOrInstructor(convex, sessionPackId, userId);
 
     if (action === "increment") {
       const updated = await convex.mutation(api.sessionPacks.addSessionsToPack, {
