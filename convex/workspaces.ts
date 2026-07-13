@@ -280,7 +280,7 @@ export async function assertParticipantForSession(
  * pair could end and re-open a new workspace, so we sort in memory.
  */
 export async function resolveActiveWorkspaceForPair(
-  ctx: any,
+  ctx: QueryCtx,
   args: { instructorId: Id<"instructors">; studentUserId: string }
 ): Promise<Doc<"workspaces"> | null> {
   const candidates = await ctx.db
