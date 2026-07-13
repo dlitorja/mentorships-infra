@@ -6,9 +6,11 @@ import {
   useParticipant,
   useParticipantIds,
 } from "@daily-co/daily-react";
+import { PhoneOff, RefreshCw } from "lucide-react";
 
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { VideoControls } from "@/components/video/video-controls";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,7 +27,14 @@ import { cn } from "@/lib/utils";
  * placeholder background.
  */
 export function VideoCall() {
-  const { status, remoteParticipantName, isPictureInPicture } = useVideoCallContext();
+  const {
+    status,
+    remoteParticipantName,
+    isPictureInPicture,
+    join,
+    leave,
+    errorMessage,
+  } = useVideoCallContext();
   const participantIds = useParticipantIds();
 
   // While Daily is loading/joining, render an explicit loading state
@@ -52,9 +61,69 @@ export function VideoCall() {
   }
 
   if (status === "error") {
+    // Recovery path: Retry re-runs `useVideoCall.join()`, which
+    // re-fetches the meeting token and re-joins the Daily room. The
+    // previous error message is cleared inside join() before the
+    // retry, so a successful retry immediately flips status back to
+    // "joining" → "joined" without needing a manual reset.
+    // `useVideoCall.join()` has its own re-entrancy guard via
+    // `statusRef`, so a rapid double-click is safe.
+    //
+    // The Leave button is the exit hatch — Greptile P1: without it
+    // the user is locked into the modal until they refresh, because
+    // `<VideoControls />` (the only place Leave lives in the joined
+    // branch) isn't rendered here. `useVideoCall.leave()` short-
+    // circuits cleanly on `meetingState !== "joined-meeting"` and
+    // flips status to "idle", which unmounts the overlay via
+    // `useIsCallOverlayVisible()`.
+    //
+    // `role="alert"` + `aria-live="polite"` makes the failure message
+    // and recovery state announce to screen readers (CodeRabbit).
+    // The catch on `join().catch(...)` swallows its rethrown rejection
+    // so a second failed retry doesn't surface as an unhandled
+    // promise rejection in the console (CodeRabbit). `RefreshCw` is
+    // `aria-hidden` because the button's accessible name comes from
+    // its visible text "Retry" (CodeRabbit).
     return (
-      <div className="flex h-full items-center justify-center bg-muted p-6 text-center text-sm text-muted-foreground">
-        <p>Could not connect to the call. Click Retry in the toolbar above.</p>
+      <div
+        role="alert"
+        aria-live="polite"
+        className="flex h-full flex-col items-center justify-center gap-3 bg-muted p-6 text-center text-sm text-muted-foreground"
+      >
+        <p className="max-w-sm">
+          {errorMessage
+            ? `Could not connect: ${errorMessage}`
+            : "Could not connect to the call."}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              join().catch(() => {
+                // join() already reports the error via reportError and
+                // surfaces it as `errorMessage`. Swallow the rethrow
+                // so a second consecutive failure doesn't produce an
+                // unhandled rejection in the browser console.
+              });
+            }}
+            className="gap-2"
+          >
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            Retry
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void leave()}
+            className="gap-2"
+          >
+            <PhoneOff className="h-4 w-4" aria-hidden="true" />
+            Leave
+          </Button>
+        </div>
       </div>
     );
   }

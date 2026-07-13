@@ -6,7 +6,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { Tabs, TabsContent } from "@/components/ui/tabs";
-import { useIsInCall } from "@/lib/video/video-context";
+import { useIsCallOverlayVisible } from "@/lib/video/video-context";
 import { useSplitRatio } from "@/lib/hooks/use-split-ratio";
 import { useIsBelow } from "@/lib/hooks/use-media-query";
 import {
@@ -56,6 +56,21 @@ export type CallOverlayProps = {
  *     (`node_modules/.../Panel.d.ts`) so `defaultSize={70}` would
  *     render a 70px panel.
  *
+ * Visibility:
+ *   - `useIsCallOverlayVisible()` gates mount + unmount with a 180ms
+ *     fade-in/fade-out via framer-motion's `AnimatePresence`. We
+ *     don't dismiss on Escape or backdrop click — leaving the call
+ *     requires the explicit leave button on `<VideoControls>`.
+ *
+ *     The hook (vs. `useIsInCall()`) is load-bearing here: React 18
+ *     automatic batching collapses `setStatus("joining")` and the
+ *     terminal `setStatus` (joined or error) from `useVideoCall.join()`
+ *     into a single commit when the token fetch resolves in the
+ *     same microtask. Without the broader hook (which also matches
+ *     `session.status === "active"` and `status === "error"`), the
+ *     overlay would flash off whenever the join failed and the user
+ *     would have to hard-refresh.
+ *
  * Accessibility:
  *   - `role="dialog"` + `aria-modal="true"` + `aria-label` so screen
  *     readers announce the modal and treat siblings as background.
@@ -78,7 +93,7 @@ export function CallOverlay({
   activeTab,
   onChangeTab,
 }: CallOverlayProps): React.ReactElement | null {
-  const isInCall = useIsInCall();
+  const isVisible = useIsCallOverlayVisible();
   const isPhone = useIsBelow(600);
   const { ratio, setRatio } = useSplitRatio(
     HORIZONTAL_SPLIT_RATIO_STORAGE_KEY,
@@ -118,7 +133,7 @@ export function CallOverlay({
 
   return createPortal(
     <AnimatePresence>
-      {isInCall && (
+      {isVisible && (
         <motion.div
           key="call-overlay"
           data-testid="call-overlay"

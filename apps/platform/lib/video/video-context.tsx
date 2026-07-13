@@ -95,3 +95,46 @@ export function useIsInCall(): boolean {
   const { status } = useVideoCallContext();
   return status === "joined" || status === "joining" || status === "leaving";
 }
+
+/**
+ * True when the modal call overlay should be visible — strictly
+ * broader than `useIsInCall()`. Drives `<CallOverlay />` (and any
+ * future modal-style call UI) so the overlay stays mounted across
+ * every state where the user has clicked "Start call" or is in a
+ * call, including the failed-join window.
+ *
+ * Returns true when:
+ *   - `status` is "joining" / "joined" / "leaving" (call is live)
+ *   - `status` is "error" (join failed; user needs to see the error
+ *     UI and the Leave button to recover)
+ *   - `session.status` is "active" (user just clicked Start call;
+ *     `markCallStarted` flipped the session, but the Daily join
+ *     hasn't fired yet — or, in the React 18 batched-update case,
+ *     `setStatus("joining")` and `setStatus("error")` were committed
+ *     in the same render so the "joining" state is invisible to
+ *     subscribers)
+ *
+ * The `session.status === "active"` clause is the load-bearing piece
+ * for the modal-must-appear-on-Start-call requirement. Without it,
+ * the overlay relies on `setStatus("joining")` committing before the
+ * join fetch resolves, which React 18 automatic batching collapses
+ * into a single render with the terminal `setStatus` (joined OR
+ * error). Tying visibility to the data layer's "active" signal makes
+ * the overlay mount deterministically as soon as `markCallStarted`
+ * succeeds.
+ *
+ * Workspace chrome gating (action row + `<WorkspaceTabs />`) keeps
+ * using `useIsInCall()` so a failed join leaves the workspace
+ * surface visible beneath the modal backdrop, giving the user
+ * recovery context.
+ */
+export function useIsCallOverlayVisible(): boolean {
+  const { status, session } = useVideoCallContext();
+  return (
+    status === "joining" ||
+    status === "joined" ||
+    status === "leaving" ||
+    status === "error" ||
+    session?.status === "active"
+  );
+}
