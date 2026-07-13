@@ -219,7 +219,7 @@ export async function assertParticipantForSession(
     throw new Error("Instructor not found");
   }
 
-  if (instructor.userId === identity.tokenIdentifier) {
+  if (instructor.userId === identity.subject) {
     // Instructor path: find the workspace where this student is
     // the owner. Single indexed `.first()` — no cap.
     const workspace = await ctx.db
@@ -247,7 +247,7 @@ export async function assertParticipantForSession(
     .withIndex("by_instructorId_ownerId", (q) =>
       q
         .eq("instructorId", session.instructorId)
-        .eq("ownerId", identity.tokenIdentifier)
+        .eq("ownerId", identity.subject)
     )
     .first();
   if (!workspace) {
