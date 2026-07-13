@@ -39,6 +39,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       status: m.status,
       lastSessionCompletedAt: m.lastSessionCompletedAt ? new Date(m.lastSessionCompletedAt).toISOString() : null,
       completedSessionCount: m.completedSessionCount,
+      workspaceId: m.workspaceId ?? null,
     }));
 
     return NextResponse.json({ items });

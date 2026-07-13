@@ -3,6 +3,7 @@ import { internal, api } from "./_generated/api";
 import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { resolveActiveWorkspaceForPair } from "./workspaces";
 
 /**
  * True if `id` matches the Clerk user ID format. Clerk user IDs always
@@ -1974,18 +1975,23 @@ export const getInstructorStudentsWithSessionInfo = query({
           .query("users")
           .withIndex("by_userId", (q) => q.eq("userId", m.userId))
           .first();
-        
+
         const sessions = await ctx.db
           .query("sessions")
           .withIndex("by_studentId", (q) => q.eq("studentId", m.userId))
 .filter((q) => q.eq(q.field("instructorId"), args.instructorId))
           .collect();
-        
+
         const completedSessions = sessions.filter(s => s.status === "completed");
         const lastSession = completedSessions.length > 0
           ? completedSessions.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))[0]
           : null;
-        
+
+        const workspace = await resolveActiveWorkspaceForPair(ctx, {
+          instructorId: args.instructorId,
+          studentUserId: m.userId,
+        });
+
         return {
           userId: m.userId,
           email: user?.email ?? null,
@@ -1996,10 +2002,11 @@ export const getInstructorStudentsWithSessionInfo = query({
           status: m.status,
           lastSessionCompletedAt: lastSession?.completedAt ?? null,
           completedSessionCount: completedSessions.length,
+          workspaceId: workspace?._id ?? null,
         };
       })
     );
-    
+
     return result;
   },
 });

@@ -107,7 +107,7 @@ export default async function InstructorDashboardPage() {
                 {studentRows.map((row) => (
                   <Link
                     key={row.seatId ?? row.workspaceId ?? row.userId}
-                    href={`/instructor/students/${row.userId}`}
+                    href={row.workspaceId ? `/workspace/${row.workspaceId}` : `/instructor/students/${row.userId}`}
                     className="flex flex-col gap-3 p-4 transition-colors hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">

@@ -262,6 +262,48 @@ export async function assertParticipantForSession(
   return { session, workspace, role: "student" };
 }
 
+/**
+ * Resolve the workspace to link to from an instructor + student pair
+ * in the student list / dashboard. Used by
+ * `getInstructorStudentsWithRemainingSessions` and
+ * `getInstructorStudentsWithSessionInfo` to populate the
+ * `workspaceId` column so the UI can route to `/workspace/{id}`
+ * instead of the stale per-student detail page.
+ *
+ * Priority: active (deletedAt undefined AND endedAt undefined) >
+ * most-recently-ended (max endedAt) > any non-deleted. Returns null
+ * when no live workspace exists for the pair.
+ *
+ * Uses the `by_instructorId_ownerId` index (PR #4c-1) so this is
+ * O(1) for the common case. We collect all matches because the
+ * index does not narrow to a single row — historically the same
+ * pair could end and re-open a new workspace, so we sort in memory.
+ */
+export async function resolveActiveWorkspaceForPair(
+  ctx: any,
+  args: { instructorId: Id<"instructors">; studentUserId: string }
+): Promise<Doc<"workspaces"> | null> {
+  const candidates = await ctx.db
+    .query("workspaces")
+    .withIndex("by_instructorId_ownerId", (q) =>
+      q
+        .eq("instructorId", args.instructorId)
+        .eq("ownerId", args.studentUserId)
+    )
+    .collect();
+
+  const live = candidates.filter((w) => w.deletedAt === undefined);
+  if (live.length === 0) return null;
+
+  const active = live.find((w) => w.endedAt === undefined);
+  if (active) return active;
+
+  const sortedByEndedDesc = [...live].sort(
+    (a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0)
+  );
+  return sortedByEndedDesc[0] ?? null;
+}
+
 /** Log a view_workspace audit event. Called from admin API routes after fetching workspace details. */
 export const logViewWorkspaceAudit = mutation({
   args: {

@@ -33,6 +33,7 @@ type Student = {
   expiresAt: string | null;
   lastSessionCompletedAt: string | null;
   completedSessionCount: number;
+  workspaceId: string | null;
 };
 
 async function fetchStudents(): Promise<{ items: Student[] }> {
@@ -244,7 +245,11 @@ export default function InstructorStudentsPage() {
       ) : (
         <div className="grid gap-4">
           {filteredAndSortedStudents.map((student) => (
-            <Link key={student.sessionPackId} href={`/instructor/students/${student.userId}`} className="block">
+            <Link
+              key={student.sessionPackId}
+              href={student.workspaceId ? `/workspace/${student.workspaceId}` : `/instructor/students/${student.userId}`}
+              className="block"
+            >
               <Card className="hover:border-primary/50 transition-colors cursor-pointer">
                 <CardContent className="pt-6">
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
