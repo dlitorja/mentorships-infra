@@ -28,9 +28,9 @@ const startAdhocResponseSchema = z.object({
 });
 
 /**
- * Instructor-only "Start ad-hoc call" button. The button itself is
- * hidden from students (parent component renders it conditionally
- * based on `role === "instructor"`) AND the API endpoint rejects
+ * Instructor-only "Start call" button. The button itself is hidden
+ * from students (parent component renders it conditionally based on
+ * `role === "instructor"`) AND the API endpoint rejects
  * non-instructors server-side, so the constraint is enforced twice.
  *
  * Flow:
@@ -115,7 +115,7 @@ export function StartAdhocButton({
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
         throw new Error(
-          `Failed to start ad-hoc call (${res.status})${detail ? `: ${detail}` : ""}`
+          `Failed to start call (${res.status})${detail ? `: ${detail}` : ""}`
         );
       }
       const body = startAdhocResponseSchema.parse(await res.json());
@@ -128,10 +128,10 @@ export function StartAdhocButton({
         source: "StartAdhocButton",
         error: err instanceof Error ? err : new Error(message),
         level: "error",
-        message: "Failed to start ad-hoc call",
+        message: "Failed to start call",
         context: { workspaceId, recordingConsent },
       });
-      toast.error("Could not start ad-hoc call", { description: message });
+      toast.error("Could not start call", { description: message });
     } finally {
       setIsStarting(false);
       // Close the modal so the next open gets a fresh `hasChosen=false`
@@ -154,7 +154,7 @@ export function StartAdhocButton({
         ) : (
           <PhoneCall className="h-4 w-4" />
         )}
-        Start ad-hoc call
+        Start call
       </Button>
       <ConsentModal
         open={modalOpen}

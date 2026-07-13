@@ -8,7 +8,7 @@ import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download, Link as LinkIcon, Radio } from 'lucide-react';
+import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download, Link as LinkIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { createImagePreviews, uploadImageForChat, uploadFileForChat, LARGE_CHAT_FILE_BYTES, MAX_CHAT_FILE_BYTES, type UploadError } from '@/lib/workspace-image-upload';
@@ -58,9 +58,8 @@ interface WorkspaceChatProps {
   role?: 'student' | 'instructor' | 'admin';
   // PR #4b: id of the active video-call session, or null when no
   // call is active. New messages, images, and files posted during
-  // the call are auto-tagged with this sessionId. While non-null,
-  // an in-call banner is shown explaining the chat replaces Daily's
-  // in-call chat.
+  // the call are auto-tagged with this sessionId, and tagged
+  // messages get a small dot indicator in the message list.
   activeSessionId: Id<'sessions'> | null;
 }
 
@@ -670,19 +669,6 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto min-h-0 space-y-3 p-2">
-        {/* PR #4b: in-call banner explaining the chat replaces
-         * Daily's in-call chat. Hidden when no call is active. */}
-        {activeSessionId && (
-          <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs flex items-start gap-2">
-            <Radio className="h-4 w-4 mt-0.5 text-primary shrink-0" />
-            <div className="flex-1">
-              <p className="font-medium text-primary">You&apos;re in a call.</p>
-              <p className="text-muted-foreground">
-                Messages here are saved to this session and visible after the call ends. Daily&apos;s in-call chat is disabled — this tab is the single chat surface during the call.
-              </p>
-            </div>
-          </div>
-        )}
         {messages && messages.length > 0 ? (
           (messages as Message[]).map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
