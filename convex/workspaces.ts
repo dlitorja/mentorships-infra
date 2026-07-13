@@ -690,10 +690,30 @@ export const updateWorkspaceNote = mutation({
   },
 });
 
-/** Soft-deletes a workspace note by setting deletedAt. */
+/** Soft-deletes a workspace note by setting deletedAt. Requires auth and workspace access — anyone in the workspace (instructor or student) can delete any note, including the auto-generated live session notes. Soft-delete is idempotent. */
 export const deleteWorkspaceNote = mutation({
   args: { id: v.id("workspaceNotes") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
+    const note = await ctx.db.get(args.id);
+    if (!note) {
+      throw new Error("Note not found");
+    }
+
+    const workspace = await ctx.db.get(note.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      throw new Error("Not authorized to delete this note");
+    }
+
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
   },
 });
