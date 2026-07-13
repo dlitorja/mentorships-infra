@@ -708,17 +708,15 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                           >
                             <Edit2 className="h-3 w-3" />
                           </Button>
-                          {!note.isLiveSessionNote && (
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-6 w-6 text-destructive"
-                              onClick={(e) => { e.stopPropagation(); handleDeleteNote(note._id); }}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          )}
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-destructive"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteNote(note._id); }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
                         </div>
                       </>
                     )}
