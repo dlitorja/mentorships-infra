@@ -6,9 +6,11 @@ import {
   useParticipant,
   useParticipantIds,
 } from "@daily-co/daily-react";
+import { RefreshCw } from "lucide-react";
 
 import { useVideoCallContext } from "@/lib/video/video-context";
 import { VideoControls } from "@/components/video/video-controls";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,7 +27,13 @@ import { cn } from "@/lib/utils";
  * placeholder background.
  */
 export function VideoCall() {
-  const { status, remoteParticipantName, isPictureInPicture } = useVideoCallContext();
+  const {
+    status,
+    remoteParticipantName,
+    isPictureInPicture,
+    join,
+    errorMessage,
+  } = useVideoCallContext();
   const participantIds = useParticipantIds();
 
   // While Daily is loading/joining, render an explicit loading state
@@ -52,9 +60,30 @@ export function VideoCall() {
   }
 
   if (status === "error") {
+    // Recovery path: Retry re-runs `useVideoCall.join()`, which
+    // re-fetches the meeting token and re-joins the Daily room. The
+    // previous error message is cleared inside join() before the
+    // retry, so a successful retry immediately flips status back to
+    // "joining" → "joined" without needing a manual reset.
+    // `useVideoCall.join()` has its own re-entrancy guard via
+    // `statusRef`, so a rapid double-click is safe.
     return (
-      <div className="flex h-full items-center justify-center bg-muted p-6 text-center text-sm text-muted-foreground">
-        <p>Could not connect to the call. Click Retry in the toolbar above.</p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-muted p-6 text-center text-sm text-muted-foreground">
+        <p className="max-w-sm">
+          {errorMessage
+            ? `Could not connect: ${errorMessage}`
+            : "Could not connect to the call."}
+        </p>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => void join()}
+          className="gap-2"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
       </div>
     );
   }
