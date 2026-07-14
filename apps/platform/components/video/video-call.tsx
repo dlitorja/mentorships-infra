@@ -267,6 +267,22 @@ function ParticipantTile({
 
   return (
     <div
+      // PR #632: surface the tile's screen-share state to E2E tests
+      // so `tests/e2e/call-bug-fixes.spec.ts` Bug C can assert the
+      // layout flips after the Share-screen click without coupling
+      // to Daily internal participant record shape. `data-testid`
+      // matches the existing convention on `<VideoPanel>` and
+      // `<CallOverlay>` (`video-panel-fullscreen`, `call-overlay`).
+      //
+      // `data-testid` includes the sessionId so multi-participant
+      // views don't produce strict-mode violations in Playwright —
+      // bulk selectors should use the `^=` attribute selector
+      // (`[data-testid^="participant-tile-"]`) instead of
+      // `getByTestId("participant-tile")`.
+      data-testid={`participant-tile-${sessionId}`}
+      data-screen-share={String(isScreenShare)}
+      data-local={String(isLocal)}
+      data-session-id={sessionId}
       className={cn(
         "relative flex h-full w-full items-center justify-center overflow-hidden rounded-md bg-zinc-900",
         isScreenShare && "col-span-2"
