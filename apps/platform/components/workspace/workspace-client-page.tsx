@@ -90,7 +90,7 @@ function WorkspaceContent({
   // Hooks must be called BEFORE any conditional return (the loading
   // branch below), so `useWorkspaceMessages` and `useMemo` are
   // declared up here even when `workspacesLoading` is false.
-  const messagesQuery = useWorkspaceMessages(selectedWorkspaceId ?? "");
+  const messagesQuery = useWorkspaceMessages(selectedWorkspaceId);
   const chatDataValue = useMemo(
     () => ({
       workspaceId: selectedWorkspaceId,
