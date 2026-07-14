@@ -58,6 +58,15 @@ export function VideoCall() {
       ? screenShareIds[screenShareIds.length - 1]
       : null;
   const isScreenShareActive = activeScreenShareId !== null;
+  // Camera strip must exclude the screen-share sub-participant so it
+  // isn't rendered twice (once as the primary tile, once in the
+  // strip). Daily exposes the sub-participant's id as
+  // `${ownerSessionId}-screen` per `daily-react`'s screen-share
+  // mapping, so substring-match is sufficient — the owner participant
+  // record doesn't end in "-screen".
+  const cameraStripIds = isScreenShareActive
+    ? participantIds.filter((id) => !id.endsWith("-screen"))
+    : participantIds;
 
   // While Daily is loading/joining, render an explicit loading state
   // rather than a blank iframe — this prevents the user from seeing a
@@ -167,15 +176,10 @@ export function VideoCall() {
               forceScreenShare
             />
           </div>
-          {participantIds.length > 0 && (
+          {cameraStripIds.length > 0 && (
             <div className="shrink-0 border-t border-zinc-800 p-2">
-              <div
-                className={cn(
-                  "mx-auto flex h-24 max-w-3xl gap-2",
-                  participantIds.length === 1 ? "justify-center" : "justify-center"
-                )}
-              >
-                {participantIds.map((id) => (
+              <div className="mx-auto flex h-24 max-w-3xl justify-center gap-2">
+                {cameraStripIds.map((id) => (
                   <div
                     key={id}
                     className="aspect-video h-full"

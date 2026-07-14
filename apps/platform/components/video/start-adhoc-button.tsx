@@ -82,16 +82,35 @@ export function StartAdhocButton({
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
-    // Invalidate the workspace session query so the provider's
-    // auto-join effect (gated on `session.status === "active"`)
-    // fires immediately after this mutation completes. Without this,
-    // the Start-call path's local mutation instance never invalidates
-    // the cached "scheduled" row, the provider sees a stale
-    // `"scheduled"` status, and the user has to refresh the page to
-    // surface the modal. Symmetric with the provider's own
-    // `markCallStarted` mutation (which invalidates the same key).
+    // Invalidate the active-session query so the provider's auto-join
+    // effect (gated on `session.status === "active"`) fires immediately
+    // after this mutation completes. Convex's reactive subscription
+    // usually pushes updates on its own, but the previous "scheduled"
+    // row in the TanStack Query cache holds a stale shape until either
+    // (a) the subscription pushes a `setQueryData` (race-prone on first
+    // Start click because the cached row's identity is the empty-
+    // videoRoomName version), or (b) this onSuccess force-marks the
+    // query as stale and refetches. We do BOTH:
+    //   - Predicate on `["convexQuery", "api.sessions.*"]` so the
+    //     full set of session queries refetch — including the
+    //     provider's `getCurrentOrUpcomingSessionForWorkspace` query
+    //     and the deep-link `getSessionById` query, both of which the
+    //     provider's own `markCallStarted` mutation also touches.
+    //     Using the `["sessions"]` prefix from earlier was a partial-
+    //     match no-op because the actual keys live under
+    //     `["convexQuery", ...]` (see `@convex-dev/react-query`'s
+    //     `convexQuery` factory, `queryKey: ["convexQuery",
+    //     functionName, args]`).
+    //   - `{ refetchType: "all" }` so unobserved queries refetch too
+    //     (default `refetchType: "active"` skips them).
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("api.sessions."),
+        refetchType: "all",
+      });
     },
   });
 

@@ -124,7 +124,13 @@ export function useVideoCall(
   const endCall = useMutation({
     mutationFn: useConvexMutation(api.sessions.endCall),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("api.sessions."),
+        refetchType: "all",
+      });
     },
   });
 
@@ -205,15 +211,32 @@ export function useVideoCall(
   }, [daily]);
 
   // Track meeting-state transitions into our higher-level `status`.
+  //
+  // PR #4c-4 follow-up: when `meetingState === "left-meeting"` fires
+  // synchronously after `await daily.leave()` resolves, mapping to
+  // `"idle"` here races `endCall.mutateAsync` (still in flight). Status
+  // flips to `"idle"` while the session is still cached as `"active"`,
+  // so the overlay stays visible AND `<VideoCall>` shows the
+  // loading-state "Preparing call…" branch (it gates on
+  // `status === "idle" || "joining" || "leaving"`). Suppress the
+  // `left-meeting → idle` mapping when we've latched
+  // `hasProgrammaticallyLeft` — `leave()` owns the terminal
+  // `status: "idle"` transition once `endCall` completes. The mapping
+  // still fires for network-drop-style "left-meeting" events that
+  // arrive WITHOUT a programmatic leave (e.g., Daily lost the WebSocket
+  // mid-call) because `hasProgrammaticallyLeft` stays false in that
+  // path, surfacing the error UI via the existing `useVideoCall.join`
+  // re-entrancy guard.
   useEffect(() => {
     if (meetingState === "joined-meeting") {
       setStatus("joined");
     } else if (meetingState === "joining-meeting") {
       setStatus("joining");
     } else if (meetingState === "left-meeting") {
+      if (hasProgrammaticallyLeft) return;
       setStatus("idle");
     }
-  }, [meetingState]);
+  }, [meetingState, hasProgrammaticallyLeft]);
 
   // Reset per-session state when the session changes (e.g. switching
   // workspaces or after a previous call ended).
@@ -394,11 +417,23 @@ export function useVideoCall(
   // refs for `mutateAsync` and `invalidateQueries` so the cleanup
   // doesn't re-register when mutation state flips mid-call.
   const invalidateSessionsRef = useRef(() => {
-    queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    queryClient.invalidateQueries({
+      predicate: (q) =>
+        q.queryKey[0] === "convexQuery" &&
+        typeof q.queryKey[1] === "string" &&
+        q.queryKey[1].startsWith("api.sessions."),
+      refetchType: "all",
+    });
   });
   useEffect(() => {
     invalidateSessionsRef.current = () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("api.sessions."),
+        refetchType: "all",
+      });
     };
   }, [queryClient]);
 

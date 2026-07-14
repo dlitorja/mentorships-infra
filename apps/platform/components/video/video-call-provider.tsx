@@ -206,8 +206,20 @@ function VideoCallProviderInner({
   const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
+    // See StartAdhocButton for the rationale: Convex reactive
+    // subscriptions race-prone on first call because the cached row
+    // identity is the pre-`callStartedAt` snapshot. Force-refetch
+    // every `api.sessions.*` query with the correct key prefix so
+    // the auto-join effect sees `session.status === "active"` on the
+    // very next render without a manual refresh.
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("api.sessions."),
+        refetchType: "all",
+      });
     },
   });
 
