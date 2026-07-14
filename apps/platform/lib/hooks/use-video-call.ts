@@ -43,6 +43,16 @@ export type UseVideoCallResult = {
   remoteParticipantName: string | null;
   errorMessage: string | null;
   durationSeconds: number;
+  /**
+   * PR #4c-4: flips to `true` synchronously when `leave()` is
+   * invoked. The provider's auto-join effect uses this as a guard
+   * so a programmatic leave does not race `endCall` into a
+   * duplicate `GET /api/video/token/...` request that 403s once
+   * `callEndedAt` is set server-side. Reset to `false` whenever
+   * `sessionId` changes — a brand-new session is allowed to
+   * auto-join again.
+   */
+  hasProgrammaticallyLeft: boolean;
   join: () => Promise<void>;
   leave: () => Promise<void>;
   toggleMute: () => void;
@@ -114,7 +124,13 @@ export function useVideoCall(
   const endCall = useMutation({
     mutationFn: useConvexMutation(api.sessions.endCall),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("api.sessions."),
+        refetchType: "all",
+      });
     },
   });
 
@@ -159,6 +175,19 @@ export function useVideoCall(
   const [joinedSessionId, setJoinedSessionId] = useState<Id<"sessions"> | null>(
     null
   );
+  // PR #4c-4: see `UseVideoCallResult.hasProgrammaticallyLeft`. Set
+  // synchronously inside `leave()` and reset on `sessionId` change
+  // so the provider's auto-join effect can gate on "did the user
+  // intentionally leave THIS session". Used to break the race
+  // where `meetingState === "left-meeting"` flips `status` to
+  // `"idle"` while `endCall.mutateAsync` is still in flight — the
+  // auto-join effect would otherwise re-fire `call.join()` and the
+  // token fetch would 403 against a `callEndedAt` set by the
+  // in-flight endCall.
+  const [hasProgrammaticallyLeft, setHasProgrammaticallyLeft] = useState(false);
+  useEffect(() => {
+    setHasProgrammaticallyLeft(false);
+  }, [sessionId]);
 
   // Track the latest session/workspace for the unmount cleanup path,
   // which runs after React has cleared local state. Without refs, the
@@ -182,15 +211,32 @@ export function useVideoCall(
   }, [daily]);
 
   // Track meeting-state transitions into our higher-level `status`.
+  //
+  // PR #4c-4 follow-up: when `meetingState === "left-meeting"` fires
+  // synchronously after `await daily.leave()` resolves, mapping to
+  // `"idle"` here races `endCall.mutateAsync` (still in flight). Status
+  // flips to `"idle"` while the session is still cached as `"active"`,
+  // so the overlay stays visible AND `<VideoCall>` shows the
+  // loading-state "Preparing call…" branch (it gates on
+  // `status === "idle" || "joining" || "leaving"`). Suppress the
+  // `left-meeting → idle` mapping when we've latched
+  // `hasProgrammaticallyLeft` — `leave()` owns the terminal
+  // `status: "idle"` transition once `endCall` completes. The mapping
+  // still fires for network-drop-style "left-meeting" events that
+  // arrive WITHOUT a programmatic leave (e.g., Daily lost the WebSocket
+  // mid-call) because `hasProgrammaticallyLeft` stays false in that
+  // path, surfacing the error UI via the existing `useVideoCall.join`
+  // re-entrancy guard.
   useEffect(() => {
     if (meetingState === "joined-meeting") {
       setStatus("joined");
     } else if (meetingState === "joining-meeting") {
       setStatus("joining");
     } else if (meetingState === "left-meeting") {
+      if (hasProgrammaticallyLeft) return;
       setStatus("idle");
     }
-  }, [meetingState]);
+  }, [meetingState, hasProgrammaticallyLeft]);
 
   // Reset per-session state when the session changes (e.g. switching
   // workspaces or after a previous call ended).
@@ -330,6 +376,16 @@ export function useVideoCall(
     }
     statusRef.current = "leaving";
     setStatus("leaving");
+    // PR #4c-4: latch the auto-join guard BEFORE awaiting `daily.leave()`
+    // so the provider's auto-join effect can't fire when
+    // `meetingState === "left-meeting"` flips `status` to `"idle"`
+    // before `endCall` completes. Without this, `call.status === "idle"`
+    // AND a still-cached `"active"` session both become true and the
+    // auto-join effect issues a duplicate `GET /api/video/token/...`
+    // request that races `endCall` for the server — `endCall` wins
+    // and sets `callEndedAt`, so the token endpoint returns null and
+    // the request 403s.
+    setHasProgrammaticallyLeft(true);
     try {
       await daily.leave();
       if (joinedSessionId) {
@@ -361,11 +417,23 @@ export function useVideoCall(
   // refs for `mutateAsync` and `invalidateQueries` so the cleanup
   // doesn't re-register when mutation state flips mid-call.
   const invalidateSessionsRef = useRef(() => {
-    queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    queryClient.invalidateQueries({
+      predicate: (q) =>
+        q.queryKey[0] === "convexQuery" &&
+        typeof q.queryKey[1] === "string" &&
+        q.queryKey[1].startsWith("api.sessions."),
+      refetchType: "all",
+    });
   });
   useEffect(() => {
     invalidateSessionsRef.current = () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("api.sessions."),
+        refetchType: "all",
+      });
     };
   }, [queryClient]);
 
@@ -480,6 +548,7 @@ export function useVideoCall(
       remoteParticipantName,
       errorMessage,
       durationSeconds,
+      hasProgrammaticallyLeft,
       join,
       leave,
       toggleMute,
@@ -495,6 +564,7 @@ export function useVideoCall(
       remoteParticipantName,
       errorMessage,
       durationSeconds,
+      hasProgrammaticallyLeft,
       join,
       leave,
       toggleMute,
