@@ -58,14 +58,17 @@ export function VideoCall() {
       ? screenShareIds[screenShareIds.length - 1]
       : null;
   const isScreenShareActive = activeScreenShareId !== null;
-  // Camera strip must exclude the screen-share sub-participant so it
-  // isn't rendered twice (once as the primary tile, once in the
-  // strip). Daily exposes the sub-participant's id as
-  // `${ownerSessionId}-screen` per `daily-react`'s screen-share
-  // mapping, so substring-match is sufficient — the owner participant
-  // record doesn't end in "-screen".
+  // Camera strip must exclude ONLY the active screen-share sub-
+  // participant so it isn't rendered twice (once as the primary
+  // tile, once in the strip). We filter on the exact active
+  // sub-participant ID, not on the "-screen" suffix — that way
+  // concurrent screen-shares from other participants remain visible
+  // in the strip (Greptile 4/5 follow-up: filtering by suffix would
+  // drop every concurrent screen, leaving them rendered nowhere).
+  // The strip therefore contains: every camera participant + every
+  // non-active screen-share sub-participant.
   const cameraStripIds = isScreenShareActive
-    ? participantIds.filter((id) => !id.endsWith("-screen"))
+    ? participantIds.filter((id) => id !== activeScreenShareId)
     : participantIds;
 
   // While Daily is loading/joining, render an explicit loading state
@@ -187,6 +190,7 @@ export function VideoCall() {
                     <ParticipantTile
                       sessionId={id}
                       fallbackName={remoteParticipantName}
+                      forceScreenShare={id.endsWith("-screen")}
                     />
                   </div>
                 ))}

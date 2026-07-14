@@ -335,7 +335,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     !!chatData?.workspaceId &&
     chatData.workspaceId === workspaceId;
   const localMessagesQuery = useWorkspaceMessages(
-    messagesFromProviderMatch ? "" : workspaceId
+    messagesFromProviderMatch ? null : workspaceId
   );
   const messages: MessageList | undefined =
     messagesFromProviderMatch

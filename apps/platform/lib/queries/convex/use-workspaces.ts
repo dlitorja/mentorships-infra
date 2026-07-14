@@ -42,12 +42,26 @@ export function useWorkspacesByInstructor(instructorId: string) {
 /**
  * Fetches all chat messages for a workspace.
  * Messages are returned in chronological order.
+ *
+ * Accepts `null` / `undefined` / `""` to disable the query, in which
+ * case the underlying Convex subscription is short-circuited via
+ * the `"skip"` arg sentinel (see `useLiveSessionNote` for the
+ * rationale — `@convex-dev/react-query` ignores `enabled: false` on
+ * the "added" observer event, so a sentinel-shaped workspaceId would
+ * otherwise leak to the server and fail `v.id("workspaces")`
+ * validation while still polluting TanStack Query's cache key).
  */
-export function useWorkspaceMessages(workspaceId: string) {
-  return useQuery({
-    ...convexQuery(api.workspaces.getWorkspaceMessages, { workspaceId: workspaceId as Id<"workspaces"> }),
-    enabled: !!workspaceId,
-  });
+export function useWorkspaceMessages(
+  workspaceId: string | null | undefined
+) {
+  return useQuery(
+    convexQuery(
+      api.workspaces.getWorkspaceMessages,
+      workspaceId
+        ? { workspaceId: workspaceId as Id<"workspaces"> }
+        : "skip"
+    )
+  );
 }
 
 /**
