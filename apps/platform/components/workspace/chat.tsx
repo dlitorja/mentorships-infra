@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
+import { useChatData } from '@/components/workspace/chat-data-context';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,8 @@ interface Message {
   senderRole?: 'student' | 'instructor' | 'admin';
   sessionId?: Id<'sessions'>;
 }
+
+type MessageList = Message[];
 
 interface ImageMessageEntry {
   msg: Message;
@@ -318,7 +321,29 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: messages, isLoading } = useWorkspaceMessages(workspaceId);
+  // PR #4c-4: read the chat subscription from the hoisted
+  // <ChatDataProvider> when it's available. The provider lives
+  // outside the `{!isInCall && <WorkspaceTabs />}` gate, so its
+  // observer stays alive during an active call — incoming messages
+  // flow into the call overlay's chat panel without a manual
+  // refresh. Fall back to a local `useWorkspaceMessages` only when
+  // the provider is missing (e.g., chat rendered outside
+  // <WorkspaceContent> during unit tests or future embeds).
+  const chatData = useChatData();
+  const messagesFromProvider = chatData?.messages;
+  const messagesFromProviderMatch =
+    !!chatData?.workspaceId &&
+    chatData.workspaceId === workspaceId;
+  const localMessagesQuery = useWorkspaceMessages(
+    messagesFromProviderMatch ? "" : workspaceId
+  );
+  const messages: MessageList | undefined =
+    messagesFromProviderMatch
+      ? messagesFromProvider
+      : (localMessagesQuery.data as MessageList | undefined);
+  const isLoading = messagesFromProviderMatch
+    ? chatData?.isLoading ?? false
+    : localMessagesQuery.isLoading;
   const { data: existingImages } = useWorkspaceImages(workspaceId);
   const createMessage = useCreateWorkspaceMessage();
   const createImageAndMessage = useCreateWorkspaceImageAndMessage();
@@ -328,7 +353,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const isAdmin = role === 'admin';
   const currentCount = (existingImages as WorkspaceImageDoc[] | undefined)?.filter((img) => !img.deletedAt).length || 0;
   const remainingSlots = isAdmin ? 999 : 500 - currentCount;
-  const currentFileCount = (messages as Message[] | undefined)?.filter(
+  const currentFileCount = messages?.filter(
     (msg) => msg.type === 'file' && (msg.senderRole === role || msg.senderRole === undefined)
   ).length || 0;
   const pendingFileCount = attachments.filter((attachment) => !attachment.isImage).length;
@@ -337,7 +362,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     : (role === 'instructor' ? WORKSPACE_FILE_CAPS.instructor : WORKSPACE_FILE_CAPS.student) - currentFileCount - pendingFileCount;
   const imageMessages = useMemo<ImageMessageEntry[]>(() => {
     const result: ImageMessageEntry[] = [];
-    for (const msg of (messages as Message[] | undefined) ?? []) {
+    for (const msg of messages ?? []) {
       if (msg.type === 'image') {
         result.push({ msg, parsed: parseImageMessage(msg.content) });
       } else if (msg.type === 'file' && !failedInlineImages.has(msg._id)) {
@@ -360,7 +385,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
   const failedCount = attachments.filter((attachment) => attachment.error).length;
 
   useEffect(() => {
-    const currentMessageIds = new Set(((messages as Message[] | undefined) ?? []).map((msg) => msg._id));
+    const currentMessageIds = new Set((messages ?? []).map((msg) => msg._id));
     setFailedInlineImages((prev) => {
       const next = new Set([...prev].filter((id) => currentMessageIds.has(id)));
       return next.size === prev.size ? prev : next;
@@ -670,7 +695,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto min-h-0 space-y-3 p-2">
         {messages && messages.length > 0 ? (
-          (messages as Message[]).map((msg) => {
+          messages.map((msg) => {
             const fileMessage = msg.type === 'file' ? parseFileMessage(msg.content) : null;
             const imageMessage = msg.type === 'image' ? parseImageMessage(msg.content) : null;
             const hasInlineImageFailed = failedInlineImages.has(msg._id);

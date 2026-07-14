@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { MessageSquare } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
@@ -22,6 +22,11 @@ import { WaitingRoom } from "@/components/video/waiting-room";
 import QuickCapture from "@/components/video/quick-capture";
 import { WorkspaceRowBadge } from "@/components/workspace/workspace-row-badge";
 import { useVideoCallContext, useIsInCall } from "@/lib/video/video-context";
+import {
+  ChatDataProvider,
+  type ChatMessageRow,
+} from "@/components/workspace/chat-data-context";
+import { useWorkspaceMessages } from "@/lib/queries/convex/use-workspaces";
 import type { UserRole } from "@/lib/auth-helpers";
 
 type UserWorkspace = {
@@ -70,6 +75,31 @@ function WorkspaceContent({
     }
   }, [workspaces, selectedWorkspaceId, initialWorkspaceId]);
 
+  // PR #4c-4: hoist the chat subscription so messages posted during
+  // an active call flow into the overlay's chat panel without a
+  // refresh. Previously `<WorkspaceChat>` only mounted inside the
+  // `{!isInCall && <WorkspaceTabs />}` branch (which unmounts when a
+  // call starts), then remounted inside `<CallOverlay>`'s portal.
+  // The unmount/remount churn caused TanStack Query to drop its
+  // observer count to zero mid-call and miss the next
+  // `setQueryData` push from Convex — incoming messages appeared
+  // only after a manual refresh. Hosting the subscription at the
+  // `WorkspaceContent` level keeps at least one observer alive
+  // throughout the workspace lifecycle.
+  //
+  // Hooks must be called BEFORE any conditional return (the loading
+  // branch below), so `useWorkspaceMessages` and `useMemo` are
+  // declared up here even when `workspacesLoading` is false.
+  const messagesQuery = useWorkspaceMessages(selectedWorkspaceId ?? "");
+  const chatDataValue = useMemo(
+    () => ({
+      workspaceId: selectedWorkspaceId,
+      messages: messagesQuery.data as ChatMessageRow[] | undefined,
+      isLoading: messagesQuery.isLoading,
+    }),
+    [selectedWorkspaceId, messagesQuery.data, messagesQuery.isLoading]
+  );
+
   if (workspacesLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -81,40 +111,42 @@ function WorkspaceContent({
   const selectedWorkspace = workspaces?.find((w: UserWorkspace) => w._id === selectedWorkspaceId);
 
   return (
-    <VideoCallProvider
-      // key on workspaceId so the entire video call state (Daily
-      // call, joined room, local PiP position, device state) is reset
-      // when the user switches workspaces. Without the key, the same
-      // provider instance would carry over the previous workspace's
-      // call object — `useVideoCall` couldn't re-bind to the new
-      // session, and unmount cleanup of the old call would never fire.
-      key={selectedWorkspaceId}
-      workspaceId={selectedWorkspaceId}
-      initialJoinSessionId={initialJoinSessionId}
-    >
-      <WorkspaceInner
-        clerkUserId={clerkUserId}
-        workspaces={workspaces}
-        userRole={userRole}
-        selectedWorkspaceId={selectedWorkspaceId}
-        onSelectWorkspace={setSelectedWorkspaceId}
-        activeTab={activeTab}
-        onChangeTab={setActiveTab}
-        selectedWorkspace={selectedWorkspace}
-      />
-      {/*
-       * PR #4b: QuickCapture mounts once inside the provider so
-       * `useVideoCallContext().session` is available. The component
-       * itself returns null when no call is active, so it has no
-       * effect outside an active call.
-       *
-       * CallOverlay mounts inside `WorkspaceInner` (where it has
-       * access to the reactive `activeSessionId` from
-       * `useVideoCallContext`). See the call site there for the
-       * rationale on portal-to-document-body mounting.
-       */}
-      <QuickCapture />
-    </VideoCallProvider>
+    <ChatDataProvider value={chatDataValue}>
+      <VideoCallProvider
+        // key on workspaceId so the entire video call state (Daily
+        // call, joined room, local PiP position, device state) is reset
+        // when the user switches workspaces. Without the key, the same
+        // provider instance would carry over the previous workspace's
+        // call object — `useVideoCall` couldn't re-bind to the new
+        // session, and unmount cleanup of the old call would never fire.
+        key={selectedWorkspaceId}
+        workspaceId={selectedWorkspaceId}
+        initialJoinSessionId={initialJoinSessionId}
+      >
+        <WorkspaceInner
+          clerkUserId={clerkUserId}
+          workspaces={workspaces}
+          userRole={userRole}
+          selectedWorkspaceId={selectedWorkspaceId}
+          onSelectWorkspace={setSelectedWorkspaceId}
+          activeTab={activeTab}
+          onChangeTab={setActiveTab}
+          selectedWorkspace={selectedWorkspace}
+        />
+        {/*
+         * PR #4b: QuickCapture mounts once inside the provider so
+         * `useVideoCallContext().session` is available. The component
+         * itself returns null when no call is active, so it has no
+         * effect outside an active call.
+         *
+         * CallOverlay mounts inside `WorkspaceInner` (where it has
+         * access to the reactive `activeSessionId` from
+         * `useVideoCallContext`). See the call site there for the
+         * rationale on portal-to-document-body mounting.
+         */}
+        <QuickCapture />
+      </VideoCallProvider>
+    </ChatDataProvider>
   );
 }
 

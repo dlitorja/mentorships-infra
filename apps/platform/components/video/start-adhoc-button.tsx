@@ -4,7 +4,7 @@ import { useState } from "react";
 import { PhoneCall, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useConvexMutation } from "@convex-dev/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -79,8 +79,20 @@ export function StartAdhocButton({
   const [modalOpen, setModalOpen] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const { session } = useVideoCallContext();
+  const queryClient = useQueryClient();
   const markCallStarted = useMutation({
     mutationFn: useConvexMutation(api.sessions.markCallStarted),
+    // Invalidate the workspace session query so the provider's
+    // auto-join effect (gated on `session.status === "active"`)
+    // fires immediately after this mutation completes. Without this,
+    // the Start-call path's local mutation instance never invalidates
+    // the cached "scheduled" row, the provider sees a stale
+    // `"scheduled"` status, and the user has to refresh the page to
+    // surface the modal. Symmetric with the provider's own
+    // `markCallStarted` mutation (which invalidates the same key).
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    },
   });
 
   if (role !== "instructor") {

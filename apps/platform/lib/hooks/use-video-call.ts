@@ -43,6 +43,16 @@ export type UseVideoCallResult = {
   remoteParticipantName: string | null;
   errorMessage: string | null;
   durationSeconds: number;
+  /**
+   * PR #4c-4: flips to `true` synchronously when `leave()` is
+   * invoked. The provider's auto-join effect uses this as a guard
+   * so a programmatic leave does not race `endCall` into a
+   * duplicate `GET /api/video/token/...` request that 403s once
+   * `callEndedAt` is set server-side. Reset to `false` whenever
+   * `sessionId` changes — a brand-new session is allowed to
+   * auto-join again.
+   */
+  hasProgrammaticallyLeft: boolean;
   join: () => Promise<void>;
   leave: () => Promise<void>;
   toggleMute: () => void;
@@ -159,6 +169,19 @@ export function useVideoCall(
   const [joinedSessionId, setJoinedSessionId] = useState<Id<"sessions"> | null>(
     null
   );
+  // PR #4c-4: see `UseVideoCallResult.hasProgrammaticallyLeft`. Set
+  // synchronously inside `leave()` and reset on `sessionId` change
+  // so the provider's auto-join effect can gate on "did the user
+  // intentionally leave THIS session". Used to break the race
+  // where `meetingState === "left-meeting"` flips `status` to
+  // `"idle"` while `endCall.mutateAsync` is still in flight — the
+  // auto-join effect would otherwise re-fire `call.join()` and the
+  // token fetch would 403 against a `callEndedAt` set by the
+  // in-flight endCall.
+  const [hasProgrammaticallyLeft, setHasProgrammaticallyLeft] = useState(false);
+  useEffect(() => {
+    setHasProgrammaticallyLeft(false);
+  }, [sessionId]);
 
   // Track the latest session/workspace for the unmount cleanup path,
   // which runs after React has cleared local state. Without refs, the
@@ -330,6 +353,16 @@ export function useVideoCall(
     }
     statusRef.current = "leaving";
     setStatus("leaving");
+    // PR #4c-4: latch the auto-join guard BEFORE awaiting `daily.leave()`
+    // so the provider's auto-join effect can't fire when
+    // `meetingState === "left-meeting"` flips `status` to `"idle"`
+    // before `endCall` completes. Without this, `call.status === "idle"`
+    // AND a still-cached `"active"` session both become true and the
+    // auto-join effect issues a duplicate `GET /api/video/token/...`
+    // request that races `endCall` for the server — `endCall` wins
+    // and sets `callEndedAt`, so the token endpoint returns null and
+    // the request 403s.
+    setHasProgrammaticallyLeft(true);
     try {
       await daily.leave();
       if (joinedSessionId) {
@@ -480,6 +513,7 @@ export function useVideoCall(
       remoteParticipantName,
       errorMessage,
       durationSeconds,
+      hasProgrammaticallyLeft,
       join,
       leave,
       toggleMute,
@@ -495,6 +529,7 @@ export function useVideoCall(
       remoteParticipantName,
       errorMessage,
       durationSeconds,
+      hasProgrammaticallyLeft,
       join,
       leave,
       toggleMute,

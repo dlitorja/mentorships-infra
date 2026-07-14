@@ -5,6 +5,7 @@ import {
   DailyVideo,
   useParticipant,
   useParticipantIds,
+  useScreenShare,
 } from "@daily-co/daily-react";
 import { PhoneOff, RefreshCw } from "lucide-react";
 
@@ -25,6 +26,12 @@ import { cn } from "@/lib/utils";
  * Tiles show `user_name` (set on the meeting token server-side) under
  * each video. Camera-off tiles show the participant's name on a
  * placeholder background.
+ *
+ * PR #4c-4: when a screen-share is active, the screen-share video
+ * fills the primary area (most of the call surface) and the camera
+ * tiles collapse into a thin strip at the bottom. Mentorships'
+ * primary use case is sharing illustration software during a call —
+ * the screen-share is the content, webcams are secondary.
  */
 export function VideoCall() {
   const {
@@ -36,6 +43,21 @@ export function VideoCall() {
     errorMessage,
   } = useVideoCallContext();
   const participantIds = useParticipantIds();
+  // Daily exposes a separate "screen" filter that returns participants
+  // where screen-audio or screen-video is currently tracked. Local
+  // screen-share appears as a NEW participant with `session_id` ending
+  // in "-screen" — it is NOT the same participant record as the local
+  // camera, so iterating `participantIds` and checking
+  // `tracks.screenVideo.persistentTrack` on the camera participant
+  // misses it. Filtering with `filter: "screen"` returns the screen-
+  // share sub-participant directly.
+  const { screens } = useScreenShare();
+  const screenShareIds = useParticipantIds({ filter: "screen" });
+  const activeScreenShareId =
+    screens.length > 0 && screenShareIds.length > 0
+      ? screenShareIds[screenShareIds.length - 1]
+      : null;
+  const isScreenShareActive = activeScreenShareId !== null;
 
   // While Daily is loading/joining, render an explicit loading state
   // rather than a blank iframe — this prevents the user from seeing a
@@ -130,28 +152,67 @@ export function VideoCall() {
 
   return (
     <div className="relative flex h-full flex-col bg-black">
-      {/* Remote + local tiles */}
-      <div className="flex-1 overflow-hidden">
-        <div
-          className={cn(
-            "grid h-full gap-2 p-2",
-            participantIds.length <= 1 ? "grid-cols-1" : "grid-cols-2"
-          )}
-        >
-          {participantIds.map((id) => (
+      {/* PR #4c-4: split layout when screen-share is active. The
+       * screen-share fills the primary area; camera tiles collapse
+       * into a thin strip at the bottom so the shared illustration
+       * software (mentorships' primary use case) is the dominant
+       * surface. The webcam strip keeps webcams visible but small
+       * — the user explicitly noted webcam use is low priority. */}
+      {isScreenShareActive && activeScreenShareId ? (
+        <div className="flex h-full flex-col">
+          <div className="flex-1 overflow-hidden p-2">
             <ParticipantTile
-              key={id}
-              sessionId={id}
+              sessionId={activeScreenShareId}
               fallbackName={remoteParticipantName}
+              forceScreenShare
             />
-          ))}
-          {participantIds.length === 0 && (
-            <div className="flex items-center justify-center text-sm text-zinc-300">
-              Waiting for the other participant to join…
+          </div>
+          {participantIds.length > 0 && (
+            <div className="shrink-0 border-t border-zinc-800 p-2">
+              <div
+                className={cn(
+                  "mx-auto flex h-24 max-w-3xl gap-2",
+                  participantIds.length === 1 ? "justify-center" : "justify-center"
+                )}
+              >
+                {participantIds.map((id) => (
+                  <div
+                    key={id}
+                    className="aspect-video h-full"
+                  >
+                    <ParticipantTile
+                      sessionId={id}
+                      fallbackName={remoteParticipantName}
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 overflow-hidden">
+          <div
+            className={cn(
+              "grid h-full gap-2 p-2",
+              participantIds.length <= 1 ? "grid-cols-1" : "grid-cols-2"
+            )}
+          >
+            {participantIds.map((id) => (
+              <ParticipantTile
+                key={id}
+                sessionId={id}
+                fallbackName={remoteParticipantName}
+              />
+            ))}
+            {participantIds.length === 0 && (
+              <div className="flex items-center justify-center text-sm text-zinc-300">
+                Waiting for the other participant to join…
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Audio playback (no UI) */}
       <DailyAudio autoSubscribeActiveSpeaker />
@@ -170,17 +231,28 @@ export function VideoCall() {
  * Single video tile. Uses `useParticipant(id)` so each tile subscribes
  * to its own participant record — re-renders stay local when only one
  * participant's state changes (camera on/off, screen share, etc.).
+ *
+ * PR #4c-4: `forceScreenShare` renders `type="screenVideo"` even
+ * when `participant?.tracks?.screenVideo?.persistentTrack` is not
+ * set on the camera participant record. Used by the screen-share
+ * sub-participant, which has a separate `session_id` (ending in
+ * "-screen") — checking the camera participant's tracks would miss
+ * it. The parent layout filters down to the screen participant via
+ * `useParticipantIds({ filter: "screen" })`.
  */
 function ParticipantTile({
   sessionId,
   fallbackName,
+  forceScreenShare = false,
 }: {
   sessionId: string;
   fallbackName: string | null;
+  forceScreenShare?: boolean;
 }) {
   const participant = useParticipant(sessionId);
   const isLocal = participant?.local ?? false;
-  const isScreenShare = !!participant?.tracks?.screenVideo?.persistentTrack;
+  const isScreenShare =
+    forceScreenShare || !!participant?.tracks?.screenVideo?.persistentTrack;
   const displayName = isLocal
     ? "You"
     : (participant?.user_name ?? fallbackName ?? "Participant");
@@ -188,7 +260,7 @@ function ParticipantTile({
   return (
     <div
       className={cn(
-        "relative flex items-center justify-center overflow-hidden rounded-md bg-zinc-900",
+        "relative flex h-full w-full items-center justify-center overflow-hidden rounded-md bg-zinc-900",
         isScreenShare && "col-span-2"
       )}
     >

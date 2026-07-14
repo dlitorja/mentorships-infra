@@ -268,10 +268,18 @@ function VideoCallProviderInner({
   // session API guarantees a `videoRoomName` for `status: "active"`.
   // Errors here are silent — the manual Join button surfaces them
   // via toast in CallStatusPill.
+  //
+  // PR #4c-4: gate on `call.hasProgrammaticallyLeft` so a user-
+  // initiated leave does NOT race `endCall` into a duplicate
+  // `GET /api/video/token/...` request that 403s once `callEndedAt`
+  // is set server-side. The flag is latched synchronously inside
+  // `useVideoCall.leave()` (before `daily.leave()` awaits) and
+  // reset on `sessionId` change.
   useEffect(() => {
     if (!session) return;
     if (session.status !== "active") return;
     if (call.status !== "idle") return;
+    if (call.hasProgrammaticallyLeft) return;
     if (!session.videoRoomName) return;
     void call.join().catch(() => {
       // Error already captured by useVideoCall state (errorMessage).
@@ -284,7 +292,7 @@ function VideoCallProviderInner({
     // toggles fire; including it would cause spurious re-runs of
     // this auto-join effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [call.join, call.status, session]);
+  }, [call.join, call.status, call.hasProgrammaticallyLeft, session]);
 
   // PR #4c-2: deep-link auto-join. When the user lands on
   // `/workspace/[id]?join={sessionId}`, the page passes
