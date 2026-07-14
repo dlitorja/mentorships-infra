@@ -225,8 +225,8 @@ test.describe("Bug C — screen-share layout switches to screen primary", () => 
     // `${ownerId}-screen` participant. `<VideoCall>` flips to the
     // screen-share primary layout (camera strip collapsed at the
     // bottom). The most reliable observable signal: the layout
-    // group's video panel renders a screen-video tile (data-testid
-    // added by ParticipantTile when forceScreenShare is true).
+    // group's video panel renders a screen-video tile
+    // (`data-screen-share="true"` on the ParticipantTile root).
     //
     // Bug C regression: before the fix, the camera strip filter
     // matched every `-screen` suffix, so a SECOND concurrent screen
@@ -234,16 +234,16 @@ test.describe("Bug C — screen-share layout switches to screen primary", () => 
     // the fix, only the active sub-participant is excluded and
     // other screens remain visible in the strip.
     //
-    // We assert the simpler invariant here: at least one
-    // `forceScreenShare` tile mounts within 2s of the click. The
-    // multi-participant case is exercised by
-    // `daily-stub-extended.ts`'s internal logic; adding a remote
-    // participant + second screen-share in the same spec would
-    // couple too much Daily internal state to a user-visible
-    // assertion.
+    // Selector uses `^=` prefix match because `data-testid` includes
+    // the sessionId (e.g. `participant-tile-local-stub-screen`) to
+    // keep multi-participant views unique for Playwright strict
+    // mode. The `[data-screen-share='true']` filter narrows to
+    // screen-share tiles regardless of count.
     await expect(
-      page.locator("[data-testid='participant-tile'][data-screen-share='true']")
-    ).toHaveCount(1, { timeout: 2_000 });
+      page.locator(
+        "[data-testid^='participant-tile-'][data-screen-share='true']"
+      )
+    ).toHaveCount(1, { timeout: 5_000 });
   });
 });
 
