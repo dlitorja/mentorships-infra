@@ -19,19 +19,9 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import { Loader2, AlertTriangle, ListChecks, Eye } from "lucide-react";
-import {
-  useListAdminOnboardings,
-  type OnboardingStatus,
-} from "@/lib/queries/convex/use-admin-onboardings";
+import { useListAdminOnboardings } from "@/lib/queries/convex/use-admin-onboardings";
+import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
-
-const STATUS_LABELS: Record<OnboardingStatus, string> = {
-  queued: "Pending signup",
-  processing: "In progress",
-  completed: "Completed",
-  failed: "Needs attention",
-  cancelled: "Cancelled",
-};
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -164,7 +154,7 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                             </td>
                             <td className="py-3 px-4">
                               <Badge variant={STATUS_VARIANTS[item.status]}>
-                                {STATUS_LABELS[item.status]}
+                                {statusLabel(item.status)}
                               </Badge>
                             </td>
                             <td className="py-3 px-4 text-sm">{item.attemptCount}</td>

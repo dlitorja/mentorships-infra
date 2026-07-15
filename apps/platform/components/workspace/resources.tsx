@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
+import type { UserRole } from '@/lib/auth-helpers';
 import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotes, InstructorResource } from '@/lib/queries/convex/use-workspaces';
 import { uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,7 @@ import { useConvexAction } from '@convex-dev/react-query';
 interface WorkspaceResourcesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
-  role: 'instructor' | 'student' | 'admin';
+  role: UserRole;
   // PR #5: id of the active video-call session, or null when no
   // call is active. Drives the Tag/Untag toggle on each resource
   // row + the "Shared during current call" surfacing on the Links

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
+import type { UserRole } from '@/lib/auth-helpers';
 import { useWorkspaceMessages, useCreateWorkspaceMessage, useCreateWorkspaceImageAndMessage, useCreateWorkspaceFileMessage, useWorkspaceImages, useCreateWorkspaceLink } from '@/lib/queries/convex/use-workspaces';
 import { useChatData } from '@/components/workspace/chat-data-context';
 import { useConvexAction } from '@convex-dev/react-query';
@@ -58,7 +59,7 @@ interface WorkspaceImageDoc {
 interface WorkspaceChatProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
-  role?: 'student' | 'instructor' | 'admin';
+  role?: UserRole;
   // PR #4b: id of the active video-call session, or null when no
   // call is active. New messages, images, and files posted during
   // the call are auto-tagged with this sessionId, and tagged

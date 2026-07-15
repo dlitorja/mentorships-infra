@@ -17,20 +17,11 @@ import {
   AlertTriangle,
   ArrowLeft,
   ListChecks,
+  Search,
 } from "lucide-react";
-import {
-  useAdminOnboarding,
-  type OnboardingStatus,
-} from "@/lib/queries/convex/use-admin-onboardings";
+import { useAdminOnboarding } from "@/lib/queries/convex/use-admin-onboardings";
+import { statusLabel, timelineEventLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
 import type { Id } from "@/convex/_generated/dataModel";
-
-const STATUS_LABELS: Record<OnboardingStatus, string> = {
-  queued: "Pending signup",
-  processing: "In progress",
-  completed: "Completed",
-  failed: "Needs attention",
-  cancelled: "Cancelled",
-};
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -41,19 +32,6 @@ const STATUS_VARIANTS: Record<
   completed: "secondary",
   failed: "destructive",
   cancelled: "outline",
-};
-
-const TIMELINE_EVENT_LABELS: Record<string, string> = {
-  queued: "Queued",
-  processing_started: "Processing started",
-  email_sent: "Email sent",
-  discord_queued: "Discord action queued",
-  completed: "Completed",
-  failed: "Failed",
-  retrying: "Retrying",
-  cancelled: "Cancelled",
-  capacity_override: "Capacity override applied",
-  alias_set: "Separate student alias set",
 };
 
 function formatDateTime(ms: number | null | undefined): string {
@@ -75,10 +53,26 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
   if (!id) {
     return (
       <div className="container mx-auto py-8">
-        <div className="text-muted-foreground">Missing onboarding id.</div>
+        <div className="mb-6">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/admin/onboardings">
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Back to list
+            </Link>
+          </Button>
+        </div>
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+          <AlertTriangle className="inline h-4 w-4 mr-2" />
+          Missing onboarding id in the URL.
+        </div>
       </div>
     );
   }
+
+  // Split out the "loaded but record not found" case so the UI does not
+  // spin forever on stale detail links (Greptile finding).
+  const isLoaded = !isLoading && !error;
+  const isMissing = isLoaded && data === null;
 
   return (
     <div className="container mx-auto py-8">
@@ -100,11 +94,23 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
           <AlertTriangle className="inline h-4 w-4 mr-2" />
           Failed to load: {String((error as Error).message ?? error)}
         </div>
-      ) : isLoading || !data ? (
+      ) : isLoading ? (
         <div className="flex justify-center py-8">
           <Loader2 className="h-8 w-8 animate-spin" />
         </div>
-      ) : (
+      ) : isMissing ? (
+        <div className="rounded-md border bg-muted/30 p-6 text-center">
+          <Search className="inline h-5 w-5 mr-2 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            No onboarding found for id <span className="font-mono">{id}</span>. It may have been removed or the link is stale.
+          </p>
+          <div className="mt-4">
+            <Button variant="outline" asChild>
+              <Link href="/admin/onboardings">Back to list</Link>
+            </Button>
+          </div>
+        </div>
+      ) : data ? (
         <div className="grid gap-6 md:grid-cols-2">
           <Card>
             <CardHeader>
@@ -121,7 +127,7 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Status</span>
                 <Badge variant={STATUS_VARIANTS[data.status]}>
-                  {STATUS_LABELS[data.status]}
+                  {statusLabel(data.status)}
                 </Badge>
               </div>
               <div className="flex items-center justify-between">
@@ -229,7 +235,7 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
                       {formatDateTime(entry.at)}
                     </span>
                     <span className="text-sm">
-                      {TIMELINE_EVENT_LABELS[entry.event] ?? entry.event}
+                      {timelineEventLabel(entry.event)}
                       {entry.details ? (
                         <span className="text-muted-foreground"> — {entry.details}</span>
                       ) : null}
@@ -240,7 +246,7 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
             </CardContent>
           </Card>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

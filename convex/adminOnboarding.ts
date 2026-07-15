@@ -3,6 +3,12 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 
+/**
+ * State machine: which `(from, to)` transitions are allowed for the
+ * onboarding record. Mirrored in `apps/platform/lib/admin-onboarding.ts`
+ * for the client. Implemented as a const-map so codegen/tests can read
+ * transitions statically.
+ */
 const ALLOWED_TRANSITIONS: Record<string, ReadonlyArray<string>> = {
   queued: ["processing", "cancelled"],
   processing: ["completed", "failed", "cancelled"],
@@ -11,28 +17,45 @@ const ALLOWED_TRANSITIONS: Record<string, ReadonlyArray<string>> = {
   completed: [],
 };
 
+/**
+ * Pure helper: returns whether the given state transition is permitted by
+ * the onboarding state machine. Mirrors `ALLOWED_TRANSITIONS` in
+ * `apps/platform/lib/admin-onboarding.ts`.
+ */
 function isAllowedTransition(from: string, to: string): boolean {
   return ALLOWED_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
+/**
+ * Generate a `users.onboardingAlias` value when a Convex-only split is
+ * requested. Format `alias_<base36-time>_<hex-rand>` — short enough for the
+ * `by_onboardingAlias` index, unique enough for in-process use.
+ */
 function generateAlias(): string {
-  // Deterministic enough for indexing; unique enough for in-process use.
-  // crypto.randomUUID() is supported in modern Convex runtimes, but we
-  // keep this portable across any future runtime swap.
   const rand = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, "0");
   const time = Date.now().toString(36);
   return `alias_${time}_${rand}`;
 }
 
+/**
+ * Canonicalize an email: trim whitespace and lowercase. Mirrors the helper
+ * in `apps/platform/lib/admin-onboarding.ts` so server and client agree.
+ */
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/**
+ * Lightweight RFC-shaped email regex; API routes do a stricter zod check.
+ */
 function isValidEmail(email: string): boolean {
-  // Lightweight validation; Convex API routes do their own zod check.
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+/**
+ * Treat an instructor as eligible when present, not soft-deleted, and
+ * either missing an `isActive` flag (default true) or explicitly true.
+ */
 function isInstructorActive(instructor: Doc<"instructors"> | null): boolean {
   if (!instructor) return false;
   if (instructor.deletedAt) return false;
@@ -40,6 +63,22 @@ function isInstructorActive(instructor: Doc<"instructors"> | null): boolean {
   return true;
 }
 
+/**
+ * Detect an existing renewal pair for `(email, instructorId)`. Looks up under
+ * both the placeholder identity (`email:<email>`) used before the student
+ * signs up, AND the student's Clerk userId if they have already signed up —
+ * without the second lookup, a follow-up admin onboarding for a signed-up
+ * student would miss the existing seat and create a duplicate enrollment
+ * artifact (Greptile finding).
+ */
+/**
+ * Detect an existing renewal pair for `(email, instructorId)`. Looks up under
+ * both the placeholder identity (`email:<email>`) used before the student
+ * signs up, AND the student's Clerk userId if they have already signed up —
+ * without the second lookup, a follow-up admin onboarding for a signed-up
+ * student would miss the existing seat and create a duplicate enrollment
+ * artifact (Greptile finding).
+ */
 async function detectRenewal(
   ctx: QueryCtx,
   email: string,
@@ -49,27 +88,44 @@ async function detectRenewal(
   existingSeatId?: Id<"seatReservations">;
   existingWorkspaceId?: Id<"workspaces">;
 }> {
-  const placeholder = `email:${email}`;
-  const seat = await ctx.db
-    .query("seatReservations")
-    .withIndex("by_userId_instructorId", (q) =>
-      q.eq("userId", placeholder).eq("instructorId", instructorId)
-    )
+  const candidates: Array<string | null | undefined> = [`email:${email}`];
+
+  const userRow = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", email))
     .first();
-  if (!seat || seat.status === "released") {
-    return { isRenewal: false };
+  if (userRow?.userId) {
+    candidates.push(userRow.userId);
   }
-  const workspace = await ctx.db
-    .query("workspaces")
-    .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
-    .first();
-  return {
-    isRenewal: true,
-    existingSeatId: seat._id,
-    existingWorkspaceId: workspace?._id,
-  };
+
+  for (const userId of candidates) {
+    if (!userId) continue;
+    const seat = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_userId_instructorId", (q) =>
+        q.eq("userId", userId).eq("instructorId", instructorId)
+      )
+      .first();
+    if (!seat || seat.status === "released") continue;
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_seatReservationId", (q) => q.eq("seatReservationId", seat._id))
+      .first();
+    return {
+      isRenewal: true,
+      existingSeatId: seat._id,
+      existingWorkspaceId: workspace?._id,
+    };
+  }
+
+  return { isRenewal: false };
 }
 
+/**
+ * Count of currently active `seatReservations` for the given instructor —
+ * used both to compute `atCapacity` and to surface the
+ * `activeStudentCount` field on the preview/row.
+ */
 async function getActiveStudentCount(
   ctx: QueryCtx,
   instructorId: Id<"instructors">
@@ -83,6 +139,11 @@ async function getActiveStudentCount(
   return seats.length;
 }
 
+/**
+ * Gate all onboarding functions to admin or support roles. Returns
+ * `{ ok: true, role }` so the caller can record the role in audit logs if
+ * needed. Returns `{ ok: false }` for any other identity.
+ */
 async function isAdminOrSupport(
   ctx: QueryCtx | MutationCtx,
   userId: string
@@ -124,6 +185,13 @@ type PerInstructorPreview = {
   capacityOverrideRequired: boolean;
 };
 
+/**
+ * Preview-only path: validates the requested `(email, instructors[])` set
+ * and returns a per-instructor view that the form can render BEFORE the
+ * user clicks "Commit". Detects renewals, capacity, and existing-student
+ * state without writing any rows. Mirror of `dryRun` from
+ * `convex/instructors.ts:137`.
+ */
 export const previewAdminOnboarding = query({
   args: {
     email: v.string(),
@@ -459,6 +527,14 @@ async function performCommit(
   return { onboardingId, perInstructor: perInstructorResults, existingWorkspaceIds };
 }
 
+/**
+ * Commit the onboarding. Wraps the two-phase form's "Confirm" step:
+ * inserts the `adminOnboardings` row in `queued`, sets `onboardingAlias`
+ * when a Convex-only split is requested, then creates the
+ * `sessionPacks` + `seatReservations` + `workspaces` (or reuses renewal
+ * pairs), and patches the row to `processing`. Inngest / Resend / Discord
+ * side-effects are owned by PR 3 (`appendTimelineEntry` is the seam).
+ */
 export const adminOnboardStudent = mutation({
   args: {
     email: v.string(),
@@ -494,6 +570,12 @@ export const adminOnboardStudent = mutation({
   },
 });
 
+/**
+ * Transition a `failed` (or `queued`) onboarding back to `processing` and
+ * bump `attemptCount`. Caller (the dashboard) does NOT need to know which
+ * step failed — PR 3's Inngest workflow reads the attempt count and re-
+ * drives from the last checkpoint.
+ */
 export const retryAdminOnboarding = mutation({
   args: {
     onboardingId: v.id("adminOnboardings"),
@@ -530,6 +612,12 @@ export const retryAdminOnboarding = mutation({
   },
 });
 
+/**
+ * Cancel a `queued`, `processing`, or `failed` onboarding. Artifacts
+ * (session packs, seats, workspaces) are preserved — the admin can audit
+ * what was created and decide whether to release seats via separate
+ * primitives. `cancelled` is a terminal state in the state machine.
+ */
 export const cancelAdminOnboarding = mutation({
   args: {
     onboardingId: v.id("adminOnboardings"),
@@ -564,6 +652,11 @@ export const cancelAdminOnboarding = mutation({
   },
 });
 
+/**
+ * Single-record read used by the detail page. Returns `null` for non-
+ * admin/support identities (instead of throwing) so the UI can render a
+ * "missing" state without redirecting.
+ */
 export const getAdminOnboarding = query({
   args: { id: v.id("adminOnboardings") },
   handler: async (ctx, args) => {
@@ -575,6 +668,14 @@ export const getAdminOnboarding = query({
   },
 });
 
+/**
+ * List view for the recovery dashboard. Indexes:
+ *   - `by_status_createdAt` — fast for a single-status tab.
+ *   - "all statuses" is fanned out via the same index with one bucket per
+ *     status, then merged + sorted by `createdAt`.
+ * `emailSearch` is a case-insensitive substring match — fine for the
+ * recovery dashboard's expected volume.
+ */
 export const listAdminOnboardings = query({
   args: {
     status: v.optional(
@@ -628,6 +729,11 @@ export const listAdminOnboardings = query({
   },
 });
 
+/**
+ * List active instructors with their current `activeStudentCount` so the
+ * two-phase form can render a select with capacity hints. Capped at 500
+ * — raise if the catalog grows.
+ */
 export const getInstructorOptionsForOnboarding = query({
   args: {},
   handler: async (ctx) => {
@@ -664,6 +770,13 @@ export const getInstructorOptionsForOnboarding = query({
   },
 });
 
+/**
+ * Internal seam used by the PR-3 Inngest workflow to append a timeline
+ * entry after each side-effect (email_sent, discord_queued) and to flip
+ * the row to `completed` / `failed`. Also accepts a small `emailsSent`
+ * patch so the workflow can record which legs of the email fan-out
+ * succeeded without overwriting prior ticks.
+ */
 export const appendTimelineEntry = internalMutation({
   args: {
     onboardingId: v.id("adminOnboardings"),
@@ -694,8 +807,13 @@ export const appendTimelineEntry = internalMutation({
     const row = await ctx.db.get(args.onboardingId);
     if (!row) throw new Error("Onboarding not found");
     const entry = newTimelineEntry(args.event, args.actorUserId, args.details);
+    const MAX_TIMELINE = 50;
+    const trimmed =
+      row.timeline.length >= MAX_TIMELINE
+        ? [...row.timeline.slice(-MAX_TIMELINE + 1), entry]
+        : [...row.timeline, entry];
     const updates: Partial<Doc<"adminOnboardings">> = {
-      timeline: [...row.timeline, entry],
+      timeline: trimmed,
     };
     if (args.event === "completed") {
       updates.status = "completed";
