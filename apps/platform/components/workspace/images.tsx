@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Id } from '../../../../convex/_generated/dataModel';
+import type { UserRole } from '@/lib/auth-helpers';
 import { useWorkspaceImages, useCreateWorkspaceImage, useDeleteWorkspaceImage, useCreateWorkspaceExport, useCancelWorkspaceExport, useWorkspaceExports } from '@/lib/queries/convex/use-workspaces';
 import { useConvexAction } from '@convex-dev/react-query';
 import { api } from '@/convex/_generated/api';
@@ -39,7 +40,7 @@ const PER_UPLOAD_CAP = 5;
 interface WorkspaceImagesProps {
   workspaceId: Id<'workspaces'>;
   currentUserId: string;
-  role: 'student' | 'instructor' | 'admin';
+  role: UserRole;
   // PR #4b: id of the active video-call session, or null when no
   // call is active. While a call is active, uploads (including
   // clipboard paste) are tagged to this session via the

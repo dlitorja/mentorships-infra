@@ -2,7 +2,13 @@ import { auth, clerkClient } from "@clerk/nextjs/server";
 import { reportError } from "@/lib/observability";
 import { UnauthorizedError, ForbiddenError } from "@/lib/errors";
 
-export type UserRole = "admin" | "instructor" | "student";
+export type UserRole = "admin" | "instructor" | "student" | "support";
+
+const KNOWN_ROLES: readonly UserRole[] = ["admin", "instructor", "student", "support"];
+
+function isKnownRole(value: unknown): value is UserRole {
+  return typeof value === "string" && (KNOWN_ROLES as readonly string[]).includes(value);
+}
 
 export async function getConvexAuthToken(): Promise<string | null> {
   const clerkAuth = await auth();
@@ -33,8 +39,8 @@ export async function getServerUserRole(userId: string): Promise<UserRole> {
     const client = await clerkClient();
     const user = await client.users.getUser(userId);
     const role = user.publicMetadata?.role;
-    if (typeof role === "string" && ["admin", "instructor", "student"].includes(role)) {
-      return role as UserRole;
+    if (isKnownRole(role)) {
+      return role;
     }
   } catch (err) {
     // Emit a warning so outages are observable; fall through to default.
@@ -58,7 +64,7 @@ export async function requireAuth() {
   return userId;
 }
 
-export async function requireRole(requiredRole: "admin" | "instructor" | "student") {
+export async function requireRole(requiredRole: "admin" | "instructor" | "student" | "support") {
   const { userId, sessionClaims } = await auth();
   if (!userId) {
     // Throw typed error for consistent handling
@@ -67,10 +73,7 @@ export async function requireRole(requiredRole: "admin" | "instructor" | "studen
 
   // Fast path: use claims role when present; fallback to server API
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-  const role: UserRole =
-    typeof claimsRole === "string" && ["admin", "instructor", "student"].includes(claimsRole)
-      ? (claimsRole as UserRole)
-      : await getServerUserRole(userId);
+  const role: UserRole = isKnownRole(claimsRole) ? claimsRole : await getServerUserRole(userId);
 
   if (requiredRole === "admin" && role !== "admin") {
     throw new ForbiddenError("Admin role required");
@@ -92,10 +95,7 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
 
   // Fast path: use claims role when present; fallback to server API
   const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
-  const role: UserRole =
-    typeof claimsRole === "string" && ["admin", "instructor", "student"].includes(claimsRole)
-      ? (claimsRole as UserRole)
-      : await getServerUserRole(userId);
+  const role: UserRole = isKnownRole(claimsRole) ? claimsRole : await getServerUserRole(userId);
 
   if (requiredRole === "admin" && role !== "admin") {
     // Typed error so API handlers return 403
@@ -106,5 +106,24 @@ export async function requireRoleForApi(requiredRole: "admin" | "instructor") {
     throw new ForbiddenError("Instructor role required");
   }
 
+  return { id: userId, role };
+}
+
+/**
+ * PR admin-onboarding #1: admin or support role gate for the new onboarding
+ * endpoints. Admin remains a superset; support is the new role. Both can
+ * preview, commit, retry, and cancel onboarding submissions. Wider
+ * instructor/student actions remain gated by `requireRoleForApi("admin")`.
+ */
+export async function requireAdminOrSupportForApi(): Promise<{ id: string; role: UserRole }> {
+  const { userId, sessionClaims } = await auth();
+  if (!userId) {
+    throw new UnauthorizedError("Unauthorized");
+  }
+  const claimsRole = (sessionClaims?.publicMetadata as Record<string, unknown> | undefined)?.role;
+  const role: UserRole = isKnownRole(claimsRole) ? claimsRole : await getServerUserRole(userId);
+  if (role !== "admin" && role !== "support") {
+    throw new ForbiddenError("Admin or support role required");
+  }
   return { id: userId, role };
 }

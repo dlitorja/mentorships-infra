@@ -8,16 +8,22 @@ export default defineSchema({
     clerkId: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
+    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"), v.literal("support"))),
     timeZone: v.optional(v.string()),
     legacyId: v.optional(v.string()),
     deletedAt: v.optional(v.number()),
     deletedBy: v.optional(v.string()),
     hardDeletedAt: v.optional(v.number()),
+    // PR admin-onboarding #1: set when a Convex-only split is requested
+    // (adminOnboardings.isSeparateStudentRecord = true). The Clerk account
+    // stays single, but Convex distinguishes the split record so per-pair
+    // renewal detection + per-pair session-pack ownership remain correct.
+    onboardingAlias: v.optional(v.string()),
   }).index("by_email", ["email"])
     .index("by_clerkId", ["clerkId"])
     .index("by_userId", ["userId"])
-    .index("by_deletedAt", ["deletedAt"]),
+    .index("by_deletedAt", ["deletedAt"])
+    .index("by_onboardingAlias", ["onboardingAlias"]),
 
   instructors: defineTable({
     userId: v.optional(v.string()),
@@ -440,9 +446,14 @@ export default defineSchema({
     ),
     details: v.optional(v.string()),
     timestamp: v.number(),
+    // PR admin-onboarding #1: programmatic correlation between a workspace
+    // created via admin onboarding and its `adminOnboardings` row. The
+    // human-readable string stays in `details`; this field is for joins.
+    adminOnboardingId: v.optional(v.id("adminOnboardings")),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_adminId", ["adminId"])
-    .index("by_timestamp", ["timestamp"]),
+    .index("by_timestamp", ["timestamp"])
+    .index("by_adminOnboardingId", ["adminOnboardingId"]),
 
   marketingWaitlist: defineTable({
     email: v.string(),
@@ -650,4 +661,95 @@ export default defineSchema({
     .index("by_userId_readAt", ["userId", "readAt"])
     .index("by_sessionId", ["sessionId"])
     .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"]),
+
+  // PR admin-onboarding #1: append-only record of every Kajabi admin
+  // onboarding submission. Source of truth for idempotency, state machine,
+  // recovery dashboard, and per-pair renewal detection audit trail.
+  adminOnboardings: defineTable({
+    // Identity + provenance
+    email: v.string(),                                // normalized lowercase
+    flowVersion: v.number(),                          // = 1 for v1
+    source: v.union(
+      v.literal("kajabi"),
+      v.literal("manual"),
+      v.literal("import"),
+      v.literal("api")
+    ),
+    submittedByUserId: v.string(),                    // Clerk userId of the admin who submitted
+
+    // State machine
+    status: v.union(
+      v.literal("queued"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("cancelled")
+    ),
+    failureReason: v.optional(v.string()),
+    attemptCount: v.number(),
+    lastAttemptAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    cancelledByUserId: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+
+    // Per-instructor assignment details. One row per pair. `isRenewal = true`
+    // means the seat + workspace already existed and were reused; the
+    // sessionPack/seatReservation/workspace IDs are still recorded so the
+    // dashboard can link to them.
+    perInstructor: v.array(v.object({
+      instructorId: v.id("instructors"),
+      workspaceId: v.optional(v.id("workspaces")),
+      seatReservationId: v.optional(v.id("seatReservations")),
+      sessionPackId: v.optional(v.id("sessionPacks")),
+      isRenewal: v.boolean(),
+      sessionsPerInstructor: v.number(),
+      expiresAt: v.optional(v.number()),
+      clerkInvitationId: v.optional(v.string()),
+      capacityOverride: v.optional(v.boolean()),
+    })),
+
+    // Cross-cutting fields
+    capacityOverrideReason: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    isSeparateStudentRecord: v.boolean(),
+    onboardingAlias: v.optional(v.string()),
+    existingWorkspaceIds: v.array(v.id("workspaces")),
+
+    // Append-only event history. Bounded by transitions + email sends
+    // (typically <20 entries per row) — does not violate Convex's
+    // no-unbounded-lists rule.
+    timeline: v.array(v.object({
+      at: v.number(),
+      event: v.union(
+        v.literal("queued"),
+        v.literal("processing_started"),
+        v.literal("email_sent"),
+        v.literal("discord_queued"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("retrying"),
+        v.literal("cancelled"),
+        v.literal("capacity_override"),
+        v.literal("alias_set")
+      ),
+      actorUserId: v.optional(v.string()),
+      details: v.optional(v.string()),
+    })),
+
+    // Email receipts (PR 2 stub sets `stub: true`; PR 3 sets the real
+    // recipient-level fields).
+    emailsSent: v.optional(v.object({
+      student: v.optional(v.boolean()),
+      instructors: v.optional(v.array(v.string())),    // instructor userIds
+      adminSummary: v.optional(v.boolean()),
+      stub: v.optional(v.boolean()),
+    })),
+
+    createdAt: v.number(),
+  }).index("by_email", ["email"])
+    .index("by_status", ["status"])
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_submittedByUserId", ["submittedByUserId"])
+    .index("by_onboardingAlias", ["onboardingAlias"])
+    .index("by_email_source", ["email", "source"]),
 });
