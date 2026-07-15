@@ -1,6 +1,8 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: planned, not yet implemented. Source of truth for the work below; supersedes any informal discussion in chat.
+Status: PR 1 merged to `main`. PR 2 and PR 3 still pending.
+
+Source of truth for the work below; supersedes any informal discussion in chat.
 
 ## Goal
 
@@ -574,25 +576,65 @@ Before writing any code:
 
 The work is split into three independent PRs. Each lands on a branch off `main`, gets Greptile local-CLI review before push, and runs the project's existing lint/typecheck before opening the cloud PR. PRs are sequenced so each is independently shippable and rollback-safe; PR 2 depends on PR 1's schema and mutations; PR 3 depends on PR 1's mutations and PR 2's API surface.
 
-### PR 1 — Schema + Mutations + Recovery Dashboard Scaffold
+### PR 1 — Schema + Mutations + Recovery Dashboard Scaffold — SHIPPED
 
 **Goal**: land the data model, the three core mutations, the preview query, and the read-only recovery dashboard. Zero email sends, zero Inngest events; only DB writes.
 
-**Files**
+**Status**: ✅ Merged to `main` (squash). Branch `feat/admin-onboarding-pr1-schema-mutations-dashboard`. PR #634.
 
-- `convex/schema.ts` — add `adminOnboardings` table; widen `users.role` union with `"support"`; add `users.onboardingAlias: v.optional(v.string())`; add `workspaceAuditLogs.adminOnboardingId: v.optional(v.id("adminOnboardings"))`.
-- `convex/adminOnboarding.ts` (new) — `previewAdminOnboarding` query; `adminOnboardStudent` mutation; `retryAdminOnboarding` mutation; `cancelAdminOnboarding` mutation; `getAdminOnboarding` query; `listAdminOnboardings` query; `getInstructorOptionsForOnboarding` query.
-- `convex/_generated/*` — refreshed by `npx convex dev` (per AGENTS.md Engineering Quality Policy: codegen stays in sync).
-- `convex/studentOnboarding.ts` — read-only reference for the `createSeatReservation` / workspace auto-creation pattern; no edits.
-- `apps/platform/lib/auth-helpers.ts` — add `requireAdminOrSupportForApi`; widen `UserRole` type union.
-- `apps/platform/lib/queries/convex/use-users.ts` — widen returned `UserRole` typing if it asserts a closed union.
-- `apps/platform/app/admin/onboardings/page.tsx` (new) — read-only list view (Needs attention / Pending signup / In progress / Completed / Cancelled tabs).
-- `apps/platform/app/admin/onboardings/[id]/page.tsx` (new) — read-only detail page rendering `timeline`, per-pair assignments, linked workspaces, email receipts. Polls `/api/admin/onboardings/[id]` every 2 s while in-flight (v1).
-- `apps/platform/app/admin/client-admin-layout.tsx` — add `ListChecks` sidebar entry pointing to `/admin/onboardings`.
+**Files delivered (matches plan)**
 
-**Verification**: `pnpm lint && pnpm typecheck`; Greptile CLI local review; unit tests for state transitions (illegal transitions rejected), idempotency lookup by `(email, instructorIds)`, capacity-override-requires-reason, advanced-split-requires-notes, `timeline` append-only invariant, retry increments `attemptCount`, cancel writes `cancelled` timeline entry. Manual smoke in dev: create onboarding via the existing API surface (mocked), confirm rows land in `adminOnboardings`, dashboard renders correctly.
+- `convex/schema.ts` — added `adminOnboardings` table (status union, timeline, source union, flowVersion, attemptCount, perInstructor, isSeparateStudentRecord, onboardingAlias, capacityOverrideReason, existingWorkspaceIds, emailsSent, cancelledAt/cancelledByUserId, completedAt); indexes `by_email`, `by_status`, `by_status_createdAt`, `by_submittedByUserId`, `by_onboardingAlias`, `by_email_source`. Widened `users.role` with `"support"`. Added `users.onboardingAlias` + `by_onboardingAlias` index. Added `workspaceAuditLogs.adminOnboardingId` + `by_adminOnboardingId` index.
+- `convex/adminOnboarding.ts` (new) — `previewAdminOnboarding` query, `adminOnboardStudent` mutation (calls internal `performCommit`), `retryAdminOnboarding`, `cancelAdminOnboarding`, `getAdminOnboarding`, `listAdminOnboardings`, `getInstructorOptionsForOnboarding`, `appendTimelineEntry` (internal mutation, used as the seam by PR 3). Helpers: `detectRenewal` (looks up by placeholder AND Clerk userId), `getActiveStudentCount`, `isAdminOrSupport`, `isInstructorActive`, `isValidEmail`, `normalizeEmail`, `generateAlias`, `isAllowedTransition`.
+- `apps/platform/lib/admin-onboarding.ts` (new) — pure helpers shared by client + server: `ALLOWED_TRANSITIONS`, `isAllowedTransition`, `normalizeEmail`, `isValidEmail`, `validateCommitInput`, `statusLabel`, `timelineEventLabel`, `OnboardingStatus` + `TimelineEvent` types. Mirrors `convex/adminOnboarding.ts` so the form and the server agree on labels and transitions.
+- `apps/platform/lib/admin-onboarding.test.ts` (new) — 22 vitest tests covering state machine + email utilities + validation + labels.
+- `apps/platform/lib/queries/convex/use-admin-onboardings.ts` (new) — `useListAdminOnboardings`, `useAdminOnboarding` hooks + `AdminOnboarding` / `AdminOnboardingListItem` / `AdminOnboardingPerInstructor` / `AdminOnboardingTimelineEntry` types.
+- `apps/platform/lib/auth-helpers.ts` — added `requireAdminOrSupportForApi`; widened `UserRole` with `"support"`; added `KNOWN_ROLES` + `isKnownRole`.
+- `apps/platform/lib/queries/convex/use-users.ts` — widened `CurrentUser.role` union.
+- `apps/platform/app/admin/onboardings/page.tsx` (new) — read-only list with 5 status tabs (Needs attention / Pending signup / In progress / Completed / Cancelled), email substring filter, 2 s auto-poll while `processing`.
+- `apps/platform/app/admin/onboardings/[id]/page.tsx` (new) — read-only detail page; summary, per-instructor assignments, reverse-chronological `timeline`, capacity-override banner, notes, failure reason; explicit "not found" state for stale detail links.
+- `apps/platform/app/admin/client-admin-layout.tsx` — added `ListChecks` "Onboardings" sidebar entry.
+- `apps/platform/components/workspace/chat.tsx` + `images.tsx` + `resources.tsx` — widened `role` prop from `'student'|'instructor'|'admin'` to `UserRole` so the wider role union typechecks end-to-end. No behavioral change.
+
+**Additional hardening folded in during review**
+
+- `convex/adminOnboarding.ts` — `detectRenewal` extended to look up by Clerk userId from `users.email` row in addition to the `email:<email>` placeholder. Without this, a follow-up admin onboarding for a student who has already signed up would miss the existing seat and create duplicate enrollment artifacts (Greptile finding).
+- `convex/adminOnboarding.ts` — `appendTimelineEntry` now caps `timeline` at 50 entries (trim oldest) to defend against runaway retry loops growing the document past 1 MB.
+- `apps/platform/lib/queries/convex/use-admin-onboardings.ts` — `useAdminOnboarding` returns the full `AdminOnboarding` shape (not the trimmed `ListItem`) so the detail page sees `timeline` / `notes` / `capacityOverrideReason` cleanly under both `tsc --skipLibCheck` and Vercel's full Next.js typecheck.
+
+**Verification (all green)**
+
+```
+typecheck:  clean (tsc --noEmit)
+lint:       0 errors (135 pre-existing warnings, all in apps/web, untouched)
+tests:      95 passed | 3 skipped (22 new from admin-onboarding.test.ts)
+codegen:    npx convex codegen --typecheck enable  — OK
+vercel:     mentorships-infra-platform + mentorships-infra + mentorships-infra-huckleberry-drive + mentorships-infra-web all Ready on re-deploy
+```
+
+**Greptile findings — disposition**
+
+| # | Finding | Disposition |
+|---|---------|-------------|
+| a | Workspace owner stays as `email:<email>` placeholder after Clerk sign-up | Documented as pre-existing codebase limitation (`linkClerkUserToSessionPacks` only rewrites `sessionPacks` + `seatReservations`, not `workspaces.ownerId`). Not unique to PR 1; tracked as follow-up. |
+| b | Per-pair renewal detection misses Clerk-signed-up students | Fixed in `detectRenewal` (see above). |
+| c | Support users cannot reach `/admin/onboardings` | Parent layout (`apps/platform/app/admin/layout.tsx:11`) only accepts `"admin"`. Per `apps/platform/AGENTS.md` Clerk policy, modifying Clerk-provider wiring requires explicit user approval — flagged but not changed in PR 1. |
+| d | Stale detail links leave the page in a permanent loading state | Fixed: detail page now distinguishes `isLoading` / `error` / `isMissing` (`data === null && !isLoading`) and renders an explicit "Not found / deleted" panel. |
+
+**Vercel deployment failure — root cause and fix**
+
+The first push at commit `d35dbbe` failed Next.js build for both `apps/platform` projects with:
+
+```
+./app/admin/onboardings/[id]/page.tsx:160:21
+Type error: Property 'capacityOverrideReason' does not exist on type 'AdminOnboardingListItem'.
+```
+
+`tsc --skipLibCheck` (run locally) does NOT report this because the missing fields are unused, but Vercel's `next build` runs the project's `tsc --noEmit` first and rejects the build. Root cause was that `useAdminOnboarding` previously returned the slim `AdminOnboardingListItem` shape (a `Pick<>`), while the detail page needed `timeline`, `notes`, `capacityOverrideReason`. Fix at `2606cb52` widened the hook to `AdminOnboarding | null` and added the missing fields to the full type. Re-deploy of all 4 affected Vercel projects succeeded after the fix.
 
 **Rollback**: drop the `adminOnboardings` table; no production user data is touched because PR 1 has no email/Inngest side effects.
+
+**Squashed merge**: 12 files, +2334/-16 lines → single commit `feat(platform): admin onboarding schema + recovery dashboard (PR 1/3)` on `main`, with the review-fix commit `fix(platform): address PR #634 review feedback` squashed into the same branch.
 
 ### PR 2 — API Route + Form (Preview/Confirm)
 
