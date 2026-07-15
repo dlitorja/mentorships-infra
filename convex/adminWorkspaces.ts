@@ -591,3 +591,99 @@ export const clearWorkspaceInstructor = mutation({
     return await ctx.db.get(args.workspaceId);
   },
 });
+
+/**
+ * Creates a seat reservation for an existing session pack and patches
+ * the given workspace with the new `seatReservationId`. Used to repair
+ * the seed-state mismatch where `seed-test-workspaces-production.ts`
+ * creates the workspace via `workspaces:createWorkspace` (no seat
+ * reservation) instead of going through `seatReservations:createSeatReservation`
+ * (which creates both). Without a linked seat, `getWorkspaceByIdForUser`
+ * returns `sessionPackId: undefined` and `<SessionCountControls>` is
+ * gated off in the workspace UI.
+ *
+ * Idempotency: if the workspace already has a `seatReservationId`,
+ * returns it unchanged. If a seat reservation already exists for the
+ * session pack, links it to the workspace instead of creating a
+ * duplicate.
+ *
+ * Requires admin auth. Logs an audit event.
+ */
+export const linkWorkspaceToSessionPack = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    sessionPackId: v.id("sessionPacks"),
+    seatExpiresAt: v.number(),
+    gracePeriodEndsAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    const isUserAdmin = await isAdmin(ctx, user.subject);
+    if (!isUserAdmin) {
+      throw new Error("Admin access required");
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+    const sessionPack = await ctx.db.get(args.sessionPackId);
+    if (!sessionPack) {
+      throw new Error("Session pack not found");
+    }
+    if (sessionPack.deletedAt !== undefined) {
+      throw new Error("Session pack is deleted");
+    }
+
+    if (workspace.seatReservationId !== undefined) {
+      const existing = await ctx.db.get(workspace.seatReservationId);
+      if (
+        existing !== null &&
+        existing.sessionPackId === args.sessionPackId
+      ) {
+        return { seatReservationId: workspace.seatReservationId, created: false };
+      }
+      throw new Error(
+        `Workspace already linked to a different seat reservation (${workspace.seatReservationId}); unlink it first`
+      );
+    }
+
+    const existingSeat = await ctx.db
+      .query("seatReservations")
+      .withIndex("by_sessionPackId", (q) =>
+        q.eq("sessionPackId", args.sessionPackId)
+      )
+      .first();
+    let seatId: Id<"seatReservations">;
+    let created: boolean;
+    if (existingSeat !== null) {
+      seatId = existingSeat._id;
+      created = false;
+    } else {
+      seatId = await ctx.db.insert("seatReservations", {
+        sessionPackId: args.sessionPackId,
+        instructorId: workspace.instructorId ?? sessionPack.instructorId,
+        userId: workspace.ownerId,
+        seatExpiresAt: args.seatExpiresAt,
+        gracePeriodEndsAt: args.gracePeriodEndsAt,
+        status: "active",
+      });
+      created = true;
+    }
+
+    await ctx.db.patch(args.workspaceId, { seatReservationId: seatId });
+
+    await logWorkspaceAudit(
+      ctx,
+      args.workspaceId,
+      user.subject,
+      "update_workspace",
+      `Linked workspace to seat reservation ${seatId} (session pack ${args.sessionPackId}, ${created ? "created seat" : "reused existing seat"})`
+    );
+
+    return { seatReservationId: seatId, created };
+  },
+});
