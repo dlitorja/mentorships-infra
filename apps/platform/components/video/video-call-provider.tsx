@@ -209,15 +209,17 @@ function VideoCallProviderInner({
     // See StartAdhocButton for the rationale: Convex reactive
     // subscriptions race-prone on first call because the cached row
     // identity is the pre-`callStartedAt` snapshot. Force-refetch
-    // every `api.sessions.*` query with the correct key prefix so
-    // the auto-join effect sees `session.status === "active"` on the
-    // very next render without a manual refresh.
+    // every `sessions:*` query (Convex `getFunctionName` returns
+    // `"path:export"`, e.g. `sessions:markCallStarted`) with the
+    // correct key prefix so the auto-join effect sees
+    // `session.status === "active"` on the very next render without
+    // a manual refresh.
     onSuccess: () => {
       queryClient.invalidateQueries({
         predicate: (q) =>
           q.queryKey[0] === "convexQuery" &&
           typeof q.queryKey[1] === "string" &&
-          q.queryKey[1].startsWith("api.sessions."),
+          q.queryKey[1].startsWith("sessions:"),
         refetchType: "all",
       });
     },

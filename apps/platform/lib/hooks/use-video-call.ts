@@ -128,7 +128,7 @@ export function useVideoCall(
         predicate: (q) =>
           q.queryKey[0] === "convexQuery" &&
           typeof q.queryKey[1] === "string" &&
-          q.queryKey[1].startsWith("api.sessions."),
+          q.queryKey[1].startsWith("sessions:"),
         refetchType: "all",
       });
     },
@@ -354,11 +354,13 @@ export function useVideoCall(
         //
         // When the user clicked Leave specifically because they
         // want OUT (not Retry), also fire `endCall` so the session
-        // is marked ended server-side — the `["sessions"]` query
-        // refetch makes `session` null, the auto-join effect short-
-        // circuits on `!session`, and the overlay unmounts via
-        // `useIsCallOverlayVisible`. Without this, the user is
-        // stuck on the error UI with no way back to the workspace.
+        // is marked ended server-side — the `["convexQuery",
+        // "sessions:..."]` query refetch (triggered by the
+        // `endCall.onSuccess` predicate above) makes `session` null,
+        // the auto-join effect short-circuits on `!session`, and the
+        // overlay unmounts via `useIsCallOverlayVisible`. Without
+        // this, the user is stuck on the error UI with no way back
+        // to the workspace.
         if (statusRef.current === "error" && sessionId) {
           endCall.mutateAsync({ sessionId }).catch((err) => {
             const message = err instanceof Error ? err.message : String(err);
@@ -421,7 +423,7 @@ export function useVideoCall(
       predicate: (q) =>
         q.queryKey[0] === "convexQuery" &&
         typeof q.queryKey[1] === "string" &&
-        q.queryKey[1].startsWith("api.sessions."),
+        q.queryKey[1].startsWith("sessions:"),
       refetchType: "all",
     });
   });
@@ -431,7 +433,7 @@ export function useVideoCall(
         predicate: (q) =>
           q.queryKey[0] === "convexQuery" &&
           typeof q.queryKey[1] === "string" &&
-          q.queryKey[1].startsWith("api.sessions."),
+          q.queryKey[1].startsWith("sessions:"),
         refetchType: "all",
       });
     };

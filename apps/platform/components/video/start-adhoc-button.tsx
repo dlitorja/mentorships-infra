@@ -91,11 +91,13 @@ export function StartAdhocButton({
     // Start click because the cached row's identity is the empty-
     // videoRoomName version), or (b) this onSuccess force-marks the
     // query as stale and refetches. We do BOTH:
-    //   - Predicate on `["convexQuery", "api.sessions.*"]` so the
+    //   - Predicate on `["convexQuery", "sessions:..."]` so the
     //     full set of session queries refetch — including the
     //     provider's `getCurrentOrUpcomingSessionForWorkspace` query
     //     and the deep-link `getSessionById` query, both of which the
     //     provider's own `markCallStarted` mutation also touches.
+    //     The `sessions:` prefix matches Convex's `getFunctionName`
+    //     output format ("path:export", e.g. `sessions:markCallStarted`).
     //     Using the `["sessions"]` prefix from earlier was a partial-
     //     match no-op because the actual keys live under
     //     `["convexQuery", ...]` (see `@convex-dev/react-query`'s
@@ -108,7 +110,7 @@ export function StartAdhocButton({
         predicate: (q) =>
           q.queryKey[0] === "convexQuery" &&
           typeof q.queryKey[1] === "string" &&
-          q.queryKey[1].startsWith("api.sessions."),
+          q.queryKey[1].startsWith("sessions:"),
         refetchType: "all",
       });
     },
