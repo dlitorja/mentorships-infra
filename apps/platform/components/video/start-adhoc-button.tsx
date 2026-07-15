@@ -108,7 +108,7 @@ export function StartAdhocButton({
         predicate: (q) =>
           q.queryKey[0] === "convexQuery" &&
           typeof q.queryKey[1] === "string" &&
-          q.queryKey[1].startsWith("api.sessions."),
+          q.queryKey[1].startsWith("sessions:"),
         refetchType: "all",
       });
     },
