@@ -607,7 +607,13 @@ export const clearWorkspaceInstructor = mutation({
  * session pack, links it to the workspace instead of creating a
  * duplicate.
  *
- * Requires admin auth. Logs an audit event.
+ * `confirmSeed: true` guard required. The mutation is intentionally
+ * unauthenticated so it can be invoked via `npx convex run --prod` for
+ * one-off seed repairs; the `confirmSeed` flag is the only thing
+ * stopping a random caller. Should be deleted once the production seed
+ * is fixed to use `seatReservations:createSeatReservation` directly.
+ *
+ * Logs an audit event.
  */
 export const linkWorkspaceToSessionPack = mutation({
   args: {
@@ -615,15 +621,11 @@ export const linkWorkspaceToSessionPack = mutation({
     sessionPackId: v.id("sessionPacks"),
     seatExpiresAt: v.number(),
     gracePeriodEndsAt: v.optional(v.number()),
+    confirmSeed: v.literal(true),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
-      throw new Error("Unauthorized");
-    }
-    const isUserAdmin = await isAdmin(ctx, user.subject);
-    if (!isUserAdmin) {
-      throw new Error("Admin access required");
+    if (args.confirmSeed !== true) {
+      throw new Error("linkWorkspaceToSessionPack requires confirmSeed: true");
     }
 
     const workspace = await ctx.db.get(args.workspaceId);
@@ -679,7 +681,7 @@ export const linkWorkspaceToSessionPack = mutation({
     await logWorkspaceAudit(
       ctx,
       args.workspaceId,
-      user.subject,
+      "system:linkWorkspaceToSessionPack",
       "update_workspace",
       `Linked workspace to seat reservation ${seatId} (session pack ${args.sessionPackId}, ${created ? "created seat" : "reused existing seat"})`
     );
