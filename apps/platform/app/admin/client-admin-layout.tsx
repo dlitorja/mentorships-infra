@@ -12,6 +12,7 @@ import {
   ShoppingCart,
   Users,
   GraduationCap,
+  ListChecks,
 } from "lucide-react";
 
 const navItems = [
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/admin/students", label: "Students", icon: GraduationCap },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/admin/onboardings", label: "Onboardings", icon: ListChecks },
 ];
 
 export function ClientAdminLayout({
