@@ -596,7 +596,13 @@ export const adminOnboardingFlow = inngest.createFunction(
 
     // ---- Step 2: send student email ----
     const studentEmailResult = await step.run("send-student-email", async function() {
-      const sent: boolean = (row.emailsSent as any)?.student === true;
+      // PR 4 fix: re-fetch `emailsSent.student` from Convex so a
+      // retry-after-partial-success doesn't re-send the student email.
+      const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
+        onboardingId: row._id,
+        secret,
+      }) as Doc<"adminOnboardings"> | null;
+      const sent: boolean = (freshRow?.emailsSent as any)?.student === true;
       if (sent) return { sent: true, skipped: false, id: null };
 
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
@@ -677,8 +683,20 @@ export const adminOnboardingFlow = inngest.createFunction(
 
     // ---- Step 3: send instructor emails (one per assigned instructor) ----
     const instructorEmailResults = await step.run("send-instructor-emails", async function() {
-      const alreadySent: string[] = (row.emailsSent as any)?.instructors ?? [];
-      const toSend = row.perInstructor.filter(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+      // PR 4 fix: re-fetch the current row from Convex at the start of
+      // the step so `alreadySent` reflects the latest timeline state,
+      // not the value captured at the original load-onboarding step.
+      // Inngest replays memoized step results on retry, so `row` from
+      // above is a stale snapshot. Without this re-fetch, a partial
+      // failure mid-loop + retry would re-email instructors who were
+      // already notified in the previous attempt.
+      const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
+        onboardingId: row._id,
+        secret,
+      }) as Doc<"adminOnboardings"> | null;
+      if (!freshRow) return { sent: 0, skipped: 0, failed: 0, noEmail: 0, missing: true };
+      const alreadySent: string[] = (freshRow.emailsSent as any)?.instructors ?? [];
+      const toSend = freshRow.perInstructor.filter(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
         return !alreadySent.includes(p.instructorId as string);
       });
       if (toSend.length === 0) return { sent: 0, skipped: 0, failed: 0, noEmail: 0 };
@@ -771,7 +789,13 @@ export const adminOnboardingFlow = inngest.createFunction(
 
     // ---- Step 4: send admin summary email ----
     const adminEmailResult = await step.run("send-admin-email", async function() {
-      const sent: boolean = (row.emailsSent as any)?.adminSummary === true;
+      // PR 4 fix: re-fetch `emailsSent.adminSummary` from Convex so a
+      // retry-after-partial-success doesn't re-send the admin digest.
+      const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
+        onboardingId: row._id,
+        secret,
+      }) as Doc<"adminOnboardings"> | null;
+      const sent: boolean = (freshRow?.emailsSent as any)?.adminSummary === true;
       if (sent) return { sent: true, skipped: false, results: [] };
 
       const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")

@@ -1167,11 +1167,18 @@ export const releasePlaceholderInventoryInternal = internalMutation({
 
       // 3. Expire the placeholder session pack (mirror `expireSessionPack`
       //    in `convex/sessionPacks.ts:336` — schema has no `cancelled`).
+      //    PR 4 fix: skip packs whose userId has been rewritten to a
+      //    real Clerk ID — those are live in-use packs the student
+      //    owns, and we must not revoke their access. Placeholder packs
+      //    always have userId starting with "email:" (set during
+      //    admin onboarding); real users use Clerk IDs.
       if (entry.sessionPackId) {
         const pack = await ctx.db.get(entry.sessionPackId);
-        if (pack && pack.status === "active") {
+        if (pack && pack.status === "active" && typeof pack.userId === "string" && pack.userId.startsWith("email:")) {
           await ctx.db.patch(entry.sessionPackId, { status: "expired" });
           packsExpired++;
+        } else if (pack && pack.status === "active") {
+          skipped++;
         }
       }
     }
