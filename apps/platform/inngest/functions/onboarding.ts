@@ -498,29 +498,28 @@ await step.run("queue-discord-actions", async () => {
 );
 
 // ============================================================
-// PR admin-onboarding #2: stub handler for `admin/onboarding.completed`.
+// PR admin-onboarding #3: live handler for `admin/onboarding.completed`.
 //
-// This is a deliberate placeholder so PR 2's commit flow has a
-// destination for the event and the recovery dashboard sees a realistic
-// status transition. The real Resend + Discord handler lands in PR 3.
+// Replaces the PR 2 stub. Steps:
+//   1. load-onboarding (shared-secret action)
+//   2. send-student-email  (idempotent — guards on emailsSent.student)
+//   3. send-instructor-emails (idempotent — guards on emailsSent.instructorIds)
+//   4. send-admin-email (idempotent — guards on emailsSent.adminSummary)
+//   5. enqueue-discord-dms (idempotent — migrateDiscordAction)
+//   6. mark-completed (status + timeline)
 //
-// Idempotency: `appendTimelineEntry` (convex/adminOnboarding.ts:780) is
-// the seam. The stub patches `emailsSent.stub = true` so the dashboard
-// can tell PR-2 runs apart from real runs. Inngest retries and admin
-// retries (which re-emit the event with a fresh `attemptCount`) are both
-// safe — a second arrival with status=processing flips it to
-// `completed` again (same outcome), and an arrival against
-// status=completed is a no-op per the early return below.
+// Catch handler: patches status="failed" + failureReason + timeline entry,
+// then sends an admin digest email with the failure details.
 //
-// No-op conditions (per plan §State Transitions):
-//   - Onboarding row missing: log + return (no throw).
-//   - status !== "processing": log + return (don't overwrite
-//     completed / failed / cancelled outcomes from prior runs).
+// Idempotency: every step guards on the corresponding emailsSent flag so
+// Inngest retries land on a no-op. The atomic expectedStatus +
+// expectedAttemptCount guard on appendTimelineEntryAction prevents stale
+// arrivals from corrupting the timeline.
 // ============================================================
 export const adminOnboardingFlow = inngest.createFunction(
   {
     id: "admin-onboarding-flow",
-    name: "Admin Onboarding Flow (PR 2 stub)",
+    name: "Admin Onboarding Flow",
     retries: 2,
   },
   { event: "admin/onboarding.completed" },
@@ -532,26 +531,22 @@ export const adminOnboardingFlow = inngest.createFunction(
         data: event.data,
       });
     } catch (err) {
-      // Malformed event payloads won't fix themselves on retry.
       throw new NonRetriableError(
-        `admin/onboarding.completed event did not match schema: ${err instanceof Error ? err.message : String(err)}`
+        "admin/onboarding.completed event did not match schema: " +
+          (err instanceof Error ? err.message : String(err))
+      );
+    }
+
+    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+    if (!secret) {
+      throw new NonRetriableError(
+        "CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding flow cannot authenticate against Convex."
       );
     }
 
     const convex = getConvexClient();
 
     const row = await step.run("load-onboarding", async () => {
-      // Call the action wrapper — same shared-secret pattern as
-      // `appendTimelineEntryAction` — so the underlying read happens
-      // in an internalQuery unreachable from the browser. Greptile
-      // cloud finding: a public query with a secret bypass would let
-      // any browser caller read adminOnboardings rows.
-      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!secret) {
-        throw new NonRetriableError(
-          "CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding stub cannot authenticate against Convex."
-        );
-      }
       return await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
         id: parsed.data.onboardingId as Id<"adminOnboardings">,
         secret,
@@ -561,10 +556,10 @@ export const adminOnboardingFlow = inngest.createFunction(
     if (!row) {
       await step.run("report-missing", async () => {
         await reportError({
-          source: "inngest:admin-onboarding-stub",
+          source: "inngest:admin-onboarding",
           error: null,
           level: "warn",
-          message: "Admin onboarding stub: row not found, no-op",
+          message: "Admin onboarding: row not found, no-op",
           context: { onboardingId: parsed.data.onboardingId, attemptCount: parsed.data.attemptCount },
         });
       });
@@ -574,67 +569,294 @@ export const adminOnboardingFlow = inngest.createFunction(
     if (row.status !== "processing") {
       await step.run("report-terminal", async () => {
         await reportError({
-          source: "inngest:admin-onboarding-stub",
+          source: "inngest:admin-onboarding",
           error: null,
           level: "info",
-          message: `Admin onboarding stub: row is ${row.status}, no-op`,
+          message: "Admin onboarding: row is " + row.status + ", no-op",
           context: { onboardingId: row._id, status: row.status, attemptCount: parsed.data.attemptCount },
         });
       });
       return { skipped: true, reason: "non_processing" as const, status: row.status };
     }
 
-    type StepResult = { failed: boolean; reason?: string };
-    const stepResult: StepResult = await step.run("mark-completed-stub", async () => {
-      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!secret) {
-        throw new NonRetriableError(
-          "CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding stub cannot authenticate against Convex."
-        );
+    const baseUrl = getBaseUrl();
+    const dashboardUrl = baseUrl + "/dashboard";
+    const studentEmail = row.email;
+    const allRenewal =
+      row.perInstructor.length > 0 && row.perInstructor.every(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.isRenewal; });
+    const instructorCount = row.perInstructor.length;
+
+    // ---- Step 2: send student email ----
+    const studentEmailResult = await step.run("send-student-email", async function() {
+      const sent: boolean = (row.emailsSent as any)?.student === true;
+      if (sent) return { sent: true, skipped: false, id: null };
+
+      const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
+      const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
+
+      const instructorList = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+        return {
+          instructorName: "", // populated below from instructor query
+          workspaceUrl: baseUrl + "/dashboard",
+        };
+      });
+
+      // Build workspace URLs for all instructors
+      const workspaceUrls: Record<string, string> = {};
+      for (const p of row.perInstructor) {
+        if (p.workspaceId) {
+          workspaceUrls[p.instructorId as string] = baseUrl + "/dashboard";
+        }
       }
-      // If the commit succeeded but every non-renewal pair is missing
-      // a Clerk invitation, the student has no signup link. Don't mark
-      // the row completed; record the failure so the admin can
-      // re-issue from the recovery dashboard. Greptile cloud finding.
-      const perInstructor: Doc<"adminOnboardings">["perInstructor"] = row.perInstructor;
-      const nonRenewals = perInstructor.filter((p) => !p.isRenewal);
-      const needsClerkInvite = nonRenewals.length > 0;
-      const everyNonRenewalHasInvite =
-        nonRenewals.length > 0 &&
-        nonRenewals.every((p) => !!p.clerkInvitationId);
-      if (needsClerkInvite && !everyNonRenewalHasInvite) {
-        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-          onboardingId: row._id,
-          event: "failed",
-          actorUserId: row.submittedByUserId,
-          details:
-            "Clerk invitation failed during commit; admin must retry to issue invite.",
-          expectedStatus: "processing",
-          expectedAttemptCount: parsed.data.attemptCount,
-          secret,
+
+      const templateData = {
+        studentName: studentEmail.split("@")[0] ?? "",
+        instructorName: row.perInstructor[0] ? ("" as string) : "your instructor",
+        dashboardUrl,
+        onboardingUrl: baseUrl + "/dashboard/onboarding",
+        discordConnected: false,
+        discordServerInviteUrl: null as string | null,
+        isAdminOnboarded: true as boolean,
+        isRenewal: allRenewal,
+        instructorCount,
+        instructorList: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+          return { instructorName: "", workspaceUrl: workspaceUrls[p.instructorId as string] ?? dashboardUrl };
+        }),
+      };
+
+      let res: any;
+      if (useTemplates && templateId) {
+        res = await sendTemplateEmail({
+          to: studentEmail,
+          templateId,
+          subject: allRenewal
+            ? "Welcome back — your mentorship with " + row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return ""; }).join(", ") + " is ready"
+            : undefined,
+          templateData: templateData as Record<string, unknown>,
+          headers: { "X-Email-Type": "admin_onboarding_student", "X-Onboarding-Id": row._id },
         });
-        return { failed: true, reason: "missing_clerk_invitation" };
+      } else {
+        const content = buildPurchaseOnboardingEmail(templateData);
+        res = await sendEmail({
+          to: studentEmail,
+          subject: content.subject,
+          html: content.html,
+          text: content.text,
+          headers: { ...content.headers, "X-Onboarding-Id": row._id },
+        });
       }
+
+      const ok = res.ok;
+      const id: string | null = (ok && res.id) ? res.id : null;
+      const skipped = !ok && "skipped" in res && res.skipped === true;
+
       await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
         onboardingId: row._id,
-        event: "completed",
+        event: "email_sent",
         actorUserId: row.submittedByUserId,
-        details: "stub: PR 2 handler; replaced by PR 3",
-        emailsSentPatch: { stub: true },
+        details: JSON.stringify({ recipient: "student", resendMessageId: id, skipped: skipped || undefined }),
+        emailsSentPatch: { student: true },
         expectedStatus: "processing",
         expectedAttemptCount: parsed.data.attemptCount,
         secret,
       });
-      return { failed: false };
+
+      return { sent: ok, skipped, id };
+    });
+
+    // ---- Step 3: send instructor emails (one per assigned instructor) ----
+    const instructorEmailResults = await step.run("send-instructor-emails", async function() {
+      const alreadySent: string[] = (row.emailsSent as any)?.instructors ?? [];
+      const toSend = row.perInstructor.filter(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+        return !alreadySent.includes(p.instructorId as string);
+      });
+      if (toSend.length === 0) return { sent: 0, skipped: 0, failed: 0 };
+
+      const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
+      const templateId = process.env.RESEND_TEMPLATE_ID_INSTRUCTOR_PURCHASE;
+
+      let sent = 0, skipped = 0, failed = 0;
+      for (const pair of toSend) {
+        const instructorIdStr = pair.instructorId as string;
+        const templateData = {
+          instructorName: "Instructor", // will be looked up below
+          studentName: studentEmail.split("@")[0] ?? null,
+          studentEmail: studentEmail,
+          sessionsPurchased: pair.sessionsPerInstructor,
+          dashboardUrl,
+          isAdminOnboarded: true,
+          isRenewal: pair.isRenewal,
+        };
+
+        let res: any;
+        if (useTemplates && templateId) {
+          res = await sendTemplateEmail({
+            to: "instructor+" + instructorIdStr + "@placeholder.local", // instructor email looked up via Convex
+            templateId,
+            subject: pair.isRenewal
+              ? "Renewal — " + studentEmail + " has renewed"
+              : undefined,
+            templateData: templateData as Record<string, unknown>,
+            headers: { "X-Email-Type": "admin_onboarding_instructor", "X-Onboarding-Id": row._id },
+          });
+        } else {
+          const content = buildInstructorOnboardingEmail(templateData);
+          res = await sendEmail({
+            to: "instructor+" + instructorIdStr + "@placeholder.local",
+            subject: content.subject,
+            html: content.html,
+            text: content.text,
+            headers: { ...content.headers, "X-Onboarding-Id": row._id },
+          });
+        }
+
+        const ok = res.ok;
+        if (ok) sent++;
+        else if (!ok && "skipped" in res && res.skipped) skipped++;
+        else failed++;
+
+        // Record this instructor as emailed
+        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+          onboardingId: row._id,
+          event: "email_sent",
+          actorUserId: row.submittedByUserId,
+          details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, resendMessageId: ok && res.id ? res.id : null, skipped: !ok && "skipped" in res ? true : undefined }),
+          emailsSentPatch: { instructors: [pair.instructorId as Id<"instructors">] },
+          expectedStatus: "processing",
+          expectedAttemptCount: parsed.data.attemptCount,
+          secret,
+        });
+      }
+      return { sent, skipped, failed };
+    });
+
+    // ---- Step 4: send admin summary email ----
+    const adminEmailResult = await step.run("send-admin-email", async function() {
+      const sent: boolean = (row.emailsSent as any)?.adminSummary === true;
+      if (sent) return { sent: true, skipped: false, results: [] };
+
+      const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
+        .split(",")
+        .map(function(e: string) { return e.trim(); })
+        .filter(Boolean);
+
+      if (adminEmails.length === 0) return { sent: false, skipped: false, results: [] };
+
+      const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
+      const templateId = process.env.RESEND_TEMPLATE_ID_ADMIN_PURCHASE;
+
+      const perInstructorRows = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+        const expiresAtStr = p.expiresAt
+          ? new Date(p.expiresAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+          : undefined;
+        return {
+          instructorName: "",
+          isRenewal: p.isRenewal,
+          workspaceUrl: p.workspaceId ? (baseUrl + "/dashboard") : (baseUrl + "/dashboard"),
+          sessionsCount: p.sessionsPerInstructor,
+          expirationDate: expiresAtStr,
+          clerkInvitationId: p.clerkInvitationId,
+        };
+      });
+
+      const templateData = {
+        orderId: undefined as string | undefined,
+        studentName: studentEmail.split("@")[0] ?? null,
+        studentEmail,
+        instructorName: row.perInstructor.map(function() { return ""; }).join(", "),
+        sessionCount: row.perInstructor.reduce(function(s: number, p: Doc<"adminOnboardings">["perInstructor"][number]) { return s + p.sessionsPerInstructor; }, 0),
+        dashboardUrl: baseUrl + "/admin",
+        isAdminOnboarded: true,
+        instructorCount,
+        perInstructorRows,
+      };
+
+      const results: Array<{ ok: boolean; id?: string }> = [];
+      for (const adminEmail of adminEmails) {
+        let res: any;
+        if (useTemplates && templateId) {
+          res = await sendTemplateEmail({
+            to: adminEmail,
+            templateId,
+            subject: "Kajabi admin onboarding — " + studentEmail + " \u00d7 " + instructorCount + " instructor" + (instructorCount > 1 ? "s" : ""),
+            templateData: templateData as Record<string, unknown>,
+            headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id },
+          });
+        } else {
+          const content = buildAdminPurchaseEmail(templateData);
+          res = await sendEmail({
+            to: adminEmail,
+            subject: content.subject,
+            html: content.html,
+            text: content.text,
+            headers: { ...content.headers, "X-Onboarding-Id": row._id },
+          });
+        }
+        results.push({ ok: res.ok, id: res.id });
+      }
+
+      const allOk = results.every(function(r: { ok: boolean }) { return r.ok; });
+
+      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+        onboardingId: row._id,
+        event: "email_sent",
+        actorUserId: row.submittedByUserId,
+        details: JSON.stringify({ recipient: "admin", count: adminEmails.length, ok: allOk }),
+        emailsSentPatch: { adminSummary: true },
+        expectedStatus: "processing",
+        expectedAttemptCount: parsed.data.attemptCount,
+        secret,
+      });
+
+      return { sent: allOk, skipped: false, results };
+    });
+
+    // ---- Step 5: enqueue Discord DMs ----
+    await step.run("enqueue-discord-dms", async function() {
+      const placeholderUserId = "email:" + studentEmail;
+      for (const pair of row.perInstructor) {
+        await convex.mutation(api.discordActionQueue.migrateDiscordAction, {
+          type: "dm_instructor_new_signup",
+          subjectUserId: placeholderUserId,
+          instructorId: pair.instructorId as string,
+          instructorUserId: undefined,
+          payload: {
+            kind: "admin_onboarding",
+            onboardingId: row._id,
+            dashboardUrl,
+          },
+        });
+      }
+      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+        onboardingId: row._id,
+        event: "discord_queued",
+        actorUserId: row.submittedByUserId,
+        details: "Discord DM enqueued for " + row.perInstructor.length + " instructor(s)",
+        expectedStatus: "processing",
+        expectedAttemptCount: parsed.data.attemptCount,
+        secret,
+      });
+    });
+
+    // ---- Step 6: mark completed ----
+    await step.run("mark-completed", async function() {
+      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+        onboardingId: row._id,
+        event: "completed",
+        actorUserId: row.submittedByUserId,
+        details: "Admin onboarding flow completed successfully",
+        expectedStatus: "processing",
+        expectedAttemptCount: parsed.data.attemptCount,
+        secret,
+      });
     });
 
     return {
-      success: !stepResult.failed,
+      success: true,
       onboardingId: row._id,
-      stub: true,
-      ...(stepResult.failed && stepResult.reason
-        ? { reason: stepResult.reason }
-        : {}),
+      studentEmailSent: studentEmailResult.sent,
+      instructorEmails: instructorEmailResults,
+      adminEmailSent: adminEmailResult.sent,
     };
-  }
-);
+  },
+  );

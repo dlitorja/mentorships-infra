@@ -883,14 +883,15 @@ export const appendTimelineEntry = internalMutation({
       v.literal("retrying"),
       v.literal("cancelled"),
       v.literal("capacity_override"),
-      v.literal("alias_set")
+      v.literal("alias_set"),
+      v.literal("released")
     ),
     actorUserId: v.optional(v.string()),
     details: v.optional(v.string()),
     emailsSentPatch: v.optional(
       v.object({
         student: v.optional(v.boolean()),
-        instructors: v.optional(v.array(v.string())),
+        instructors: v.optional(v.array(v.id("instructors"))), // Convex instructor IDs
         adminSummary: v.optional(v.boolean()),
         stub: v.optional(v.boolean()),
       })
@@ -964,14 +965,15 @@ export const appendTimelineEntryAction = action({
       v.literal("retrying"),
       v.literal("cancelled"),
       v.literal("capacity_override"),
-      v.literal("alias_set")
+      v.literal("alias_set"),
+      v.literal("released")
     ),
     actorUserId: v.optional(v.string()),
     details: v.optional(v.string()),
     emailsSentPatch: v.optional(
       v.object({
         student: v.optional(v.boolean()),
-        instructors: v.optional(v.array(v.string())),
+        instructors: v.optional(v.array(v.id("instructors"))), // Convex instructor IDs
         adminSummary: v.optional(v.boolean()),
         stub: v.optional(v.boolean()),
       })

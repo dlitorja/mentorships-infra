@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1 merged to `main`. PR 2 and PR 3 still pending.
+Status: PR 1 and PR 2 merged to `main`. PR 3 (live Inngest flow + Resend + Discord + daily digest) still pending.
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -636,41 +636,195 @@ Type error: Property 'capacityOverrideReason' does not exist on type 'AdminOnboa
 
 **Squashed merge**: 12 files, +2334/-16 lines → single commit `feat(platform): admin onboarding schema + recovery dashboard (PR 1/3)` on `main`, with the review-fix commit `fix(platform): address PR #634 review feedback` squashed into the same branch.
 
-### PR 2 — API Route + Form (Preview/Confirm)
+### PR 2 — API Route + Form (Preview/Confirm) — SHIPPED
 
-**Goal**: extend `/admin/students/invite` with the mode toggle and two-phase form; expose the sibling API routes; wire the retry/cancel admin endpoints. No email sends (Inngest events emitted but the handler from PR 3 is not yet present — log-only stub).
+**Goal**: extend `/admin/students/invite` with the mode toggle and two-phase form; expose the sibling API routes; wire the retry/cancel admin endpoints. The Inngest event is emitted but consumed by a `mark-completed-stub` handler in PR 2 — replaced fully by PR 3.
 
-**Files**
+**Status**: ✅ Merged to `main` (squash). Branch `feat/admin-onboarding-pr2-api-form`. PR #635.
 
-- `apps/platform/app/admin/students/invite/page.tsx` — add mode toggle, existing-student banner, capacity badges, advanced disclosure + confirmation modal, capacity-override reason field, internal notes textarea, Preview button + preview panel, Confirm and Send button.
-- `apps/platform/app/api/admin/students/onboard/preview/route.ts` (new) — POST; calls `previewAdminOnboarding`; zero side effects.
-- `apps/platform/app/api/admin/students/onboard/route.ts` (new) — POST; calls `adminOnboardStudent`; zod validation; emits `admin/onboarding.completed` Inngest event.
-- `apps/platform/app/api/admin/onboardings/[id]/route.ts` (new) — GET; returns the current row (polling target).
-- `apps/platform/app/api/admin/onboardings/[id]/retry/route.ts` (new) — POST; calls `retryAdminOnboarding`.
-- `apps/platform/app/api/admin/onboardings/[id]/cancel/route.ts` (new) — POST; calls `cancelAdminOnboarding`.
-- `apps/platform/inngest/functions/onboarding.ts` — add a stub `adminOnboardingFlow` handler that logs the event payload and updates `adminOnboardings.emailsSent = { stub: true }` so PR 1's preview UI shows realistic state. Replaced fully by PR 3.
-- `apps/platform/inngest/types.ts` — add `adminOnboardingCompletedEventSchema` (used in stub; reused in PR 3).
+**Files delivered (matches plan)**
 
-**Verification**: Playwright e2e for the new form mode (`tests/e2e/admin-onboarding.spec.ts`); manual: preview shows zero new rows, confirm creates the expected rows, cancel-on-preview writes nothing, capacity-override requires reason. `pnpm lint && pnpm typecheck`; Greptile CLI local review.
+- `apps/platform/app/admin/students/invite/page.tsx` — mode toggle ("Invitation only" | "Full onboarding (with workspace assignment)"), existing-student banner, advanced disclosure + confirmation modal, capacity-override reason field, internal notes textarea, two-phase Preview → Confirm flow, `FILTER_TO_TITLE` map for `PendingInvitationsCard`. Copy uses `instructor workspaces` (not `mentor workspaces`); `mentorships` retained only in the card title.
+- `apps/platform/components/admin/admin-onboarding-form.tsx` (new) — the two-phase form component: 350 ms debounced `useDebouncedValue` for the existing-student lookup, a draft fingerprint (`useMemo` over sorted `instructorIds` + flags) that invalidates the preview via `useEffect` + `prevFingerprintRef` on any change, `PreviewResponse`/`CommitResponse` Zod schemas for response validation (`commitResponseSchema.status = "processing" | "failed"` + optional `failureReason?`), `CommitResultPanel` that renders an amber failure card when status is `failed`, `canCommit` honors server flags `capacityOverrideRequired` + `notesRequired`, `canPreview` includes `!commitResult` to prevent re-preview after commit.
+- `apps/platform/app/api/admin/students/onboard/preview/route.ts` (new) — POST; calls `previewAdminOnboarding`; zero side effects; admin/support role required; `convexIdSchema` validates every `instructorIds` entry; reads body via shared `readJsonBody` (returns 400 on parse failure).
+- `apps/platform/app/api/admin/students/onboard/route.ts` (new) — POST; calls `adminOnboardStudent`; zod validation; issues ONE Clerk invitation per email and fans the ID across non-renewal pairs (Clerk allows one pending invitation per email); emits `admin/onboarding.completed` Inngest event; guards `NEXT_PUBLIC_APP_URL` (throws early if absent so the Clerk redirect URL does not evaluate to `"undefined/sign-up"`); on Clerk or Inngest failure, calls `markOnboardingFailed` with detail, sets `responseStatus = "failed"` + `failureReason`, returns the actual row status (not always `"processing"`); `markOnboardingFailed` does NOT require a Clerk session because the action is gated only by `CONVEX_SERVER_SHARED_SECRET`; `reportError` logs use `fingerprint(email)` so PII is redacted.
+- `apps/platform/app/api/admin/onboardings/[id]/route.ts` (new) — GET; validates `id` with `convexIdSchema` → 400 on malformed; returns the current row (polling target); explicit `Promise<NextResponse>` return type.
+- `apps/platform/app/api/admin/onboardings/[id]/retry/route.ts` (new) — POST; validates `id`; calls `retryAdminOnboarding`; explicit `Promise<NextResponse>` return type; mirrors `markOnboardingFailed` recovery (sets `responseStatus = "failed" | "processing"` + `failureReason?`).
+- `apps/platform/app/api/admin/onboardings/[id]/cancel/route.ts` (new) — POST; validates `id`; calls `cancelAdminOnboarding`; explicit `Promise<NextResponse>` return type.
+- `apps/platform/inngest/functions/onboarding.ts` — added stub `adminOnboardingFlow` handler with `retries: 2`. Loads the onboarding row via `api.adminOnboarding.getAdminOnboardingAction` (public action, shared-secret gated; Inngest worker has no Clerk session). Bails if `status !== "processing"`. Malformed event payload + missing `CONVEX_SERVER_SHARED_SECRET` throw `NonRetriableError` (permanent failures so `retries: 2` does not burn cycles). Both `appendTimelineEntryAction` calls pass `expectedStatus: "processing"` + `expectedAttemptCount` for an atomic stale-arrival guard. The stub marks the row `failed` if every non-renewal pair lacks a `clerkInvitationId` (would silently succeed otherwise). Result is captured as a `StepResult` and propagated into the outer return `{ success: !stepResult.failed, reason? }`.
+- `apps/platform/inngest/types.ts` — added `adminOnboardingCompletedEventSchema` (uses `convexIdSchema` for `onboardingId`).
+- `apps/platform/inngest/client.ts` — no edits (shared `inngest` client reused).
+- `apps/platform/app/api/inngest/route.ts` — registered `adminOnboardingFlow`.
+- `apps/platform/lib/queries/convex/use-admin-onboardings.ts` — added `useInstructorOptionsForOnboarding` + `useLookupExistingStudent` (accepts `undefined`).
+- `apps/platform/lib/api/read-json-body.ts` (new) — shared safe JSON body parser (`route.ts` helper; returns 400 with error message on parse failure; reused by preview + commit routes).
+- `apps/platform/lib/log-fingerprint.ts` (new) — FNV-1a hash of email for stable, PII-free observability (`fingerprint(email) → fp_<16hex>`); used by the commit route's `reportError` calls.
+- `tests/e2e/admin-onboarding.spec.ts` (new) — Playwright smoke for the two-phase form (regex-matcher for the commit endpoint, single consolidated `page.route("/api/convex", ...)` mock for the existing-student lookup).
 
-**Rollback**: revert the new API routes and form section. The mutations and schema from PR 1 are unaffected.
+**Convex changes (`convex/adminOnboarding.ts`)**
 
-### PR 3 — Inngest Flow + Resend + Daily Digest
+- `adminOnboardStudent` accepts `clerkInvitationIds?: Record<Id<"instructors">, string>` — only non-renewal pairs carry an ID; renewed pairs reuse the existing Clerk invitation from the prior onboarding.
+- `performCommit` (internal) consumes the same arg; writes `clerkInvitationIds` onto per-instructor rows.
+- `lookupExistingStudent` query (admin/support gated) — powers the form's existing-student banner.
+- `appendTimelineEntry` is `internalMutation` with optional `expectedStatus?: string` + `expectedAttemptCount?: number` — rejects mismatch atomically (stale-arrival guard against Inngest retries landing on a row that has already moved).
+- Public `appendTimelineEntryAction` (shared-secret gated) forwards `expectedStatus` / `expectedAttemptCount` — the seam PR 3 will use for every "step done" timeline write.
+- `getAdminOnboardingInternal` (`internalQuery`) + public `getAdminOnboardingAction` (`action`, shared-secret gated) — used by the Inngest stub (no Clerk session in Inngest worker).
+- Imports extended: `internalQuery, action` from `./_generated/server`.
+
+**Additional hardening folded in during review**
+
+- **Secret bypass on a public query → public action**: Greptile P1 flagged that a public `query` with a `secret` arg is bypassable by anyone reading the generated API spec. Moved the shared-secret check behind a public `action` (`appendTimelineEntryAction` + `getAdminOnboardingAction`) that delegates to an `internalQuery`/`internalMutation` unreachable from the browser. This is the same pattern used by `linkSessionPacksByEmailAction` (`convex/sessionPacks.ts:626`).
+- **`markOnboardingFailed` must not require a Clerk JWT**: the Inngest worker / non-browser paths that need to flip a row to `failed` have no Clerk session; gating the action on the Clerk `requireAdminOrSupportForApi` would silently abort recovery. Auth is `CONVEX_SERVER_SHARED_SECRET` only.
+- **API responses must reflect the actual row status after recovery**: the first iteration always returned `status: "processing"`; on a failed `markOnboardingFailed` recovery that misled `CommitResultPanel` until the Convex subscription caught up. Fixed to set `responseStatus = "failed"` + `failureReason?` when recovery was triggered.
+- **Inngest stub must propagate step results**: `step.run("mark-completed-stub")` return value flows into the outer return so `failed` reasons are observable in the Inngest dashboard and `adminOnboardings.timeline`.
+- **`NEXT_PUBLIC_APP_URL` is required**: the Clerk redirect URL would silently become `"undefined/sign-up"` if the env var were missing; guard throws early.
+- **Path `id` params validated with `convexIdSchema`**: replaced `as any` casts with `as Id<"instructors">` / `as Id<"adminOnboardings">`; malformed IDs → 400.
+- **PII in `reportError`**: replaced raw `email` with `fingerprint(email)` so observability cannot leak PII through structured logs.
+- **Mandatory writes do not silently abort on stale rows**: the `expectedStatus` + `expectedAttemptCount` guard on `appendTimelineEntry` ensures a retry arriving after the row already advanced does not double-write or corrupt timeline order.
+
+**Greptile findings — disposition**
+
+| # | Finding | Disposition |
+|---|---------|-------------|
+| a | Public `query` checks shared secret (bypassable from browser) | Fixed: moved to public `action` → `internalQuery`/`internalMutation`. |
+| b | `markOnboardingFailed` would silently abort without Clerk JWT | Fixed: action gated on `CONVEX_SERVER_SHARED_SECRET` only. |
+| c | API always returned `status: "processing"` even after recovery | Fixed: reflects actual row status (`"failed"` + `failureReason?`). |
+| d | Inngest stub swallow step results | Fixed: `StepResult` propagated into outer return `{ success, reason? }`. |
+| e | `NEXT_PUBLIC_APP_URL` not validated before building Clerk redirect URL | Fixed: throws early if absent. |
+| f | `as any` casts in `[id]` routes | Fixed: `as Id<"adminOnboardings">` after `convexIdSchema` validation; 400 on malformed IDs. |
+| g | Raw `email` in `reportError` is PII | Fixed: replaced with `fingerprint(email)` via shared helper. |
+| h | Stale-arrival guard on `appendTimelineEntry` missing | Fixed: optional `expectedStatus` + `expectedAttemptCount` atomic reject. |
+| i | Inngest stub on malformed event retries forever | Fixed: `NonRetriableError` on malformed event + missing shared secret. |
+| j | `getAdminOnboardingAction` annotation causes circular inference | Accepted: `ReturnType<typeof action>` annotation needed to break cycle; removing it breaks `npx convex codegen --typecheck enable`. Cosmetic only. |
+| k | `load-onboarding` query disabled with empty ID | Cosmetic: harmless on disabled branch; left as-is. |
+
+**Verification (all green on `9349892f`)**
+
+```
+codegen:    npx convex codegen --typecheck enable  — OK
+typecheck:  NODE_OPTIONS='--max-old-space-size=8192' pnpm typecheck  — 0 errors / 135 pre-existing warnings
+lint:       pnpm lint  — 0 errors / 135 warnings (unchanged)
+tests:      pnpm test:unit --run  — 95 passed | 3 skipped (no new unit tests; e2e covers new flow)
+build:      cd apps/platform && pnpm build  — ✓ Compiled successfully
+ci:         convex-codegen + Detect Changes + typecheck-convex + Lint & Type Check + typecheck-apps + Unit Tests + build-apps + E2E Tests + Build + Vercel Preview Comments — all SUCCESS
+greptile:   local CLI reported "Safe to merge", 0 inline comments after 4 iterations
+vercel:     mentorships-infra-platform + mentorships-infra + mentorships-infra-huckleberry-drive + mentorships-infra-web all Ready
+```
+
+**Rollback**: revert the new API routes and form section; restore the old `/admin/students/invite` page. The mutations and schema from PR 1 are unaffected.
+
+**Squashed merge**: 15 files, +2461/-146 lines → single commit `feat(platform): admin onboarding two-phase form + API routes (PR 2/3)` on `main` (merge commit `720a6beb`), with the review-fix commit `fix(platform): address PR #635 review findings for admin onboarding` squashed into the same branch.
+
+### PR 3 — Inngest Flow + Resend + Daily Digest — PENDING
 
 **Goal**: replace the PR 2 stub with the real Inngest handler; extend Resend templates; enqueue Discord DMs; wire the daily stale-digest cron.
 
+**Scope (high-level)**
+
+- Real `adminOnboardingFlow` steps: load → student email → per-instructor email loop → admin summary email → per-instructor Discord DM enqueue → final `status: "completed"` + timeline.
+- On uncaught error: `status: "failed"` + `failureReason` + admin digest email.
+- New `adminOnboardingStaleDigestFlow` (daily 09:00 UTC).
+- Extend existing Resend templates with `isAdminOnboarded`, `isRenewal`, `instructorCount` variables (no new templates).
+- Verify that `clerk/user.created` already rewrites `discordActionQueue.subjectUserId` for admin-onboarded placeholders (no code change expected; verification step only).
+
 **Files**
 
-- `apps/platform/inngest/functions/onboarding.ts` — replace stub `adminOnboardingFlow` with the real handler: send student email (template `RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING` + new optional vars), one instructor email per assigned instructor (template `RESEND_TEMPLATE_ID_INSTRUCTOR_PURCHASE`), one admin summary email (template `RESEND_TEMPLATE_ID_ADMIN_PURCHASE`), enqueue `dm_instructor_new_signup` per instructor with placeholder `subjectUserId`, append `timeline` entries per send, patch `status: "completed"` on success or `"failed"` with `failureReason` on uncaught error, append final timeline entry.
-- `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` (new) — daily Inngest scheduled function (09:00 UTC); queries `adminOnboardings` by `status: completed` AND placeholder `userId` AND `createdAt < now - 13d`; emails admins a digest; releases placeholder seat reservations.
-- `apps/platform/inngest/functions/clerk-user-linking.ts` — no edits; existing handler already rewrites `discordActionQueue.subjectUserId` on `clerk/user.created`. Verify in PR 3 review.
-- `packages/emails/src/send.ts` — confirm variable pass-through; no schema change to the function signature.
-- `apps/platform/lib/emails/purchase-onboarding-email.ts`, `instructor-onboarding-email.ts`, `admin-purchase-notification-email.ts` — extend renderers to accept the new optional vars (`isAdminOnboarded`, `isRenewal`, `instructorCount`).
-- `convex/discordActionQueue.ts` — confirm the placeholder-subjectId flow works with admin-onboarded records; small helper if needed.
+- `apps/platform/inngest/functions/onboarding.ts` — replace the PR 2 stub `adminOnboardingFlow` body with the real handler. Keep the existing scaffolding: load-onboarding via `api.adminOnboarding.getAdminOnboardingAction` (shared secret), bail-if-not-processing check, `NonRetriableError` on malformed events, atomic `expectedStatus: "processing"` + `expectedAttemptCount` writes via `api.adminOnboarding.appendTimelineEntryAction`. Replace `step.run("mark-completed-stub")` with: `step.run("send-student-email")`, `step.run("send-instructor-emails")` (single step that fans per instructor and tracks `emailsSent.instructorIds`), `step.run("send-admin-email")`, `step.run("enqueue-discord-dms")` (single step that enqueues `dm_instructor_new_signup` per instructor with `subjectUserId: "email:<email>"`), `step.run("mark-completed")`. Catch handler: `status: "failed"` + `failureReason` + timeline + admin digest.
+- `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` (new) — `inngest.createFunction` with cron `0 9 * * *` (09:00 UTC daily). Scan `adminOnboardings` where `status: "completed"` AND placeholder session pack still exists (`userId = "email:<email>"`) AND `createdAt < now - 13 days`. Send one batched digest email to all `ADMIN_EMAILS` listing each stale invite (email, invited instructors, days pending, suggested action). On send success: mark matched `studentInvitations.status = "expired"` (if column exists; otherwise skip), release placeholder `seatReservations.status = "released"`, set `workspaces.endedAt = now`, add a `releasedAt` field to the matched `adminOnboardings` row via `appendTimelineEntryAction` with `event: "released"`.
+- `apps/platform/inngest/types.ts` — add `adminOnboardingStaleDigestEventSchema` (no payload; the function reads DB state directly). Verify `adminOnboardingCompletedEventSchema` already supports PR 3's payload (no change expected).
+- `apps/platform/inngest/functions/clerk-user-linking.ts` — no edits; existing handler already rewrites `discordActionQueue.subjectUserId`. Add a verification-only grep + test that exercises the placeholder rewrite for admin-onboarded records (manual review checklist item).
+- `packages/emails/src/send.ts` — confirm optional `variables` pass-through; no signature change expected.
+- `apps/platform/lib/emails/purchase-onboarding-email.ts`, `instructor-onboarding-email.ts`, `admin-purchase-notification-email.ts` — extend renderers to accept and surface the new optional vars (`isAdminOnboarded`, `isRenewal`, `instructorCount`).
+- `convex/discordActionQueue.ts` — confirm the placeholder-subjectId flow works with admin-onboarded records; add a small helper if the existing `migrateDiscordAction` does not cover the case (probably not needed; verification step only).
 
-**Verification**: end-to-end manual in staging: submit a Kajabi admin onboarding, watch Inngest dashboard, verify all three emails land with the correct template, verify the Discord DM is queued, verify the row's `status: completed` and `timeline` entries. Trigger the stale-digest handler manually; verify email + seat release. `pnpm lint && pnpm typecheck`; Greptile CLI local review; Greptile cloud review on PR open.
+**Inngest flow step shape (replaces stub)**
 
-**Rollback**: revert the Inngest handler to the PR 2 stub; remove the new scheduled function; emails stop. Existing data in `adminOnboardings` is unaffected.
+```
+admin/onboarding.completed { onboardingId }
+  └─ Step "load-onboarding": call api.adminOnboarding.getAdminOnboardingAction with shared secret.
+       Bail if status !== "processing" (NonRetriableError; do not retry on terminal state).
+  └─ Step "send-student-email":
+       Use RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING + variables
+         { isAdminOnboarded: true, isRenewal: <allPairsRenewal>, instructorCount: N, ...existing vars }.
+       Idempotency: skip if emailsSent.student === true.
+       On success: appendTimelineEntryAction(event="email_sent", details={ recipient:"student", resendMessageId })
+                 + set emailsSent.student = true.
+       On Resend skip (no API key): appendTimelineEntryAction(event="email_skipped", details={ recipient:"student", reason:"resend_not_configured" }) + still set emailsSent.student = true.
+  └─ Step "send-instructor-emails":
+       For each instructor NOT in emailsSent.instructorIds:
+         Use RESEND_TEMPLATE_ID_INSTRUCTOR_PURCHASE + variables
+           { isAdminOnboarded: true, isRenewal: <pair.isRenewal>, instructorCount: 1, ... }.
+         On success: appendTimelineEntryAction + push instructorId to emailsSent.instructorIds.
+       Per-pair renewal subject rule: "Renewal — <email>" if pair.isRenewal, else "New student assigned — <email>".
+  └─ Step "send-admin-email":
+       Use RESEND_TEMPLATE_ID_ADMIN_PURCHASE + variables
+         { isAdminOnboarded: true, instructorCount: N, ... }.
+       Body renders the full per-instructor table (renewal flags, workspace links, Clerk invitation IDs).
+       Recipients: all ADMIN_EMAILS (comma-joined; same as existing purchase flow).
+       Idempotency: skip if emailsSent.admin === true.
+  └─ Step "enqueue-discord-dms":
+       For each assigned instructor:
+         Enqueue migrateDiscordAction({ kind: "dm_instructor_new_signup", subjectUserId: "email:<email>", instructorId, onboardingId }).
+         The existing clerk-user-linking handler rewrites subjectUserId on clerk/user.created.
+  └─ Step "mark-completed":
+       patch adminOnboardings.status = "completed", completedAt = now.
+       appendTimelineEntryAction(event="completed").
+  Catch (uncaught error after retries exhausted):
+       patch adminOnboardings.status = "failed", failureReason = <error.message>.
+       appendTimelineEntryAction(event="failed", details = <error.message>).
+       Send admin digest email with the onboarding row link.
+```
+
+**Idempotency considerations (PR 3)**
+
+- Every step guards on the corresponding `emailsSent.*` flag — same pattern as the PR 2 stub.
+- `enqueue-discord-dms` is idempotent because `migrateDiscordAction` is idempotent on `subjectUserId`.
+- The PR 2 atomic `expectedStatus` + `expectedAttemptCount` guard on `appendTimelineEntry` already protects against stale-arrival duplicates — reused by every PR 3 step.
+
+**Email variable additions (no new templates)**
+
+| Template | New optional vars |
+|---|---|
+| `RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING` | `isAdminOnboarded: boolean`, `isRenewal: boolean` (true only if every selected pair is a renewal), `instructorCount: number` |
+| `RESEND_TEMPLATE_ID_INSTRUCTOR_PURCHASE` | `isAdminOnboarded: boolean`, `isRenewal: boolean` (per-pair), `instructorCount: number` |
+| `RESEND_TEMPLATE_ID_ADMIN_PURCHASE` | `isAdminOnboarded: boolean`, `instructorCount: number` (table already shows renewal flags) |
+
+**Daily stale digest (`adminOnboardingStaleDigestFlow`)**
+
+```
+Cron: 0 9 * * * (UTC)
+Trigger: scheduled; no event payload.
+Steps:
+  ├─ "scan-stale":
+  │     List adminOnboardings where status="completed"
+  │       AND createdAt < now - 13 days
+  │       AND any assigned session pack has userId matching /^email:/
+  │       (placeholder not yet rewritten by clerk/user.created).
+  │     Bail if list is empty.
+  ├─ "send-digest":
+  │     One batched email to ADMIN_EMAILS with per-row:
+  │       student email, assigned instructors, days pending, suggested action ("resend invite" / "cancel").
+  ├─ "release-placeholders":
+  │     For each stale row:
+  │       patch seatReservations.status = "released" for the placeholder session pack.
+  │       patch workspaces.endedAt = now for each newly-created workspace.
+  │       appendTimelineEntryAction(event="released", details="stale-invite-digest auto-release").
+```
+
+**`appendTimelineEntry` enrichment for PR 3**
+
+- Add an internal helper to atomically patch `emailsSent.<field>` AND append a timeline entry in a single mutation (currently they require two calls). Used by every PR 3 send step so retries land on consistent state. Backwards-compatible: existing `appendTimelineEntry` callers continue to work; new `markEmailSent` helper is additive.
+
+**Verification (target for PR 3)**
+
+- `npx convex codegen --typecheck enable` clean.
+- `NODE_OPTIONS='--max-old-space-size=8192' pnpm typecheck` clean.
+- `pnpm lint` clean.
+- `pnpm test:unit --run` clean (add unit tests for: stale-digest selection query, `markEmailSent` helper atomicity, Resend skip-on-missing-key behavior, Inngest flow retry-after-partial-send resume).
+- `cd apps/platform && pnpm build` clean.
+- End-to-end manual in staging: submit a Kajabi admin onboarding via the new form, watch Inngest dashboard, verify all three emails land with the correct template + new variables, verify the Discord DM is queued with placeholder `subjectUserId`, verify the row's `status: completed` and `timeline` entries. Trigger the stale-digest handler manually; verify digest email + seat release. Re-run with `Resend` env vars missing to verify the `email_skipped` timeline path.
+- Greptile CLI local review before push (`npx greptile@latest review --diff -b main`); Greptile cloud review on PR open.
+
+**Rollback**: revert the Inngest handler to the PR 2 stub; remove the daily digest scheduled function. Emails stop; existing `adminOnboardings` data is unaffected. Schedule via `inngest.createFunction` is local to the file, so deletion is a single-file revert.
 
 ### Branching + Review Hygiene
 

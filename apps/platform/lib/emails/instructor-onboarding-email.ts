@@ -4,6 +4,10 @@ type InstructorOnboardingEmailArgs = {
   studentEmail: string | null;
   sessionsPurchased: number;
   dashboardUrl: string;
+  /** PR 3: admin-onboarded context */
+  isAdminOnboarded?: boolean;
+  /** PR 3: per-pair renewal flag */
+  isRenewal?: boolean;
 };
 
 export type InstructorOnboardingEmail = {
@@ -16,31 +20,33 @@ export type InstructorOnboardingEmail = {
 export function buildInstructorOnboardingEmail(
   args: InstructorOnboardingEmailArgs
 ): InstructorOnboardingEmail {
-  const subject = `New student — ${args.studentName || "a new student"} has joined your mentorship`;
+  const subjectPrefix = args.isRenewal ? "Renewal — " : (args.isAdminOnboarded ? "" : "New student — ");
+  const studentDisplay = args.studentName?.trim()
+    ? args.studentName.trim()
+    : args.studentEmail || "A new student";
+  const subject = subjectPrefix + studentDisplay + (args.isRenewal ? " has renewed" : " has joined your mentorship");
 
   const greetingName = args.instructorName?.trim()
     ? args.instructorName.trim()
     : "there";
-
-  const studentDisplay = args.studentName?.trim()
-    ? args.studentName.trim()
-    : args.studentEmail || "A new student";
 
   const contactInfo = args.studentEmail
     ? `\nStudent email: ${args.studentEmail}`
     : "";
 
   const text = [
-    `Hi ${greetingName},`,
+    "Hi " + greetingName + ",",
     "",
-    `A new student has purchased your mentorship sessions!`,
+    args.isAdminOnboarded
+      ? "A student has been assigned to your mentorship via the admin onboarding system."
+      : "A new student has purchased your mentorship sessions!",
     "",
-    `Student: ${studentDisplay}${contactInfo}`,
-    `Sessions: ${args.sessionsPurchased}`,
+    "Student: " + studentDisplay + contactInfo,
+    "Sessions: " + args.sessionsPurchased,
     "",
-    `Next steps:`,
-    `- View your student in your Dashboard: ${args.dashboardUrl}`,
-    `- Reach out to schedule sessions with your new student`,
+    "Next steps:",
+    "- View your student in your Dashboard: " + args.dashboardUrl,
+    "- Reach out to schedule sessions with your new student",
     "",
     "Important: Please complete onboarding with your new student within 48 hours to ensure the best experience.",
     "",
@@ -53,7 +59,9 @@ export function buildInstructorOnboardingEmail(
       <div style="padding:16px;border:1px solid #E5E7EB;border-radius:12px">
         <div style="font-weight:700;margin-bottom:6px">New Student</div>
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">
-          A new student has purchased your mentorship sessions!
+          ${args.isAdminOnboarded
+            ? "A student has been assigned to your mentorship via the admin onboarding system."
+            : "A new student has purchased your mentorship sessions!"}
         </div>
 
         <div style="margin:0 0 12px 0;color:#374151">
