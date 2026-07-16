@@ -1341,3 +1341,81 @@ export const getInstructorContactsAction: ReturnType<typeof action> = action({
     );
   },
 });
+
+/**
+ * Internal query: scan completed admin onboardings that have stale
+ * placeholder inventory and are still genuinely un-claimed by a real
+ * Clerk user. Used by the daily stale-digest cron (`adminOnboardingStaleDigestFlow`).
+ *
+ * Server-side does the heavy lifting (one DB scan + per-row pack lookup)
+ * so the Inngest caller can simply iterate over the returned rows.
+ *
+ * "Placeholder" verification mirrors `releasePlaceholderInventoryInternal`:
+ * the row's `perInstructor[i].sessionPackId` must point to a pack whose
+ * `userId` still starts with "email:" AND `status === "active"`. This
+ * protects the digest from producing false alerts for onboardings whose
+ * students have already accepted their invites but where the linking
+ * flow hasn't yet rewritten the pack owner.
+ *
+ * PR 4 cloud-review fix (CodeRabbit #9214): ownership verification happens
+ * at scan time, not only at release time, so admins don't get repeated
+ * alerts for onboardings whose placeholder has been claimed.
+ */
+export const getStaleOnboardingsInternal = internalQuery({
+  args: {
+    cutoffMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const candidates = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "completed"))
+      .order("desc")
+      .take(1000);
+
+    const staleRows: Doc<"adminOnboardings">[] = [];
+    for (const row of candidates) {
+      if (row.createdAt >= args.cutoffMs) continue;
+      if (row.email.startsWith("clerk:")) continue;
+      if (!Array.isArray(row.perInstructor) || row.perInstructor.length === 0) continue;
+
+      // Verify at least one non-renewal pair has a STILL-PLACEHOLDER pack.
+      let hasPlaceholder = false;
+      for (const pair of row.perInstructor) {
+        if (!pair || pair.isRenewal || !pair.sessionPackId) continue;
+        const pack = await ctx.db.get(pair.sessionPackId);
+        if (
+          pack &&
+          pack.status === "active" &&
+          typeof pack.userId === "string" &&
+          pack.userId.startsWith("email:")
+        ) {
+          hasPlaceholder = true;
+          break;
+        }
+      }
+      if (hasPlaceholder) staleRows.push(row);
+    }
+    return staleRows;
+  },
+});
+
+/**
+ * Public action wrapper for `getStaleOnboardingsInternal`. Requires
+ * `CONVEX_SERVER_SHARED_SECRET` (Inngest workers have no Clerk session).
+ * Mirrors the `listAdminOnboardingsAction` / `getAdminOnboardingAction` /
+ * `releasePlaceholderInventoryAction` pattern.
+ */
+export const getStaleOnboardingsAction: ReturnType<typeof action> = action({
+  args: {
+    cutoffMs: v.number(),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runQuery(internal.adminOnboarding.getStaleOnboardingsInternal, {
+      cutoffMs: args.cutoffMs,
+    });
+  },
+});

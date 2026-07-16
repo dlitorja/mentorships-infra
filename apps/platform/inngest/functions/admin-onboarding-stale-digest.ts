@@ -48,27 +48,21 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       // PR 4 fix: compute the cutoff INSIDE the step so a warm Lambda
       // doesn't drift toward "13 days after cold start".
       const staleCutoffMs = Date.now() - THIRTEEN_DAYS_MS;
-      // PR 4 fix: use the shared-secret action variant because the
-      // public query checks `ctx.auth.getUserIdentity()` and silently
-      // returns [] for unauthenticated callers (e.g. Inngest workers).
+      // PR 4 cloud-review fix (CodeRabbit #9204): throw on missing secret
+      // instead of silently returning []. A misconfigured deployment must
+      // not look like "no stale invites found" — monitoring should detect
+      // this immediately via the failure.
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!secret) return [];
-      const allCompleted = await convex.action(api.adminOnboarding.listAdminOnboardingsAction, {
-        status: "completed",
-        limit: 200,
+      if (!secret) throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin-onboarding-stale-digest cannot authenticate against Convex");
+      // PR 4 cloud-review fix (CodeRabbit #9210 + #9214): delegate the
+      // ownership-aware scan to a single Convex action. The new action
+      // fetches up to 1000 completed onboardings and server-side verifies
+      // each placeholder pack is still owned by an "email:" placeholder
+      // (not already claimed by a real Clerk user). Returns only rows
+      // that pass all checks.
+      return await convex.action(api.adminOnboarding.getStaleOnboardingsAction, {
+        cutoffMs: staleCutoffMs,
         secret,
-      });
-      if (!allCompleted || allCompleted.length === 0) return [];
-      return allCompleted.filter(function(row: any) {
-        if (row.createdAt >= staleCutoffMs) return false;
-        // PR 4 fix: session pack IDs live on perInstructor[i].sessionPackId,
-        // not at the top level. Check each non-renewal pair for an active
-        // placeholder pack (the "email:<normalized>" userId pattern).
-        const hasPlaceholder = Array.isArray(row.perInstructor)
-          && row.perInstructor.some(function(p: any) {
-              return p && !p.isRenewal && p.sessionPackId;
-            });
-        return hasPlaceholder && !row.email.startsWith("clerk:");
       });
     });
 
@@ -88,9 +82,22 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       // PR 4 fix: await each sendEmail so the step only resolves after all
       // sends have completed. Errors are caught per-recipient so a single
       // failure doesn't abort the entire digest.
+      // PR 4 cloud-review fix (CodeRabbit #9221): also report when
+      // `sendEmail` returns `ok: false` (provider accepted the request but
+      // the delivery itself failed) — without this, only thrown exceptions
+      // were reported.
       await Promise.all(adminEmails.map(async function(adminEmail: string) {
         try {
-          await sendEmail({ to: adminEmail, subject: "Stale onboarding invites — " + staleOnboardings.length + " pending > 13 days", html, text, headers: { "X-Email-Type": "admin_onboarding_stale_digest" } });
+          const res = await sendEmail({ to: adminEmail, subject: "Stale onboarding invites — " + staleOnboardings.length + " pending > 13 days", html, text, headers: { "X-Email-Type": "admin_onboarding_stale_digest" } });
+          if (!res.ok) {
+            reportError({
+              source: "inngest:admin-onboarding-stale-digest",
+              error: new Error("sendEmail returned ok:false: " + ("error" in res ? res.error : "skipped" in res ? res.reason : "unknown")),
+              level: "error",
+              message: "sendEmail reported non-ok result for digest recipient " + adminEmail,
+              context: { ids: staleOnboardings.map(function(r: any) { return r._id; }) },
+            });
+          }
         } catch (e: unknown) {
           reportError({ source: "inngest:admin-onboarding-stale-digest", error: e instanceof Error ? e : new Error(String(e)), level: "error", message: "Failed to send digest to " + adminEmail, context: { ids: staleOnboardings.map(function(r: any) { return r._id; }) } });
         }
@@ -98,8 +105,11 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
     });
 
     await step.run("release-placeholders", async () => {
+      // PR 4 cloud-review fix (CodeRabbit #9204): throw on missing secret
+      // here too, mirroring the scan-stale behavior. Better to fail the
+      // scheduled cron than to silently skip releasing inventory.
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!secret) return;
+      if (!secret) throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin-onboarding-stale-digest cannot release placeholder inventory");
       // PR 4 fix: await each convex.action so the step only resolves after
       // all releases have completed. Errors are caught per-row so a single
       // failure doesn't abort the entire digest run.

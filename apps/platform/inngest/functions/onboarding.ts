@@ -598,11 +598,18 @@ export const adminOnboardingFlow = inngest.createFunction(
     const studentEmailResult = await step.run("send-student-email", async function() {
       // PR 4 fix: re-fetch `emailsSent.student` from Convex so a
       // retry-after-partial-success doesn't re-send the student email.
+      // PR 4 cloud-review fix (CodeRabbit #9234): also gate on the row's
+      // current status + attemptCount. If a newer attempt is already
+      // processing, or if the row has transitioned to a terminal state,
+      // skip this step entirely.
       const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
         id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
-      const sent: boolean = (freshRow?.emailsSent as any)?.student === true;
+      if (!freshRow) return { sent: false, skipped: "missing", id: null };
+      if (freshRow.status !== "processing") return { sent: false, skipped: "non_processing", status: freshRow.status, id: null };
+      if (freshRow.attemptCount !== parsed.data.attemptCount) return { sent: false, skipped: "attempt_mismatch", expected: parsed.data.attemptCount, actual: freshRow.attemptCount, id: null };
+      const sent: boolean = (freshRow.emailsSent as any)?.student === true;
       if (sent) return { sent: true, skipped: false, id: null };
 
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
@@ -641,16 +648,21 @@ export const adminOnboardingFlow = inngest.createFunction(
         }),
       };
 
+      // PR 4 cloud-review fix (CodeRabbit #9227): deterministic idempotency
+      // key for Resend so a transient Convex-append failure after a
+      // successful send doesn't trigger a duplicate delivery on retry.
+      const idempotencyKey = "student:" + row._id;
+
       let res: any;
       if (useTemplates && templateId) {
         res = await sendTemplateEmail({
           to: studentEmail,
           templateId,
           subject: allRenewal
-            ? "Welcome back — your mentorship with " + instructorNames.join(", ") + " is ready"
+            ? "Welcome back — your instruction with " + instructorNames.join(", ") + " is ready"
             : undefined,
           templateData: templateData as Record<string, unknown>,
-          headers: { "X-Email-Type": "admin_onboarding_student", "X-Onboarding-Id": row._id },
+          headers: { "X-Email-Type": "admin_onboarding_student", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
         });
       } else {
         const content = buildPurchaseOnboardingEmail(templateData);
@@ -659,7 +671,7 @@ export const adminOnboardingFlow = inngest.createFunction(
           subject: content.subject,
           html: content.html,
           text: content.text,
-          headers: { ...content.headers, "X-Onboarding-Id": row._id },
+          headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
         });
       }
 
@@ -667,16 +679,30 @@ export const adminOnboardingFlow = inngest.createFunction(
       const id: string | null = (ok && res.id) ? res.id : null;
       const skipped = !ok && "skipped" in res && res.skipped === true;
 
-      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-        onboardingId: row._id,
-        event: "email_sent",
-        actorUserId: row.submittedByUserId,
-        details: JSON.stringify({ recipient: "student", resendMessageId: id, skipped: skipped || undefined }),
-        emailsSentPatch: { student: true },
-        expectedStatus: "processing",
-        expectedAttemptCount: parsed.data.attemptCount,
-        secret,
-      });
+      // PR 4 cloud-review fix (CodeRabbit #9227): only mark `emailsSent.student`
+      // as true when the provider actually delivered (ok or skipped-missing-config).
+      // Failed deliveries should retry on the next attempt.
+      const markSent = ok || skipped;
+      if (markSent) {
+        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+          onboardingId: row._id,
+          event: "email_sent",
+          actorUserId: row.submittedByUserId,
+          details: JSON.stringify({ recipient: "student", resendMessageId: id, skipped: skipped || undefined }),
+          emailsSentPatch: { student: true },
+          expectedStatus: "processing",
+          expectedAttemptCount: parsed.data.attemptCount,
+          secret,
+        });
+      } else {
+        reportError({
+          source: "inngest:admin-onboarding-flow",
+          error: new Error("student email failed: " + ("error" in res ? res.error : "unknown")),
+          level: "error",
+          message: "Student onboarding email send failed — will retry on next attempt",
+          context: { onboardingId: row._id },
+        });
+      }
 
       return { sent: ok, skipped, id };
     });
@@ -690,11 +716,15 @@ export const adminOnboardingFlow = inngest.createFunction(
       // above is a stale snapshot. Without this re-fetch, a partial
       // failure mid-loop + retry would re-email instructors who were
       // already notified in the previous attempt.
+      // PR 4 cloud-review fix (CodeRabbit #9234): also gate on the row's
+      // current status + attemptCount.
       const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
         id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
-      if (!freshRow) return { sent: 0, skipped: 0, failed: 0, noEmail: 0, missing: true };
+      if (!freshRow) return { sent: 0, skipped: 0, failed: 0, noEmail: 0, reason: "missing" };
+      if (freshRow.status !== "processing") return { sent: 0, skipped: 0, failed: 0, noEmail: 0, reason: "non_processing", status: freshRow.status };
+      if (freshRow.attemptCount !== parsed.data.attemptCount) return { sent: 0, skipped: 0, failed: 0, noEmail: 0, reason: "attempt_mismatch", expected: parsed.data.attemptCount, actual: freshRow.attemptCount };
       const alreadySent: string[] = (freshRow.emailsSent as any)?.instructors ?? [];
       const toSend = freshRow.perInstructor.filter(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
         return !alreadySent.includes(p.instructorId as string);
@@ -745,6 +775,11 @@ export const adminOnboardingFlow = inngest.createFunction(
           isRenewal: pair.isRenewal,
         };
 
+        // PR 4 cloud-review fix (CodeRabbit #9227): deterministic
+        // idempotency key so a transient Convex-append failure after a
+        // successful send doesn't trigger a duplicate delivery on retry.
+        const idempotencyKey = "instructor:" + row._id + ":" + instructorIdStr;
+
         let res: any;
         if (useTemplates && templateId) {
           res = await sendTemplateEmail({
@@ -754,7 +789,7 @@ export const adminOnboardingFlow = inngest.createFunction(
               ? "Renewal — " + studentEmail + " has renewed"
               : undefined,
             templateData: templateData as Record<string, unknown>,
-            headers: { "X-Email-Type": "admin_onboarding_instructor", "X-Onboarding-Id": row._id },
+            headers: { "X-Email-Type": "admin_onboarding_instructor", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
           });
         } else {
           const content = buildInstructorOnboardingEmail(templateData);
@@ -763,7 +798,7 @@ export const adminOnboardingFlow = inngest.createFunction(
             subject: content.subject,
             html: content.html,
             text: content.text,
-            headers: { ...content.headers, "X-Onboarding-Id": row._id },
+            headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
           });
         }
 
@@ -772,17 +807,31 @@ export const adminOnboardingFlow = inngest.createFunction(
         else if (!ok && "skipped" in res && res.skipped) skipped++;
         else failed++;
 
-        // Record this instructor as emailed
-        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-          onboardingId: row._id,
-          event: "email_sent",
-          actorUserId: row.submittedByUserId,
-          details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, resendMessageId: ok && res.id ? res.id : null, skipped: !ok && "skipped" in res ? true : undefined }),
-          emailsSentPatch: { instructors: [pair.instructorId as Id<"instructors">] },
-          expectedStatus: "processing",
-          expectedAttemptCount: parsed.data.attemptCount,
-          secret,
-        });
+        // PR 4 cloud-review fix (CodeRabbit #9227): only mark the
+        // instructor as emailed when the provider actually delivered
+        // (ok or skipped). Failed deliveries should retry on the next
+        // attempt rather than being silently dropped.
+        const markSent = ok || (!ok && "skipped" in res && res.skipped);
+        if (markSent) {
+          await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+            onboardingId: row._id,
+            event: "email_sent",
+            actorUserId: row.submittedByUserId,
+            details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, resendMessageId: ok && res.id ? res.id : null, skipped: !ok && "skipped" in res ? true : undefined }),
+            emailsSentPatch: { instructors: [pair.instructorId as Id<"instructors">] },
+            expectedStatus: "processing",
+            expectedAttemptCount: parsed.data.attemptCount,
+            secret,
+          });
+        } else {
+          reportError({
+            source: "inngest:admin-onboarding-flow",
+            error: new Error("instructor email failed: " + ("error" in res ? res.error : "unknown")),
+            level: "error",
+            message: "Instructor onboarding email send failed — will retry on next attempt",
+            context: { onboardingId: row._id, instructorId: instructorIdStr },
+          });
+        }
       }
       return { sent, skipped, failed, noEmail };
     });
@@ -796,11 +845,16 @@ export const adminOnboardingFlow = inngest.createFunction(
       // we merge the new results into `adminSummaryByEmail`. This avoids
       // both: (a) duplicate sends to already-successful addresses and
       // (b) permanent skip of failed addresses after one retry.
+      // PR 4 cloud-review fix (CodeRabbit #9234): also gate on the row's
+      // current status + attemptCount.
       const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
         id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
-      const alreadyDelivered: Record<string, boolean> = (freshRow?.emailsSent as any)?.adminSummaryByEmail ?? {};
+      if (!freshRow) return { sent: false, skipped: "missing", results: [] };
+      if (freshRow.status !== "processing") return { sent: false, skipped: "non_processing", status: freshRow.status, results: [] };
+      if (freshRow.attemptCount !== parsed.data.attemptCount) return { sent: false, skipped: "attempt_mismatch", expected: parsed.data.attemptCount, actual: freshRow.attemptCount, results: [] };
+      const alreadyDelivered: Record<string, boolean> = (freshRow.emailsSent as any)?.adminSummaryByEmail ?? {};
 
       const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
         .split(",")
@@ -857,17 +911,22 @@ export const adminOnboardingFlow = inngest.createFunction(
       // its own try/catch so one transient Resend failure does not block
       // the others (this matches the same pattern used in the stale-digest
       // cron and the catch handler's admin-failure-digest send).
+      // PR 4 cloud-review fix (CodeRabbit #9227): deterministic
+      // idempotency key per (onboarding, admin-email) so a transient
+      // Convex-append failure after a successful send doesn't trigger a
+      // duplicate delivery on retry.
       const newResults: Array<{ email: string; ok: boolean; id?: string | null }> = [];
       await Promise.all(toSend.map(async function(adminEmail: string) {
         let res: any;
         try {
+          const idempotencyKey = "admin:" + row._id + ":" + adminEmail;
           if (useTemplates && templateId) {
             res = await sendTemplateEmail({
               to: adminEmail,
               templateId,
               subject: "Kajabi admin onboarding — " + studentEmail + " \u00d7 " + instructorCount + " instructor" + (instructorCount > 1 ? "s" : ""),
               templateData: templateData as Record<string, unknown>,
-              headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id },
+              headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
             });
           } else {
             const content = buildAdminPurchaseEmail(templateData);
@@ -876,7 +935,18 @@ export const adminOnboardingFlow = inngest.createFunction(
               subject: content.subject,
               html: content.html,
               text: content.text,
-              headers: { ...content.headers, "X-Onboarding-Id": row._id },
+              headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+            });
+          }
+          // PR 4 cloud-review fix (CodeRabbit #9221): report when the
+          // provider accepted the request but the delivery itself failed.
+          if (!res.ok) {
+            reportError({
+              source: "inngest:admin-onboarding-flow",
+              error: new Error("sendEmail returned ok:false: " + ("error" in res ? res.error : "skipped" in res ? res.reason : "unknown")),
+              level: "error",
+              message: "Admin onboarding summary send reported non-ok result for " + adminEmail,
+              context: { onboardingId: row._id },
             });
           }
           newResults.push({ email: adminEmail, ok: res.ok, id: res.ok && res.id ? res.id : null });
@@ -974,18 +1044,22 @@ export const adminOnboardingFlow = inngest.createFunction(
       const baseUrl = getBaseUrl();
       const adminDashboardUrl = baseUrl + "/admin/onboardings/" + onboardingId;
 
-      // Best-effort: flip the row to `status: "failed"` + append timeline.
-      // PR 4 cloud-review fixes (greptile-apps):
+      // PR 4 cloud-review fixes:
       //  - expectedStatus/expectedAttemptCount now GUARD on "processing" +
       //    parsed.data.attemptCount so an exhausted retry cannot overwrite
       //    a later completed attempt back to "failed". If the row has
       //    already been transitioned (completed/failed), the guard throws
-      //    "stale call rejected" — we catch that and treat it as a
-      //    no-op (the row is already terminal).
-      //  - If mark-failed exhausts retries on a real Convex failure, we
-      //    bubble a NonRetriableError so Inngest marks the run as failed
-      //    rather than silently returning success and leaving the row
-      //    stuck in "processing".
+      //    "stale call rejected" — we catch that.
+      //  - PR 4 cloud-review fix (CodeRabbit #9266): distinguish
+      //    "newer attempt owns processing" (suppress digest) from
+      //    "row already terminal" (send digest — informational). Re-fetch
+      //    the row when "stale call rejected" fires.
+      //  - PR 4 cloud-review fix (CodeRabbit #9271): the admin failure
+      //    digest MUST be sent BEFORE rethrowing NonRetriableError so
+      //    admins get notified precisely when mark-failed couldn't
+      //    transition the row out of processing.
+      let suppressDigest = false;
+      let markFailedExhausted = false;
       try {
         await step.run("mark-failed", async () => {
           await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
@@ -1001,86 +1075,133 @@ export const adminOnboardingFlow = inngest.createFunction(
       } catch (markErr) {
         const msg = markErr instanceof Error ? markErr.message : String(markErr);
         if (msg.includes("stale call rejected")) {
-          // Row already terminal (a later retry succeeded, or another
-          // catch handler beat us to it). Don't overwrite; just log.
-          reportError({
-            source: "inngest:admin-onboarding-flow",
-            error: markErr instanceof Error ? markErr : new Error(msg),
-            level: "warn",
-            message: "mark-failed no-op: row already terminal — admin digest still sent",
-            context: { onboardingId, reason: msg },
-          });
+          // Re-fetch the row to determine whether this is a genuine
+          // terminal row (completed/failed/cancelled) or a newer attempt
+          // that owns processing.
+          let newerAttemptInFlight = false;
+          try {
+            const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
+              id: onboardingId,
+              secret,
+            }) as Doc<"adminOnboardings"> | null;
+            newerAttemptInFlight =
+              !!freshRow &&
+              freshRow.status === "processing" &&
+              freshRow.attemptCount > parsed.data.attemptCount;
+          } catch (refreshErr) {
+            // Couldn't determine — fall through to "send digest" (safe default).
+          }
+          if (newerAttemptInFlight) {
+            // Suppress digest — newer run owns state and will report its
+            // own outcome. Don't double-notify admins.
+            suppressDigest = true;
+            reportError({
+              source: "inngest:admin-onboarding-flow",
+              error: markErr instanceof Error ? markErr : new Error(msg),
+              level: "warn",
+              message: "mark-failed suppressed: newer attempt (attemptCount > " + parsed.data.attemptCount + ") owns processing — digest suppressed",
+              context: { onboardingId, reason: msg },
+            });
+          } else {
+            // Row is genuinely terminal — admin digest is still useful
+            // (informational). Don't bubble; fall through.
+            reportError({
+              source: "inngest:admin-onboarding-flow",
+              error: markErr instanceof Error ? markErr : new Error(msg),
+              level: "warn",
+              message: "mark-failed no-op: row already terminal — admin digest still sent",
+              context: { onboardingId, reason: msg },
+            });
+          }
         } else {
-          // Real Convex/network failure after retries exhausted. Bubble
-          // NonRetriableError so Inngest marks this run as failed (row
-          // may remain in "processing" — manual intervention required).
+          // Real Convex/network failure after retries exhausted. Capture
+          // the failure but DON'T throw yet — send the digest first.
+          markFailedExhausted = true;
           reportError({
             source: "inngest:admin-onboarding-flow",
             error: markErr instanceof Error ? markErr : new Error(msg),
             level: "error",
-            message: "Failed to mark onboarding as failed in Convex — bubbling NonRetriableError",
+            message: "Failed to mark onboarding as failed in Convex — will bubble NonRetriableError after digest",
             context: { onboardingId },
           });
-          throw new NonRetriableError(
-            "adminOnboardingFlow: failed to mark onboarding as failed in Convex: " + msg
-          );
         }
       }
 
       // Best-effort: send an admin digest email with the failure reason
-      // and a deep-link to the recovery dashboard. Failure to send the
-      // digest is logged but does not bubble — the row status flip above
-      // is the authoritative signal.
-      try {
-        await step.run("send-admin-failure-digest", async () => {
-          const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
-            .split(",")
-            .map(function(e: string) { return e.trim(); })
-            .filter(Boolean);
-          const subject = "[Admin Onboarding] FAILED — " + onboardingId;
-          const html =
-            "<div style=\"font-family:ui-sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#111827\">" +
-            "<div style=\"font-size:18px;font-weight:700;color:#B91C1C;margin-bottom:12px\">Admin onboarding flow failed</div>" +
-            "<div style=\"padding:16px;border:1px solid #FCA5A5;border-radius:12px;background:#FEF2F2\">" +
-            "<div style=\"margin-bottom:8px\"><strong>Onboarding:</strong> " + onboardingId + "</div>" +
-            "<div style=\"margin-bottom:8px\"><strong>Error:</strong> <code style=\"font-family:ui-monospace\">" + reason.replace(/</g, "&lt;") + "</code></div>" +
-            "<div style=\"margin-top:12px\"><a href=\"" + adminDashboardUrl + "\" style=\"background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none\">View in recovery dashboard</a></div>" +
-            "</div></div>";
-          const text =
-            "Admin onboarding flow failed\n" +
-            "Onboarding: " + onboardingId + "\n" +
-            "Error: " + reason + "\n" +
-            "Recovery dashboard: " + adminDashboardUrl;
-          // PR 4 fix: await each sendEmail so the step only resolves after
-          // all sends have completed. Errors are caught per-recipient.
-          await Promise.all(adminEmails.map(async function(adminEmail: string) {
-            try {
-              await sendEmail({
-                to: adminEmail,
-                subject,
-                html,
-                text,
-                headers: { "X-Email-Type": "admin_onboarding_failure_digest" },
-              });
-            } catch (e: unknown) {
-              reportError({
-                source: "inngest:admin-onboarding-flow",
-                error: e instanceof Error ? e : new Error(String(e)),
-                level: "error",
-                message: "Failed to send admin failure digest to " + adminEmail,
-                context: { onboardingId },
-              });
-            }
-          }));
-        });
-      } catch (digestErr) {
-        reportError({
-          source: "inngest:admin-onboarding-flow",
-          error: digestErr instanceof Error ? digestErr : new Error(String(digestErr)),
-          level: "error",
-          message: "Failed to send admin failure digest step",
-          context: { onboardingId },
-        });
+      // and a deep-link to the recovery dashboard. Suppressed when a
+      // newer attempt owns processing (see CodeRabbit #9266 above).
+      if (!suppressDigest) {
+        try {
+          await step.run("send-admin-failure-digest", async () => {
+            const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
+              .split(",")
+              .map(function(e: string) { return e.trim(); })
+              .filter(Boolean);
+            const subject = "[Admin Onboarding] FAILED — " + onboardingId;
+            const html =
+              "<div style=\"font-family:ui-sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#111827\">" +
+              "<div style=\"font-size:18px;font-weight:700;color:#B91C1C;margin-bottom:12px\">Admin onboarding flow failed</div>" +
+              "<div style=\"padding:16px;border:1px solid #FCA5A5;border-radius:12px;background:#FEF2F2\">" +
+              "<div style=\"margin-bottom:8px\"><strong>Onboarding:</strong> " + onboardingId + "</div>" +
+              "<div style=\"margin-bottom:8px\"><strong>Error:</strong> <code style=\"font-family:ui-monospace\">" + reason.replace(/</g, "&lt;") + "</code></div>" +
+              "<div style=\"margin-top:12px\"><a href=\"" + adminDashboardUrl + "\" style=\"background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none\">View in recovery dashboard</a></div>" +
+              "</div></div>";
+            const text =
+              "Admin onboarding flow failed\n" +
+              "Onboarding: " + onboardingId + "\n" +
+              "Error: " + reason + "\n" +
+              "Recovery dashboard: " + adminDashboardUrl;
+            // PR 4 fix: await each sendEmail so the step only resolves after
+            // all sends have completed. Errors are caught per-recipient.
+            // PR 4 cloud-review fix (CodeRabbit #9221): also report when
+            // sendEmail returns ok:false (provider accepted but delivery failed).
+            await Promise.all(adminEmails.map(async function(adminEmail: string) {
+              try {
+                const res = await sendEmail({
+                  to: adminEmail,
+                  subject,
+                  html,
+                  text,
+                  headers: { "X-Email-Type": "admin_onboarding_failure_digest" },
+                });
+                if (!res.ok) {
+                  reportError({
+                    source: "inngest:admin-onboarding-flow",
+                    error: new Error("sendEmail returned ok:false: " + ("error" in res ? res.error : "skipped" in res ? res.reason : "unknown")),
+                    level: "error",
+                    message: "Admin failure digest reported non-ok result for " + adminEmail,
+                    context: { onboardingId },
+                  });
+                }
+              } catch (e: unknown) {
+                reportError({
+                  source: "inngest:admin-onboarding-flow",
+                  error: e instanceof Error ? e : new Error(String(e)),
+                  level: "error",
+                  message: "Failed to send admin failure digest to " + adminEmail,
+                  context: { onboardingId },
+                });
+              }
+            }));
+          });
+        } catch (digestErr) {
+          reportError({
+            source: "inngest:admin-onboarding-flow",
+            error: digestErr instanceof Error ? digestErr : new Error(String(digestErr)),
+            level: "error",
+            message: "Failed to send admin failure digest step",
+            context: { onboardingId },
+          });
+        }
+      }
+
+      // NOW (after digest has been sent) bubble NonRetriableError so
+      // Inngest marks this run as failed. Without this, the run returns
+      // normally and the row could remain in "processing" forever.
+      if (markFailedExhausted) {
+        throw new NonRetriableError(
+          "adminOnboardingFlow: failed to mark onboarding as failed in Convex: " + reason
+        );
       }
 
       return {
