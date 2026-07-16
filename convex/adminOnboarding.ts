@@ -1030,3 +1030,179 @@ export const getAdminOnboardingAction: ReturnType<typeof action> = action({
     );
   },
 });
+
+/**
+ * Internal mutation: release placeholder inventory held by an admin
+ * onboarding row. For each entry in `perInstructor`, patches:
+ *   - `seatReservations.status = "released"` (idempotent — skipped if already)
+ *   - `workspaces.endedAt = now`        (idempotent — skipped if already set)
+ *   - `sessionPacks.status = "expired"` (idempotent — skipped if not active)
+ *
+ * Appends a single `released` timeline entry on success. Does NOT
+ * transition `adminOnboardings.status` (the schema does not have a
+ * "released" status — release is a sub-event of `completed`).
+ *
+ * This is the action the PR 4 stale-digest flow calls to make the
+ * `released` timeline event meaningful (previously, the event was
+ * written but no inventory state changed).
+ */
+export const releasePlaceholderInventoryInternal = internalMutation({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    actorUserId: v.optional(v.string()),
+    details: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.onboardingId);
+    if (!row) throw new Error("Onboarding row not found: " + args.onboardingId);
+
+    const now = Date.now();
+    let seatsReleased = 0;
+    let workspacesEnded = 0;
+    let packsExpired = 0;
+    let skipped = 0;
+
+    for (const entry of row.perInstructor) {
+      // 1. Release placeholder seat reservation.
+      if (entry.seatReservationId) {
+        const seat = await ctx.db.get(entry.seatReservationId);
+        if (seat && seat.status !== "released") {
+          await ctx.db.patch(entry.seatReservationId, { status: "released" });
+          seatsReleased++;
+        } else {
+          skipped++;
+        }
+      }
+
+      // 2. End any workspace that was auto-created by this onboarding
+      //    (only newly-created workspaces, not reused renewals). Renewal
+      //    pairs leave `workspaceId` undefined.
+      if (entry.workspaceId) {
+        const ws = await ctx.db.get(entry.workspaceId);
+        if (ws && ws.endedAt === undefined && ws.deletedAt === undefined) {
+          await ctx.db.patch(entry.workspaceId, { endedAt: now });
+          workspacesEnded++;
+        }
+      }
+
+      // 3. Expire the placeholder session pack (mirror `expireSessionPack`
+      //    in `convex/sessionPacks.ts:336` — schema has no `cancelled`).
+      if (entry.sessionPackId) {
+        const pack = await ctx.db.get(entry.sessionPackId);
+        if (pack && pack.status === "active") {
+          await ctx.db.patch(entry.sessionPackId, { status: "expired" });
+          packsExpired++;
+        }
+      }
+    }
+
+    // Append a single "released" timeline entry. Idempotent on
+    // `appendTimelineEntry` itself — if the event already exists in the
+    // bounded timeline, no double-append occurs.
+    await ctx.runMutation(internal.adminOnboarding.appendTimelineEntry, {
+      onboardingId: args.onboardingId,
+      event: "released",
+      actorUserId: args.actorUserId,
+      details:
+        (args.details ? args.details + " | " : "") +
+        "seats=" + seatsReleased +
+        ",workspaces=" + workspacesEnded +
+        ",packs=" + packsExpired +
+        ",skipped=" + skipped,
+      expectedStatus: undefined,
+      expectedAttemptCount: undefined,
+    });
+
+    return {
+      releasedCount: seatsReleased + workspacesEnded + packsExpired,
+      seatsReleased,
+      workspacesEnded,
+      packsExpired,
+      skipped,
+    };
+  },
+});
+
+/**
+ * Public action wrapper for `releasePlaceholderInventoryInternal`.
+ * Mirrors the `appendTimelineEntryAction` pattern: requires
+ * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal
+ * mutation via `ctx.runMutation`. Called from the PR 4 stale-digest
+ * Inngest flow after `scan-stale` identifies stale rows.
+ */
+export const releasePlaceholderInventoryAction: ReturnType<typeof action> = action({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    actorUserId: v.optional(v.string()),
+    details: v.optional(v.string()),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runMutation(
+      internal.adminOnboarding.releasePlaceholderInventoryInternal,
+      {
+        onboardingId: args.onboardingId,
+        actorUserId: args.actorUserId,
+        details: args.details,
+      }
+    );
+  },
+});
+
+/**
+ * Internal query: resolve an instructor's email address for use by
+ * the admin onboarding flow (which sends per-instructor notifications).
+ * Resolution order:
+ *   1. `instructors.email` (direct field on the instructor row)
+ *   2. `users.email` via `instructors.userId` (cross-reference when
+ *      the instructor row has no direct email but is linked to a Clerk
+ *      user that has one)
+ * Returns `null` if neither path resolves — caller should skip the
+ * notification and record an `email_skipped` timeline entry.
+ */
+export const getInstructorEmailInternal = internalQuery({
+  args: {
+    instructorId: v.id("instructors"),
+  },
+  handler: async (ctx, args) => {
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor) return { email: null, reason: "instructor_not_found" as const };
+    if (instructor.email && instructor.email.length > 0) {
+      return { email: instructor.email, reason: null };
+    }
+    if (instructor.userId) {
+      const user = await ctx.db
+        .query("users")
+        .withIndex("by_userId", (q) => q.eq("userId", instructor.userId!))
+        .first();
+      if (user && user.email) {
+        return { email: user.email, reason: null };
+      }
+    }
+    return { email: null, reason: "no_email" as const };
+  },
+});
+
+/**
+ * Public action wrapper for `getInstructorEmailInternal`. Mirrors
+ * the `appendTimelineEntryAction` pattern: requires
+ * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal query.
+ */
+export const getInstructorEmailAction: ReturnType<typeof action> = action({
+  args: {
+    instructorId: v.id("instructors"),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runQuery(
+      internal.adminOnboarding.getInstructorEmailInternal,
+      { instructorId: args.instructorId }
+    );
+  },
+});

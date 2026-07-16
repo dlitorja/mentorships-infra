@@ -546,12 +546,20 @@ export const adminOnboardingFlow = inngest.createFunction(
 
     const convex = getConvexClient();
 
-    const row = await step.run("load-onboarding", async () => {
-      return await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-        id: parsed.data.onboardingId as Id<"adminOnboardings">,
-        secret,
+    // PR 4: wrap the flow body in try/catch. Sidesteps the Turbopack
+    // reserved-keyword issue with `catch: async ({ error }) => ...`
+    // (the original PR 3 plan's approach). The catch fires AFTER Inngest's
+    // `retries: 2` exhaustion: each step.run that throws triggers a flow
+    // retry; once retries are exhausted, the final thrown error is
+    // caught here, the row is flipped to `status: "failed"`, an admin
+    // digest email is sent, and the run is returned with success: false.
+    try {
+      const row = await step.run("load-onboarding", async () => {
+        return await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
+          id: parsed.data.onboardingId as Id<"adminOnboardings">,
+          secret,
+        });
       });
-    });
 
     if (!row) {
       await step.run("report-missing", async () => {
@@ -675,9 +683,37 @@ export const adminOnboardingFlow = inngest.createFunction(
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
       const templateId = process.env.RESEND_TEMPLATE_ID_INSTRUCTOR_PURCHASE;
 
-      let sent = 0, skipped = 0, failed = 0;
+      let sent = 0, skipped = 0, failed = 0, noEmail = 0;
       for (const pair of toSend) {
         const instructorIdStr = pair.instructorId as string;
+
+        // PR 4: resolve the real instructor email via the new shared-secret
+        // `getInstructorEmailAction`. Falls through three paths:
+        //   1. instructors.email (direct field)
+        //   2. users.email via instructors.userId (cross-reference)
+        //   3. null → record an `email_sent` entry with `skipped: true` and
+        //      a `no_email` reason in details; still mark the instructor as
+        //      processed in `emailsSent.instructors` for idempotency.
+        const emailLookup = await convex.action(api.adminOnboarding.getInstructorEmailAction, {
+          instructorId: pair.instructorId,
+          secret,
+        });
+        const instructorEmail = emailLookup.email;
+        if (!instructorEmail) {
+          noEmail++;
+          await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+            onboardingId: row._id,
+            event: "email_sent",
+            actorUserId: row.submittedByUserId,
+            details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, skipped: true, reason: emailLookup.reason ?? "no_email" }),
+            emailsSentPatch: { instructors: [pair.instructorId as Id<"instructors">] },
+            expectedStatus: "processing",
+            expectedAttemptCount: parsed.data.attemptCount,
+            secret,
+          });
+          continue;
+        }
+
         const templateData = {
           instructorName: "Instructor", // will be looked up below
           studentName: studentEmail.split("@")[0] ?? null,
@@ -691,7 +727,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         let res: any;
         if (useTemplates && templateId) {
           res = await sendTemplateEmail({
-            to: "instructor+" + instructorIdStr + "@placeholder.local", // instructor email looked up via Convex
+            to: instructorEmail,
             templateId,
             subject: pair.isRenewal
               ? "Renewal — " + studentEmail + " has renewed"
@@ -702,7 +738,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         } else {
           const content = buildInstructorOnboardingEmail(templateData);
           res = await sendEmail({
-            to: "instructor+" + instructorIdStr + "@placeholder.local",
+            to: instructorEmail,
             subject: content.subject,
             html: content.html,
             text: content.text,
@@ -727,7 +763,7 @@ export const adminOnboardingFlow = inngest.createFunction(
           secret,
         });
       }
-      return { sent, skipped, failed };
+      return { sent, skipped, failed, noEmail };
     });
 
     // ---- Step 4: send admin summary email ----
@@ -860,5 +896,96 @@ export const adminOnboardingFlow = inngest.createFunction(
       instructorEmails: instructorEmailResults,
       adminEmailSent: adminEmailResult.sent,
     };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      const onboardingId = parsed.data.onboardingId as Id<"adminOnboardings">;
+      const baseUrl = getBaseUrl();
+      const adminDashboardUrl = baseUrl + "/admin/onboardings/" + onboardingId;
+
+      // Best-effort: flip the row to `status: "failed"` + append timeline.
+      // `appendTimelineEntry` auto-transitions status when event is "failed"
+      // (see `convex/adminOnboarding.ts:934-937`). If this call itself
+      // throws, we let it bubble — Inngest will surface the failure in
+      // the dashboard but the row will be left in whatever state it was in.
+      try {
+        await step.run("mark-failed", async () => {
+          await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+            onboardingId,
+            event: "failed",
+            actorUserId: undefined,
+            details: reason,
+            expectedStatus: undefined,
+            expectedAttemptCount: undefined,
+            secret,
+          });
+        });
+      } catch (markErr) {
+        reportError({
+          source: "inngest:admin-onboarding-flow",
+          error: markErr instanceof Error ? markErr : new Error(String(markErr)),
+          level: "error",
+          message: "Failed to mark onboarding as failed in Convex",
+          context: { onboardingId },
+        });
+      }
+
+      // Best-effort: send an admin digest email with the failure reason
+      // and a deep-link to the recovery dashboard. Failure to send the
+      // digest is logged but does not bubble — the row status flip above
+      // is the authoritative signal.
+      try {
+        await step.run("send-admin-failure-digest", async () => {
+          const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
+            .split(",")
+            .map(function(e: string) { return e.trim(); })
+            .filter(Boolean);
+          const subject = "[Admin Onboarding] FAILED — " + onboardingId;
+          const html =
+            "<div style=\"font-family:ui-sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#111827\">" +
+            "<div style=\"font-size:18px;font-weight:700;color:#B91C1C;margin-bottom:12px\">Admin onboarding flow failed</div>" +
+            "<div style=\"padding:16px;border:1px solid #FCA5A5;border-radius:12px;background:#FEF2F2\">" +
+            "<div style=\"margin-bottom:8px\"><strong>Onboarding:</strong> " + onboardingId + "</div>" +
+            "<div style=\"margin-bottom:8px\"><strong>Error:</strong> <code style=\"font-family:ui-monospace\">" + reason.replace(/</g, "&lt;") + "</code></div>" +
+            "<div style=\"margin-top:12px\"><a href=\"" + adminDashboardUrl + "\" style=\"background:#111;color:#fff;padding:10px 14px;border-radius:6px;text-decoration:none\">View in recovery dashboard</a></div>" +
+            "</div></div>";
+          const text =
+            "Admin onboarding flow failed\n" +
+            "Onboarding: " + onboardingId + "\n" +
+            "Error: " + reason + "\n" +
+            "Recovery dashboard: " + adminDashboardUrl;
+          for (const adminEmail of adminEmails) {
+            sendEmail({
+              to: adminEmail,
+              subject,
+              html,
+              text,
+              headers: { "X-Email-Type": "admin_onboarding_failure_digest" },
+            }).catch(function(e: unknown) {
+              reportError({
+                source: "inngest:admin-onboarding-flow",
+                error: e instanceof Error ? e : new Error(String(e)),
+                level: "error",
+                message: "Failed to send admin failure digest to " + adminEmail,
+                context: { onboardingId },
+              });
+            });
+          }
+        });
+      } catch (digestErr) {
+        reportError({
+          source: "inngest:admin-onboarding-flow",
+          error: digestErr instanceof Error ? digestErr : new Error(String(digestErr)),
+          level: "error",
+          message: "Failed to send admin failure digest step",
+          context: { onboardingId },
+        });
+      }
+
+      return {
+        success: false,
+        onboardingId,
+        reason,
+      };
+    }
   },
   );
