@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, and PR 3 merged to `main`. PR 4 (Greptile fix pass for all PR #636 review findings) PR opened at #637 — pending review/merge.
+Status: PR 1, PR 2, PR 3, and PR 4 all merged to `main` (`e0b2594c`). Admin onboarding automation is feature-complete end-to-end. Remaining items below are enhancements / hardening (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -826,24 +826,65 @@ Steps:
 
 **Rollback**: revert the Inngest handler to the PR 2 stub; remove the daily digest scheduled function. Emails stop; existing `adminOnboardings` data is unaffected. Schedule via `inngest.createFunction` is local to the file, so deletion is a single-file revert.
 
-### PR 4 — Greptile fix pass for all PR #636 review findings — PR OPENED (#637)
+### PR 4 — Greptile + CodeRabbit fix pass for all PR #636 review findings — SHIPPED (#637, `e0b2594c`)
 
-**Goal**: address every issue flagged across 8 Greptile review rounds on PR #636.
+**Goal**: address every issue flagged across **8 Greptile rounds + 9 actionable CodeRabbit comments** on PR #636.
 
-**Shipped in PR 4**:
+**Greptile rounds shipped**:
 
-- **Round 1 — core asks**: real seat/workspace/session-pack release in stale-digest via `releasePlaceholderInventoryInternal` (patches `seatReservations.status="released"`, `workspaces.endedAt=now`, `sessionPacks.status="expired"` + timeline `released` event). Real instructor email lookup via `getInstructorContactsInternal` (batched email+name with `users` table cross-reference). `adminOnboardingFlow` body wrapped in try/catch with `mark-failed` + `send-admin-failure-digest` steps.
-- **Round 2**: `STALE_CUTOFF_MS` constant moved inside step. Filter changed from non-existent `row.sessionPackIds` to `row.perInstructor.some(p => !p.isRenewal && p.sessionPackId)`. All `convex.action` calls wrapped in `Promise.all` with per-item try/catch. Instructor names resolved via batched action in all 3 email steps. `adminSummary` marked true on `anyOk` (was `allOk`) with per-address tracking.
-- **Round 3**: digest `sendEmail` calls awaited via `Promise.all` with per-recipient try/catch. `workspaceUrl` ternary simplified to `baseUrl + "/dashboard"`.
-- **Round 4**: `appendTimelineEntry` `emailsSentPatch.instructors` now concatenates + dedupes via `Set` (was shallow-overwrite).
-- **Round 5**: `listAdminOnboardingsAction` (shared-secret gated) added for Inngest workers without auth identity.
-- **Round 6**: `escapeHtml` helper added to digest; `row.email` + view URL escaped. `listAdminOnboardingsInternal` limit raised from 100 → 1000.
-- **Round 7**: `releasePlaceholderInventoryInternal` now guards on `pack.userId.startsWith("email:")` to avoid expiring live packs. All 3 email steps re-fetch `freshRow` via `getAdminOnboardingAction` at step start to defeat Inngest memoization on retry.
-- **Round 8**: `onboardingId` arg renamed to `id` in 3 `getAdminOnboardingAction` calls (matches validator).
+- **Round 1 — core asks**: real seat/workspace/session-pack release in stale-digest via `releasePlaceholderInventoryInternal`. Real instructor email lookup via `getInstructorContactsInternal`. `adminOnboardingFlow` body wrapped in try/catch with `mark-failed` + `send-admin-failure-digest` steps.
+- **Round 2**: `STALE_CUTOFF_MS` inside step. `sessionPackIds` filter fix. `convex.action` calls awaited via `Promise.all` with per-item try/catch. Instructor names resolved via batched action. `adminSummary` per-address tracking.
+- **Round 3**: digest `sendEmail` awaited via `Promise.all`. `workspaceUrl` ternary simplified.
+- **Round 4**: `appendTimelineEntry` `emailsSentPatch.instructors` concat + dedupe.
+- **Round 5**: `listAdminOnboardingsAction` (shared-secret gated).
+- **Round 6**: `escapeHtml` in digest HTML; `listAdminOnboardingsInternal` limit 100 → 1000.
+- **Round 7**: `releasePlaceholderInventoryInternal` guards on `pack.userId.startsWith("email:")`. All 3 email steps re-fetch `freshRow` at start.
+- **Round 8**: `onboardingId` → `id` in 3 `getAdminOnboardingAction` calls.
 
-**Files**: `convex/adminOnboarding.ts` (added 3 action/query pairs; fixed `appendTimelineEntry` merge); `apps/platform/inngest/functions/onboarding.ts` (real handler + try/catch + per-step idempotency re-fetches); `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` (uses new action + escapeHtml + cutoff-inside-step).
+**Cloud-Greptile P1 findings addressed** (after PR open):
 
-**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5, safe to merge.
+- `releasePlaceholderInventoryInternal` seat + workspace also guard on `email:` owner.
+- `mark-failed` catch passes `expectedStatus/expectedAttemptCount` (no longer bypasses guards).
+- New `emailsSent.adminSummaryByEmail: Record<string, boolean>` for per-address retry tracking.
+- `mark-failed` exhaustion now bubbles `NonRetriableError` so Inngest surfaces the failed run.
+
+**CodeRabbit findings addressed** (9 of 10):
+
+- **#9204**: throw on missing `CONVEX_SERVER_SHARED_SECRET` (both scan + release steps).
+- **#9210 + #9214**: new `getStaleOnboardingsInternal` + `getStaleOnboardingsAction` — server-side ownership-aware scan up to 1000 rows.
+- **#9221**: report `res.ok:false` results in all digest senders (not just thrown exceptions).
+- **#9227**: deterministic `X-Idempotency-Key: <prefix>:<onboardingId>:<recipient>` for all 4 senders; student/instructor steps only mark `emailsSent` when actually delivered.
+- **#9234**: all 3 email steps gate on `status==="processing"` + matching `attemptCount`.
+- **#9258**: "mentorship" → "instruction" in admin-onboarding student email subject.
+- **#9266**: `mark-failed` catch distinguishes "newer attempt owns processing" (suppress digest) from "row already terminal" (send digest informational).
+- **#9271**: catch handler order = `mark-failed → digest → conditional NonRetriableError` so admins are always notified even when Convex is unreachable.
+- Skipped: **#9245** trivial type alignment (not a regression).
+
+**Files**: `convex/adminOnboarding.ts` (4 new action/query pairs: listAdminOnboardings, releasePlaceholderInventory, getInstructorContacts, getStaleOnboardings; `appendTimelineEntry` merge fix); `convex/schema.ts` (widened `emailsSent.adminSummaryByEmail`); `apps/platform/inngest/functions/onboarding.ts` (full 6-step flow + try/catch + per-step gating + idempotency keys + NonRetriableError ordering); `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` (new action + escapeHtml + throw-on-missing-secret + res.ok reporting).
+
+**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5.
+
+## Remaining Work (post-PR 4)
+
+### Hardening / enhancements (not blockers)
+
+| # | Item | Priority | Notes |
+|---|------|----------|-------|
+| R1 | Event-name rename: `purchase/mentorship` → `purchase/instructor` (or similar non-mentorship wire protocol) | P1 (compliance) | AGENTS.md forbids "mentor/mentee/mentorship" in code. Currently the event name is used by `apps/platform/inngest/functions/payments.ts:553` and the handler at `apps/platform/inngest/functions/onboarding.ts:89`. Coordinated change across both files; needs a brief publish/communicate to anyone depending on the Inngest event-name filter. |
+| R2 | Replace remaining "mentorship" UI copy in student/admin subject strings (lines 238, 262, 407 in `onboarding.ts`) | P1 (compliance) | Same rule as PR 4 #9258. These are in the existing purchase-onboarding handler, not in PR 4's admin-onboarding flow. |
+| R3 | Pagination for `getStaleOnboardingsAction` | P2 | Currently bounded at 1000. For backlogs >1000 stale onboardings, the daily cron silently misses the rest. Add a `cursor` arg + iterate until exhausted. Heavy lift — CodeRabbit flagged this as "Heavy lift". |
+| R4 | `retryAdminOnboarding` UI flow | P2 | PR 4 surfaces partial admin-delivery failures (per-address) but there's no dashboard button to re-trigger a single failed admin recipient. The admin summary email deep-links to `/admin/onboardings/[id]` but no retry-from-there action exists. |
+| R5 | `markEmailSent` atomic helper | P3 | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic. |
+| R6 | Per-workspace dashboard route | P3 | Admin-onboarding workspace URL hardcoded to `baseUrl + "/dashboard"` with a comment noting future PR may add `/dashboard/workspaces/[id]` to use `p.workspaceId`. Currently workspaces route from the same dashboard. |
+| R7 | Unit tests for the stale-digest scan + per-step gating | P3 | Plan called for unit tests for "stale-digest selection query, \`markEmailSent\` helper atomicity, Resend skip-on-missing-key behavior, Inngest flow retry-after-partial-send resume". None shipped. Current suite is 95 tests (mostly payment-flow); no tests touch `convex/adminOnboarding.ts` directly. |
+| R8 | Tighten `adminSummary` legacy boolean handling | P3 | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in the runbook. |
+| R9 | Stripe/PayPal test-mode runbook entry | P3 | Plan called for an end-to-end manual test in staging using the new Kajabi admin-onboarding form. Not yet done. |
+
+### Decisions to make
+
+- **D1**: Where should the admin-onboarding live ops dashboard live? Currently the recovery dashboard at `/admin/onboardings/[id]` is the only surface. A dedicated `/admin/onboardings` list view would help ops triage. Touches `apps/platform/app/admin/`.
+- **D2**: Should the per-address `adminSummaryByEmail` retry be triggered automatically on each cron, or only when an admin clicks "retry" in the dashboard? PR 4 ships the auto-retry on next flow run; manual retry is a separate UX decision.
+- **D3**: After R1 (event rename), is there value in keeping a deprecated `purchase/mentorship` alias for a deprecation window? Or hard cutover?
 
 ### Branching + Review Hygiene
 
