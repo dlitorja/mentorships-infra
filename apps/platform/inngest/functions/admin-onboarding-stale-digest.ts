@@ -61,11 +61,16 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       const textLines = [staleOnboardings.length + " stale invite(s) pending > 13 days:"];
       for (const row of staleOnboardings) { textLines.push(row.email + " | " + (row.perInstructor ? row.perInstructor.length : 0) + " instructors | " + daysPending(row.createdAt) + " days | " + baseUrl + "/admin/onboardings/" + row._id); }
       const text = textLines.join("\n");
-      for (const adminEmail of adminEmails) {
-        sendEmail({ to: adminEmail, subject: "Stale onboarding invites — " + staleOnboardings.length + " pending > 13 days", html, text, headers: { "X-Email-Type": "admin_onboarding_stale_digest" } }).catch(function(e: unknown) {
+      // PR 4 fix: await each sendEmail so the step only resolves after all
+      // sends have completed. Errors are caught per-recipient so a single
+      // failure doesn't abort the entire digest.
+      await Promise.all(adminEmails.map(async function(adminEmail: string) {
+        try {
+          await sendEmail({ to: adminEmail, subject: "Stale onboarding invites — " + staleOnboardings.length + " pending > 13 days", html, text, headers: { "X-Email-Type": "admin_onboarding_stale_digest" } });
+        } catch (e: unknown) {
           reportError({ source: "inngest:admin-onboarding-stale-digest", error: e instanceof Error ? e : new Error(String(e)), level: "error", message: "Failed to send digest to " + adminEmail, context: { ids: staleOnboardings.map(function(r: any) { return r._id; }) } });
-        });
-      }
+        }
+      }));
     });
 
     await step.run("release-placeholders", async () => {

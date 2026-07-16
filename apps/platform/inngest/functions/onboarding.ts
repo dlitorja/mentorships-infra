@@ -610,13 +610,11 @@ export const adminOnboardingFlow = inngest.createFunction(
         secret,
       });
 
-      // Build workspace URLs for all instructors
-      const workspaceUrls: Record<string, string> = {};
-      for (const p of row.perInstructor) {
-        if (p.workspaceId) {
-          workspaceUrls[p.instructorId as string] = baseUrl + "/dashboard";
-        }
-      }
+      // All admin-onboarded workspaces link to the same dashboard page
+      // (the platform doesn't have per-workspace routes — see
+      // `apps/platform/app/dashboard/page.tsx`). Future PR may add
+      // `/dashboard/workspaces/[id]` and use p.workspaceId here.
+      const workspaceUrl = baseUrl + "/dashboard";
 
       const instructorNames = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
         return contacts[p.instructorId]?.name || "your instructor";
@@ -633,7 +631,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         isRenewal: allRenewal,
         instructorCount,
         instructorList: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number], i: number) {
-          return { instructorName: instructorNames[i] ?? "your instructor", workspaceUrl: workspaceUrls[p.instructorId as string] ?? dashboardUrl };
+          return { instructorName: instructorNames[i] ?? "your instructor", workspaceUrl };
         }),
       };
 
@@ -803,7 +801,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         return {
           instructorName: instructorNames[i] ?? "",
           isRenewal: p.isRenewal,
-          workspaceUrl: p.workspaceId ? (baseUrl + "/dashboard") : (baseUrl + "/dashboard"),
+          workspaceUrl: baseUrl + "/dashboard",
           sessionsCount: p.sessionsPerInstructor,
           expirationDate: expiresAtStr,
           clerkInvitationId: p.clerkInvitationId,
@@ -980,14 +978,18 @@ export const adminOnboardingFlow = inngest.createFunction(
             "Onboarding: " + onboardingId + "\n" +
             "Error: " + reason + "\n" +
             "Recovery dashboard: " + adminDashboardUrl;
-          for (const adminEmail of adminEmails) {
-            sendEmail({
-              to: adminEmail,
-              subject,
-              html,
-              text,
-              headers: { "X-Email-Type": "admin_onboarding_failure_digest" },
-            }).catch(function(e: unknown) {
+          // PR 4 fix: await each sendEmail so the step only resolves after
+          // all sends have completed. Errors are caught per-recipient.
+          await Promise.all(adminEmails.map(async function(adminEmail: string) {
+            try {
+              await sendEmail({
+                to: adminEmail,
+                subject,
+                html,
+                text,
+                headers: { "X-Email-Type": "admin_onboarding_failure_digest" },
+              });
+            } catch (e: unknown) {
               reportError({
                 source: "inngest:admin-onboarding-flow",
                 error: e instanceof Error ? e : new Error(String(e)),
@@ -995,8 +997,8 @@ export const adminOnboardingFlow = inngest.createFunction(
                 message: "Failed to send admin failure digest to " + adminEmail,
                 context: { onboardingId },
               });
-            });
-          }
+            }
+          }));
         });
       } catch (digestErr) {
         reportError({
