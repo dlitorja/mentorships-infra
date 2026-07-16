@@ -64,13 +64,15 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
       if (!secret) return;
       for (const row of staleOnboardings) {
+        // Note: this only records the "released" event in the timeline.
+        // Actual inventory release (cancelling session pack seats, ending workspaces)
+        // requires a dedicated Convex mutation — not yet implemented.
         convex.action(api.adminOnboarding.appendTimelineEntryAction, {
           onboardingId: row._id as Id<"adminOnboardings">,
           event: "released",
           actorUserId: undefined,
           details: "stale-invite-digest auto-release: placeholder held > 13 days",
           expectedStatus: "completed",
-          expectedAttemptCount: 0,
           secret,
         }).catch(function() { /* best-effort: row may already be in a terminal state */ });
       }

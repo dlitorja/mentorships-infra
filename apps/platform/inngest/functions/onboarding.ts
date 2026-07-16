@@ -795,14 +795,16 @@ export const adminOnboardingFlow = inngest.createFunction(
         results.push({ ok: res.ok, id: res.id });
       }
 
-      const allOk = results.every(function(r: { ok: boolean }) { return r.ok; });
+      const allOk = results.length > 0 && results.every(function(r: { ok: boolean }) { return r.ok; });
+
+      const emailsSentPatch = results.length > 0 && allOk ? { adminSummary: true } : undefined;
 
       await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
         onboardingId: row._id,
         event: "email_sent",
         actorUserId: row.submittedByUserId,
         details: JSON.stringify({ recipient: "admin", count: adminEmails.length, ok: allOk }),
-        emailsSentPatch: { adminSummary: true },
+        ...(emailsSentPatch ? { emailsSentPatch } : {}),
         expectedStatus: "processing",
         expectedAttemptCount: parsed.data.attemptCount,
         secret,
