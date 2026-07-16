@@ -704,7 +704,7 @@ export const getAdminOnboardingInternal = internalQuery({
  * `emailSearch` is a case-insensitive substring match — fine for the
  * recovery dashboard's expected volume.
  */
-export const listAdminOnboardings = query({
+export const listAdminOnboardings: ReturnType<typeof query> = query({
   args: {
     status: v.optional(
       v.union(
@@ -724,6 +724,36 @@ export const listAdminOnboardings = query({
     const gate = await isAdminOrSupport(ctx, identity.subject);
     if (!gate.ok) return [];
 
+    return await ctx.runQuery(internal.adminOnboarding.listAdminOnboardingsInternal, {
+      status: args.status,
+      emailSearch: args.emailSearch,
+      limit: args.limit,
+    });
+  },
+});
+
+/**
+ * Internal query: list admin onboarding rows for server-side callers
+ * (e.g. the stale-digest Inngest cron). No auth-identity check — gated
+ * by `CONVEX_SERVER_SHARED_SECRET` at the public-action wrapper layer.
+ * Mirrors the pattern used by `getAdminOnboardingInternal` /
+ * `getAdminOnboardingAction`.
+ */
+export const listAdminOnboardingsInternal = internalQuery({
+  args: {
+    status: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("processing"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled")
+      )
+    ),
+    emailSearch: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 50, 100);
 
     if (args.status) {
@@ -754,6 +784,42 @@ export const listAdminOnboardings = query({
     return args.emailSearch
       ? merged.filter((r) => r.email.includes(args.emailSearch!.toLowerCase()))
       : merged;
+  },
+});
+
+/**
+ * Public action wrapper for `listAdminOnboardingsInternal`. Requires
+ * `CONVEX_SERVER_SHARED_SECRET` (no Clerk session — Inngest workers
+ * and other server-side callers don't have one). Returns the same
+ * shape as the public `listAdminOnboardings` query.
+ */
+export const listAdminOnboardingsAction: ReturnType<typeof action> = action({
+  args: {
+    status: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("processing"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled")
+      )
+    ),
+    emailSearch: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runQuery(
+      internal.adminOnboarding.listAdminOnboardingsInternal,
+      {
+        status: args.status,
+        emailSearch: args.emailSearch,
+        limit: args.limit,
+      }
+    );
   },
 });
 

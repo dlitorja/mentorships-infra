@@ -33,7 +33,16 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       // PR 4 fix: compute the cutoff INSIDE the step so a warm Lambda
       // doesn't drift toward "13 days after cold start".
       const staleCutoffMs = Date.now() - THIRTEEN_DAYS_MS;
-      const allCompleted = await convex.query(api.adminOnboarding.listAdminOnboardings, { status: "completed", limit: 200 });
+      // PR 4 fix: use the shared-secret action variant because the
+      // public query checks `ctx.auth.getUserIdentity()` and silently
+      // returns [] for unauthenticated callers (e.g. Inngest workers).
+      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+      if (!secret) return [];
+      const allCompleted = await convex.action(api.adminOnboarding.listAdminOnboardingsAction, {
+        status: "completed",
+        limit: 200,
+        secret,
+      });
       if (!allCompleted || allCompleted.length === 0) return [];
       return allCompleted.filter(function(row: any) {
         if (row.createdAt >= staleCutoffMs) return false;
