@@ -13,6 +13,21 @@ function getConvexClient() {
   return new ConvexHttpClient(convexUrl);
 }
 
+/**
+ * PR 4 fix: HTML-escape user-supplied values before inserting them
+ * into the admin digest HTML. Mirrors the convention used by every
+ * other email builder in this codebase (purchase, refund, booking,
+ * notification, instructor-onboarding, admin-purchase-notification).
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_URL) return process.env.NEXT_PUBLIC_URL;
   if (process.env.VERCEL_URL) return "https://" + process.env.VERCEL_URL;
@@ -64,7 +79,7 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       if (adminEmails.length === 0) return;
       const daysPending = function(createdAt: number) { return Math.floor((Date.now() - createdAt) / (24 * 60 * 60 * 1000)); };
       const htmlHeader = "<div style=\"font-family:ui-sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#111827\"><div style=\"font-size:18px;font-weight:700;margin-bottom:12px\">Huckleberry — Stale Onboarding Invites</div><div style=\"padding:16px;border:1px solid #E5E7EB;border-radius:12px\"><div style=\"font-weight:700;margin-bottom:8px\">" + staleOnboardings.length + " invite(s) pending > 13 days</div><p>These students have not accepted their Clerk invite. Placeholder session packs are holding instructor inventory.</p><table style=\"width:100%;border-collapse:collapse\"><thead><tr style=\"border-bottom:1px solid #E5E7EB\"><th style=\"text-align:left;padding:8px;color:#6B7280;font-size:12px\">Student</th><th style=\"text-align:left;padding:8px;color:#6B7280;font-size:12px\">Instructors</th><th style=\"text-align:left;padding:8px;color:#6B7280;font-size:12px\">Days</th><th style=\"text-align:left;padding:8px;color:#6B7280;font-size:12px\">Link</th></tr></thead><tbody>";
-      const htmlRows = staleOnboardings.map(function(row: any) { return "<tr><td style=\"padding:8px\">" + row.email + "</td><td style=\"padding:8px\">" + (row.perInstructor ? row.perInstructor.length : 0) + "</td><td style=\"padding:8px\">" + daysPending(row.createdAt) + "</td><td style=\"padding:8px\"><a href=\"" + baseUrl + "/admin/onboardings/" + row._id + "\">View</a></td></tr>"; }).join("");
+      const htmlRows = staleOnboardings.map(function(row: any) { return "<tr><td style=\"padding:8px\">" + escapeHtml(row.email) + "</td><td style=\"padding:8px\">" + (row.perInstructor ? row.perInstructor.length : 0) + "</td><td style=\"padding:8px\">" + daysPending(row.createdAt) + "</td><td style=\"padding:8px\"><a href=\"" + escapeHtml(baseUrl + "/admin/onboardings/" + row._id) + "\">View</a></td></tr>"; }).join("");
       const htmlFooter = "</tbody></table></div></div>";
       const html = htmlHeader + htmlRows + htmlFooter;
       const textLines = [staleOnboardings.length + " stale invite(s) pending > 13 days:"];

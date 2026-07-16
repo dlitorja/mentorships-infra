@@ -754,7 +754,11 @@ export const listAdminOnboardingsInternal = internalQuery({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const limit = Math.min(args.limit ?? 50, 100);
+    // PR 4 fix: no cap here — the public query keeps a 100-row cap for
+    // safety, but server-side callers (e.g. the stale-digest cron) need
+    // to scan up to the requested limit. Bounded at 1000 to defend
+    // against runaway scans.
+    const limit = Math.min(args.limit ?? 50, 1000);
 
     if (args.status) {
       const rows = await ctx.db
