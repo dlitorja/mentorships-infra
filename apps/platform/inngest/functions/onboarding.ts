@@ -602,11 +602,12 @@ export const adminOnboardingFlow = inngest.createFunction(
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
       const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
 
-      const instructorList = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
-        return {
-          instructorName: "", // populated below from instructor query
-          workspaceUrl: baseUrl + "/dashboard",
-        };
+      // PR 4 fix: look up instructor names via `getInstructorContactsAction`
+      // so the email body shows the actual instructor name (previously
+      // hardcoded to "" — Greptile P1).
+      const contacts = await convex.action(api.adminOnboarding.getInstructorContactsAction, {
+        instructorIds: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }),
+        secret,
       });
 
       // Build workspace URLs for all instructors
@@ -617,9 +618,13 @@ export const adminOnboardingFlow = inngest.createFunction(
         }
       }
 
+      const instructorNames = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+        return contacts[p.instructorId]?.name || "your instructor";
+      });
+
       const templateData = {
         studentName: studentEmail.split("@")[0] ?? "",
-        instructorName: row.perInstructor[0] ? ("" as string) : "your instructor",
+        instructorName: instructorNames[0] ?? "your instructor",
         dashboardUrl,
         onboardingUrl: baseUrl + "/dashboard/onboarding",
         discordConnected: false,
@@ -627,8 +632,8 @@ export const adminOnboardingFlow = inngest.createFunction(
         isAdminOnboarded: true as boolean,
         isRenewal: allRenewal,
         instructorCount,
-        instructorList: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
-          return { instructorName: "", workspaceUrl: workspaceUrls[p.instructorId as string] ?? dashboardUrl };
+        instructorList: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number], i: number) {
+          return { instructorName: instructorNames[i] ?? "your instructor", workspaceUrl: workspaceUrls[p.instructorId as string] ?? dashboardUrl };
         }),
       };
 
@@ -638,7 +643,7 @@ export const adminOnboardingFlow = inngest.createFunction(
           to: studentEmail,
           templateId,
           subject: allRenewal
-            ? "Welcome back — your mentorship with " + row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return ""; }).join(", ") + " is ready"
+            ? "Welcome back — your mentorship with " + instructorNames.join(", ") + " is ready"
             : undefined,
           templateData: templateData as Record<string, unknown>,
           headers: { "X-Email-Type": "admin_onboarding_student", "X-Onboarding-Id": row._id },
@@ -678,34 +683,34 @@ export const adminOnboardingFlow = inngest.createFunction(
       const toSend = row.perInstructor.filter(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
         return !alreadySent.includes(p.instructorId as string);
       });
-      if (toSend.length === 0) return { sent: 0, skipped: 0, failed: 0 };
+      if (toSend.length === 0) return { sent: 0, skipped: 0, failed: 0, noEmail: 0 };
 
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
       const templateId = process.env.RESEND_TEMPLATE_ID_INSTRUCTOR_PURCHASE;
 
+      // PR 4 fix: batched lookup of email + name for all to-send instructors.
+      // One Convex round-trip instead of one per instructor.
+      const contacts = await convex.action(api.adminOnboarding.getInstructorContactsAction, {
+        instructorIds: toSend.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }),
+        secret,
+      });
+
       let sent = 0, skipped = 0, failed = 0, noEmail = 0;
       for (const pair of toSend) {
         const instructorIdStr = pair.instructorId as string;
+        const contact = contacts[pair.instructorId];
+        const instructorEmail = contact?.email ?? null;
+        const instructorName = contact?.name ?? "Instructor";
 
-        // PR 4: resolve the real instructor email via the new shared-secret
-        // `getInstructorEmailAction`. Falls through three paths:
-        //   1. instructors.email (direct field)
-        //   2. users.email via instructors.userId (cross-reference)
-        //   3. null → record an `email_sent` entry with `skipped: true` and
-        //      a `no_email` reason in details; still mark the instructor as
-        //      processed in `emailsSent.instructors` for idempotency.
-        const emailLookup = await convex.action(api.adminOnboarding.getInstructorEmailAction, {
-          instructorId: pair.instructorId,
-          secret,
-        });
-        const instructorEmail = emailLookup.email;
+        // If no resolvable email, record a skip event but still mark the
+        // instructor as processed in `emailsSent.instructors` for idempotency.
         if (!instructorEmail) {
           noEmail++;
           await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
             onboardingId: row._id,
             event: "email_sent",
             actorUserId: row.submittedByUserId,
-            details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, skipped: true, reason: emailLookup.reason ?? "no_email" }),
+            details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, skipped: true, reason: contact?.reason ?? "no_email" }),
             emailsSentPatch: { instructors: [pair.instructorId as Id<"instructors">] },
             expectedStatus: "processing",
             expectedAttemptCount: parsed.data.attemptCount,
@@ -715,7 +720,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         }
 
         const templateData = {
-          instructorName: "Instructor", // will be looked up below
+          instructorName,
           studentName: studentEmail.split("@")[0] ?? null,
           studentEmail: studentEmail,
           sessionsPurchased: pair.sessionsPerInstructor,
@@ -781,12 +786,22 @@ export const adminOnboardingFlow = inngest.createFunction(
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
       const templateId = process.env.RESEND_TEMPLATE_ID_ADMIN_PURCHASE;
 
-      const perInstructorRows = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+      // PR 4 fix: look up instructor names so the admin summary table shows
+      // the actual instructor name per row (previously hardcoded to "").
+      const contacts = await convex.action(api.adminOnboarding.getInstructorContactsAction, {
+        instructorIds: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }),
+        secret,
+      });
+      const instructorNames = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
+        return contacts[p.instructorId]?.name ?? "";
+      });
+
+      const perInstructorRows = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number], i: number) {
         const expiresAtStr = p.expiresAt
           ? new Date(p.expiresAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
           : undefined;
         return {
-          instructorName: "",
+          instructorName: instructorNames[i] ?? "",
           isRenewal: p.isRenewal,
           workspaceUrl: p.workspaceId ? (baseUrl + "/dashboard") : (baseUrl + "/dashboard"),
           sessionsCount: p.sessionsPerInstructor,
@@ -799,7 +814,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         orderId: undefined as string | undefined,
         studentName: studentEmail.split("@")[0] ?? null,
         studentEmail,
-        instructorName: row.perInstructor.map(function() { return ""; }).join(", "),
+        instructorName: instructorNames.filter(Boolean).join(", "),
         sessionCount: row.perInstructor.reduce(function(s: number, p: Doc<"adminOnboardings">["perInstructor"][number]) { return s + p.sessionsPerInstructor; }, 0),
         dashboardUrl: baseUrl + "/admin",
         isAdminOnboarded: true,
@@ -807,7 +822,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         perInstructorRows,
       };
 
-      const results: Array<{ ok: boolean; id?: string }> = [];
+      const results: Array<{ email: string; ok: boolean; id?: string }> = [];
       for (const adminEmail of adminEmails) {
         let res: any;
         if (useTemplates && templateId) {
@@ -828,18 +843,30 @@ export const adminOnboardingFlow = inngest.createFunction(
             headers: { ...content.headers, "X-Onboarding-Id": row._id },
           });
         }
-        results.push({ ok: res.ok, id: res.id });
+        results.push({ email: adminEmail, ok: res.ok, id: res.id });
       }
 
       const allOk = results.length > 0 && results.every(function(r: { ok: boolean }) { return r.ok; });
-
-      const emailsSentPatch = results.length > 0 && allOk ? { adminSummary: true } : undefined;
+      // PR 4 fix: mark `adminSummary: true` if AT LEAST ONE admin received
+      // the email (was: only if all succeeded). This prevents duplicate
+      // sends on retry. Trade-off: failed admin addresses won't get
+      // retried automatically — admins can trigger a full retry via
+      // `retryAdminOnboarding` from the dashboard if needed.
+      const anyOk = results.some(function(r: { ok: boolean }) { return r.ok; });
+      const emailsSentPatch = results.length > 0 && anyOk ? { adminSummary: true } : undefined;
 
       await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
         onboardingId: row._id,
         event: "email_sent",
         actorUserId: row.submittedByUserId,
-        details: JSON.stringify({ recipient: "admin", count: adminEmails.length, ok: allOk }),
+        details: JSON.stringify({
+          recipient: "admin",
+          count: adminEmails.length,
+          ok: allOk,
+          perAddress: results.map(function(r: { email: string; ok: boolean; id?: string }) {
+            return { email: r.email, ok: r.ok, resendId: r.id ?? null };
+          }),
+        }),
         ...(emailsSentPatch ? { emailsSentPatch } : {}),
         expectedStatus: "processing",
         expectedAttemptCount: parsed.data.attemptCount,

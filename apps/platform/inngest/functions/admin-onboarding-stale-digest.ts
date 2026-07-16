@@ -21,7 +21,6 @@ function getBaseUrl(): string {
 }
 
 const THIRTEEN_DAYS_MS = 13 * 24 * 60 * 60 * 1000;
-const STALE_CUTOFF_MS = Date.now() - THIRTEEN_DAYS_MS;
 
 export const adminOnboardingStaleDigestFlow = inngest.createFunction(
   { id: "admin-onboarding-stale-digest", name: "Admin Onboarding Stale Digest", retries: 0 },
@@ -31,11 +30,20 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
     const baseUrl = getBaseUrl();
 
     const staleOnboardings = await step.run("scan-stale", async () => {
+      // PR 4 fix: compute the cutoff INSIDE the step so a warm Lambda
+      // doesn't drift toward "13 days after cold start".
+      const staleCutoffMs = Date.now() - THIRTEEN_DAYS_MS;
       const allCompleted = await convex.query(api.adminOnboarding.listAdminOnboardings, { status: "completed", limit: 200 });
       if (!allCompleted || allCompleted.length === 0) return [];
       return allCompleted.filter(function(row: any) {
-        if (row.createdAt >= STALE_CUTOFF_MS) return false;
-        const hasPlaceholder = row.sessionPackIds && row.sessionPackIds.some(function(spId: string) { return spId.startsWith("email:"); });
+        if (row.createdAt >= staleCutoffMs) return false;
+        // PR 4 fix: session pack IDs live on perInstructor[i].sessionPackId,
+        // not at the top level. Check each non-renewal pair for an active
+        // placeholder pack (the "email:<normalized>" userId pattern).
+        const hasPlaceholder = Array.isArray(row.perInstructor)
+          && row.perInstructor.some(function(p: any) {
+              return p && !p.isRenewal && p.sessionPackId;
+            });
         return hasPlaceholder && !row.email.startsWith("clerk:");
       });
     });
@@ -63,18 +71,18 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
     await step.run("release-placeholders", async () => {
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
       if (!secret) return;
-      for (const row of staleOnboardings) {
-        // PR 4: actually release inventory (seat reservation, workspace, session pack)
-        // AND append the timeline event in a single Convex action. Idempotent —
-        // patches skip rows already in their target state.
-        // The action also appends the "released" timeline entry, so no separate
-        // appendTimelineEntryAction call is needed.
-        convex.action(api.adminOnboarding.releasePlaceholderInventoryAction, {
-          onboardingId: row._id as Id<"adminOnboardings">,
-          actorUserId: undefined,
-          details: "stale-invite-digest auto-release: placeholder held > 13 days",
-          secret,
-        }).catch(function(e: unknown) {
+      // PR 4 fix: await each convex.action so the step only resolves after
+      // all releases have completed. Errors are caught per-row so a single
+      // failure doesn't abort the entire digest run.
+      await Promise.all(staleOnboardings.map(async function(row: any) {
+        try {
+          await convex.action(api.adminOnboarding.releasePlaceholderInventoryAction, {
+            onboardingId: row._id as Id<"adminOnboardings">,
+            actorUserId: undefined,
+            details: "stale-invite-digest auto-release: placeholder held > 13 days",
+            secret,
+          });
+        } catch (e: unknown) {
           reportError({
             source: "inngest:admin-onboarding-stale-digest",
             error: e instanceof Error ? e : new Error(String(e)),
@@ -82,8 +90,8 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
             message: "Failed to release placeholder inventory for stale onboarding " + row._id,
             context: { onboardingId: row._id },
           });
-        });
-      }
+        }
+      }));
     });
 
     return { processed: staleOnboardings.length };

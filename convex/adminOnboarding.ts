@@ -1153,47 +1153,69 @@ export const releasePlaceholderInventoryAction: ReturnType<typeof action> = acti
 });
 
 /**
- * Internal query: resolve an instructor's email address for use by
- * the admin onboarding flow (which sends per-instructor notifications).
- * Resolution order:
+ * Internal query: resolve contact info (email + name) for multiple
+ * instructors. Used by the admin onboarding flow to fill in the
+ * `instructorName` field on every email step (student, instructor,
+ * admin) — previously hardcoded to "" or "Instructor", which made
+ * every admin-onboarded email show blank names (Greptile P1).
+ *
+ * Email resolution order (per instructor):
  *   1. `instructors.email` (direct field on the instructor row)
- *   2. `users.email` via `instructors.userId` (cross-reference when
- *      the instructor row has no direct email but is linked to a Clerk
- *      user that has one)
- * Returns `null` if neither path resolves — caller should skip the
- * notification and record an `email_skipped` timeline entry.
+ *   2. `users.email` via `instructors.userId` (cross-reference)
+ *
+ * Name resolution:
+ *   1. `instructors.name` (always present — schema line 60 is `v.string()`)
+ *   2. fall back to `instructors.slug` if name is empty
+ *
+ * Returns a map keyed by instructor ID. Missing rows are omitted
+ * from the map (callers should treat as "instructor_not_found").
  */
-export const getInstructorEmailInternal = internalQuery({
+export const getInstructorContactsInternal = internalQuery({
   args: {
-    instructorId: v.id("instructors"),
+    instructorIds: v.array(v.id("instructors")),
   },
   handler: async (ctx, args) => {
-    const instructor = await ctx.db.get(args.instructorId);
-    if (!instructor) return { email: null, reason: "instructor_not_found" as const };
-    if (instructor.email && instructor.email.length > 0) {
-      return { email: instructor.email, reason: null };
-    }
-    if (instructor.userId) {
-      const user = await ctx.db
-        .query("users")
-        .withIndex("by_userId", (q) => q.eq("userId", instructor.userId!))
-        .first();
-      if (user && user.email) {
-        return { email: user.email, reason: null };
+    const result: Record<string, { email: string | null; name: string; reason: string | null }> = {};
+    for (const id of args.instructorIds) {
+      const instructor = await ctx.db.get(id);
+      if (!instructor) {
+        result[id] = { email: null, name: "", reason: "instructor_not_found" };
+        continue;
       }
+      const name = instructor.name && instructor.name.length > 0
+        ? instructor.name
+        : (instructor.slug ?? "");
+      let email: string | null = null;
+      let reason: string | null = null;
+      if (instructor.email && instructor.email.length > 0) {
+        email = instructor.email;
+      } else if (instructor.userId) {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", instructor.userId!))
+          .first();
+        if (user && user.email) {
+          email = user.email;
+        } else {
+          reason = "no_email";
+        }
+      } else {
+        reason = "no_email";
+      }
+      result[id] = { email, name, reason };
     }
-    return { email: null, reason: "no_email" as const };
+    return result;
   },
 });
 
 /**
- * Public action wrapper for `getInstructorEmailInternal`. Mirrors
- * the `appendTimelineEntryAction` pattern: requires
+ * Public action wrapper for `getInstructorContactsInternal`.
+ * Mirrors the `appendTimelineEntryAction` pattern: requires
  * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal query.
  */
-export const getInstructorEmailAction: ReturnType<typeof action> = action({
+export const getInstructorContactsAction: ReturnType<typeof action> = action({
   args: {
-    instructorId: v.id("instructors"),
+    instructorIds: v.array(v.id("instructors")),
     secret: v.string(),
   },
   handler: async (ctx, args) => {
@@ -1201,8 +1223,8 @@ export const getInstructorEmailAction: ReturnType<typeof action> = action({
       throw new Error("Unauthorized: invalid secret");
     }
     return await ctx.runQuery(
-      internal.adminOnboarding.getInstructorEmailInternal,
-      { instructorId: args.instructorId }
+      internal.adminOnboarding.getInstructorContactsInternal,
+      { instructorIds: args.instructorIds }
     );
   },
 });
