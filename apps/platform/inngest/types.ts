@@ -189,6 +189,13 @@ export const adminOnboardingCompletedEventSchema = z.object({
   }),
 });
 
+// PR admin-onboarding #3: daily stale invite digest. Scheduled function
+// reads DB state directly (no payload needed); the cron itself is the trigger.
+export const adminOnboardingStaleDigestEventSchema = z.object({
+  name: z.literal("admin/onboarding.stale-digest"),
+  data: z.object({}), // empty — function scans DB for stale rows
+});
+
 // Type exports
 export type PurchaseMentorshipEvent = z.infer<typeof purchaseMentorshipEventSchema>;
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
@@ -207,6 +214,7 @@ export type SessionBookingEmailEvent = z.infer<typeof sessionBookingEmailEventSc
 export type SessionReminderEmailEvent = z.infer<typeof sessionReminderEmailEventSchema>;
 export type SessionCancelledEmailEvent = z.infer<typeof sessionCancelledEmailEventSchema>;
 export type AdminOnboardingCompletedEvent = z.infer<typeof adminOnboardingCompletedEventSchema>;
+export type AdminOnboardingStaleDigestEvent = z.infer<typeof adminOnboardingStaleDigestEventSchema>;
 
 export type InngestEvent =
   | PurchaseMentorshipEvent
@@ -225,7 +233,8 @@ export type InngestEvent =
   | SessionBookingEmailEvent
   | SessionReminderEmailEvent
   | SessionCancelledEmailEvent
-  | AdminOnboardingCompletedEvent;
+  | AdminOnboardingCompletedEvent
+  | AdminOnboardingStaleDigestEvent;
 
 // ============================================================
 // Phase 4: Event-Driven Sync Events (Convex → SQL)

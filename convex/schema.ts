@@ -730,17 +730,19 @@ export default defineSchema({
         v.literal("retrying"),
         v.literal("cancelled"),
         v.literal("capacity_override"),
-        v.literal("alias_set")
+        v.literal("alias_set"),
+        v.literal("released")
       ),
       actorUserId: v.optional(v.string()),
       details: v.optional(v.string()),
     })),
 
     // Email receipts (PR 2 stub sets `stub: true`; PR 3 sets the real
-    // recipient-level fields).
+    // recipient-level fields). `instructors` tracks Convex instructor IDs
+    // (not userIds) of instructors who received a notification email.
     emailsSent: v.optional(v.object({
       student: v.optional(v.boolean()),
-      instructors: v.optional(v.array(v.string())),    // instructor userIds
+      instructors: v.optional(v.array(v.string())),    // Convex instructor IDs; v.id("instructors") widened in PR 3
       adminSummary: v.optional(v.boolean()),
       stub: v.optional(v.boolean()),
     })),

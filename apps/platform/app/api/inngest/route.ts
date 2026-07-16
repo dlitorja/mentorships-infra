@@ -7,6 +7,7 @@ import {
   processPayPalRefund,
 } from "@/inngest/functions/payments";
 import { onboardingFlow, adminOnboardingFlow } from "@/inngest/functions/onboarding";
+import { adminOnboardingStaleDigestFlow } from "@/inngest/functions/admin-onboarding-stale-digest";
 import { syncInstructorInventoryToConvex } from "@/inngest/functions/inventory-sync";
 import { linkClerkUserToSessionPacks } from "@/inngest/functions/clerk-user-linking";
 import { handleClerkUserCreated, handleClerkUserUpdated } from "@/inngest/functions/clerk-user-instructor-lifecycle";
@@ -23,8 +24,10 @@ export const { GET, POST, PUT } = serve({
     processPayPalRefund,
     // Onboarding - triggered after successful purchase (Convex-based)
     onboardingFlow,
-    // Admin onboarding - PR 2 stub; replaced by PR 3 with real Resend + Discord
+    // Admin onboarding - live Resend + Discord handler (PR 3)
     adminOnboardingFlow,
+    // Daily stale invite digest - releases placeholder seats after 13 days (PR 3)
+    adminOnboardingStaleDigestFlow,
     // Inventory sync from Stripe products to Convex (Convex HTTP endpoint)
     syncInstructorInventoryToConvex,
     // Clerk user linking - links guest purchases to Clerk user after signup
