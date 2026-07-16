@@ -100,8 +100,13 @@ export const onboardingFlow = inngest.createFunction(
     { event: "purchase/mentorship" },
   ],
   async ({ event, step }) => {
+    // Normalise the deprecated alias so the strict schema always sees the
+    // canonical name. Remove once the "purchase/mentorship" trigger is
+    // cleaned up (target: 2026-09-14).
+    const canonicalName =
+      event.name === "purchase/mentorship" ? "purchase/instructor" : event.name;
     const parsed = purchaseInstructorEventSchema.parse({
-      name: event.name,
+      name: canonicalName,
       data: event.data,
     });
 

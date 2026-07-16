@@ -11,14 +11,15 @@ const idString = () => z.string().trim().min(1);
 //
 // PR 5 (naming compliance): the canonical event name is `purchase/instructor`.
 // The legacy `purchase/mentorship` alias is kept as a trigger for a 60-day
-// deprecation window (target removal: 2026-09-14) so external producers and
-// any in-flight runs continue to work. See PROJECT_STATUS.md → "Naming
-// compliance — deprecated aliases" for the cleanup checklist.
+// deprecation window (target removal: 2026-09-14). The schema below is
+// intentionally strict on the canonical name — handlers must normalise the
+// deprecated alias BEFORE calling .parse() (see onboarding.ts). This keeps
+// TypeScript's discriminated-union narrowing correct for InngestEvent and
+// prevents new code from accidentally emitting the forbidden name.
+// See PROJECT_STATUS.md → "Naming compliance — deprecated aliases" for the
+// cleanup checklist.
 export const purchaseInstructorEventSchema = z.object({
-  name: z.union([
-    z.literal("purchase/instructor"),
-    z.literal("purchase/mentorship"),
-  ]),
+  name: z.literal("purchase/instructor"),
   data: z.object({
     orderId: idString(),
     clerkId: idString(), // Clerk user ID
@@ -26,10 +27,6 @@ export const purchaseInstructorEventSchema = z.object({
     provider: z.enum(["stripe", "paypal"]),
   }),
 });
-
-// Deprecated alias for any consumers still importing the old name. Will be
-// removed alongside the legacy event trigger in the follow-up cleanup PR.
-export const purchaseMentorshipEventSchema = purchaseInstructorEventSchema;
 
 export const stripeCheckoutCompletedEventSchema = z.object({
   name: z.literal("stripe/checkout.session.completed"),
@@ -211,7 +208,6 @@ export const adminOnboardingStaleDigestEventSchema = z.object({
 
 // Type exports
 export type PurchaseInstructorEvent = z.infer<typeof purchaseInstructorEventSchema>;
-export type PurchaseMentorshipEvent = PurchaseInstructorEvent;
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
 export type StripeChargeRefundedEvent = z.infer<typeof stripeChargeRefundedEventSchema>;
 export type PaypalPaymentCompletedEvent = z.infer<typeof paypalPaymentCompletedEventSchema>;

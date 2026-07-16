@@ -552,22 +552,22 @@ The AGENTS.md rule **forbids the words `mentor`, `mentee`, and `mentorship` in c
 
 | Old (forbidden) | New (canonical) | Files affected | Cleanup PR target |
 |-----------------|-----------------|----------------|-------------------|
-| `purchase/mentorship` | `purchase/instructor` | `apps/platform/inngest/types.ts` (zod schema accepts both literals), `apps/platform/inngest/functions/onboarding.ts` (multi-trigger accepts both events), `apps/platform/inngest/functions/payments.ts` (emitter updated) | **2026-09-14** (60 days from PR 5 merge) |
+| `purchase/mentorship` | `purchase/instructor` | `apps/platform/inngest/types.ts` (strict canonical schema, deprecated alias coerced in handler), `apps/platform/inngest/functions/onboarding.ts` (multi-trigger + name normalizer before parse), `apps/platform/inngest/functions/payments.ts` (emitter updated) | **2026-09-14** (60 days from PR 5 merge) |
 
 ### Cleanup checklist for follow-up PR (target 2026-09-14)
 
 - [ ] Remove the `{ event: "purchase/mentorship" }` entry from the `onboardingFlow` multi-trigger array
-- [ ] Remove `z.literal("purchase/mentorship")` from `purchaseInstructorEventSchema`'s `z.union`
-- [ ] Delete the `purchaseMentorshipEventSchema` deprecated alias export from `apps/platform/inngest/types.ts`
-- [ ] Delete the `PurchaseMentorshipEvent` type alias
+- [ ] Remove the `canonicalName` normalizer at the top of the `onboardingFlow` handler (the `event.name === "purchase/mentorship"` branch)
 - [ ] Remove the deprecation comment block at the top of `purchaseInstructorEventSchema`
+- [ ] Update the JSDoc trigger note in `onboardingFlow` to drop the "and `purchase/mentorship` (deprecated alias)" clause
 - [ ] Audit external producers (anything in `apps/platform` or `packages/` that calls `inngest.send({ name: "purchase/mentorship", ... })`) — none expected after this PR, but verify
 - [ ] Update any documentation references (search-and-replace `purchase/mentorship` → `purchase/instructor`)
 
 ### Migration notes
 
-- The zod schema `purchaseInstructorEventSchema` accepts **both** event names during the window, so the handler parses either.
-- The `source` tag in `reportError` uses `inngest:${event.name}` so log entries reflect whichever event name arrived (new vs. deprecated).
+- The zod schema `purchaseInstructorEventSchema` is **strict** — it accepts only `purchase/instructor`. The deprecated alias is normalised to the canonical name in `onboardingFlow` before `.parse()` is called, so the parsed object always carries `name: "purchase/instructor"`.
+- The strict schema + handler-level normalisation keeps TypeScript's discriminated-union narrowing correct for `InngestEvent` and prevents new code from accidentally emitting the forbidden name (the union type will reject `name: "purchase/mentorship"` at compile time).
+- The `source` tag in `reportError` uses `inngest:${event.name}` so log entries still reflect whichever event name arrived at the runtime layer (new vs. deprecated), even though the parsed object always says canonical.
 - Emitters in `payments.ts` (both Stripe and PayPal paths) now send `purchase/instructor`. No producer still emits `purchase/mentorship` after this PR.
 
 ### Verification (post-merge)
