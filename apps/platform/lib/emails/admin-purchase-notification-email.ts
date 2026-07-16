@@ -47,7 +47,7 @@ export function buildAdminPurchaseEmail(args: AdminPurchaseEmailArgs): AdminPurc
   const subjectPrefix = args.isAdminOnboarded ? "[Admin Onboarding] " : "";
   const subject = subjectPrefix + (args.isAdminOnboarded
     ? "Kajabi admin onboarding — " + args.studentEmail + " × " + (args.instructorCount ?? 1) + " instructor" + ((args.instructorCount ?? 1) > 1 ? "s" : "")
-    : "New mentorship purchase - " + (args.studentName || args.studentEmail) + " with " + args.instructorName);
+    : "New session pack purchase - " + (args.studentName || args.studentEmail) + " with " + args.instructorName);
 
   const greetingName = args.studentName?.trim() || args.studentEmail;
 
@@ -67,7 +67,7 @@ export function buildAdminPurchaseEmail(args: AdminPurchaseEmailArgs): AdminPurc
     textParts.push("");
     textParts.push("View onboardings dashboard: " + args.dashboardUrl);
   } else {
-    textParts.push("New mentorship purchase");
+    textParts.push("New session pack purchase");
     textParts.push("");
     textParts.push("Student: " + greetingName + " (" + args.studentEmail + ")");
     textParts.push("Instructor: " + args.instructorName);
@@ -88,7 +88,7 @@ export function buildAdminPurchaseEmail(args: AdminPurchaseEmailArgs): AdminPurc
 
   const htmlIntro = args.isAdminOnboarded
     ? "Kajabi admin onboarding completed"
-    : "New mentorship purchase";
+    : "New session pack purchase";
 
   const adminOnboardingTableHtml = isMultiInstructor && perInstructorRows.length > 0
     ? "<table style=\"width:100%;border-collapse:collapse;margin-bottom:16px\">" +
