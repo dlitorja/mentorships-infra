@@ -17,6 +17,13 @@ export type AdminOnboardingPerInstructor = {
   sessionsPerInstructor: number;
   workspaceId?: Id<"workspaces">;
   capacityOverride?: boolean;
+  /**
+   * Clerk invitation id captured by the API route at commit time. Only
+   * present for non-renewal pairs (renewal = existing student already
+   * accepted an invite). Used by the detail page to surface the
+   * invitation id for support debugging.
+   */
+  clerkInvitationId?: string;
 };
 
 /**
@@ -112,5 +119,56 @@ export function useAdminOnboarding(
   return useQuery({
     ...convexQuery(api.adminOnboarding.getAdminOnboarding, id ? { id } : { id: "" as Id<"adminOnboardings"> }),
     enabled: !!id,
+  });
+}
+
+/**
+ * One option row for the two-phase form's instructor multi-select. Mirrors
+ * the shape returned by `getInstructorOptionsForOnboarding` so the form can
+ * render capacity badges next to each instructor's name.
+ */
+export type InstructorOption = {
+  id: Id<"instructors">;
+  name: string | undefined;
+  email: string | undefined;
+  oneOnOneInventory: number | undefined;
+  groupInventory: number | undefined;
+  maxActiveStudents: number | undefined;
+  activeStudentCount: number;
+};
+
+/**
+ * TanStack Query wrapper around `convex.adminOnboarding.getInstructorOptionsForOnboarding`.
+ * Powers the two-phase form's instructor multi-select with capacity hints.
+ */
+export function useInstructorOptionsForOnboarding(): UseQueryResult<InstructorOption[], Error> {
+  return useQuery(convexQuery(api.adminOnboarding.getInstructorOptionsForOnboarding, {}));
+}
+
+/**
+ * Lookup result that drives the existing-student banner on the two-phase
+ * form. Reads the user's name, the most recent onboarding alias, and the
+ * five most recent prior submissions for the email — all before Preview.
+ */
+export type ExistingStudentLookup = {
+  exists: boolean;
+  name: string | undefined;
+  onboardingAlias: string | undefined;
+  priorOnboardingIds: Id<"adminOnboardings">[];
+};
+
+/**
+ * TanStack Query wrapper around `convex.adminOnboarding.lookupExistingStudent`.
+ * Disabled until the email matches a basic RFC shape so we don't fire
+ * pointless queries for partial input.
+ */
+export function useLookupExistingStudent(
+  email: string | undefined
+): UseQueryResult<ExistingStudentLookup, Error> {
+  const trimmed = email?.trim().toLowerCase() ?? "";
+  const enabled = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  return useQuery({
+    ...convexQuery(api.adminOnboarding.lookupExistingStudent, { email: trimmed }),
+    enabled,
   });
 }

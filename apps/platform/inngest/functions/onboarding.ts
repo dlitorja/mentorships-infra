@@ -7,7 +7,7 @@ import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
 import { buildAdminPurchaseEmail } from "@/lib/emails/admin-purchase-notification-email";
-import { purchaseMentorshipEventSchema } from "../types";
+import { purchaseMentorshipEventSchema, adminOnboardingCompletedEventSchema } from "../types";
 import { inngest } from "../client";
 
 function getConvexClient() {
@@ -491,6 +491,96 @@ await step.run("queue-discord-actions", async () => {
       instructorId: instructor._id,
       discordConnected,
       emailSent: sendResult.ok,
+    };
+  }
+);
+
+// ============================================================
+// PR admin-onboarding #2: stub handler for `admin/onboarding.completed`.
+//
+// This is a deliberate placeholder so PR 2's commit flow has a
+// destination for the event and the recovery dashboard sees a realistic
+// status transition. The real Resend + Discord handler lands in PR 3.
+//
+// Idempotency: `appendTimelineEntry` (convex/adminOnboarding.ts:780) is
+// the seam. The stub patches `emailsSent.stub = true` so the dashboard
+// can tell PR-2 runs apart from real runs. Inngest retries and admin
+// retries (which re-emit the event with a fresh `attemptCount`) are both
+// safe — a second arrival with status=processing flips it to
+// `completed` again (same outcome), and an arrival against
+// status=completed is a no-op per the early return below.
+//
+// No-op conditions (per plan §State Transitions):
+//   - Onboarding row missing: log + return (no throw).
+//   - status !== "processing": log + return (don't overwrite
+//     completed / failed / cancelled outcomes from prior runs).
+// ============================================================
+export const adminOnboardingFlow = inngest.createFunction(
+  {
+    id: "admin-onboarding-flow",
+    name: "Admin Onboarding Flow (PR 2 stub)",
+    retries: 2,
+  },
+  { event: "admin/onboarding.completed" },
+  async ({ event, step }) => {
+    const parsed = adminOnboardingCompletedEventSchema.parse({
+      name: event.name,
+      data: event.data,
+    });
+
+    const convex = getConvexClient();
+
+    const row = await step.run("load-onboarding", async () => {
+      return await convex.query(api.adminOnboarding.getAdminOnboarding, {
+        id: parsed.data.onboardingId as Id<"adminOnboardings">,
+      });
+    });
+
+    if (!row) {
+      await step.run("report-missing", async () => {
+        await reportError({
+          source: "inngest:admin-onboarding-stub",
+          error: null,
+          level: "warn",
+          message: "Admin onboarding stub: row not found, no-op",
+          context: { onboardingId: parsed.data.onboardingId, attemptCount: parsed.data.attemptCount },
+        });
+      });
+      return { skipped: true, reason: "missing" as const };
+    }
+
+    if (row.status !== "processing") {
+      await step.run("report-terminal", async () => {
+        await reportError({
+          source: "inngest:admin-onboarding-stub",
+          error: null,
+          level: "info",
+          message: `Admin onboarding stub: row is ${row.status}, no-op`,
+          context: { onboardingId: row._id, status: row.status, attemptCount: parsed.data.attemptCount },
+        });
+      });
+      return { skipped: true, reason: "non_processing" as const, status: row.status };
+    }
+
+    await step.run("mark-completed-stub", async () => {
+      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+      if (!secret) {
+        throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding stub cannot authenticate against Convex.");
+      }
+      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+        onboardingId: row._id,
+        event: "completed",
+        actorUserId: row.submittedByUserId,
+        details: "stub: PR 2 handler; replaced by PR 3",
+        emailsSentPatch: { stub: true },
+        secret,
+      });
+    });
+
+    return {
+      success: true,
+      onboardingId: row._id,
+      stub: true,
     };
   }
 );

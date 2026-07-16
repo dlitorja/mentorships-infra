@@ -1,4 +1,5 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query, mutation, internalMutation, action } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -335,6 +336,15 @@ async function performCommit(
     capacityOverrideReason: string | undefined;
     submittedByUserId: string;
     source: Doc<"adminOnboardings">["source"];
+    /**
+     * Per-instructor Clerk invitation IDs created in the API route BEFORE
+     * this mutation runs. Keyed by `instructorId` so the route doesn't need
+     * to align array positions with the preview response (which may have
+     * flagged some pairs as renewals and skipped the Clerk call). Only
+     * non-renewal pairs are written to `perInstructor[i].clerkInvitationId`;
+     * renewal pairs reuse the existing seat and don't need a new invite.
+     */
+    clerkInvitationIds: Record<Id<"instructors">, string> | undefined;
   }
 ): Promise<{
   onboardingId: Id<"adminOnboardings">;
@@ -347,6 +357,7 @@ async function performCommit(
     sessionsPerInstructor: number;
     expiresAt: number | undefined;
     capacityOverride: boolean;
+    clerkInvitationId: string | undefined;
   }>;
   existingWorkspaceIds: Id<"workspaces">[];
 }> {
@@ -429,6 +440,7 @@ async function performCommit(
     sessionsPerInstructor: number;
     expiresAt: number | undefined;
     capacityOverride: boolean;
+    clerkInvitationId: string | undefined;
   }> = [];
   const existingWorkspaceIds: Id<"workspaces">[] = [];
 
@@ -449,6 +461,7 @@ async function performCommit(
         sessionsPerInstructor: input.sessionsPerInstructor,
         expiresAt: input.expiresAt,
         capacityOverride: atCapacity,
+        clerkInvitationId: undefined,
       });
       if (renewal.existingWorkspaceId) {
         existingWorkspaceIds.push(renewal.existingWorkspaceId);
@@ -488,8 +501,6 @@ async function performCommit(
       type: "mentorship",
     });
 
-    await ctx.db.patch(seatReservationId, {});
-
     await ctx.db.insert("workspaceAuditLogs", {
       workspaceId,
       adminId: args.submittedByUserId,
@@ -508,6 +519,7 @@ async function performCommit(
       sessionsPerInstructor: input.sessionsPerInstructor,
       expiresAt: input.expiresAt,
       capacityOverride: atCapacity,
+      clerkInvitationId: args.clerkInvitationIds?.[input.instructorId],
     });
   }
 
@@ -551,6 +563,7 @@ export const adminOnboardStudent = mutation({
     source: v.optional(
       v.union(v.literal("kajabi"), v.literal("manual"), v.literal("import"), v.literal("api"))
     ),
+    clerkInvitationIds: v.optional(v.record(v.id("instructors"), v.string())),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -566,6 +579,7 @@ export const adminOnboardStudent = mutation({
       capacityOverrideReason: args.capacityOverrideReason,
       submittedByUserId: identity.subject,
       source: args.source ?? "kajabi",
+      clerkInvitationIds: args.clerkInvitationIds,
     });
   },
 });
@@ -771,11 +785,76 @@ export const getInstructorOptionsForOnboarding = query({
 });
 
 /**
- * Internal seam used by the PR-3 Inngest workflow to append a timeline
- * entry after each side-effect (email_sent, discord_queued) and to flip
- * the row to `completed` / `failed`. Also accepts a small `emailsSent`
- * patch so the workflow can record which legs of the email fan-out
- * succeeded without overwriting prior ticks.
+ * Lightweight lookup that drives the existing-student banner on the
+ * two-phase form. Reads both the `users` row and the most recent
+ * `adminOnboardings` submissions for the email so the admin sees prior
+ * context before clicking Preview. Distinct from `previewAdminOnboarding`
+ * because the banner must render BEFORE Preview (otherwise admins would
+ * not see prior submissions until after the form is mostly filled out).
+ */
+export const lookupExistingStudent = query({
+  args: {
+    email: v.string(),
+  },
+  handler: async (ctx, args): Promise<{
+    exists: boolean;
+    name: string | undefined;
+    onboardingAlias: string | undefined;
+    priorOnboardingIds: Id<"adminOnboardings">[];
+  }> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return { exists: false, name: undefined, onboardingAlias: undefined, priorOnboardingIds: [] };
+    }
+    const gate = await isAdminOrSupport(ctx, identity.subject);
+    if (!gate.ok) {
+      return { exists: false, name: undefined, onboardingAlias: undefined, priorOnboardingIds: [] };
+    }
+
+    const email = normalizeEmail(args.email);
+    if (!isValidEmail(email)) {
+      return { exists: false, name: undefined, onboardingAlias: undefined, priorOnboardingIds: [] };
+    }
+
+    const userRow = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .first();
+
+    const priors = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .order("desc")
+      .take(5);
+
+    const priorOnboardingIds = priors.map((p) => p._id);
+
+    if (!userRow) {
+      return { exists: false, name: undefined, onboardingAlias: undefined, priorOnboardingIds };
+    }
+
+    const nameParts = [userRow.firstName, userRow.lastName].filter(Boolean);
+    return {
+      exists: true,
+      name: nameParts.length > 0 ? nameParts.join(" ") : undefined,
+      onboardingAlias: userRow.onboardingAlias ?? undefined,
+      priorOnboardingIds,
+    };
+  },
+});
+
+/**
+ * Internal seam used by the PR-2 stub + PR-3 real Inngest workflow to
+ * append a timeline entry after each side-effect (email_sent,
+ * discord_queued) and to flip the row to `completed` / `failed`. Also
+ * accepts a small `emailsSent` patch so the workflow can record which
+ * legs of the email fan-out succeeded without overwriting prior ticks.
+ *
+ * Internal because callers are server-side only — the public surface
+ * is `appendTimelineEntryAction`, which validates the
+ * `CONVEX_SERVER_SHARED_SECRET` and forwards into this mutation. The
+ * mutation does not check Clerk auth because server-side Inngest
+ * handlers don't carry a Clerk session.
  */
 export const appendTimelineEntry = internalMutation({
   args: {
@@ -828,5 +907,59 @@ export const appendTimelineEntry = internalMutation({
     }
     await ctx.db.patch(args.onboardingId, updates);
     return entry;
+  },
+});
+
+/**
+ * Public action wrapper for `appendTimelineEntry`. Mirrors the
+ * `linkSessionPacksByEmailAction` pattern in `convex/sessionPacks.ts:626`:
+ * requires `CONVEX_SERVER_SHARED_SECRET` in the args, then forwards to
+ * the internal mutation via `ctx.runMutation`. This is the call the
+ * Inngest stub (PR 2) and the real flow (PR 3) use.
+ */
+const SERVER_SHARED_SECRET = process.env.CONVEX_SERVER_SHARED_SECRET;
+
+export const appendTimelineEntryAction = action({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    event: v.union(
+      v.literal("queued"),
+      v.literal("processing_started"),
+      v.literal("email_sent"),
+      v.literal("discord_queued"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("retrying"),
+      v.literal("cancelled"),
+      v.literal("capacity_override"),
+      v.literal("alias_set")
+    ),
+    actorUserId: v.optional(v.string()),
+    details: v.optional(v.string()),
+    emailsSentPatch: v.optional(
+      v.object({
+        student: v.optional(v.boolean()),
+        instructors: v.optional(v.array(v.string())),
+        adminSummary: v.optional(v.boolean()),
+        stub: v.optional(v.boolean()),
+      })
+    ),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    const result: Doc<"adminOnboardings">["timeline"][number] = await ctx.runMutation(
+      internal.adminOnboarding.appendTimelineEntry,
+      {
+        onboardingId: args.onboardingId,
+        event: args.event,
+        actorUserId: args.actorUserId,
+        details: args.details,
+        emailsSentPatch: args.emailsSentPatch,
+      }
+    );
+    return result;
   },
 });
