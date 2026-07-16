@@ -10,13 +10,13 @@ const idString = () => z.string().trim().min(1);
 // Event schemas with runtime validation.
 //
 // PR 5 (naming compliance): the canonical event name is `purchase/instructor`.
-// The legacy `purchase/mentorship` alias is kept as a trigger for a 60-day
-// deprecation window (target removal: 2026-09-14). The schema below is
-// intentionally strict on the canonical name — handlers must normalise the
-// deprecated alias BEFORE calling .parse() (see onboarding.ts). This keeps
-// TypeScript's discriminated-union narrowing correct for InngestEvent and
-// prevents new code from accidentally emitting the forbidden name.
-// See PROJECT_STATUS.md → "Naming compliance — deprecated aliases" for the
+// The legacy `purchase/mentorship` event is owned by `apps/web`; this
+// platform app does NOT register it as a trigger (would cause duplicate
+// side effects in a shared Inngest namespace). The schema below is
+// intentionally strict on the canonical name — keeps TypeScript's
+// discriminated-union narrowing correct for InngestEvent and prevents new
+// code from accidentally emitting the forbidden name. See
+// PROJECT_STATUS.md → "Naming compliance — deprecated aliases" for the
 // cleanup checklist.
 export const purchaseInstructorEventSchema = z.object({
   name: z.literal("purchase/instructor"),

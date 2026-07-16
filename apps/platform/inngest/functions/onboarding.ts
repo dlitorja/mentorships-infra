@@ -64,9 +64,12 @@ function getBaseUrl(): string {
 /**
  * Handles post-purchase onboarding for students and instructors.
  *
- * Triggered by: `purchase/instructor` (canonical) and `purchase/mentorship`
- * (deprecated alias — see PROJECT_STATUS.md → "Naming compliance — deprecated
- * aliases", target removal 2026-09-14).
+ * Triggered by: `purchase/instructor` (canonical). The deprecated
+ * `purchase/mentorship` event is NOT a trigger on this function because
+ * `apps/web` already owns it — a shared Inngest namespace would otherwise
+ * cause duplicate side effects (double emails, double seat allocations,
+ * double Discord notifications). See PROJECT_STATUS.md → "Naming
+ * compliance — deprecated aliases" for the cleanup checklist.
  *
  * Skips guest purchases (no Clerk user to look up).
  *
@@ -91,22 +94,13 @@ export const onboardingFlow = inngest.createFunction(
     name: "Onboarding Flow",
     retries: 2,
   },
-  [
-    // Canonical trigger (PR 5 onward).
-    { event: "purchase/instructor" },
-    // Deprecated alias — kept alive for a 60-day window (target removal
-    // 2026-09-14). See PROJECT_STATUS.md → "Naming compliance — deprecated
-    // aliases" for the cleanup checklist.
-    { event: "purchase/mentorship" },
-  ],
+  // Canonical trigger only. The legacy `purchase/mentorship` event is
+  // owned by `apps/web`; do NOT add it here without first coordinating the
+  // namespace split or removing the web handler (target 2026-09-14).
+  { event: "purchase/instructor" },
   async ({ event, step }) => {
-    // Normalise the deprecated alias so the strict schema always sees the
-    // canonical name. Remove once the "purchase/mentorship" trigger is
-    // cleaned up (target: 2026-09-14).
-    const canonicalName =
-      event.name === "purchase/mentorship" ? "purchase/instructor" : event.name;
     const parsed = purchaseInstructorEventSchema.parse({
-      name: canonicalName,
+      name: event.name,
       data: event.data,
     });
 

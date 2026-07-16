@@ -24,7 +24,7 @@ export function buildInstructorOnboardingEmail(
   const studentDisplay = args.studentName?.trim()
     ? args.studentName.trim()
     : args.studentEmail || "A new student";
-  const subject = subjectPrefix + studentDisplay + (args.isRenewal ? " has renewed" : " has joined your mentorship");
+  const subject = subjectPrefix + studentDisplay + (args.isRenewal ? " has renewed" : " has joined your session pack");
 
   const greetingName = args.instructorName?.trim()
     ? args.instructorName.trim()
@@ -38,8 +38,8 @@ export function buildInstructorOnboardingEmail(
     "Hi " + greetingName + ",",
     "",
     args.isAdminOnboarded
-      ? "A student has been assigned to your mentorship via the admin onboarding system."
-      : "A new student has purchased your mentorship sessions!",
+      ? "A student has been assigned to your session pack via the admin onboarding system."
+      : "A new student has purchased your session pack sessions!",
     "",
     "Student: " + studentDisplay + contactInfo,
     "Sessions: " + args.sessionsPurchased,
@@ -60,8 +60,8 @@ export function buildInstructorOnboardingEmail(
         <div style="font-weight:700;margin-bottom:6px">New Student</div>
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">
           ${args.isAdminOnboarded
-            ? "A student has been assigned to your mentorship via the admin onboarding system."
-            : "A new student has purchased your mentorship sessions!"}
+            ? "A student has been assigned to your session pack via the admin onboarding system."
+            : "A new student has purchased your session pack sessions!"}
         </div>
 
         <div style="margin:0 0 12px 0;color:#374151">

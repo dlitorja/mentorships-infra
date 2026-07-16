@@ -32,8 +32,8 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
   const isMultiInstructor = (args.instructorCount ?? 1) > 1;
 
   const subject = isAllRenewal
-    ? "Welcome back — your mentorship" + (isMultiInstructor ? "s" : "") + " with " + args.instructorName + (isMultiInstructor ? " + " + ((args.instructorCount ?? 1) - 1) + " other" + (((args.instructorCount ?? 1) - 1) === 1 ? "" : "s") : "") + " is ready"
-    : "Welcome — your mentorship" + (isMultiInstructor ? "s" : "") + " with " + args.instructorName + (isMultiInstructor ? " + " + ((args.instructorCount ?? 1) - 1) + " other" + (((args.instructorCount ?? 1) - 1) === 1 ? "" : "s") : "") + " " + (isAllRenewal ? "are" : "is") + " ready";
+    ? "Welcome back — your session pack" + (isMultiInstructor ? "s" : "") + " with " + args.instructorName + (isMultiInstructor ? " + " + ((args.instructorCount ?? 1) - 1) + " other" + (((args.instructorCount ?? 1) - 1) === 1 ? "" : "s") : "") + " is ready"
+    : "Welcome — your session pack" + (isMultiInstructor ? "s" : "") + " with " + args.instructorName + (isMultiInstructor ? " + " + ((args.instructorCount ?? 1) - 1) + " other" + (((args.instructorCount ?? 1) - 1) === 1 ? "" : "s") : "") + " " + (isAllRenewal ? "are" : "is") + " ready";
 
   const greetingName = args.studentName?.trim() ? args.studentName.trim() : "there";
 
@@ -47,28 +47,28 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
     "",
   ];
   if (args.isAdminOnboarded) {
-    textLines.push("You have been assigned to mentorship workspace" + (isMultiInstructor ? "s" : "") + " at Huckleberry.");
+    textLines.push("You have been assigned to your session pack workspace" + (isMultiInstructor ? "s" : "") + " at Huckleberry.");
   } else {
-    textLines.push("Thanks for purchasing mentorship. Your instructor" + (isMultiInstructor ? "s" : "") + ":");
+    textLines.push("Thanks for purchasing a session pack. Your instructor" + (isMultiInstructor ? "s" : "") + ":");
     if (!isMultiInstructor) {
-      textLines.push("  \u2022 " + args.instructorName);
+      textLines.push("  • " + args.instructorName);
     }
   }
   if (isMultiInstructor && args.instructorList) {
     for (const row of args.instructorList) {
-      textLines.push("  \u2022 " + row.instructorName + ": " + row.workspaceUrl);
+      textLines.push("  • " + row.instructorName + ": " + row.workspaceUrl);
     }
   }
   textLines.push("");
   textLines.push("Next steps:");
   textLines.push("- Open your Dashboard: " + args.dashboardUrl);
-  textLines.push("- Complete onboarding (share your goals for this mentorship + add 2-4 current artwork pieces): " + args.onboardingUrl);
+  textLines.push("- Complete onboarding (share your goals for your session pack + add 2-4 current artwork pieces): " + args.onboardingUrl);
   textLines.push("");
   textLines.push("Important — join Discord:");
   if (shouldShowConnectDiscordCopy) {
-    textLines.push("Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the mentorship Discord channels.");
+    textLines.push("Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the session pack Discord channels.");
   }
-  textLines.push("Join the Discord server so you can access the mentorship Discord channels.");
+  textLines.push("Join the Discord server so you can access the session pack Discord channels.");
   if (discordInviteLine) textLines.push(discordInviteLine);
   textLines.push("");
   textLines.push("If you need any assistance, reply to this email or email support@huckleberry.art");
@@ -81,10 +81,10 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
       ${
         shouldShowConnectDiscordCopy
            ? `<div style="color:#374151;line-height:1.6;margin-bottom:10px">
-               Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the mentorship Discord channels.
+               Please connect your Discord account in your Dashboard so we can assign your student role and unlock access to the session pack Discord channels.
              </div>`
           : `<div style="color:#374151;line-height:1.6;margin-bottom:10px">
-               Join the Discord server so you can access the mentorship Discord channels.
+               Join the Discord server so you can access the session pack Discord channels.
              </div>`
       }
       ${
@@ -98,8 +98,8 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
   `.trim();
 
   const introLine = args.isAdminOnboarded
-    ? "You have been assigned to mentorship workspace" + (isMultiInstructor ? "s" : "") + " at Huckleberry."
-    : "Thanks for purchasing mentorship. Your instructor" + (isMultiInstructor ? "s" : "") + ":";
+    ? "You have been assigned to your session pack workspace" + (isMultiInstructor ? "s" : "") + " at Huckleberry."
+    : "Thanks for purchasing a session pack. Your instructor" + (isMultiInstructor ? "s" : "") + ":";
 
   const instructorTableHtml = isMultiInstructor && args.instructorList && args.instructorList.length > 0
     ? "<div style=\"margin:0 0 16px 0;color:#374151\"><div style=\"font-weight:700;margin-bottom:8px\">Your Workspaces</div><table style=\"width:100%;border-collapse:collapse;margin-bottom:8px\"><thead><tr style=\"border-bottom:1px solid #E5E7EB\"><th style=\"text-align:left;padding:6px 8px;color:#6B7280;font-size:12px;font-weight:500\">Instructor</th><th style=\"text-align:left;padding:6px 8px;color:#6B7280;font-size:12px;font-weight:500\">Workspace</th></tr></thead><tbody>" +
@@ -124,7 +124,7 @@ export function buildPurchaseOnboardingEmail(args: PurchaseOnboardingEmailArgs):
           <div style="font-weight:700;margin-bottom:6px">Next steps</div>
           <ul style="margin:0;padding-left:18px;line-height:1.7">
             <li><a href="${args.dashboardUrl}">Open your Dashboard</a></li>
-            <li><a href="${args.onboardingUrl}">Complete onboarding</a> (share your goals for this mentorship + add 2-4 current artwork pieces)</li>
+            <li><a href="${args.onboardingUrl}">Complete onboarding</a> (share your goals for your session pack + add 2-4 current artwork pieces)</li>
           </ul>
         </div>
 
