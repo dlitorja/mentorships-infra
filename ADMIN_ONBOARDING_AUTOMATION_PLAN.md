@@ -852,9 +852,9 @@ Steps:
 **Shipped in PR 5**:
 
 - **R1 — event rename with alias**:
-  - `apps/platform/inngest/types.ts`: `purchaseInstructorEventSchema` accepts **both** `purchase/instructor` (canonical) and `purchase/mentorship` (deprecated alias) via `z.union([z.literal(...), z.literal(...)])`. Old `purchaseMentorshipEventSchema` re-exported as a back-compat alias that points to the new schema.
-  - `apps/platform/inngest/functions/onboarding.ts`: `onboardingFlow` registered with a **multi-trigger** array — both events route to the same handler. `purchaseMentorshipEventSchema` import replaced by `purchaseInstructorEventSchema`.
-  - `apps/platform/inngest/functions/onboarding.ts:report-onboarding-email-result`: `source` tag is now dynamic — uses `` `inngest:${event.name}` `` so log entries reflect whichever event arrived.
+  - `apps/platform/inngest/types.ts`: `purchaseInstructorEventSchema` is **strict** (`name: z.literal("purchase/instructor")`). The deprecated alias is normalised to the canonical name in the handler **before** `.parse()` is called, keeping TypeScript's discriminated-union narrowing for `InngestEvent` correct and preventing new code from accidentally emitting the forbidden name. The `purchaseMentorshipEventSchema` back-compat alias export was removed (it was unused after the strict schema landed).
+  - `apps/platform/inngest/functions/onboarding.ts`: `onboardingFlow` registered with a **multi-trigger** array — both events route to the same handler. A `canonicalName` normaliser at the top of the handler coerces `event.name === "purchase/mentorship"` to `"purchase/instructor"` before parsing. `purchaseMentorshipEventSchema` import replaced by `purchaseInstructorEventSchema`.
+  - `apps/platform/inngest/functions/onboarding.ts:report-onboarding-email-result`: `source` tag is now dynamic — uses `` `inngest:${event.name}` `` so log entries reflect whichever event arrived at the runtime layer (even though the parsed object always carries the canonical name).
   - `apps/platform/inngest/functions/payments.ts` (both Stripe and PayPal paths): emitter switched from `name: "purchase/mentorship"` to `name: "purchase/instructor"`. Two emitters updated (lines 553 and 1021). Header comments at lines 171 and 727 updated.
 - **R2 — replace remaining "mentorship" UI copy in onboarding handler**:
   - Student subject (returning variant, both `sendTemplateEmail` and `sendEmail` paths): "Welcome back — your **mentorship** with ${instructorName} is ready" → "Welcome back — your **session pack** with ${instructorName} is ready".
