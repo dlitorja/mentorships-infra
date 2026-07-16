@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
+import { convexIdSchema } from "@/lib/validators";
+import { readJsonBody } from "@/lib/api/read-json-body";
 
 const previewSchema = z.object({
   email: z.string().email("Invalid email address"),
   instructors: z
     .array(
       z.object({
-        instructorId: z.string(),
+        instructorId: convexIdSchema,
         sessionsPerInstructor: z.number().int().min(1).default(4),
         expiresAt: z.number().int().positive().optional(),
       })
@@ -31,11 +34,14 @@ const previewSchema = z.object({
  * admin uses this output to render the preview panel before clicking
  * "Confirm and Send".
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await requireAdminOrSupportForApi();
 
-    const body = await req.json();
+    const body = await readJsonBody(req);
+    if (body === null) {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
     const parsed = previewSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -57,7 +63,7 @@ export async function POST(req: NextRequest) {
       {
         email: parsed.data.email,
         instructors: parsed.data.instructors.map((i) => ({
-          instructorId: i.instructorId as any,
+          instructorId: i.instructorId as Id<"instructors">,
           sessionsPerInstructor: i.sessionsPerInstructor,
           expiresAt: i.expiresAt,
         })),

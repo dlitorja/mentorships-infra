@@ -229,7 +229,7 @@ function FullOnboardingCard() {
         <CardTitle>Full Onboarding</CardTitle>
         <CardDescription>
           Create a student account, assign one or more instructors, and prepare
-          mentorship workspaces — all in one submission. The two-phase form
+          instructor workspaces — all in one submission. The two-phase form
           previews side effects before you commit.
         </CardDescription>
       </CardHeader>
@@ -239,6 +239,13 @@ function FullOnboardingCard() {
     </Card>
   );
 }
+
+const FILTER_TO_TITLE: Record<string, string> = {
+  pending: "Pending Invitations",
+  accepted: "Accepted Invitations",
+  expired: "Expired Invitations",
+  all: "All Invitations",
+};
 
 function PendingInvitationsCard() {
   const [statusFilter, setStatusFilter] = useState<string>("pending");
@@ -251,7 +258,7 @@ function PendingInvitationsCard() {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Pending Invitations</CardTitle>
+          <CardTitle>{FILTER_TO_TITLE[statusFilter] ?? "Invitations"}</CardTitle>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[160px]">
               <SelectValue placeholder="Filter" />

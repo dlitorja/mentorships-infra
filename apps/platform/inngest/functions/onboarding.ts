@@ -1,7 +1,9 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { api } from "../../../../convex/_generated/api";
+import type { Doc } from "../../../../convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
+import { NonRetriableError } from "inngest";
 import { sendEmail, sendTemplateEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
@@ -523,16 +525,36 @@ export const adminOnboardingFlow = inngest.createFunction(
   },
   { event: "admin/onboarding.completed" },
   async ({ event, step }) => {
-    const parsed = adminOnboardingCompletedEventSchema.parse({
-      name: event.name,
-      data: event.data,
-    });
+    let parsed;
+    try {
+      parsed = adminOnboardingCompletedEventSchema.parse({
+        name: event.name,
+        data: event.data,
+      });
+    } catch (err) {
+      // Malformed event payloads won't fix themselves on retry.
+      throw new NonRetriableError(
+        `admin/onboarding.completed event did not match schema: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
 
     const convex = getConvexClient();
 
     const row = await step.run("load-onboarding", async () => {
-      return await convex.query(api.adminOnboarding.getAdminOnboarding, {
+      // Call the action wrapper — same shared-secret pattern as
+      // `appendTimelineEntryAction` — so the underlying read happens
+      // in an internalQuery unreachable from the browser. Greptile
+      // cloud finding: a public query with a secret bypass would let
+      // any browser caller read adminOnboardings rows.
+      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+      if (!secret) {
+        throw new NonRetriableError(
+          "CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding stub cannot authenticate against Convex."
+        );
+      }
+      return await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
         id: parsed.data.onboardingId as Id<"adminOnboardings">,
+        secret,
       });
     });
 
@@ -562,10 +584,36 @@ export const adminOnboardingFlow = inngest.createFunction(
       return { skipped: true, reason: "non_processing" as const, status: row.status };
     }
 
-    await step.run("mark-completed-stub", async () => {
+    type StepResult = { failed: boolean; reason?: string };
+    const stepResult: StepResult = await step.run("mark-completed-stub", async () => {
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
       if (!secret) {
-        throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding stub cannot authenticate against Convex.");
+        throw new NonRetriableError(
+          "CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding stub cannot authenticate against Convex."
+        );
+      }
+      // If the commit succeeded but every non-renewal pair is missing
+      // a Clerk invitation, the student has no signup link. Don't mark
+      // the row completed; record the failure so the admin can
+      // re-issue from the recovery dashboard. Greptile cloud finding.
+      const perInstructor: Doc<"adminOnboardings">["perInstructor"] = row.perInstructor;
+      const nonRenewals = perInstructor.filter((p) => !p.isRenewal);
+      const needsClerkInvite = nonRenewals.length > 0;
+      const everyNonRenewalHasInvite =
+        nonRenewals.length > 0 &&
+        nonRenewals.every((p) => !!p.clerkInvitationId);
+      if (needsClerkInvite && !everyNonRenewalHasInvite) {
+        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+          onboardingId: row._id,
+          event: "failed",
+          actorUserId: row.submittedByUserId,
+          details:
+            "Clerk invitation failed during commit; admin must retry to issue invite.",
+          expectedStatus: "processing",
+          expectedAttemptCount: parsed.data.attemptCount,
+          secret,
+        });
+        return { failed: true, reason: "missing_clerk_invitation" };
       }
       await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
         onboardingId: row._id,
@@ -573,14 +621,20 @@ export const adminOnboardingFlow = inngest.createFunction(
         actorUserId: row.submittedByUserId,
         details: "stub: PR 2 handler; replaced by PR 3",
         emailsSentPatch: { stub: true },
+        expectedStatus: "processing",
+        expectedAttemptCount: parsed.data.attemptCount,
         secret,
       });
+      return { failed: false };
     });
 
     return {
-      success: true,
+      success: !stepResult.failed,
       onboardingId: row._id,
       stub: true,
+      ...(stepResult.failed && stepResult.reason
+        ? { reason: stepResult.reason }
+        : {}),
     };
   }
 );

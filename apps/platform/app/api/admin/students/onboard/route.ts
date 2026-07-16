@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
@@ -8,13 +9,16 @@ import { auth } from "@clerk/nextjs/server";
 import { createStudentClerkInvitation } from "@/lib/clerk-invitations";
 import { inngest } from "@/inngest/client";
 import { reportError } from "@/lib/observability";
+import { convexIdSchema } from "@/lib/validators";
+import { fingerprint } from "@/lib/log-fingerprint";
+import { readJsonBody } from "@/lib/api/read-json-body";
 
 const onboardSchema = z.object({
   email: z.string().email("Invalid email address"),
   instructors: z
     .array(
       z.object({
-        instructorId: z.string(),
+        instructorId: convexIdSchema,
         sessionsPerInstructor: z.number().int().min(1).default(4),
         expiresAt: z.number().int().positive().optional(),
       })
@@ -40,6 +44,45 @@ type CommitResult = {
 };
 
 /**
+ * Mark the row as `failed` via the shared-secret action wrapper. Does
+ * NOT require a Clerk token — `appendTimelineEntryAction` validates
+ * exclusively against `CONVEX_SERVER_SHARED_SECRET`. Greptile cloud
+ * finding: requiring a Clerk token here would silently abort the
+ * recovery if the user session dropped between commit and recovery.
+ */
+async function markOnboardingFailed(
+  onboardingId: string,
+  attemptCount: number,
+  reason: string
+): Promise<void> {
+  try {
+    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
+    if (!secret) {
+      throw new Error(
+        "CONVEX_SERVER_SHARED_SECRET is not set; cannot mark onboarding as failed"
+      );
+    }
+    const convex = getConvexClient();
+    await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+      onboardingId: onboardingId as Id<"adminOnboardings">,
+      event: "failed",
+      details: reason,
+      expectedStatus: "processing",
+      expectedAttemptCount: attemptCount,
+      secret,
+    });
+  } catch (err) {
+    await reportError({
+      source: "api:admin/students/onboard:mark-failed",
+      error: err instanceof Error ? err : new Error(String(err)),
+      level: "warn",
+      message: "Could not mark onboarding as failed after Inngest send failure",
+      context: { onboardingId, attemptCount },
+    });
+  }
+}
+
+/**
  * POST /api/admin/students/onboard
  *
  * Commit path of the two-phase form. Creates one Clerk invitation per
@@ -58,11 +101,14 @@ type CommitResult = {
  *   - 409 duplicate Clerk invitation (already invited).
  *   - 500 unexpected.
  */
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     await requireAdminOrSupportForApi();
 
-    const body = await req.json();
+    const body = await readJsonBody(req);
+    if (body === null) {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
     const parsed = onboardSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
@@ -86,7 +132,7 @@ export async function POST(req: NextRequest) {
       {
         email: parsed.data.email,
         instructors: parsed.data.instructors.map((i) => ({
-          instructorId: i.instructorId as any,
+          instructorId: i.instructorId as Id<"instructors">,
           sessionsPerInstructor: i.sessionsPerInstructor,
           expiresAt: i.expiresAt,
         })),
@@ -107,11 +153,22 @@ export async function POST(req: NextRequest) {
 
     const clerkInvitationIds: Record<string, string> = {};
     let clerkInvitationId: string | undefined;
+    let clerkInviteFailed = false;
     if (nonRenewalInstructorIds.length > 0) {
+      // Guard: without NEXT_PUBLIC_APP_URL the redirect template literal
+      // produces "undefined/sign-up", which Clerk rejects and silently
+      // flips the row to failed on every attempt. Greptile cloud
+      // finding.
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      if (!appUrl) {
+        throw new Error(
+          "NEXT_PUBLIC_APP_URL is not set; cannot build Clerk invitation redirect URL"
+        );
+      }
       try {
         const result = await createStudentClerkInvitation({
           emailAddress: preview.email,
-          redirectUrl: `${process.env.NEXT_PUBLIC_APP_URL}/sign-up`,
+          redirectUrl: `${appUrl}/sign-up`,
         });
         if (result.success && result.invitationId) {
           clerkInvitationId = result.invitationId;
@@ -130,24 +187,29 @@ export async function POST(req: NextRequest) {
               { status: 409 }
             );
           }
+          clerkInviteFailed = true;
           // Non-already-invited failure — log but continue; the DB
-          // commit still succeeds and the admin can re-issue the
-          // invite from the recovery dashboard.
+          // commit still succeeds and the stub marks the row failed so
+          // the admin can re-issue from the recovery dashboard.
           await reportError({
             source: "api:admin/students/onboard",
             error: new Error(errorMsg),
             level: "warn",
             message: "Clerk invitation failed for admin onboarding; continuing without it",
-            context: { email: preview.email, errorMsg },
+            context: {
+              emailFingerprint: fingerprint(preview.email),
+              errorMsg,
+            },
           });
         }
       } catch (err) {
+        clerkInviteFailed = true;
         await reportError({
           source: "api:admin/students/onboard",
           error: err instanceof Error ? err : new Error(String(err)),
           level: "warn",
           message: "Clerk invitation threw for admin onboarding; continuing without it",
-          context: { email: preview.email },
+          context: { emailFingerprint: fingerprint(preview.email) },
         });
       }
     }
@@ -158,7 +220,7 @@ export async function POST(req: NextRequest) {
       {
         email: parsed.data.email,
         instructors: parsed.data.instructors.map((i) => ({
-          instructorId: i.instructorId as any,
+          instructorId: i.instructorId as Id<"instructors">,
           sessionsPerInstructor: i.sessionsPerInstructor,
           expiresAt: i.expiresAt,
         })),
@@ -170,34 +232,66 @@ export async function POST(req: NextRequest) {
       }
     )) as CommitResult;
 
-    // 4. Emit the Inngest event so the (stub) flow flips the row to
-    //    completed. Idempotency key = `${onboardingId}:${attemptCount}`
-    //    so admin retries bypass any cached runs (see plan §Idempotency).
-    try {
-      await inngest.send({
-        name: "admin/onboarding.completed",
-        data: {
-          onboardingId: commit.onboardingId,
-          attemptCount: 1,
-        },
-        id: `admin-onboarding:${commit.onboardingId}:1`,
-      });
-    } catch (err) {
-      // Match the existing pattern (payments.ts:552): DB success must not
-      // be reported as failure if the Inngest send fails. Log + 200.
-      await reportError({
-        source: "api:admin/students/onboard",
-        error: err instanceof Error ? err : new Error(String(err)),
-        level: "warn",
-        message: "Failed to emit admin/onboarding.completed Inngest event",
-        context: { onboardingId: commit.onboardingId },
-      });
+    // Track whether we entered a recovery branch so the response can
+    // surface the actual row status (instead of always reporting
+    // "processing" — Greptile P1 finding: the form would render
+    // `processing` forever for an onboarding already marked failed).
+    let responseStatus: "processing" | "failed" = "processing";
+    let failureReason: string | undefined;
+
+    if (clerkInviteFailed) {
+      // If Clerk failed, mark the row as `failed` immediately and skip
+      // the Inngest send — the stub would also flip it to failed and
+      // the admin's recovery path is via the dashboard retry (which
+      // PR 3 will re-issue the invite). This avoids the row sitting in
+      // `processing` with a missing signup link (Greptile P1 finding).
+      await markOnboardingFailed(
+        commit.onboardingId,
+        1,
+        "Clerk invitation failed during commit; admin must retry to issue invite."
+      );
+      responseStatus = "failed";
+      failureReason = "Clerk invitation failed during commit; admin must retry to issue invite.";
+    } else {
+      // 4. Emit the Inngest event so the (stub) flow flips the row to
+      //    completed. Idempotency key = `${onboardingId}:${attemptCount}`
+      //    so admin retries bypass any cached runs (see plan §Idempotency).
+      try {
+        await inngest.send({
+          name: "admin/onboarding.completed",
+          data: {
+            onboardingId: commit.onboardingId,
+            attemptCount: 1,
+          },
+          id: `admin-onboarding:${commit.onboardingId}:1`,
+        });
+      } catch (err) {
+        // If the event bus is unreachable, mark the row as `failed` so
+        // the admin can retry from the recovery dashboard — otherwise
+        // the row would be stuck in `processing` with no recovery path
+        // (Greptile P1 finding).
+        await reportError({
+          source: "api:admin/students/onboard",
+          error: err instanceof Error ? err : new Error(String(err)),
+          level: "warn",
+          message: "Failed to emit admin/onboarding.completed Inngest event",
+          context: { onboardingId: commit.onboardingId, attemptCount: 1 },
+        });
+        await markOnboardingFailed(
+          commit.onboardingId,
+          1,
+          "Inngest event send failed; admin must retry to restart flow."
+        );
+        responseStatus = "failed";
+        failureReason = "Inngest event send failed; admin must retry to restart flow.";
+      }
     }
 
     return NextResponse.json(
       {
         onboardingId: commit.onboardingId,
-        status: "processing" as const,
+        status: responseStatus,
+        failureReason,
         clerkInvitationId: clerkInvitationId ?? null,
         perInstructor: commit.perInstructor.map((p) => ({
           instructorId: p.instructorId,

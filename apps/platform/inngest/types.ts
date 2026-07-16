@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { convexIdSchema } from "../lib/validators";
 
 /**
  * Non-empty trimmed string schema for identifier fields.
@@ -177,10 +178,13 @@ export const sessionCancelledEmailEventSchema = z.object({
 // this; PR 3's real Resend + Discord handler reads the same event. The
 // `attemptCount` is part of the Inngest idempotency key so manual retries
 // bypass any cached runs (see plan §Idempotency).
+//
+// `onboardingId` uses `convexIdSchema` so malformed IDs are rejected at
+// the event boundary instead of reaching the Convex call site.
 export const adminOnboardingCompletedEventSchema = z.object({
   name: z.literal("admin/onboarding.completed"),
   data: z.object({
-    onboardingId: idString(),
+    onboardingId: convexIdSchema,
     attemptCount: z.number().int().min(1),
   }),
 });

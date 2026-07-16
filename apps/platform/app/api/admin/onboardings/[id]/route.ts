@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
+import { convexIdSchema } from "@/lib/validators";
 
 /**
  * GET /api/admin/onboardings/[id]
@@ -22,7 +24,7 @@ import { auth } from "@clerk/nextjs/server";
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+): Promise<NextResponse> {
   try {
     await requireAdminOrSupportForApi();
 
@@ -35,8 +37,12 @@ export async function GET(
     convex.setAuth(token);
 
     const { id } = await params;
+    const idParsed = convexIdSchema.safeParse(id);
+    if (!idParsed.success) {
+      return NextResponse.json({ error: "Invalid onboarding ID" }, { status: 400 });
+    }
     const row = await convex.query(api.adminOnboarding.getAdminOnboarding, {
-      id: id as any,
+      id: idParsed.data as Id<"adminOnboardings">,
     });
 
     if (!row) {

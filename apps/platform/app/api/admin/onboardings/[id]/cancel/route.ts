@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
+import { convexIdSchema } from "@/lib/validators";
 
 /**
  * POST /api/admin/onboardings/[id]/cancel
@@ -20,7 +22,7 @@ import { auth } from "@clerk/nextjs/server";
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-) {
+): Promise<NextResponse> {
   try {
     await requireAdminOrSupportForApi();
 
@@ -33,9 +35,13 @@ export async function POST(
     convex.setAuth(token);
 
     const { id } = await params;
+    const idParsed = convexIdSchema.safeParse(id);
+    if (!idParsed.success) {
+      return NextResponse.json({ error: "Invalid onboarding ID" }, { status: 400 });
+    }
     const result = await convex.mutation(
       api.adminOnboarding.cancelAdminOnboarding,
-      { onboardingId: id as any }
+      { onboardingId: idParsed.data as Id<"adminOnboardings"> }
     );
 
     return NextResponse.json({

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,7 @@ import {
 
 const DEFAULT_SESSIONS_PER_INSTRUCTOR = 4;
 const DEFAULT_EXPIRES_DAYS = 90;
+const EXISTING_STUDENT_LOOKUP_DEBOUNCE_MS = 350;
 
 type PerInstructorDraft = {
   instructorId: string;
@@ -35,50 +37,59 @@ type PerInstructorDraft = {
   expiresAt: number | undefined;
 };
 
-type PreviewPerInstructor = {
-  instructorId: string;
-  instructorName: string | undefined;
-  isRenewal: boolean;
-  existingWorkspaceId: string | undefined;
-  action: "new_workspace" | "renewal";
-  sessionsPerInstructor: number;
-  expiresAt: number | undefined;
-  atCapacity: boolean;
-  activeStudentCount: number;
-  maxActiveStudents: number | undefined;
-  capacityOverrideRequired: boolean;
-};
+const previewPerInstructorSchema = z.object({
+  instructorId: z.string(),
+  instructorName: z.string().optional(),
+  isRenewal: z.boolean(),
+  existingWorkspaceId: z.string().optional(),
+  action: z.enum(["new_workspace", "renewal"]),
+  sessionsPerInstructor: z.number(),
+  expiresAt: z.number().optional(),
+  atCapacity: z.boolean(),
+  activeStudentCount: z.number(),
+  maxActiveStudents: z.number().optional(),
+  capacityOverrideRequired: z.boolean(),
+});
 
-type PreviewResponse = {
-  email: string;
-  perInstructor: PreviewPerInstructor[];
-  existingStudent: {
-    userId: string;
-    firstName: string | undefined;
-    lastName: string | undefined;
-    existingInstructors: string[];
-  } | null;
-  capacityOverrideRequired: boolean;
-  capacityOverrideReasonMissing: boolean;
-  notesRequired: boolean;
-  notesMissing: boolean;
-  warnings: string[];
-};
+const previewResponseSchema = z.object({
+  email: z.string(),
+  perInstructor: z.array(previewPerInstructorSchema),
+  existingStudent: z
+    .object({
+      userId: z.string(),
+      firstName: z.string().optional(),
+      lastName: z.string().optional(),
+      existingInstructors: z.array(z.string()),
+    })
+    .nullable(),
+  capacityOverrideRequired: z.boolean(),
+  capacityOverrideReasonMissing: z.boolean(),
+  notesRequired: z.boolean(),
+  notesMissing: z.boolean(),
+  warnings: z.array(z.string()),
+});
 
-type CommitResponse = {
-  onboardingId: string;
-  status: "processing";
-  clerkInvitationId: string | null;
-  perInstructor: Array<{
-    instructorId: string;
-    workspaceId: string | undefined;
-    seatReservationId: string | undefined;
-    sessionPackId: string | undefined;
-    isRenewal: boolean;
-    clerkInvitationId: string | undefined;
-  }>;
-  existingWorkspaceIds: string[];
-};
+const commitResponseSchema = z.object({
+  onboardingId: z.string(),
+  status: z.union([z.literal("processing"), z.literal("failed")]),
+  failureReason: z.string().optional(),
+  clerkInvitationId: z.string().nullable(),
+  perInstructor: z.array(
+    z.object({
+      instructorId: z.string(),
+      workspaceId: z.string().optional(),
+      seatReservationId: z.string().optional(),
+      sessionPackId: z.string().optional(),
+      isRenewal: z.boolean(),
+      clerkInvitationId: z.string().optional(),
+    })
+  ),
+  existingWorkspaceIds: z.array(z.string()),
+});
+
+type PreviewPerInstructor = z.infer<typeof previewPerInstructorSchema>;
+type PreviewResponse = z.infer<typeof previewResponseSchema>;
+type CommitResponse = z.infer<typeof commitResponseSchema>;
 
 async function postPreview(body: {
   email: string;
@@ -87,11 +98,16 @@ async function postPreview(body: {
   notes?: string;
   capacityOverrideReason?: string;
 }): Promise<PreviewResponse> {
-  return apiFetch<PreviewResponse>("/api/admin/students/onboard/preview", {
+  const raw = await apiFetch<unknown>("/api/admin/students/onboard/preview", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  const parsed = previewResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error("Preview response did not match expected schema");
+  }
+  return parsed.data;
 }
 
 async function postCommit(body: {
@@ -110,14 +126,28 @@ async function postCommit(body: {
     const err = await res.json().catch(() => ({ error: "Failed to create onboarding" }));
     throw new Error(err.error || "Failed to create onboarding");
   }
-  return res.json();
+  const raw = await res.json();
+  const parsed = commitResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error("Commit response did not match expected schema");
+  }
+  return parsed.data;
 }
 
 function defaultExpiresAt(): number {
   return Date.now() + DEFAULT_EXPIRES_DAYS * 24 * 60 * 60 * 1000;
 }
 
-export default function AdminOnboardingForm() {
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+export default function AdminOnboardingForm(): React.JSX.Element {
   const queryClient = useQueryClient();
 
   const [email, setEmail] = useState("");
@@ -133,12 +163,13 @@ export default function AdminOnboardingForm() {
 
   const trimmedEmail = email.trim();
   const isValidEmailShape = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
+  const debouncedEmail = useDebouncedValue(trimmedEmail, EXISTING_STUDENT_LOOKUP_DEBOUNCE_MS);
 
   const { data: instructorOptions, isLoading: isLoadingInstructors } =
     useInstructorOptionsForOnboarding();
 
   const { data: existingStudent } = useLookupExistingStudent(
-    isValidEmailShape ? trimmedEmail : undefined
+    isValidEmailShape && debouncedEmail === trimmedEmail ? debouncedEmail : undefined
   );
 
   // Reset state when the email changes (so banners don't leak between runs).
@@ -147,12 +178,6 @@ export default function AdminOnboardingForm() {
     setCommitResult(null);
     setError("");
   }, [trimmedEmail]);
-
-  // Reset preview/commit when the instructor selection changes — the
-  // preview is stale once any pair is added or removed.
-  useEffect(() => {
-    setPreview(null);
-  }, [selectedInstructorIds.join(",")]);
 
   const selectedOptions = useMemo(() => {
     if (!instructorOptions) return [];
@@ -174,6 +199,33 @@ export default function AdminOnboardingForm() {
       };
     });
   }, [selectedInstructorIds, perInstructor]);
+
+  // Stable fingerprint of the current draft. Preview is stale if this
+  // signature differs from the one used to fetch the preview, so we
+  // clear it on any change. Greptile P1 / CodeRabbit Major.
+  const draftFingerprint = useMemo(() => {
+    const sorted = [...instructorsPayload].sort((a, b) =>
+      a.instructorId.localeCompare(b.instructorId)
+    );
+    return JSON.stringify({
+      instructors: sorted.map((d) => ({
+        instructorId: d.instructorId,
+        sessionsPerInstructor: d.sessionsPerInstructor,
+        expiresAt: d.expiresAt,
+      })),
+      isSeparateStudentRecord,
+      notes: notes.trim(),
+      capacityOverrideReason: capacityOverrideReason.trim(),
+    });
+  }, [instructorsPayload, isSeparateStudentRecord, notes, capacityOverrideReason]);
+
+  const prevFingerprintRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (preview && prevFingerprintRef.current !== null && prevFingerprintRef.current !== draftFingerprint) {
+      setPreview(null);
+    }
+    prevFingerprintRef.current = draftFingerprint;
+  }, [draftFingerprint, preview]);
 
   function toggleInstructor(id: string) {
     setSelectedInstructorIds((prev) =>
@@ -228,10 +280,12 @@ export default function AdminOnboardingForm() {
       }),
     onSuccess: (data) => {
       setPreview(data);
+      prevFingerprintRef.current = draftFingerprint;
       setError("");
     },
     onError: (err) => {
       setPreview(null);
+      prevFingerprintRef.current = null;
       setError(err instanceof Error ? err.message : "Failed to preview onboarding");
     },
   });
@@ -248,7 +302,6 @@ export default function AdminOnboardingForm() {
     onSuccess: (data) => {
       setCommitResult(data);
       setError("");
-      // Refresh the recovery dashboard list so the new row appears.
       queryClient.invalidateQueries({ queryKey: ["admin-onboardings"] });
     },
     onError: (err) => {
@@ -259,10 +312,17 @@ export default function AdminOnboardingForm() {
   const canPreview =
     isValidEmailShape &&
     selectedInstructorIds.length > 0 &&
-    !previewMutation.isPending;
+    !previewMutation.isPending &&
+    !commitResult;
 
-  const notesMissing = isSeparateStudentRecord && !notes.trim();
-  const capacityMissing = anyAtCapacityInSelection && !capacityOverrideReason.trim();
+  // Commit gating honors the authoritative server-side preview flags
+  // (capacityOverrideRequired, notesRequired) so the form can't be
+  // submitted when server capacity differs from cached options.
+  const notesMissing =
+    (preview?.notesRequired ?? isSeparateStudentRecord) && !notes.trim();
+  const capacityMissing =
+    (preview?.capacityOverrideRequired ?? anyAtCapacityInSelection) &&
+    !capacityOverrideReason.trim();
   const canCommit =
     !!preview &&
     !notesMissing &&
@@ -277,6 +337,11 @@ export default function AdminOnboardingForm() {
         admin: 1,
       }
     : null;
+
+  const showCapacityOverrideField =
+    preview?.capacityOverrideRequired ?? anyAtCapacityInSelection;
+  const showNotesField =
+    (preview?.notesRequired ?? isSeparateStudentRecord) || showCapacityOverrideField;
 
   return (
     <div className="space-y-4">
@@ -358,7 +423,7 @@ export default function AdminOnboardingForm() {
         </div>
       </div>
 
-      {anyAtCapacityInSelection && (
+      {showCapacityOverrideField && (
         <div className="space-y-2">
           <Label htmlFor="capacity-override-reason">
             Capacity override reason <span className="text-destructive">*</span>
@@ -372,16 +437,20 @@ export default function AdminOnboardingForm() {
             rows={2}
           />
           <p className="text-xs text-muted-foreground">
-            Required because at least one selected instructor is at capacity.
+            {preview
+              ? "Required per server preview (capacity flag)."
+              : "Required because at least one selected instructor is at capacity."}
           </p>
         </div>
       )}
 
-      {(isSeparateStudentRecord || anyAtCapacityInSelection) && (
+      {showNotesField && (
         <div className="space-y-2">
           <Label htmlFor="notes">
             Internal notes{" "}
-            {isSeparateStudentRecord && <span className="text-destructive">*</span>}
+            {((preview?.notesRequired ?? isSeparateStudentRecord) || showCapacityOverrideField) && (
+              <span className="text-destructive">*</span>
+            )}
           </Label>
           <Textarea
             id="notes"
@@ -479,7 +548,7 @@ function ExistingStudentBanner({
     onboardingAlias: string | undefined;
     priorOnboardingIds: string[];
   } | null;
-}) {
+}): React.JSX.Element | null {
   if (!existingStudent) return null;
   if (!existingStudent.exists && existingStudent.priorOnboardingIds.length === 0) {
     return null;
@@ -532,7 +601,7 @@ function InstructorMultiSelect({
   selectedIds: string[];
   onToggle: (id: string) => void;
   disabled: boolean;
-}) {
+}): React.JSX.Element {
   return (
     <div className="space-y-1 max-h-64 overflow-y-auto rounded-md border p-2">
       {options.map((opt) => {
@@ -586,7 +655,7 @@ function PerInstructorRow({
   draft: PerInstructorDraft;
   onChange: (patch: Partial<PerInstructorDraft>) => void;
   disabled: boolean;
-}) {
+}): React.JSX.Element {
   return (
     <div className="rounded-md border p-3 space-y-2">
       <div className="flex items-center justify-between">
@@ -654,7 +723,7 @@ function PreviewPanel({
 }: {
   preview: PreviewResponse;
   emailPlan: { student: number; instructors: number; admin: number } | null;
-}) {
+}): React.JSX.Element {
   return (
     <Card className="border-blue-300 bg-blue-50/40">
       <CardHeader>
@@ -723,13 +792,24 @@ function CommitResultPanel({
 }: {
   result: CommitResponse;
   instructorOptions: InstructorOption[];
-}) {
+}): React.JSX.Element {
+  const failed = result.status === "failed";
   return (
-    <Card className="border-green-300 bg-green-50/40">
+    <Card
+      className={
+        failed
+          ? "border-amber-300 bg-amber-50/40"
+          : "border-green-300 bg-green-50/40"
+      }
+    >
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
-          <CheckCircle2 className="h-4 w-4 text-green-700" />
-          Onboarding submitted
+          {failed ? (
+            <AlertTriangle className="h-4 w-4 text-amber-700" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 text-green-700" />
+          )}
+          {failed ? "Onboarding needs attention" : "Onboarding submitted"}
         </CardTitle>
         <CardDescription>
           Status: <Badge>{result.status}</Badge> ·{" "}
@@ -742,6 +822,11 @@ function CommitResultPanel({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
+        {failed && result.failureReason && (
+          <div className="rounded border border-amber-300 bg-background p-2 text-xs text-amber-900">
+            {result.failureReason}
+          </div>
+        )}
         {result.clerkInvitationId && (
           <div className="rounded border bg-background p-2 text-xs text-muted-foreground">
             Clerk invitation: <code>{result.clerkInvitationId}</code>

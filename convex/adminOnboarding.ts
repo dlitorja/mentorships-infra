@@ -1,6 +1,6 @@
-import { query, mutation, internalMutation, action } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery, action } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx, ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 
@@ -683,6 +683,20 @@ export const getAdminOnboarding = query({
 });
 
 /**
+ * Auth-less read for server-to-server callers (Inngest stub + PR 3's
+ * real workflow). Lives behind `getAdminOnboardingAction` so the
+ * actual data access is in an `internalQuery` unreachable from the
+ * browser (Greptile cloud finding: a public query with a secret
+ * bypass would let any browser caller with the secret read rows).
+ */
+export const getAdminOnboardingInternal = internalQuery({
+  args: { id: v.id("adminOnboardings") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.id);
+  },
+});
+
+/**
  * List view for the recovery dashboard. Indexes:
  *   - `by_status_createdAt` — fast for a single-status tab.
  *   - "all statuses" is fanned out via the same index with one bucket per
@@ -881,10 +895,28 @@ export const appendTimelineEntry = internalMutation({
         stub: v.optional(v.boolean()),
       })
     ),
+    expectedStatus: v.optional(v.string()),
+    expectedAttemptCount: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.onboardingId);
     if (!row) throw new Error("Onboarding not found");
+    if (
+      args.expectedStatus !== undefined &&
+      row.status !== args.expectedStatus
+    ) {
+      throw new Error(
+        `appendTimelineEntry: row status is '${row.status}', expected '${args.expectedStatus}' — stale call rejected`
+      );
+    }
+    if (
+      args.expectedAttemptCount !== undefined &&
+      row.attemptCount !== args.expectedAttemptCount
+    ) {
+      throw new Error(
+        `appendTimelineEntry: row attemptCount is ${row.attemptCount}, expected ${args.expectedAttemptCount} — stale call rejected`
+      );
+    }
     const entry = newTimelineEntry(args.event, args.actorUserId, args.details);
     const MAX_TIMELINE = 50;
     const trimmed =
@@ -944,6 +976,8 @@ export const appendTimelineEntryAction = action({
         stub: v.optional(v.boolean()),
       })
     ),
+    expectedStatus: v.optional(v.string()),
+    expectedAttemptCount: v.optional(v.number()),
     secret: v.string(),
   },
   handler: async (ctx, args) => {
@@ -958,8 +992,39 @@ export const appendTimelineEntryAction = action({
         actorUserId: args.actorUserId,
         details: args.details,
         emailsSentPatch: args.emailsSentPatch,
+        expectedStatus: args.expectedStatus,
+        expectedAttemptCount: args.expectedAttemptCount,
       }
     );
     return result;
+  },
+});
+
+/**
+ * Public action wrapper for `getAdminOnboardingInternal`. Mirrors the
+ * `appendTimelineEntryAction` pattern (defined above): requires
+ * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal query.
+ *
+ * The explicit `ReturnType<typeof action>` annotation breaks a
+ * circular-inference cycle that arises when the action's return type
+ * is inferred via `internal.adminOnboarding.getAdminOnboardingInternal`
+ * — TypeScript gets stuck resolving the generated API types within
+ * the same module context. The annotation erases the inner generic
+ * but preserves the public type contract via the generated API.
+ * Callable from external clients (Inngest worker, server-side fetch).
+ */
+export const getAdminOnboardingAction: ReturnType<typeof action> = action({
+  args: {
+    id: v.id("adminOnboardings"),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runQuery(
+      internal.adminOnboarding.getAdminOnboardingInternal,
+      { id: args.id }
+    );
   },
 });
