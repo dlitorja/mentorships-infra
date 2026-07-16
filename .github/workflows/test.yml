@@ -18,21 +18,41 @@ jobs:
       convex: ${{ steps.filter.outputs.convex }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Paths filter
         id: filter
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            web:
-              - 'apps/web/**'
-            platform:
-              - 'apps/platform/**'
-            marketing:
-              - 'apps/marketing/**'
-            packages:
-              - 'packages/**'
-            convex:
-              - 'convex/**'
+        # PR 6 fix: replaced `dorny/paths-filter@v3` with a git-diff based
+        # equivalent. The previous version failed in fork PR context because
+        # its GitHub API call returned an HTML error page (rate limit /
+        # insufficient GITHUB_TOKEN scope). This Bash approach has no
+        # external dependencies, no Node version constraint, and the same
+        # output keys the downstream `build` job depends on.
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            head_sha="${{ github.event.pull_request.head.sha }}"
+          else
+            base_sha="${{ github.event.before }}"
+            head_sha="${{ github.sha }}"
+          fi
+          # `git diff` may return non-zero if there are no changes; ignore that.
+          changed_files=$(git diff --name-only "$base_sha" "$head_sha" 2>/dev/null || true)
+          declare -A patterns=(
+            [web]='^apps/web/'
+            [platform]='^apps/platform/'
+            [marketing]='^apps/marketing/'
+            [packages]='^packages/'
+            [convex]='^convex/'
+          )
+          for key in "${!patterns[@]}"; do
+            if echo "$changed_files" | grep -qE "${patterns[$key]}"; then
+              echo "$key=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$key=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
   lint-and-typecheck:
     name: Lint & Type Check
     runs-on: ubuntu-22.04
