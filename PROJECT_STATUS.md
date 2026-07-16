@@ -544,6 +544,38 @@ This has been superseded by the apps/platform decision. The new architecture wil
 
 ---
 
+## 🏛 Naming Compliance — Deprecated Aliases
+
+The AGENTS.md rule **forbids the words `mentor`, `mentee`, and `mentorship` in code** (use `instructor` / `student` instead; only `mentorships` is permitted in UI copy). PR 5 introduced a renaming pass for Inngest event names; the legacy alias is kept live for a **60-day deprecation window**.
+
+### Active deprecated aliases
+
+| Old (forbidden) | New (canonical) | Files affected | Cleanup PR target |
+|-----------------|-----------------|----------------|-------------------|
+| `purchase/mentorship` | `purchase/instructor` | `apps/platform/inngest/types.ts` (zod schema accepts both literals), `apps/platform/inngest/functions/onboarding.ts` (multi-trigger accepts both events), `apps/platform/inngest/functions/payments.ts` (emitter updated) | **2026-09-14** (60 days from PR 5 merge) |
+
+### Cleanup checklist for follow-up PR (target 2026-09-14)
+
+- [ ] Remove the `{ event: "purchase/mentorship" }` entry from the `onboardingFlow` multi-trigger array
+- [ ] Remove `z.literal("purchase/mentorship")` from `purchaseInstructorEventSchema`'s `z.union`
+- [ ] Delete the `purchaseMentorshipEventSchema` deprecated alias export from `apps/platform/inngest/types.ts`
+- [ ] Delete the `PurchaseMentorshipEvent` type alias
+- [ ] Remove the deprecation comment block at the top of `purchaseInstructorEventSchema`
+- [ ] Audit external producers (anything in `apps/platform` or `packages/` that calls `inngest.send({ name: "purchase/mentorship", ... })`) — none expected after this PR, but verify
+- [ ] Update any documentation references (search-and-replace `purchase/mentorship` → `purchase/instructor`)
+
+### Migration notes
+
+- The zod schema `purchaseInstructorEventSchema` accepts **both** event names during the window, so the handler parses either.
+- The `source` tag in `reportError` uses `inngest:${event.name}` so log entries reflect whichever event name arrived (new vs. deprecated).
+- Emitters in `payments.ts` (both Stripe and PayPal paths) now send `purchase/instructor`. No producer still emits `purchase/mentorship` after this PR.
+
+### Verification (post-merge)
+
+After PR 5 deploys, run `npx inngest dev` against staging and manually send one `purchase/mentorship` event to confirm the handler still triggers. Then send one `purchase/instructor` event to confirm the canonical path works. Both should land in the same function with the same effect.
+
+---
+
 ## 🏗️ Architecture Clarification
 
 ### Application Responsibilities

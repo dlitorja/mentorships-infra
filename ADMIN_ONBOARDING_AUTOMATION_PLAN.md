@@ -845,6 +845,28 @@ Steps:
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5, safe to merge.
 
+### PR 5 — Naming compliance (R1 + R2) — IN PROGRESS (#PR5)
+
+**Goal**: satisfy the AGENTS.md "never use mentor/mentee/mentorship in code" rule end-to-end in the platform app, including the existing purchase-onboarding flow (not just admin-onboarding). The deprecated `purchase/mentorship` event name is kept as a backward-compat alias for a 60-day window.
+
+**Shipped in PR 5**:
+
+- **R1 — event rename with alias**:
+  - `apps/platform/inngest/types.ts`: `purchaseInstructorEventSchema` accepts **both** `purchase/instructor` (canonical) and `purchase/mentorship` (deprecated alias) via `z.union([z.literal(...), z.literal(...)])`. Old `purchaseMentorshipEventSchema` re-exported as a back-compat alias that points to the new schema.
+  - `apps/platform/inngest/functions/onboarding.ts`: `onboardingFlow` registered with a **multi-trigger** array — both events route to the same handler. `purchaseMentorshipEventSchema` import replaced by `purchaseInstructorEventSchema`.
+  - `apps/platform/inngest/functions/onboarding.ts:report-onboarding-email-result`: `source` tag is now dynamic — uses `` `inngest:${event.name}` `` so log entries reflect whichever event arrived.
+  - `apps/platform/inngest/functions/payments.ts` (both Stripe and PayPal paths): emitter switched from `name: "purchase/mentorship"` to `name: "purchase/instructor"`. Two emitters updated (lines 553 and 1021). Header comments at lines 171 and 727 updated.
+- **R2 — replace remaining "mentorship" UI copy in onboarding handler**:
+  - Student subject (returning variant, both `sendTemplateEmail` and `sendEmail` paths): "Welcome back — your **mentorship** with ${instructorName} is ready" → "Welcome back — your **session pack** with ${instructorName} is ready".
+  - Admin subject (returning variant): "[Returning] New **mentorship** purchase - ${name} with ${instructorName}" → "[Returning] New **session pack** purchase - ${name} with ${instructorName}".
+- **Docs**: new section `## 🏛 Naming Compliance — Deprecated Aliases` in `PROJECT_STATUS.md` listing the deprecated alias, target cleanup date **2026-09-14**, and the follow-up cleanup checklist. Same deprecation note added below.
+
+**Deprecated alias cleanup target**: **2026-09-14** (60 days from PR 5 merge).
+
+**Files**: `apps/platform/inngest/types.ts`, `apps/platform/inngest/functions/onboarding.ts`, `apps/platform/inngest/functions/payments.ts`, `PROJECT_STATUS.md`, `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
+
+**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` ✓; manual via `npx inngest dev` to send both event names and confirm the same handler fires.
+
 ### Branching + Review Hygiene
 
 - All three branches off `main`; merge in order (1 → 2 → 3). Do not stack the branches into a single PR.
@@ -852,3 +874,35 @@ Steps:
 - One squashed commit per PR after local review is clean — avoids re-triggering the GitHub App on force-pushes.
 - Greptile cloud reviews fire once per PR via the GitHub App, configured per `AGENTS.md`.
 - Codegen (`npx convex dev`) is regenerated as part of PR 1's diff; PRs 2 and 3 do not change schema, so no regeneration needed unless they touch generated types.
+
+---
+
+## 🏛 Naming Compliance — Deprecated Aliases (added by PR 5)
+
+The AGENTS.md rule **forbids the words `mentor`, `mentee`, and `mentorship` in code** (use `instructor` / `student` instead; only `mentorships` is permitted in UI copy). PR 5 introduced a renaming pass for Inngest event names; the legacy alias is kept live for a **60-day deprecation window**.
+
+### Active deprecated aliases
+
+| Old (forbidden) | New (canonical) | Files affected | Cleanup target |
+|-----------------|-----------------|----------------|----------------|
+| `purchase/mentorship` | `purchase/instructor` | `apps/platform/inngest/types.ts` (zod schema accepts both literals), `apps/platform/inngest/functions/onboarding.ts` (multi-trigger accepts both events), `apps/platform/inngest/functions/payments.ts` (emitter updated) | **2026-09-14** (60 days from PR 5 merge) |
+
+### Cleanup checklist for follow-up PR (target 2026-09-14)
+
+- [ ] Remove the `{ event: "purchase/mentorship" }` entry from the `onboardingFlow` multi-trigger array
+- [ ] Remove `z.literal("purchase/mentorship")` from `purchaseInstructorEventSchema`'s `z.union`
+- [ ] Delete the `purchaseMentorshipEventSchema` deprecated alias export from `apps/platform/inngest/types.ts`
+- [ ] Delete the `PurchaseMentorshipEvent` type alias
+- [ ] Remove the deprecation comment block at the top of `purchaseInstructorEventSchema`
+- [ ] Audit external producers — anything in `apps/platform` or `packages/` that calls `inngest.send({ name: "purchase/mentorship", ... })` should be zero
+- [ ] Update any remaining documentation references (search-and-replace `purchase/mentorship` → `purchase/instructor`)
+
+### Migration notes
+
+- The zod schema `purchaseInstructorEventSchema` accepts **both** event names during the window, so the handler parses either.
+- The `source` tag in `reportError` uses `inngest:${event.name}` so log entries reflect whichever event name arrived (new vs. deprecated).
+- Emitters in `payments.ts` (both Stripe and PayPal paths) now send `purchase/instructor`. No producer still emits `purchase/mentorship` after this PR.
+
+### Verification (post-merge)
+
+After PR 5 deploys, run `npx inngest dev` against staging and manually send one `purchase/mentorship` event to confirm the handler still triggers. Then send one `purchase/instructor` event to confirm the canonical path works. Both should land in the same function with the same effect.

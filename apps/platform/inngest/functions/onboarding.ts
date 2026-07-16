@@ -9,7 +9,10 @@ import { reportError } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
 import { buildAdminPurchaseEmail } from "@/lib/emails/admin-purchase-notification-email";
-import { purchaseMentorshipEventSchema, adminOnboardingCompletedEventSchema } from "../types";
+import {
+  purchaseInstructorEventSchema,
+  adminOnboardingCompletedEventSchema,
+} from "../types";
 import { inngest } from "../client";
 
 function getConvexClient() {
@@ -61,7 +64,9 @@ function getBaseUrl(): string {
 /**
  * Handles post-purchase onboarding for students and instructors.
  *
- * Triggered by: `purchase/mentorship`
+ * Triggered by: `purchase/instructor` (canonical) and `purchase/mentorship`
+ * (deprecated alias — see PROJECT_STATUS.md → "Naming compliance — deprecated
+ * aliases", target removal 2026-09-14).
  *
  * Skips guest purchases (no Clerk user to look up).
  *
@@ -86,9 +91,16 @@ export const onboardingFlow = inngest.createFunction(
     name: "Onboarding Flow",
     retries: 2,
   },
-  { event: "purchase/mentorship" },
+  [
+    // Canonical trigger (PR 5 onward).
+    { event: "purchase/instructor" },
+    // Deprecated alias — kept alive for a 60-day window (target removal
+    // 2026-09-14). See PROJECT_STATUS.md → "Naming compliance — deprecated
+    // aliases" for the cleanup checklist.
+    { event: "purchase/mentorship" },
+  ],
   async ({ event, step }) => {
-    const parsed = purchaseMentorshipEventSchema.parse({
+    const parsed = purchaseInstructorEventSchema.parse({
       name: event.name,
       data: event.data,
     });
@@ -235,7 +247,7 @@ export const onboardingFlow = inngest.createFunction(
           to: studentEmail,
           templateId,
           subject: isReturning
-            ? `Welcome back — your mentorship with ${instructorName} is ready`
+            ? `Welcome back — your session pack with ${instructorName} is ready`
             : undefined,
           templateData,
           headers: {
@@ -259,7 +271,7 @@ export const onboardingFlow = inngest.createFunction(
       return await sendEmail({
         to: studentEmail,
         subject: isReturning
-          ? `Welcome back — your mentorship with ${instructorName} is ready`
+          ? `Welcome back — your session pack with ${instructorName} is ready`
           : emailContent.subject,
         html: emailContent.html,
         text: emailContent.text,
@@ -275,7 +287,7 @@ export const onboardingFlow = inngest.createFunction(
     await step.run("report-onboarding-email-result", async () => {
       const wasSkipped = !sendResult.ok && "skipped" in sendResult && sendResult.skipped === true;
       await reportError({
-        source: "inngest:purchase/mentorship",
+        source: `inngest:${event.name}`,
         error: sendResult.ok ? null : sendResult,
         level: sendResult.ok ? "info" : wasSkipped ? "warn" : "error",
         message: sendResult.ok
@@ -404,7 +416,7 @@ export const onboardingFlow = inngest.createFunction(
               to: adminEmail,
               templateId: adminTmplId,
               subject: isReturning
-                ? `[Returning] New mentorship purchase - ${studentName || studentEmail} with ${instructorName}`
+                ? `[Returning] New session pack purchase - ${studentName || studentEmail} with ${instructorName}`
                 : undefined,
               templateData,
               headers: {
