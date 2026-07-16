@@ -704,7 +704,7 @@ export const getAdminOnboardingInternal = internalQuery({
  * `emailSearch` is a case-insensitive substring match — fine for the
  * recovery dashboard's expected volume.
  */
-export const listAdminOnboardings = query({
+export const listAdminOnboardings: ReturnType<typeof query> = query({
   args: {
     status: v.optional(
       v.union(
@@ -724,7 +724,41 @@ export const listAdminOnboardings = query({
     const gate = await isAdminOrSupport(ctx, identity.subject);
     if (!gate.ok) return [];
 
-    const limit = Math.min(args.limit ?? 50, 100);
+    return await ctx.runQuery(internal.adminOnboarding.listAdminOnboardingsInternal, {
+      status: args.status,
+      emailSearch: args.emailSearch,
+      limit: args.limit,
+    });
+  },
+});
+
+/**
+ * Internal query: list admin onboarding rows for server-side callers
+ * (e.g. the stale-digest Inngest cron). No auth-identity check — gated
+ * by `CONVEX_SERVER_SHARED_SECRET` at the public-action wrapper layer.
+ * Mirrors the pattern used by `getAdminOnboardingInternal` /
+ * `getAdminOnboardingAction`.
+ */
+export const listAdminOnboardingsInternal = internalQuery({
+  args: {
+    status: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("processing"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled")
+      )
+    ),
+    emailSearch: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    // PR 4 fix: no cap here — the public query keeps a 100-row cap for
+    // safety, but server-side callers (e.g. the stale-digest cron) need
+    // to scan up to the requested limit. Bounded at 1000 to defend
+    // against runaway scans.
+    const limit = Math.min(args.limit ?? 50, 1000);
 
     if (args.status) {
       const rows = await ctx.db
@@ -754,6 +788,42 @@ export const listAdminOnboardings = query({
     return args.emailSearch
       ? merged.filter((r) => r.email.includes(args.emailSearch!.toLowerCase()))
       : merged;
+  },
+});
+
+/**
+ * Public action wrapper for `listAdminOnboardingsInternal`. Requires
+ * `CONVEX_SERVER_SHARED_SECRET` (no Clerk session — Inngest workers
+ * and other server-side callers don't have one). Returns the same
+ * shape as the public `listAdminOnboardings` query.
+ */
+export const listAdminOnboardingsAction: ReturnType<typeof action> = action({
+  args: {
+    status: v.optional(
+      v.union(
+        v.literal("queued"),
+        v.literal("processing"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled")
+      )
+    ),
+    emailSearch: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runQuery(
+      internal.adminOnboarding.listAdminOnboardingsInternal,
+      {
+        status: args.status,
+        emailSearch: args.emailSearch,
+        limit: args.limit,
+      }
+    );
   },
 });
 
@@ -893,6 +963,8 @@ export const appendTimelineEntry = internalMutation({
         student: v.optional(v.boolean()),
         instructors: v.optional(v.array(v.id("instructors"))), // Convex instructor IDs
         adminSummary: v.optional(v.boolean()),
+        // PR 4 cloud-review fix: per-address admin-send tracking.
+        adminSummaryByEmail: v.optional(v.record(v.string(), v.boolean())),
         stub: v.optional(v.boolean()),
       })
     ),
@@ -936,7 +1008,24 @@ export const appendTimelineEntry = internalMutation({
       updates.failureReason = args.details;
     }
     if (args.emailsSentPatch) {
-      updates.emailsSent = { ...(row.emailsSent ?? {}), ...args.emailsSentPatch };
+      // PR 4 fix: shallow merge would replace the `instructors` array
+      // entirely on each per-instructor update, so a retry would re-send
+      // to all-but-the-last instructor. Concatenate + dedupe instead.
+      const existingInstructors: string[] = (row.emailsSent?.instructors ?? []) as string[];
+      const patchInstructors: string[] = (args.emailsSentPatch.instructors ?? []) as string[];
+      const mergedInstructors = Array.from(new Set([...existingInstructors, ...patchInstructors]));
+      // PR 4 cloud-review fix: shallow merge would replace the
+      // `adminSummaryByEmail` map entirely on each send, losing prior
+      // successful addresses. Merge keys instead.
+      const existingByEmail: Record<string, boolean> = (row.emailsSent?.adminSummaryByEmail ?? {}) as Record<string, boolean>;
+      const patchByEmail: Record<string, boolean> = (args.emailsSentPatch.adminSummaryByEmail ?? {}) as Record<string, boolean>;
+      const mergedByEmail: Record<string, boolean> = { ...existingByEmail, ...patchByEmail };
+      const baseEmailsSent = { ...(row.emailsSent ?? {}), ...args.emailsSentPatch };
+      updates.emailsSent = {
+        ...baseEmailsSent,
+        instructors: mergedInstructors,
+        adminSummaryByEmail: mergedByEmail,
+      };
     }
     await ctx.db.patch(args.onboardingId, updates);
     return entry;
@@ -975,6 +1064,7 @@ export const appendTimelineEntryAction = action({
         student: v.optional(v.boolean()),
         instructors: v.optional(v.array(v.id("instructors"))), // Convex instructor IDs
         adminSummary: v.optional(v.boolean()),
+        adminSummaryByEmail: v.optional(v.record(v.string(), v.boolean())),
         stub: v.optional(v.boolean()),
       })
     ),
@@ -1028,5 +1118,304 @@ export const getAdminOnboardingAction: ReturnType<typeof action> = action({
       internal.adminOnboarding.getAdminOnboardingInternal,
       { id: args.id }
     );
+  },
+});
+
+/**
+ * Internal mutation: release placeholder inventory held by an admin
+ * onboarding row. For each entry in `perInstructor`, patches:
+ *   - `seatReservations.status = "released"` (idempotent — skipped if already)
+ *   - `workspaces.endedAt = now`        (idempotent — skipped if already set)
+ *   - `sessionPacks.status = "expired"` (idempotent — skipped if not active)
+ *
+ * Appends a single `released` timeline entry on success. Does NOT
+ * transition `adminOnboardings.status` (the schema does not have a
+ * "released" status — release is a sub-event of `completed`).
+ *
+ * This is the action the PR 4 stale-digest flow calls to make the
+ * `released` timeline event meaningful (previously, the event was
+ * written but no inventory state changed).
+ */
+export const releasePlaceholderInventoryInternal = internalMutation({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    actorUserId: v.optional(v.string()),
+    details: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.onboardingId);
+    if (!row) throw new Error("Onboarding row not found: " + args.onboardingId);
+
+    const now = Date.now();
+    let seatsReleased = 0;
+    let workspacesEnded = 0;
+    let packsExpired = 0;
+    let skipped = 0;
+
+    for (const entry of row.perInstructor) {
+      // 1. Release placeholder seat reservation.
+      //    PR 4 cloud-review fix (greptile-apps): skip seats whose userId
+      //    has been rewritten to a real Clerk ID — those are now owned by
+      //    a real student, and releasing the seat would orphan their
+      //    allocation. Placeholder seat reservations always have userId
+      //    starting with "email:" (set during admin onboarding); real
+      //    users use Clerk IDs.
+      if (entry.seatReservationId) {
+        const seat = await ctx.db.get(entry.seatReservationId);
+        if (seat && seat.status !== "released") {
+          if (typeof seat.userId === "string" && seat.userId.startsWith("email:")) {
+            await ctx.db.patch(entry.seatReservationId, { status: "released" });
+            seatsReleased++;
+          } else {
+            skipped++;
+          }
+        } else {
+          skipped++;
+        }
+      }
+
+      // 2. End any workspace that was auto-created by this onboarding
+      //    (only newly-created workspaces, not reused renewals). Renewal
+      //    pairs leave `workspaceId` undefined.
+      //    PR 4 cloud-review fix (greptile-apps): also guard on
+      //    `ownerId.startsWith("email:")` so we never end a workspace
+      //    whose owner has been rewritten to a real Clerk ID by the
+      //    linking flow.
+      if (entry.workspaceId) {
+        const ws = await ctx.db.get(entry.workspaceId);
+        if (ws && ws.endedAt === undefined && ws.deletedAt === undefined && typeof ws.ownerId === "string" && ws.ownerId.startsWith("email:")) {
+          await ctx.db.patch(entry.workspaceId, { endedAt: now });
+          workspacesEnded++;
+        } else if (ws && ws.endedAt === undefined && ws.deletedAt === undefined) {
+          skipped++;
+        }
+      }
+
+      // 3. Expire the placeholder session pack (mirror `expireSessionPack`
+      //    in `convex/sessionPacks.ts:336` — schema has no `cancelled`).
+      //    PR 4 fix: skip packs whose userId has been rewritten to a
+      //    real Clerk ID — those are live in-use packs the student
+      //    owns, and we must not revoke their access. Placeholder packs
+      //    always have userId starting with "email:" (set during
+      //    admin onboarding); real users use Clerk IDs.
+      if (entry.sessionPackId) {
+        const pack = await ctx.db.get(entry.sessionPackId);
+        if (pack && pack.status === "active" && typeof pack.userId === "string" && pack.userId.startsWith("email:")) {
+          await ctx.db.patch(entry.sessionPackId, { status: "expired" });
+          packsExpired++;
+        } else if (pack && pack.status === "active") {
+          skipped++;
+        }
+      }
+    }
+
+    // Append a single "released" timeline entry. Idempotent on
+    // `appendTimelineEntry` itself — if the event already exists in the
+    // bounded timeline, no double-append occurs.
+    await ctx.runMutation(internal.adminOnboarding.appendTimelineEntry, {
+      onboardingId: args.onboardingId,
+      event: "released",
+      actorUserId: args.actorUserId,
+      details:
+        (args.details ? args.details + " | " : "") +
+        "seats=" + seatsReleased +
+        ",workspaces=" + workspacesEnded +
+        ",packs=" + packsExpired +
+        ",skipped=" + skipped,
+      expectedStatus: undefined,
+      expectedAttemptCount: undefined,
+    });
+
+    return {
+      releasedCount: seatsReleased + workspacesEnded + packsExpired,
+      seatsReleased,
+      workspacesEnded,
+      packsExpired,
+      skipped,
+    };
+  },
+});
+
+/**
+ * Public action wrapper for `releasePlaceholderInventoryInternal`.
+ * Mirrors the `appendTimelineEntryAction` pattern: requires
+ * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal
+ * mutation via `ctx.runMutation`. Called from the PR 4 stale-digest
+ * Inngest flow after `scan-stale` identifies stale rows.
+ */
+export const releasePlaceholderInventoryAction: ReturnType<typeof action> = action({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    actorUserId: v.optional(v.string()),
+    details: v.optional(v.string()),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runMutation(
+      internal.adminOnboarding.releasePlaceholderInventoryInternal,
+      {
+        onboardingId: args.onboardingId,
+        actorUserId: args.actorUserId,
+        details: args.details,
+      }
+    );
+  },
+});
+
+/**
+ * Internal query: resolve contact info (email + name) for multiple
+ * instructors. Used by the admin onboarding flow to fill in the
+ * `instructorName` field on every email step (student, instructor,
+ * admin) — previously hardcoded to "" or "Instructor", which made
+ * every admin-onboarded email show blank names (Greptile P1).
+ *
+ * Email resolution order (per instructor):
+ *   1. `instructors.email` (direct field on the instructor row)
+ *   2. `users.email` via `instructors.userId` (cross-reference)
+ *
+ * Name resolution:
+ *   1. `instructors.name` (always present — schema line 60 is `v.string()`)
+ *   2. fall back to `instructors.slug` if name is empty
+ *
+ * Returns a map keyed by instructor ID. Missing rows are omitted
+ * from the map (callers should treat as "instructor_not_found").
+ */
+export const getInstructorContactsInternal = internalQuery({
+  args: {
+    instructorIds: v.array(v.id("instructors")),
+  },
+  handler: async (ctx, args) => {
+    const result: Record<string, { email: string | null; name: string; reason: string | null }> = {};
+    for (const id of args.instructorIds) {
+      const instructor = await ctx.db.get(id);
+      if (!instructor) {
+        result[id] = { email: null, name: "", reason: "instructor_not_found" };
+        continue;
+      }
+      const name = instructor.name && instructor.name.length > 0
+        ? instructor.name
+        : (instructor.slug ?? "");
+      let email: string | null = null;
+      let reason: string | null = null;
+      if (instructor.email && instructor.email.length > 0) {
+        email = instructor.email;
+      } else if (instructor.userId) {
+        const user = await ctx.db
+          .query("users")
+          .withIndex("by_userId", (q) => q.eq("userId", instructor.userId!))
+          .first();
+        if (user && user.email) {
+          email = user.email;
+        } else {
+          reason = "no_email";
+        }
+      } else {
+        reason = "no_email";
+      }
+      result[id] = { email, name, reason };
+    }
+    return result;
+  },
+});
+
+/**
+ * Public action wrapper for `getInstructorContactsInternal`.
+ * Mirrors the `appendTimelineEntryAction` pattern: requires
+ * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal query.
+ */
+export const getInstructorContactsAction: ReturnType<typeof action> = action({
+  args: {
+    instructorIds: v.array(v.id("instructors")),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runQuery(
+      internal.adminOnboarding.getInstructorContactsInternal,
+      { instructorIds: args.instructorIds }
+    );
+  },
+});
+
+/**
+ * Internal query: scan completed admin onboardings that have stale
+ * placeholder inventory and are still genuinely un-claimed by a real
+ * Clerk user. Used by the daily stale-digest cron (`adminOnboardingStaleDigestFlow`).
+ *
+ * Server-side does the heavy lifting (one DB scan + per-row pack lookup)
+ * so the Inngest caller can simply iterate over the returned rows.
+ *
+ * "Placeholder" verification mirrors `releasePlaceholderInventoryInternal`:
+ * the row's `perInstructor[i].sessionPackId` must point to a pack whose
+ * `userId` still starts with "email:" AND `status === "active"`. This
+ * protects the digest from producing false alerts for onboardings whose
+ * students have already accepted their invites but where the linking
+ * flow hasn't yet rewritten the pack owner.
+ *
+ * PR 4 cloud-review fix (CodeRabbit #9214): ownership verification happens
+ * at scan time, not only at release time, so admins don't get repeated
+ * alerts for onboardings whose placeholder has been claimed.
+ */
+export const getStaleOnboardingsInternal = internalQuery({
+  args: {
+    cutoffMs: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const candidates = await ctx.db
+      .query("adminOnboardings")
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "completed"))
+      .order("desc")
+      .take(1000);
+
+    const staleRows: Doc<"adminOnboardings">[] = [];
+    for (const row of candidates) {
+      if (row.createdAt >= args.cutoffMs) continue;
+      if (row.email.startsWith("clerk:")) continue;
+      if (!Array.isArray(row.perInstructor) || row.perInstructor.length === 0) continue;
+
+      // Verify at least one non-renewal pair has a STILL-PLACEHOLDER pack.
+      let hasPlaceholder = false;
+      for (const pair of row.perInstructor) {
+        if (!pair || pair.isRenewal || !pair.sessionPackId) continue;
+        const pack = await ctx.db.get(pair.sessionPackId);
+        if (
+          pack &&
+          pack.status === "active" &&
+          typeof pack.userId === "string" &&
+          pack.userId.startsWith("email:")
+        ) {
+          hasPlaceholder = true;
+          break;
+        }
+      }
+      if (hasPlaceholder) staleRows.push(row);
+    }
+    return staleRows;
+  },
+});
+
+/**
+ * Public action wrapper for `getStaleOnboardingsInternal`. Requires
+ * `CONVEX_SERVER_SHARED_SECRET` (Inngest workers have no Clerk session).
+ * Mirrors the `listAdminOnboardingsAction` / `getAdminOnboardingAction` /
+ * `releasePlaceholderInventoryAction` pattern.
+ */
+export const getStaleOnboardingsAction: ReturnType<typeof action> = action({
+  args: {
+    cutoffMs: v.number(),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runQuery(internal.adminOnboarding.getStaleOnboardingsInternal, {
+      cutoffMs: args.cutoffMs,
+    });
   },
 });

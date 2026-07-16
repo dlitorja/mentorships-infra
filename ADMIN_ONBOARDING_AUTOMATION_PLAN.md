@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1 and PR 2 merged to `main`. PR 3 (live Inngest flow + Resend + Discord + daily digest) still pending.
+Status: PR 1, PR 2, and PR 3 merged to `main`. PR 4 (Greptile fix pass for all PR #636 review findings) PR opened at #637 — pending review/merge.
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -714,7 +714,7 @@ vercel:     mentorships-infra-platform + mentorships-infra + mentorships-infra-h
 
 **Squashed merge**: 15 files, +2461/-146 lines → single commit `feat(platform): admin onboarding two-phase form + API routes (PR 2/3)` on `main` (merge commit `720a6beb`), with the review-fix commit `fix(platform): address PR #635 review findings for admin onboarding` squashed into the same branch.
 
-### PR 3 — Inngest Flow + Resend + Daily Digest — PENDING
+### PR 3 — Inngest Flow + Resend + Daily Digest — SHIPPED (PR #636, merged `618a239b`)
 
 **Goal**: replace the PR 2 stub with the real Inngest handler; extend Resend templates; enqueue Discord DMs; wire the daily stale-digest cron.
 
@@ -825,6 +825,25 @@ Steps:
 - Greptile CLI local review before push (`npx greptile@latest review --diff -b main`); Greptile cloud review on PR open.
 
 **Rollback**: revert the Inngest handler to the PR 2 stub; remove the daily digest scheduled function. Emails stop; existing `adminOnboardings` data is unaffected. Schedule via `inngest.createFunction` is local to the file, so deletion is a single-file revert.
+
+### PR 4 — Greptile fix pass for all PR #636 review findings — PR OPENED (#637)
+
+**Goal**: address every issue flagged across 8 Greptile review rounds on PR #636.
+
+**Shipped in PR 4**:
+
+- **Round 1 — core asks**: real seat/workspace/session-pack release in stale-digest via `releasePlaceholderInventoryInternal` (patches `seatReservations.status="released"`, `workspaces.endedAt=now`, `sessionPacks.status="expired"` + timeline `released` event). Real instructor email lookup via `getInstructorContactsInternal` (batched email+name with `users` table cross-reference). `adminOnboardingFlow` body wrapped in try/catch with `mark-failed` + `send-admin-failure-digest` steps.
+- **Round 2**: `STALE_CUTOFF_MS` constant moved inside step. Filter changed from non-existent `row.sessionPackIds` to `row.perInstructor.some(p => !p.isRenewal && p.sessionPackId)`. All `convex.action` calls wrapped in `Promise.all` with per-item try/catch. Instructor names resolved via batched action in all 3 email steps. `adminSummary` marked true on `anyOk` (was `allOk`) with per-address tracking.
+- **Round 3**: digest `sendEmail` calls awaited via `Promise.all` with per-recipient try/catch. `workspaceUrl` ternary simplified to `baseUrl + "/dashboard"`.
+- **Round 4**: `appendTimelineEntry` `emailsSentPatch.instructors` now concatenates + dedupes via `Set` (was shallow-overwrite).
+- **Round 5**: `listAdminOnboardingsAction` (shared-secret gated) added for Inngest workers without auth identity.
+- **Round 6**: `escapeHtml` helper added to digest; `row.email` + view URL escaped. `listAdminOnboardingsInternal` limit raised from 100 → 1000.
+- **Round 7**: `releasePlaceholderInventoryInternal` now guards on `pack.userId.startsWith("email:")` to avoid expiring live packs. All 3 email steps re-fetch `freshRow` via `getAdminOnboardingAction` at step start to defeat Inngest memoization on retry.
+- **Round 8**: `onboardingId` arg renamed to `id` in 3 `getAdminOnboardingAction` calls (matches validator).
+
+**Files**: `convex/adminOnboarding.ts` (added 3 action/query pairs; fixed `appendTimelineEntry` merge); `apps/platform/inngest/functions/onboarding.ts` (real handler + try/catch + per-step idempotency re-fetches); `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` (uses new action + escapeHtml + cutoff-inside-step).
+
+**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5, safe to merge.
 
 ### Branching + Review Hygiene
 

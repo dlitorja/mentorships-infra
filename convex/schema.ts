@@ -744,6 +744,11 @@ export default defineSchema({
       student: v.optional(v.boolean()),
       instructors: v.optional(v.array(v.string())),    // Convex instructor IDs; v.id("instructors") widened in PR 3
       adminSummary: v.optional(v.boolean()),
+      // PR 4 cloud-review fix (greptile-apps): per-address tracking so a
+      // partial admin-send failure on one recipient does not block retries
+      // to the failed recipient. Widened additively — legacy rows without
+      // this field simply re-attempt all addresses on next run.
+      adminSummaryByEmail: v.optional(v.record(v.string(), v.boolean())),
       stub: v.optional(v.boolean()),
     })),
 
