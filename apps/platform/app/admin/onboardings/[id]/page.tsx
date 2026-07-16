@@ -22,6 +22,7 @@ import {
 import { useAdminOnboarding } from "@/lib/queries/convex/use-admin-onboardings";
 import { statusLabel, timelineEventLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
 import type { Id } from "@/convex/_generated/dataModel";
+import { RetryOnboardingButton } from "@/components/admin/retry-onboarding-button";
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -88,6 +89,22 @@ export default function AdminOnboardingDetailPage(): React.JSX.Element {
           Onboarding detail
         </h1>
       </div>
+
+      {data ? (
+        <div className="mb-6 flex items-center justify-between rounded-md border bg-card p-4">
+          <div className="text-sm text-muted-foreground">
+            Status: <Badge variant={STATUS_VARIANTS[data.status]}>{statusLabel(data.status)}</Badge>
+            <span className="ml-3">Attempt: {data.attemptCount}</span>
+          </div>
+          <RetryOnboardingButton
+            onboardingId={id}
+            currentStatus={data.status}
+            variant="default"
+            size="sm"
+            label="Retry this onboarding"
+          />
+        </div>
+      ) : null}
 
       {error ? (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">

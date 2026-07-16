@@ -22,6 +22,7 @@ import { Loader2, AlertTriangle, ListChecks, Eye } from "lucide-react";
 import { useListAdminOnboardings } from "@/lib/queries/convex/use-admin-onboardings";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
+import { RetryOnboardingButton } from "@/components/admin/retry-onboarding-button";
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -46,6 +47,36 @@ const TABS: Array<{
   { value: "cancelled", label: "Cancelled", status: "cancelled" },
 ];
 
+const DAY_MS = 86_400_000;
+const FAILED_LAST_7D_CUTOFF_MS = 7 * DAY_MS;
+const STALE_CUTOFF_MS = 13 * DAY_MS;
+
+type BulkFilter = "all" | "failed-last-7d" | "stale-13d";
+const BULK_FILTERS: Array<{ value: BulkFilter; label: string; description: string }> = [
+  { value: "all", label: "All", description: "Show every row in the current tab" },
+  { value: "failed-last-7d", label: "Failed (last 7d)", description: "Only rows updated in the last 7 days" },
+  { value: "stale-13d", label: "Stale (13d+)", description: "Rows still pending or in-progress after 13 days" },
+];
+
+function matchesBulkFilter(
+  item: { createdAt: number; lastAttemptAt?: number; status: OnboardingStatus },
+  filter: BulkFilter
+): boolean {
+  const now = Date.now();
+  if (filter === "all") return true;
+  if (filter === "failed-last-7d") {
+    if (item.status !== "failed") return false;
+    const updatedAt = item.lastAttemptAt ?? item.createdAt;
+    return now - updatedAt <= FAILED_LAST_7D_CUTOFF_MS;
+  }
+  if (filter === "stale-13d") {
+    if (item.status !== "queued" && item.status !== "processing") return false;
+    const ageMs = now - item.createdAt;
+    return ageMs >= STALE_CUTOFF_MS;
+  }
+  return true;
+}
+
 function formatRelative(ms: number | null | undefined): string {
   if (!ms) return "-";
   const diff = Date.now() - ms;
@@ -58,6 +89,7 @@ function formatRelative(ms: number | null | undefined): string {
 export default function AdminOnboardingsPage(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<typeof TABS[number]["value"]>("needs-attention");
   const [emailInput, setEmailInput] = useState("");
+  const [bulkFilter, setBulkFilter] = useState<BulkFilter>("all");
   const debouncedEmail = useDebouncedValue(emailInput, 300);
 
   const tab = TABS.find((t) => t.value === activeTab) ?? TABS[0];
@@ -68,7 +100,8 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
     limit: 50,
   });
 
-  const items = data ?? [];
+  const allItems = data ?? [];
+  const items = allItems.filter((item) => matchesBulkFilter(item, bulkFilter));
 
   return (
     <div className="container mx-auto py-8">
@@ -79,7 +112,7 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
             Admin Onboardings
           </h1>
           <p className="text-muted-foreground">
-            Recovery view for Kajabi and other admin-onboarded mentorship submissions.
+            Recovery view for Kajabi and other admin-onboarded session pack submissions.
           </p>
         </div>
         <div className="w-64">
@@ -91,7 +124,7 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setBulkFilter("all"); }}>
         <TabsList>
           {TABS.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>
@@ -107,9 +140,29 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                 <CardDescription>
                   {isLoading
                     ? "Loading…"
-                    : `${items.length} submission${items.length === 1 ? "" : "s"}`}
+                    : `${items.length} submission${items.length === 1 ? "" : "s"}${bulkFilter === "all" ? "" : ` (filtered: ${BULK_FILTERS.find((f) => f.value === bulkFilter)?.label ?? bulkFilter})`}`}
                 </CardDescription>
               </CardHeader>
+              <div className="px-6 pb-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground mr-1">Bulk filter:</span>
+                {BULK_FILTERS.map((f) => (
+                  <Button
+                    key={f.value}
+                    type="button"
+                    size="sm"
+                    variant={bulkFilter === f.value ? "default" : "outline"}
+                    onClick={() => setBulkFilter(f.value)}
+                    title={f.description}
+                  >
+                    {f.label}
+                  </Button>
+                ))}
+                {bulkFilter !== "all" && allItems.length !== items.length ? (
+                  <span className="text-xs text-muted-foreground ml-2">
+                    ({allItems.length - items.length} hidden by filter)
+                  </span>
+                ) : null}
+              </div>
               <CardContent>
                 {error ? (
                   <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
@@ -122,7 +175,9 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                   </div>
                 ) : items.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
-                    No onboardings in this state.
+                    {bulkFilter !== "all" && allItems.length > 0
+                      ? "All submissions are hidden by the active filter."
+                      : "No onboardings in this state."}
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -162,12 +217,21 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                               {item.failureReason ?? "-"}
                             </td>
                             <td className="py-3 px-4">
-                              <Button variant="ghost" size="sm" asChild>
-                                <Link href={`/admin/onboardings/${item._id}`}>
-                                  <Eye className="h-4 w-4 mr-1" />
-                                  View
-                                </Link>
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <RetryOnboardingButton
+                                  onboardingId={item._id}
+                                  currentStatus={item.status}
+                                  variant="ghost"
+                                  size="sm"
+                                  label="Retry"
+                                />
+                                <Button variant="ghost" size="sm" asChild>
+                                  <Link href={`/admin/onboardings/${item._id}`}>
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    View
+                                  </Link>
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
