@@ -599,7 +599,7 @@ export const adminOnboardingFlow = inngest.createFunction(
       // PR 4 fix: re-fetch `emailsSent.student` from Convex so a
       // retry-after-partial-success doesn't re-send the student email.
       const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-        onboardingId: row._id,
+        id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
       const sent: boolean = (freshRow?.emailsSent as any)?.student === true;
@@ -691,7 +691,7 @@ export const adminOnboardingFlow = inngest.createFunction(
       // failure mid-loop + retry would re-email instructors who were
       // already notified in the previous attempt.
       const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-        onboardingId: row._id,
+        id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
       if (!freshRow) return { sent: 0, skipped: 0, failed: 0, noEmail: 0, missing: true };
@@ -792,7 +792,7 @@ export const adminOnboardingFlow = inngest.createFunction(
       // PR 4 fix: re-fetch `emailsSent.adminSummary` from Convex so a
       // retry-after-partial-success doesn't re-send the admin digest.
       const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-        onboardingId: row._id,
+        id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
       const sent: boolean = (freshRow?.emailsSent as any)?.adminSummary === true;
