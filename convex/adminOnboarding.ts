@@ -936,7 +936,17 @@ export const appendTimelineEntry = internalMutation({
       updates.failureReason = args.details;
     }
     if (args.emailsSentPatch) {
-      updates.emailsSent = { ...(row.emailsSent ?? {}), ...args.emailsSentPatch };
+      // PR 4 fix: shallow merge would replace the `instructors` array
+      // entirely on each per-instructor update, so a retry would re-send
+      // to all-but-the-last instructor. Concatenate + dedupe instead.
+      const existingInstructors: string[] = (row.emailsSent?.instructors ?? []) as string[];
+      const patchInstructors: string[] = (args.emailsSentPatch.instructors ?? []) as string[];
+      const mergedInstructors = Array.from(new Set([...existingInstructors, ...patchInstructors]));
+      const baseEmailsSent = { ...(row.emailsSent ?? {}), ...args.emailsSentPatch };
+      updates.emailsSent = {
+        ...baseEmailsSent,
+        instructors: mergedInstructors,
+      };
     }
     await ctx.db.patch(args.onboardingId, updates);
     return entry;
