@@ -52,6 +52,13 @@ export function RetryOnboardingButton({
 
   async function handleClick(): Promise<void> {
     if (pending) return;
+    const confirmed =
+      typeof window !== "undefined"
+        ? window.confirm(
+            `Retry this onboarding now? This will re-queue it and bump the attempt counter. Only undelivered emails will be re-sent.`
+          )
+        : true;
+    if (!confirmed) return;
     setPending(true);
     try {
       const res = await fetch(`/api/admin/onboardings/${onboardingId}/retry`, {

@@ -124,7 +124,7 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v as typeof activeTab); setBulkFilter("all"); }}>
         <TabsList>
           {TABS.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>
@@ -175,7 +175,9 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                   </div>
                 ) : items.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
-                    No onboardings in this state.
+                    {bulkFilter !== "all" && allItems.length > 0
+                      ? "All submissions are hidden by the active filter."
+                      : "No onboardings in this state."}
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
