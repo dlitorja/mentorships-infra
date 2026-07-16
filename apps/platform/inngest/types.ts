@@ -7,9 +7,19 @@ import { convexIdSchema } from "../lib/validators";
  */
 const idString = () => z.string().trim().min(1);
 
-// Event schemas with runtime validation
-export const purchaseMentorshipEventSchema = z.object({
-  name: z.literal("purchase/mentorship"),
+// Event schemas with runtime validation.
+//
+// PR 5 (naming compliance): the canonical event name is `purchase/instructor`.
+// The legacy `purchase/mentorship` event is owned by `apps/web`; this
+// platform app does NOT register it as a trigger (would cause duplicate
+// side effects in a shared Inngest namespace). The schema below is
+// intentionally strict on the canonical name — keeps TypeScript's
+// discriminated-union narrowing correct for InngestEvent and prevents new
+// code from accidentally emitting the forbidden name. See
+// PROJECT_STATUS.md → "Naming compliance — deprecated aliases" for the
+// cleanup checklist.
+export const purchaseInstructorEventSchema = z.object({
+  name: z.literal("purchase/instructor"),
   data: z.object({
     orderId: idString(),
     clerkId: idString(), // Clerk user ID
@@ -197,7 +207,7 @@ export const adminOnboardingStaleDigestEventSchema = z.object({
 });
 
 // Type exports
-export type PurchaseMentorshipEvent = z.infer<typeof purchaseMentorshipEventSchema>;
+export type PurchaseInstructorEvent = z.infer<typeof purchaseInstructorEventSchema>;
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
 export type StripeChargeRefundedEvent = z.infer<typeof stripeChargeRefundedEventSchema>;
 export type PaypalPaymentCompletedEvent = z.infer<typeof paypalPaymentCompletedEventSchema>;
@@ -217,7 +227,7 @@ export type AdminOnboardingCompletedEvent = z.infer<typeof adminOnboardingComple
 export type AdminOnboardingStaleDigestEvent = z.infer<typeof adminOnboardingStaleDigestEventSchema>;
 
 export type InngestEvent =
-  | PurchaseMentorshipEvent
+  | PurchaseInstructorEvent
   | StripeCheckoutCompletedEvent
   | StripeChargeRefundedEvent
   | PaypalPaymentCompletedEvent

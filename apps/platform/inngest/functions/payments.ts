@@ -168,7 +168,7 @@ function formatPrice(amount: string | null, currency: string): string {
  * 10. Ensures an admin-student workspace exists for post-purchase access
  * 11. Decrements instructor inventory (oneOnOne or group)
  * 12. Sends a purchase confirmation email with Clerk magic link for returning users
- * 13. Triggers the onboarding flow via purchase/mentorship event
+ * 13. Triggers the onboarding flow via purchase/instructor event
  *
  * @returns Object with success status, orderId, sessionPackId, and paymentId
  */
@@ -550,7 +550,7 @@ const completedOrder = await step.run("update-order", async () => {
 
     await step.run("trigger-onboarding", async () => {
       await inngest.send({
-        name: "purchase/mentorship",
+        name: "purchase/instructor",
         data: {
           orderId,
           clerkId: userId,
@@ -724,7 +724,7 @@ const refundedSessionPack = await step.run("refund-session-pack", async () => {
  * 7. Ensures an admin-student workspace exists for post-purchase access
  * 8. Decrements instructor inventory (oneOnOne or group)
  * 9. Sends a purchase confirmation email with Clerk magic link for returning users
- * 10. Triggers the onboarding flow via purchase/mentorship event
+ * 10. Triggers the onboarding flow via purchase/instructor event
  *
  * @returns Object with success status, orderId, sessionPackId, and paymentId
  */
@@ -1018,7 +1018,7 @@ export const processPayPalCheckout = inngest.createFunction(
 
     await step.run("trigger-onboarding", async () => {
       await inngest.send({
-        name: "purchase/mentorship",
+        name: "purchase/instructor",
         data: {
           orderId,
           clerkId: order.userId,
