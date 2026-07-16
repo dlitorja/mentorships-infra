@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { convexIdSchema } from "../lib/validators";
 
 /**
  * Non-empty trimmed string schema for identifier fields.
@@ -172,6 +173,22 @@ export const sessionCancelledEmailEventSchema = z.object({
   }),
 });
 
+// PR admin-onboarding #2: emitted by the commit API route after
+// `adminOnboardStudent` succeeds. The stub flow in `onboarding.ts` reads
+// this; PR 3's real Resend + Discord handler reads the same event. The
+// `attemptCount` is part of the Inngest idempotency key so manual retries
+// bypass any cached runs (see plan §Idempotency).
+//
+// `onboardingId` uses `convexIdSchema` so malformed IDs are rejected at
+// the event boundary instead of reaching the Convex call site.
+export const adminOnboardingCompletedEventSchema = z.object({
+  name: z.literal("admin/onboarding.completed"),
+  data: z.object({
+    onboardingId: convexIdSchema,
+    attemptCount: z.number().int().min(1),
+  }),
+});
+
 // Type exports
 export type PurchaseMentorshipEvent = z.infer<typeof purchaseMentorshipEventSchema>;
 export type StripeCheckoutCompletedEvent = z.infer<typeof stripeCheckoutCompletedEventSchema>;
@@ -189,6 +206,7 @@ export type InventoryChangedEvent = z.infer<typeof inventoryChangedEventSchema>;
 export type SessionBookingEmailEvent = z.infer<typeof sessionBookingEmailEventSchema>;
 export type SessionReminderEmailEvent = z.infer<typeof sessionReminderEmailEventSchema>;
 export type SessionCancelledEmailEvent = z.infer<typeof sessionCancelledEmailEventSchema>;
+export type AdminOnboardingCompletedEvent = z.infer<typeof adminOnboardingCompletedEventSchema>;
 
 export type InngestEvent =
   | PurchaseMentorshipEvent
@@ -206,7 +224,8 @@ export type InngestEvent =
   | InventoryChangedEvent
   | SessionBookingEmailEvent
   | SessionReminderEmailEvent
-  | SessionCancelledEmailEvent;
+  | SessionCancelledEmailEvent
+  | AdminOnboardingCompletedEvent;
 
 // ============================================================
 // Phase 4: Event-Driven Sync Events (Convex → SQL)
