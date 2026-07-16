@@ -963,6 +963,8 @@ export const appendTimelineEntry = internalMutation({
         student: v.optional(v.boolean()),
         instructors: v.optional(v.array(v.id("instructors"))), // Convex instructor IDs
         adminSummary: v.optional(v.boolean()),
+        // PR 4 cloud-review fix: per-address admin-send tracking.
+        adminSummaryByEmail: v.optional(v.record(v.string(), v.boolean())),
         stub: v.optional(v.boolean()),
       })
     ),
@@ -1012,10 +1014,17 @@ export const appendTimelineEntry = internalMutation({
       const existingInstructors: string[] = (row.emailsSent?.instructors ?? []) as string[];
       const patchInstructors: string[] = (args.emailsSentPatch.instructors ?? []) as string[];
       const mergedInstructors = Array.from(new Set([...existingInstructors, ...patchInstructors]));
+      // PR 4 cloud-review fix: shallow merge would replace the
+      // `adminSummaryByEmail` map entirely on each send, losing prior
+      // successful addresses. Merge keys instead.
+      const existingByEmail: Record<string, boolean> = (row.emailsSent?.adminSummaryByEmail ?? {}) as Record<string, boolean>;
+      const patchByEmail: Record<string, boolean> = (args.emailsSentPatch.adminSummaryByEmail ?? {}) as Record<string, boolean>;
+      const mergedByEmail: Record<string, boolean> = { ...existingByEmail, ...patchByEmail };
       const baseEmailsSent = { ...(row.emailsSent ?? {}), ...args.emailsSentPatch };
       updates.emailsSent = {
         ...baseEmailsSent,
         instructors: mergedInstructors,
+        adminSummaryByEmail: mergedByEmail,
       };
     }
     await ctx.db.patch(args.onboardingId, updates);
@@ -1055,6 +1064,7 @@ export const appendTimelineEntryAction = action({
         student: v.optional(v.boolean()),
         instructors: v.optional(v.array(v.id("instructors"))), // Convex instructor IDs
         adminSummary: v.optional(v.boolean()),
+        adminSummaryByEmail: v.optional(v.record(v.string(), v.boolean())),
         stub: v.optional(v.boolean()),
       })
     ),
@@ -1144,11 +1154,21 @@ export const releasePlaceholderInventoryInternal = internalMutation({
 
     for (const entry of row.perInstructor) {
       // 1. Release placeholder seat reservation.
+      //    PR 4 cloud-review fix (greptile-apps): skip seats whose userId
+      //    has been rewritten to a real Clerk ID — those are now owned by
+      //    a real student, and releasing the seat would orphan their
+      //    allocation. Placeholder seat reservations always have userId
+      //    starting with "email:" (set during admin onboarding); real
+      //    users use Clerk IDs.
       if (entry.seatReservationId) {
         const seat = await ctx.db.get(entry.seatReservationId);
         if (seat && seat.status !== "released") {
-          await ctx.db.patch(entry.seatReservationId, { status: "released" });
-          seatsReleased++;
+          if (typeof seat.userId === "string" && seat.userId.startsWith("email:")) {
+            await ctx.db.patch(entry.seatReservationId, { status: "released" });
+            seatsReleased++;
+          } else {
+            skipped++;
+          }
         } else {
           skipped++;
         }
@@ -1157,11 +1177,17 @@ export const releasePlaceholderInventoryInternal = internalMutation({
       // 2. End any workspace that was auto-created by this onboarding
       //    (only newly-created workspaces, not reused renewals). Renewal
       //    pairs leave `workspaceId` undefined.
+      //    PR 4 cloud-review fix (greptile-apps): also guard on
+      //    `ownerId.startsWith("email:")` so we never end a workspace
+      //    whose owner has been rewritten to a real Clerk ID by the
+      //    linking flow.
       if (entry.workspaceId) {
         const ws = await ctx.db.get(entry.workspaceId);
-        if (ws && ws.endedAt === undefined && ws.deletedAt === undefined) {
+        if (ws && ws.endedAt === undefined && ws.deletedAt === undefined && typeof ws.ownerId === "string" && ws.ownerId.startsWith("email:")) {
           await ctx.db.patch(entry.workspaceId, { endedAt: now });
           workspacesEnded++;
+        } else if (ws && ws.endedAt === undefined && ws.deletedAt === undefined) {
+          skipped++;
         }
       }
 

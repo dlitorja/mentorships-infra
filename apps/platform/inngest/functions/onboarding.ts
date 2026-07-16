@@ -789,14 +789,18 @@ export const adminOnboardingFlow = inngest.createFunction(
 
     // ---- Step 4: send admin summary email ----
     const adminEmailResult = await step.run("send-admin-email", async function() {
-      // PR 4 fix: re-fetch `emailsSent.adminSummary` from Convex so a
-      // retry-after-partial-success doesn't re-send the admin digest.
+      // PR 4 cloud-review fix (greptile-apps): per-address tracking via
+      // `emailsSent.adminSummaryByEmail`. We re-fetch the row so we know
+      // which addresses already succeeded (and should be skipped on retry).
+      // Only addresses that haven't succeeded are re-sent. After the run,
+      // we merge the new results into `adminSummaryByEmail`. This avoids
+      // both: (a) duplicate sends to already-successful addresses and
+      // (b) permanent skip of failed addresses after one retry.
       const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
         id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
-      const sent: boolean = (freshRow?.emailsSent as any)?.adminSummary === true;
-      if (sent) return { sent: true, skipped: false, results: [] };
+      const alreadyDelivered: Record<string, boolean> = (freshRow?.emailsSent as any)?.adminSummaryByEmail ?? {};
 
       const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
         .split(",")
@@ -804,6 +808,11 @@ export const adminOnboardingFlow = inngest.createFunction(
         .filter(Boolean);
 
       if (adminEmails.length === 0) return { sent: false, skipped: false, results: [] };
+
+      const toSend = adminEmails.filter(function(e: string) { return alreadyDelivered[e] !== true; });
+      if (toSend.length === 0) {
+        return { sent: true, skipped: true, results: adminEmails.map(function(e: string) { return { email: e, ok: true }; }) };
+      }
 
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
       const templateId = process.env.RESEND_TEMPLATE_ID_ADMIN_PURCHASE;
@@ -844,39 +853,53 @@ export const adminOnboardingFlow = inngest.createFunction(
         perInstructorRows,
       };
 
-      const results: Array<{ email: string; ok: boolean; id?: string }> = [];
-      for (const adminEmail of adminEmails) {
+      // PR 4 cloud-review fix: each send attempted independently with
+      // its own try/catch so one transient Resend failure does not block
+      // the others (this matches the same pattern used in the stale-digest
+      // cron and the catch handler's admin-failure-digest send).
+      const newResults: Array<{ email: string; ok: boolean; id?: string | null }> = [];
+      await Promise.all(toSend.map(async function(adminEmail: string) {
         let res: any;
-        if (useTemplates && templateId) {
-          res = await sendTemplateEmail({
-            to: adminEmail,
-            templateId,
-            subject: "Kajabi admin onboarding — " + studentEmail + " \u00d7 " + instructorCount + " instructor" + (instructorCount > 1 ? "s" : ""),
-            templateData: templateData as Record<string, unknown>,
-            headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id },
+        try {
+          if (useTemplates && templateId) {
+            res = await sendTemplateEmail({
+              to: adminEmail,
+              templateId,
+              subject: "Kajabi admin onboarding — " + studentEmail + " \u00d7 " + instructorCount + " instructor" + (instructorCount > 1 ? "s" : ""),
+              templateData: templateData as Record<string, unknown>,
+              headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id },
+            });
+          } else {
+            const content = buildAdminPurchaseEmail(templateData);
+            res = await sendEmail({
+              to: adminEmail,
+              subject: content.subject,
+              html: content.html,
+              text: content.text,
+              headers: { ...content.headers, "X-Onboarding-Id": row._id },
+            });
+          }
+          newResults.push({ email: adminEmail, ok: res.ok, id: res.ok && res.id ? res.id : null });
+        } catch (e: unknown) {
+          reportError({
+            source: "inngest:admin-onboarding-flow",
+            error: e instanceof Error ? e : new Error(String(e)),
+            level: "error",
+            message: "Failed to send admin onboarding summary to " + adminEmail,
+            context: { onboardingId: row._id },
           });
-        } else {
-          const content = buildAdminPurchaseEmail(templateData);
-          res = await sendEmail({
-            to: adminEmail,
-            subject: content.subject,
-            html: content.html,
-            text: content.text,
-            headers: { ...content.headers, "X-Onboarding-Id": row._id },
-          });
+          newResults.push({ email: adminEmail, ok: false });
         }
-        results.push({ email: adminEmail, ok: res.ok, id: res.id });
-      }
+      }));
 
-      const allOk = results.length > 0 && results.every(function(r: { ok: boolean }) { return r.ok; });
-      // PR 4 fix: mark `adminSummary: true` if AT LEAST ONE admin received
-      // the email (was: only if all succeeded). This prevents duplicate
-      // sends on retry. Trade-off: failed admin addresses won't get
-      // retried automatically — admins can trigger a full retry via
-      // `retryAdminOnboarding` from the dashboard if needed.
-      const anyOk = results.some(function(r: { ok: boolean }) { return r.ok; });
-      const emailsSentPatch = results.length > 0 && anyOk ? { adminSummary: true } : undefined;
+      const updatedByEmail: Record<string, boolean> = {};
+      for (const r of newResults) updatedByEmail[r.email] = r.ok;
+      const mergedByEmail: Record<string, boolean> = { ...alreadyDelivered, ...updatedByEmail };
+      const allOk = adminEmails.every(function(e: string) { return mergedByEmail[e] === true; });
+      const anyOk = adminEmails.some(function(e: string) { return mergedByEmail[e] === true; });
 
+      // Record the per-address results in the timeline and merge into
+      // `adminSummaryByEmail` so future retries skip the successful ones.
       await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
         onboardingId: row._id,
         event: "email_sent",
@@ -884,18 +907,18 @@ export const adminOnboardingFlow = inngest.createFunction(
         details: JSON.stringify({
           recipient: "admin",
           count: adminEmails.length,
-          ok: allOk,
-          perAddress: results.map(function(r: { email: string; ok: boolean; id?: string }) {
-            return { email: r.email, ok: r.ok, resendId: r.id ?? null };
-          }),
+          attempted: toSend.length,
+          allOk,
+          anyOk,
+          perAddress: adminEmails.map(function(e: string) { return { email: e, ok: mergedByEmail[e] === true }; }),
         }),
-        ...(emailsSentPatch ? { emailsSentPatch } : {}),
+        emailsSentPatch: { adminSummaryByEmail: mergedByEmail },
         expectedStatus: "processing",
         expectedAttemptCount: parsed.data.attemptCount,
         secret,
       });
 
-      return { sent: allOk, skipped: false, results };
+      return { sent: allOk, skipped: false, results: adminEmails.map(function(e: string) { return { email: e, ok: mergedByEmail[e] === true }; }) };
     });
 
     // ---- Step 5: enqueue Discord DMs ----
@@ -952,10 +975,17 @@ export const adminOnboardingFlow = inngest.createFunction(
       const adminDashboardUrl = baseUrl + "/admin/onboardings/" + onboardingId;
 
       // Best-effort: flip the row to `status: "failed"` + append timeline.
-      // `appendTimelineEntry` auto-transitions status when event is "failed"
-      // (see `convex/adminOnboarding.ts:934-937`). If this call itself
-      // throws, we let it bubble — Inngest will surface the failure in
-      // the dashboard but the row will be left in whatever state it was in.
+      // PR 4 cloud-review fixes (greptile-apps):
+      //  - expectedStatus/expectedAttemptCount now GUARD on "processing" +
+      //    parsed.data.attemptCount so an exhausted retry cannot overwrite
+      //    a later completed attempt back to "failed". If the row has
+      //    already been transitioned (completed/failed), the guard throws
+      //    "stale call rejected" — we catch that and treat it as a
+      //    no-op (the row is already terminal).
+      //  - If mark-failed exhausts retries on a real Convex failure, we
+      //    bubble a NonRetriableError so Inngest marks the run as failed
+      //    rather than silently returning success and leaving the row
+      //    stuck in "processing".
       try {
         await step.run("mark-failed", async () => {
           await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
@@ -963,19 +993,38 @@ export const adminOnboardingFlow = inngest.createFunction(
             event: "failed",
             actorUserId: undefined,
             details: reason,
-            expectedStatus: undefined,
-            expectedAttemptCount: undefined,
+            expectedStatus: "processing",
+            expectedAttemptCount: parsed.data.attemptCount,
             secret,
           });
         });
       } catch (markErr) {
-        reportError({
-          source: "inngest:admin-onboarding-flow",
-          error: markErr instanceof Error ? markErr : new Error(String(markErr)),
-          level: "error",
-          message: "Failed to mark onboarding as failed in Convex",
-          context: { onboardingId },
-        });
+        const msg = markErr instanceof Error ? markErr.message : String(markErr);
+        if (msg.includes("stale call rejected")) {
+          // Row already terminal (a later retry succeeded, or another
+          // catch handler beat us to it). Don't overwrite; just log.
+          reportError({
+            source: "inngest:admin-onboarding-flow",
+            error: markErr instanceof Error ? markErr : new Error(msg),
+            level: "warn",
+            message: "mark-failed no-op: row already terminal — admin digest still sent",
+            context: { onboardingId, reason: msg },
+          });
+        } else {
+          // Real Convex/network failure after retries exhausted. Bubble
+          // NonRetriableError so Inngest marks this run as failed (row
+          // may remain in "processing" — manual intervention required).
+          reportError({
+            source: "inngest:admin-onboarding-flow",
+            error: markErr instanceof Error ? markErr : new Error(msg),
+            level: "error",
+            message: "Failed to mark onboarding as failed in Convex — bubbling NonRetriableError",
+            context: { onboardingId },
+          });
+          throw new NonRetriableError(
+            "adminOnboardingFlow: failed to mark onboarding as failed in Convex: " + msg
+          );
+        }
       }
 
       // Best-effort: send an admin digest email with the failure reason
