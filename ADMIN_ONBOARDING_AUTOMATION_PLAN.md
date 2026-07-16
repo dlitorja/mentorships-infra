@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, PR 3, and PR 4 all merged to `main` (`e0b2594c`). Admin onboarding automation is feature-complete end-to-end. Remaining items below are enhancements / hardening (not blockers).
+Status: PR 1, PR 2, PR 3, PR 4, and PR 5 all merged to `main` (`a2a330ac`). Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy. Remaining items below are enhancements / hardening / new features (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -864,29 +864,35 @@ Steps:
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5.
 
-## Remaining Work (post-PR 4)
+## Remaining Work (post-PR 5)
+
+PR 5 (commit `a2a330ac`) closed **R1** (event rename) and **R2** (mentorship copy in onboarding). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below.
 
 ### Hardening / enhancements (not blockers)
 
 | # | Item | Priority | Notes |
 |---|------|----------|-------|
-| R1 | Event-name rename: `purchase/mentorship` → `purchase/instructor` (or similar non-mentorship wire protocol) | P1 (compliance) | AGENTS.md forbids "mentor/mentee/mentorship" in code. Currently the event name is used by `apps/platform/inngest/functions/payments.ts:553` and the handler at `apps/platform/inngest/functions/onboarding.ts:89`. Coordinated change across both files; needs a brief publish/communicate to anyone depending on the Inngest event-name filter. |
-| R2 | Replace remaining "mentorship" UI copy in student/admin subject strings (lines 238, 262, 407 in `onboarding.ts`) | P1 (compliance) | Same rule as PR 4 #9258. These are in the existing purchase-onboarding handler, not in PR 4's admin-onboarding flow. |
-| R3 | Pagination for `getStaleOnboardingsAction` | P2 | Currently bounded at 1000. For backlogs >1000 stale onboardings, the daily cron silently misses the rest. Add a `cursor` arg + iterate until exhausted. Heavy lift — CodeRabbit flagged this as "Heavy lift". |
-| R4 | `retryAdminOnboarding` UI flow | P2 | PR 4 surfaces partial admin-delivery failures (per-address) but there's no dashboard button to re-trigger a single failed admin recipient. The admin summary email deep-links to `/admin/onboardings/[id]` but no retry-from-there action exists. |
-| R5 | `markEmailSent` atomic helper | P3 | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic. |
+| R3 | Pagination for `getStaleOnboardingsAction` | P2 | Currently bounded at 1000 rows. For backlogs >1000 stale onboardings, the daily cron silently misses the rest. Add a `cursor` arg + iterate until exhausted. Cap per-run at 10,000 to bound Inngest step cost. CodeRabbit flagged this as "Heavy lift". |
+| R4 | Per-row retry button on `/admin/onboardings` list view | P2 | PR 4 surfaces partial admin-delivery failures (per-address) but there's no dashboard button to re-trigger a single failed admin recipient. The admin summary email deep-links to `/admin/onboardings/[id]` but no retry-from-there action exists. Action should re-fire the full `adminOnboardingFlow` with bumped `attemptCount` (idempotency keys handle the already-sent pieces). |
+| R5 | `markEmailSent` atomic helper | P3 | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic in onboarding.ts. |
 | R6 | Per-workspace dashboard route | P3 | Admin-onboarding workspace URL hardcoded to `baseUrl + "/dashboard"` with a comment noting future PR may add `/dashboard/workspaces/[id]` to use `p.workspaceId`. Currently workspaces route from the same dashboard. |
-| R7 | Unit tests for the stale-digest scan + per-step gating | P3 | Plan called for unit tests for "stale-digest selection query, \`markEmailSent\` helper atomicity, Resend skip-on-missing-key behavior, Inngest flow retry-after-partial-send resume". None shipped. Current suite is 95 tests (mostly payment-flow); no tests touch `convex/adminOnboarding.ts` directly. |
-| R8 | Tighten `adminSummary` legacy boolean handling | P3 | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in the runbook. |
+| R7 | Unit tests for stale-digest + per-step gating | P3 | Plan called for unit tests for "stale-digest selection query, `markEmailSent` helper atomicity, Resend skip-on-missing-key behavior, Inngest flow retry-after-partial-send resume". None shipped. Current suite is 95 tests (mostly payment-flow); no tests touch `convex/adminOnboarding.ts` directly. |
+| R8 | Document `adminSummary: true` legacy-row behavior | P3 | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in a runbook so on-call doesn't get paged. |
 | R9 | Stripe/PayPal test-mode runbook entry | P3 | Plan called for an end-to-end manual test in staging using the new Kajabi admin-onboarding form. Not yet done. |
+| R10 | Polish `/admin/onboardings` list view | P2 | Page already exists at `apps/platform/app/admin/onboardings/page.tsx` (185 lines, uses `useListAdminOnboardings` + status tabs + email search). Add bulk filters (failed-in-7-days, stale-13-days), per-row "View" deep-link, and richer timeline preview. Pairs with R4. |
+| R11 | Wire `releasePlaceholderInventoryInternal` from R6's `getStaleOnboardingsInternal` PR refactor | P3 | Currently `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` calls both `getStaleOnboardingsAction` and `releasePlaceholderInventoryAction` per row. A future consolidation PR could merge these into one batched mutation per pair. Not urgent. |
 
-### Decisions to make
+### Resolved decisions
 
-- **D1**: Where should the admin-onboarding live ops dashboard live? Currently the recovery dashboard at `/admin/onboardings/[id]` is the only surface. A dedicated `/admin/onboardings` list view would help ops triage. Touches `apps/platform/app/admin/`.
-- **D2**: Should the per-address `adminSummaryByEmail` retry be triggered automatically on each cron, or only when an admin clicks "retry" in the dashboard? PR 4 ships the auto-retry on next flow run; manual retry is a separate UX decision.
-- **D3**: After R1 (event rename), is there value in keeping a deprecated `purchase/mentorship` alias for a deprecation window? Or hard cutover?
+- **D1 — List view location**: `/admin/onboardings` list view confirmed as the canonical ops triage surface. **Resolution**: PR 5 era — the page already ships at `apps/platform/app/admin/onboardings/page.tsx`. R10 covers polish.
+- **D2 — Auto-retry vs manual retry**: Auto-retry on each cron confirmed. **Resolution**: PR 4 ships the auto-retry (`adminOnboardingFlow` re-fetches `freshRow` and only sends undelivered addresses via `adminSummaryByEmail` map). Manual per-row retry is a follow-up (R4).
+- **D3 — Keep `purchase/mentorship` deprecated alias**: Confirmed — keep alive for backward compat, but **only as an `apps/web` emitter** (not a platform trigger). **Resolution**: PR 5 architecture — `apps/platform/inngest/functions/onboarding.ts` listens only to `purchase/instructor`; `apps/web` continues to own `purchase/mentorship`. Cleanup checklist for `apps/web` retirement is at the bottom of this document.
 
-### PR 5 — Naming compliance (R1 + R2) — IN PROGRESS (#639)
+### Future / Out of Scope (Not in v1)
+
+(unchanged from previous revisions — no new entries.)
+
+### PR 5 — Naming compliance (R1 + R2) — SHIPPED (#639, `a2a330ac`)
 
 **Goal**: satisfy the AGENTS.md "never use mentor/mentee/mentorship in code" rule end-to-end in the platform app, including the existing purchase-onboarding flow (not just admin-onboarding). The deprecated `purchase/mentorship` event is **owned by `apps/web`** and remains in use there until `apps/web` is retired.
 
@@ -894,7 +900,7 @@ Steps:
 
 - **R1 — event rename (no alias trigger)**:
   - `apps/platform/inngest/types.ts`: `purchaseInstructorEventSchema` is **strict** (`name: z.literal("purchase/instructor")`). The `purchaseMentorshipEventSchema` back-compat alias export was removed (it was unused after the strict schema landed). New code cannot accidentally emit `purchase/mentorship` at compile time.
-  - `apps/platform/inngest/functions/onboarding.ts`: `onboardingFlow` registered with a **single** `{ event: "purchase/instructor" }` trigger. The deprecated `purchase/mentorship` is **not** registered because `apps/web` already owns it — a shared Inngest namespace would cause duplicate side effects (double emails, double seat allocations, double Discord notifications). No handler-level normaliser is needed since the trigger is canonical-only. `purchaseMentorshipEventSchema` import replaced by `purchaseInstructorEventSchema`.
+  - `apps/platform/inngest/functions/onboarding.ts`: `onboardingFlow` registered with a **single** `{ event: "purchase/instructor" }` trigger. The deprecated `purchase/mentorship` is **not** registered because `apps/web` already owns it — a shared Inngest namespace would cause duplicate side effects (double emails, duplicate seat allocations, duplicate Discord notifications). No handler-level normaliser is needed since the trigger is canonical-only. `purchaseMentorshipEventSchema` import replaced by `purchaseInstructorEventSchema`.
   - `apps/platform/inngest/functions/onboarding.ts:report-onboarding-email-result`: `source` tag is now dynamic — uses `` `inngest:${event.name}` `` so log entries reflect whichever event arrived at the runtime layer.
   - `apps/platform/inngest/functions/payments.ts` (both Stripe and PayPal paths): emitter switched from `name: "purchase/mentorship"` to `name: "purchase/instructor"`. Two emitters updated (lines 553 and 1021). Header comments at lines 171 and 727 updated.
 - **R2 — replace remaining "mentorship" copy across purchase-onboarding flow**:
@@ -903,6 +909,8 @@ Steps:
   - Instructor subject + body (in `instructor-onboarding-email.ts`): "has joined your **mentorship**" → "has joined your **session pack**"; "assigned to your **mentorship**" → "assigned to your session pack"; "purchased your **mentorship** sessions" → "purchased your session pack sessions". All 5 occurrences replaced.
   - Admin subject + body (in `admin-purchase-notification-email.ts`, both `isAdminOnboarded` and non-admin paths): "New **mentorship** purchase" → "New **session pack** purchase". All 3 occurrences replaced.
 - **Docs**: new section `## 🏛 Naming Compliance — Deprecated Aliases` in `PROJECT_STATUS.md` listing the deprecated alias, owned by `apps/web`, target cleanup tied to `apps/web` retirement, and the follow-up cleanup checklist for the `apps/web` retirement PR. Same deprecation note added below.
+
+**Greptile review rounds**: 4 total (3 local + 1 cloud). Round 1 (cloud) flagged the multi-trigger as a duplicate-side-effect risk — fixed by removing the deprecated trigger from the platform handler. Round 2 caught non-template admin email body still containing "mentorship". Round 3 fixed stale doc description. Round 4 (post-fix) confidence **5/5**, safe to merge.
 
 **Files**: `apps/platform/inngest/types.ts`, `apps/platform/inngest/functions/onboarding.ts`, `apps/platform/inngest/functions/payments.ts`, `apps/platform/lib/emails/purchase-onboarding-email.ts`, `apps/platform/lib/emails/instructor-onboarding-email.ts`, `apps/platform/lib/emails/admin-purchase-notification-email.ts`, `PROJECT_STATUS.md`, `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
 
