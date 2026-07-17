@@ -8,10 +8,17 @@ import {
   type SortDirection,
 } from "./index";
 import type { AdminOnboardingListItem } from "../../queries/convex/use-admin-onboardings";
+import type { Id } from "../../../convex/_generated/dataModel";
 
+/**
+ * Build a list-item fixture with proper Convex ID typing. Each call
+ * produces a fresh id so equality-by-id in tests stays stable.
+ */
+let _fixtureSeq = 0;
 function makeItem(overrides: Partial<AdminOnboardingListItem> = {}): AdminOnboardingListItem {
+  _fixtureSeq += 1;
   return {
-    _id: "test-id" as AdminOnboardingListItem["_id"],
+    _id: `fixture-${_fixtureSeq}` as Id<"adminOnboardings">,
     _creationTime: 1700000000000,
     email: "student@example.com",
     source: "kajabi",
@@ -31,35 +38,35 @@ function makeItem(overrides: Partial<AdminOnboardingListItem> = {}): AdminOnboar
 
 describe("compareItems", () => {
   it("createdAt desc puts newest first", () => {
-    const a = makeItem({ _id: "a" as any, createdAt: 1000 });
-    const b = makeItem({ _id: "b" as any, createdAt: 2000 });
+    const a = makeItem({ createdAt: 1000 });
+    const b = makeItem({ createdAt: 2000 });
     expect(compareItems(a, b, "createdAt", "desc")).toBeGreaterThan(0);
     expect(compareItems(b, a, "createdAt", "desc")).toBeLessThan(0);
   });
 
   it("createdAt asc puts oldest first", () => {
-    const a = makeItem({ _id: "a" as any, createdAt: 1000 });
-    const b = makeItem({ _id: "b" as any, createdAt: 2000 });
+    const a = makeItem({ createdAt: 1000 });
+    const b = makeItem({ createdAt: 2000 });
     expect(compareItems(a, b, "createdAt", "asc")).toBeLessThan(0);
     expect(compareItems(b, a, "createdAt", "asc")).toBeGreaterThan(0);
   });
 
   it("attemptCount desc puts highest first", () => {
-    const a = makeItem({ _id: "a" as any, attemptCount: 1 });
-    const b = makeItem({ _id: "b" as any, attemptCount: 5 });
+    const a = makeItem({ attemptCount: 1 });
+    const b = makeItem({ attemptCount: 5 });
     expect(compareItems(a, b, "attemptCount", "desc")).toBeGreaterThan(0);
   });
 
   it("attemptCount asc puts lowest first", () => {
-    const a = makeItem({ _id: "a" as any, attemptCount: 1 });
-    const b = makeItem({ _id: "b" as any, attemptCount: 5 });
+    const a = makeItem({ attemptCount: 1 });
+    const b = makeItem({ attemptCount: 5 });
     expect(compareItems(a, b, "attemptCount", "asc")).toBeLessThan(0);
   });
 
   it("status sorts alphabetically on the user-facing label", () => {
-    const queued = makeItem({ _id: "q" as any, status: "queued" });
-    const completed = makeItem({ _id: "c" as any, status: "completed" });
-    const failed = makeItem({ _id: "f" as any, status: "failed" });
+    const queued = makeItem({ status: "queued" });
+    const completed = makeItem({ status: "completed" });
+    const failed = makeItem({ status: "failed" });
     const sorted = [queued, completed, failed].sort((a, b) =>
       compareItems(a, b, "status", "asc")
     );
@@ -72,13 +79,17 @@ describe("compareItems", () => {
 describe("sortItems", () => {
   it("returns a new sorted array without mutating the input", () => {
     const input = [
-      makeItem({ _id: "a" as any, createdAt: 1000 }),
-      makeItem({ _id: "b" as any, createdAt: 3000 }),
-      makeItem({ _id: "c" as any, createdAt: 2000 }),
+      makeItem({ createdAt: 1000 }),
+      makeItem({ createdAt: 3000 }),
+      makeItem({ createdAt: 2000 }),
     ];
     const originalOrder = input.map((i) => i._id);
     const sorted = sortItems(input, "createdAt", "desc");
-    expect(sorted.map((i) => i._id)).toEqual(["b", "c", "a"]);
+    expect(sorted.map((i) => i._id)).toEqual([
+      input[1]._id,
+      input[2]._id,
+      input[0]._id,
+    ]);
     expect(input.map((i) => i._id)).toEqual(originalOrder);
   });
 
@@ -94,8 +105,8 @@ describe("sortItems", () => {
     expect(() =>
       sortItems(
         [
-          makeItem({ _id: "a" as any, createdAt: 1000, attemptCount: 2, status: "queued" }),
-          makeItem({ _id: "b" as any, createdAt: 2000, attemptCount: 1, status: "completed" }),
+          makeItem({ createdAt: 1000, attemptCount: 2, status: "queued" }),
+          makeItem({ createdAt: 2000, attemptCount: 1, status: "completed" }),
         ],
         c,
         d
@@ -184,12 +195,31 @@ describe("rowsToCsv", () => {
   });
 
   it("uses CRLF line endings (RFC 4180)", () => {
-    const csv = rowsToCsv([
-      makeItem({ _id: "a" as any }),
-      makeItem({ _id: "b" as any }),
-    ]);
+    const csv = rowsToCsv([makeItem(), makeItem()]);
     expect(csv.split("\r\n")).toHaveLength(3);
     // No bare \n without \r
     expect((csv.match(/(?<!\r)\n/g) ?? []).length).toBe(0);
+  });
+
+  it("neutralizes CSV formula injection on user-controlled fields", () => {
+    const csv = rowsToCsv([
+      makeItem({
+        email: "=cmd|' /C calc'!A1",
+        status: "failed",
+        failureReason: "+SUM(A1:A10)",
+        instructorNames: ["-malicious", "@evil"],
+      }),
+    ]);
+    const row = csv.split("\r\n")[1];
+    // All four injected formula prefixes must be neutralized with `'`
+    expect(row).toContain("'=cmd|' /C calc'!A1");
+    expect(row).toContain("'+SUM(A1:A10)");
+    expect(row).toContain("'-malicious");
+    expect(row).toContain("'@evil");
+  });
+
+  it("does not prefix plain text values with apostrophe", () => {
+    expect(escapeCsv("alice@example.com")).toBe("alice@example.com");
+    expect(escapeCsv("Resend error")).toBe("Resend error");
   });
 });

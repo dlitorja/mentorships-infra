@@ -176,9 +176,7 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
     label: string
   ): React.JSX.Element => (
     <th
-      className="text-left py-3 px-4 font-medium cursor-pointer select-none hover:bg-muted/50"
-      onClick={() => toggleSort(column)}
-      role="button"
+      className="text-left py-3 px-4 font-medium"
       aria-sort={
         sortColumn === column
           ? sortDirection === "asc"
@@ -187,8 +185,14 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
           : "none"
       }
     >
-      {label}
-      {sortIcon(column)}
+      <button
+        type="button"
+        className="inline-flex items-center cursor-pointer select-none hover:bg-muted/50 -mx-4 px-4 py-3 w-full text-left font-medium"
+        onClick={() => toggleSort(column)}
+      >
+        {label}
+        {sortIcon(column)}
+      </button>
     </th>
   );
 

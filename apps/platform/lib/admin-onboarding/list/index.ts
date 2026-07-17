@@ -44,15 +44,23 @@ export function sortItems(
 }
 
 /**
- * RFC 4180 CSV escaping: wraps a value in double quotes if it contains
- * a comma, double quote, carriage return, or newline. Inner double
- * quotes are doubled.
+ * RFC 4180 CSV escaping with OWASP CSV-injection mitigation:
+ * - Wraps a value in double quotes if it contains a comma, double quote,
+ *   carriage return, or newline. Inner double quotes are doubled.
+ * - Prefix user-controlled text fields starting with `=`, `+`, `-`, `@`,
+ *   tab, or carriage return with a single quote (`'`) so Excel /
+ *   LibreOffice do not interpret them as a formula. (CWEs CWE-1236.)
+ *   We always apply the prefix — it is a no-op for non-formula content.
  */
 export function escapeCsv(value: string): string {
-  if (/[",\r\n]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`;
+  let sanitized = value;
+  if (/^[=+\-@\t\r]/.test(sanitized)) {
+    sanitized = "'" + sanitized;
   }
-  return value;
+  if (/[",\r\n]/.test(sanitized)) {
+    return `"${sanitized.replace(/"/g, '""')}"`;
+  }
+  return sanitized;
 }
 
 const CSV_HEADERS = [
@@ -70,22 +78,28 @@ const CSV_HEADERS = [
  * Render the visible rows as a CSV string (RFC 4180 line endings: CRLF).
  * Does NOT prepend a UTF-8 BOM — that's the caller's job (see
  * `downloadCsv` in the page) so it stays composable.
+ *
+ * Each user-controlled value is run through `escapeCsv` BEFORE any
+ * list-joining so the OWASP CSV-injection prefix (`'`) is applied to
+ * the actual user value, not to the joined string. (E.g. instructor
+ * names are escaped per-element before being concatenated with `; `.)
  */
 export function rowsToCsv(items: AdminOnboardingListItem[]): string {
   const lines = [CSV_HEADERS.map(escapeCsv).join(",")];
   for (const item of items) {
     const renewalCount = item.perInstructor.filter((p) => p.isRenewal).length;
+    const joinedNames = item.instructorNames.map(escapeCsv).join("; ");
     const values = [
-      new Date(item.createdAt).toISOString(),
-      item.email,
-      item.source,
-      `${item.perInstructor.length} (${renewalCount} renewal)`,
-      item.instructorNames.join("; "),
-      statusLabel(item.status),
-      String(item.attemptCount),
-      item.failureReason ?? "",
+      escapeCsv(new Date(item.createdAt).toISOString()),
+      escapeCsv(item.email),
+      escapeCsv(item.source),
+      escapeCsv(`${item.perInstructor.length} (${renewalCount} renewal)`),
+      joinedNames,
+      escapeCsv(statusLabel(item.status)),
+      escapeCsv(String(item.attemptCount)),
+      escapeCsv(item.failureReason ?? ""),
     ];
-    lines.push(values.map(escapeCsv).join(","));
+    lines.push(values.join(","));
   }
   return lines.join("\r\n");
 }
