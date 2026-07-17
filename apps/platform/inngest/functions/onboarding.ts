@@ -532,6 +532,28 @@ export const adminOnboardingFlow = inngest.createFunction(
     id: "admin-onboarding-flow",
     name: "Admin Onboarding Flow",
     retries: 2,
+    // PR 9 (option C): cap global run concurrency so a burst of
+    // submissions (operator batch-create, webhook backlog drain) doesn't
+    // fan out 100 runs simultaneously. Bursts queue naturally — Inngest
+    // schedules new runs as in-flight ones complete.
+    //
+    // SCOPE: this caps RUNS, not per-second email send rate. A single run
+    // still issues its 3 sendEmail calls concurrently via Promise.all,
+    // and 5 in-flight runs can mean up to ~15 simultaneous Resend calls
+    // during a burst. Resend rate-limiting at the SEND point is a
+    // separate concern (would need a throttled send loop or a dedicated
+    // queue function) and out of scope here. The 5-run cap reduces the
+    // blast radius of fan-out enough for typical Kajabi admin usage.
+    //
+    // No `key` here: the event payload only carries `onboardingId` +
+    // `attemptCount`, not the perInstructor IDs, so per-instructor
+    // throttling would require widening the event schema. Global cap is
+    // the right blast radius for now.
+    //
+    // Idempotency: every appendTimelineEntryAction call carries an
+    // expectedStatus + expectedAttemptCount guard so re-deliveries and
+    // retries land on a no-op rather than a duplicate write.
+    concurrency: { limit: 5 },
   },
   { event: "admin/onboarding.completed" },
   async ({ event, step }) => {
