@@ -3,6 +3,8 @@ import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx, ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { isStaleOnboardingRow } from "../apps/platform/lib/admin-onboarding/stale-onboarding-filter";
+import { mergeEmailsSentPatch } from "../apps/platform/lib/admin-onboarding/emails-sent-merge";
 
 /**
  * State machine: which `(from, to)` transitions are allowed for the
@@ -1008,24 +1010,24 @@ export const appendTimelineEntry = internalMutation({
       updates.failureReason = args.details;
     }
     if (args.emailsSentPatch) {
-      // PR 4 fix: shallow merge would replace the `instructors` array
-      // entirely on each per-instructor update, so a retry would re-send
-      // to all-but-the-last instructor. Concatenate + dedupe instead.
-      const existingInstructors: string[] = (row.emailsSent?.instructors ?? []) as string[];
-      const patchInstructors: string[] = (args.emailsSentPatch.instructors ?? []) as string[];
-      const mergedInstructors = Array.from(new Set([...existingInstructors, ...patchInstructors]));
-      // PR 4 cloud-review fix: shallow merge would replace the
-      // `adminSummaryByEmail` map entirely on each send, losing prior
-      // successful addresses. Merge keys instead.
-      const existingByEmail: Record<string, boolean> = (row.emailsSent?.adminSummaryByEmail ?? {}) as Record<string, boolean>;
-      const patchByEmail: Record<string, boolean> = (args.emailsSentPatch.adminSummaryByEmail ?? {}) as Record<string, boolean>;
-      const mergedByEmail: Record<string, boolean> = { ...existingByEmail, ...patchByEmail };
-      const baseEmailsSent = { ...(row.emailsSent ?? {}), ...args.emailsSentPatch };
-      updates.emailsSent = {
-        ...baseEmailsSent,
-        instructors: mergedInstructors,
-        adminSummaryByEmail: mergedByEmail,
-      };
+      // R7 (PR 8): merge logic delegated to the pure helper
+      // `mergeEmailsSentPatch` in
+      // `apps/platform/lib/admin-onboarding/emails-sent-merge.ts` so
+      // the concat+dedupe and keyed-merge invariants are
+      // unit-testable in isolation.
+      updates.emailsSent = mergeEmailsSentPatch(
+        row.emailsSent as
+          | {
+              student?: boolean;
+              instructors?: readonly string[];
+              adminSummary?: boolean;
+              adminSummaryByEmail?: Readonly<Record<string, boolean>>;
+              stub?: boolean;
+            }
+          | null
+          | undefined,
+        args.emailsSentPatch,
+      ) as Doc<"adminOnboardings">["emailsSent"];
     }
     await ctx.db.patch(args.onboardingId, updates);
     return entry;
@@ -1379,28 +1381,31 @@ export const getStaleOnboardingsInternal = internalQuery({
       .order("desc")
       .paginate(args.paginationOpts);
 
+    // R7 (PR 8): per-row filter logic is delegated to the pure helper
+    // `isStaleOnboardingRow` in
+    // `apps/platform/lib/admin-onboarding/stale-onboarding-filter.ts` so
+    // the semantics are unit-testable without a live database.
+    const fetchPack: (id: string) => Promise<
+      { status?: string | null; userId?: string | null } | null
+    > = (id) =>
+      ctx.db.get(id as Id<"sessionPacks">) as Promise<
+        { status?: string | null; userId?: string | null } | null
+      >;
     const staleRows: Doc<"adminOnboardings">[] = [];
     for (const row of page.page) {
-      if (row.createdAt >= args.cutoffMs) continue;
-      if (row.email.startsWith("clerk:")) continue;
-      if (!Array.isArray(row.perInstructor) || row.perInstructor.length === 0) continue;
-
-      // Verify at least one non-renewal pair has a STILL-PLACEHOLDER pack.
-      let hasPlaceholder = false;
-      for (const pair of row.perInstructor) {
-        if (!pair || pair.isRenewal || !pair.sessionPackId) continue;
-        const pack = await ctx.db.get(pair.sessionPackId);
-        if (
-          pack &&
-          pack.status === "active" &&
-          typeof pack.userId === "string" &&
-          pack.userId.startsWith("email:")
-        ) {
-          hasPlaceholder = true;
-          break;
-        }
+      if (
+        await isStaleOnboardingRow(
+          {
+            createdAt: row.createdAt,
+            email: row.email,
+            perInstructor: row.perInstructor,
+          },
+          args.cutoffMs,
+          fetchPack,
+        )
+      ) {
+        staleRows.push(row);
       }
-      if (hasPlaceholder) staleRows.push(row);
     }
     return {
       rows: staleRows,
