@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, and PR 7 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters) + stale-digest pagination safety cap. Remaining items below are hardening / new features / optimization (not blockers).
+Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, PR 7, and PR 8 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters) + stale-digest pagination safety cap + helper unit tests. Remaining items below are hardening / new features / optimization (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -864,9 +864,9 @@ Steps:
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5.
 
-## Remaining Work (post-PR 7)
+## Remaining Work (post-PR 8)
 
-PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detail views) and **R10** (list-view polish: bulk filters, status guard, confirm dialog). PR 7 closed **R3** (stale-digest pagination safety cap). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below.
+PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detail views) and **R10** (list-view polish: bulk filters, status guard, confirm dialog). PR 7 closed **R3** (stale-digest pagination safety cap). PR 8 closed **R7** (helper unit tests: stale-digest selection, `appendTimelineEntry` merge atomicity, Resend skip-on-missing-key). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below.
 
 ### Hardening / enhancements (not blockers)
 
@@ -874,7 +874,7 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 |---|------|----------|-------|
 | R5 | `markEmailSent` atomic helper | P3 | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic in onboarding.ts. |
 | R6 | Per-workspace dashboard route | P3 | Admin-onboarding workspace URL hardcoded to `baseUrl + "/dashboard"` with a comment noting future PR may add `/dashboard/workspaces/[id]` to use `p.workspaceId`. Currently workspaces route from the same dashboard. |
-| R7 | Unit tests for stale-digest + per-step gating | P3 | Plan called for unit tests for "stale-digest selection query, `markEmailSent` helper atomicity, Resend skip-on-missing-key behavior, Inngest flow retry-after-partial-send resume". None shipped. Current suite is 95 tests (mostly payment-flow); no tests touch `convex/adminOnboarding.ts` directly. |
+| R7 | ~~Unit tests for stale-digest + per-step gating~~ | SHIPPED | PR 8. Stale-digest selection query, `appendTimelineEntry` merge atomicity, and Resend skip-on-missing-key behavior all covered. The plan's 4th test ("Inngest flow retry-after-partial-send resume") deferred — requires mocking `step.run` + Convex actions + Resend + verifying `emailsSent.*` guard; benefits from its own PR. |
 | R8 | Document `adminSummary: true` legacy-row behavior | P3 | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in a runbook so on-call doesn't get paged. |
 | R9 | Stripe/PayPal test-mode runbook entry | P3 | Plan called for an end-to-end manual test in staging using the new Kajabi admin-onboarding form. Not yet done. |
 | R11 | Wire `releasePlaceholderInventoryInternal` from R6's `getStaleOnboardingsInternal` PR refactor | P3 | Currently `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` calls both `getStaleOnboardingsAction` and `releasePlaceholderInventoryAction` per row. A future consolidation PR could merge these into one batched mutation per pair. Not urgent. |
@@ -973,6 +973,32 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 **Files**: `convex/adminOnboarding.ts`, `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts`, `apps/platform/lib/paginate-stale-onboardings.ts` (new), `apps/platform/lib/paginate-stale-onboardings.test.ts` (new), `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm lint` ✓ (no new warnings); `pnpm test:unit --run` (9 new tests + 95 existing = 104 passed | 3 skipped); `cd apps/platform && pnpm build` ✓.
+
+### PR 8 — Helper unit tests (R7) — SHIPPED (#644, `4332bb0b`)
+
+**Goal**: ship the remaining plan-debt unit tests for the admin-onboarding automation. Extract two pieces of inline logic from `convex/adminOnboarding.ts` into pure helpers so they're testable without a live Convex runtime, and lock down the Resend skip-on-missing-key contract.
+
+**Shipped in PR 8**:
+
+- **Stale-digest selection helper (`apps/platform/lib/admin-onboarding/stale-onboarding-filter.ts`)**:
+  - `isStaleOnboardingRow(row, cutoffMs, fetchPack)` extracted from the per-row filter in `getStaleOnboardingsInternal`. Encapsulates the invariants: cutoff age (`row.createdAt >= cutoffMs` skip), `clerk:` email prefix skip, non-empty `perInstructor` requirement, and the placeholder-pack probe (`status === "active"` AND `userId` starts with `email:`).
+  - `fetchPack: (id: string) => Promise<StaleSessionPack | null>` is injected so the helper stays pure; Convex calls `ctx.db.get` via a thin wrapper.
+  - `convex/adminOnboarding.ts:getStaleOnboardingsInternal` now delegates the per-row filter to the helper; behavior is preserved.
+- **`appendTimelineEntry` merge helper (`apps/platform/lib/admin-onboarding/emails-sent-merge.ts`)**:
+  - `mergeEmailsSentPatch(existing, patch)` extracted from the inline merge in `appendTimelineEntry`. Encapsulates the PR 4 invariants: `instructors` concat+dedupe (order preserved), `adminSummaryByEmail` keyed-merge (patch wins on collision), shallow patch for top-level scalars (`student`, `adminSummary`, `stub`).
+  - `convex/adminOnboarding.ts:appendTimelineEntry` now delegates the merge to the helper; behavior is preserved (the helper is a 1:1 mirror of the original inline code).
+- **Resend skip-on-missing-key tests (`packages/emails/src/send.skip.test.ts`)**:
+  - 6 tests covering `sendEmail` and `sendTemplateEmail`: dev returns `skipped: true`, production returns `error: "Email provider not configured"`, missing `EMAIL_FROM` treated the same as missing `RESEND_API_KEY`. File-scoped beforeEach/afterEach env stubs so both describe blocks share setup/teardown.
+- **Test coverage**:
+  - `apps/platform/lib/admin-onboarding/stale-onboarding-filter.test.ts` — 12 tests covering all skip/keep branches (cutoff, `clerk:` prefix, missing/empty perInstructor, all-renewal, missing pack, non-active pack, non-string userId, non-placeholder userId, first-match short-circuit, mixed valid/invalid pairs, full-scan miss).
+  - `apps/platform/lib/admin-onboarding/emails-sent-merge.test.ts` — 16 tests: null/undefined inputs, instructor dedupe (including non-mutation), `adminSummaryByEmail` disjoint/collision/empty maps, top-level scalar winners, and a realistic multi-tick accumulation pattern.
+- **Deferred**: the plan's 4th test ("Inngest flow retry-after-partial-send resume") is too large for one PR — requires mocking `step.run` + Convex actions + Resend + verifying `emailsSent.*` guard. Belongs in its own PR.
+
+**Files**: `convex/adminOnboarding.ts` (delegation only, no behavior change), `apps/platform/lib/admin-onboarding/stale-onboarding-filter.ts` (new), `apps/platform/lib/admin-onboarding/stale-onboarding-filter.test.ts` (new), `apps/platform/lib/admin-onboarding/emails-sent-merge.ts` (new), `apps/platform/lib/admin-onboarding/emails-sent-merge.test.ts` (new), `packages/emails/src/send.skip.test.ts` (new), `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
+
+**Review rounds**: 2 CodeRabbit review rounds. Round 1 flagged 2 style issues on `send.skip.test.ts` (duplicate beforeEach/afterEach hooks + verbose `if "skipped" in result` guard); round 2 (after fix) APPROVED. Greptile confidence 5/5. Note from Greptile: the new `convex → apps/platform/lib/...` cross-directory imports add a deployment-path constraint; the CI `convex-codegen` step's typecheck gate confirmed the Convex bundler resolves them correctly.
+
+**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm lint` ✓; `pnpm test:unit --run` (28 new + 104 existing = 132 passed | 3 skipped, 3 pre-existing failures on `main` unchanged); `cd apps/platform && pnpm build` ✓; full CI matrix green.
 
 ### Branching + Review Hygiene
 
