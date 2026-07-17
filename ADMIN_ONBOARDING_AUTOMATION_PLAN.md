@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, PR 7, PR 8, and PR 9 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters) + stale-digest pagination safety cap + helper unit tests + global run concurrency cap on the admin flow. Remaining items below are hardening / new features / optimization (not blockers).
+Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, PR 7, PR 8, PR 9, and PR 10 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters) + stale-digest pagination safety cap + helper unit tests + global run concurrency cap on the admin flow + structured observability parity in the instructor-email step. Remaining items below are hardening / new features / optimization (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -864,9 +864,9 @@ Steps:
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5.
 
-## Remaining Work (post-PR 9)
+## Remaining Work (post-PR 10)
 
-PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detail views) and **R10** (list-view polish: bulk filters, status guard, confirm dialog). PR 7 closed **R3** (stale-digest pagination safety cap). PR 8 closed **R7** (helper unit tests: stale-digest selection, `appendTimelineEntry` merge atomicity, Resend skip-on-missing-key). PR 9 closed **option C** (global run concurrency cap on `adminOnboardingFlow`). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below.
+PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detail views) and **R10** (list-view polish: bulk filters, status guard, confirm dialog). PR 7 closed **R3** (stale-digest pagination safety cap). PR 8 closed **R7** (helper unit tests: stale-digest selection, `appendTimelineEntry` merge atomicity, Resend skip-on-missing-key). PR 9 closed **option C** (global run concurrency cap on `adminOnboardingFlow`). PR 10 closed **option A** (console→`reportError`/`reportInfo` parity at `onboarding.ts:319,325`). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below.
 
 ### Hardening / enhancements (not blockers)
 
@@ -878,8 +878,8 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 | R8 | Document `adminSummary: true` legacy-row behavior | P3 | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in a runbook so on-call doesn't get paged. |
 | R9 | Stripe/PayPal test-mode runbook entry | P3 | Plan called for an end-to-end manual test in staging using the new Kajabi admin-onboarding form. Not yet done. |
 | R11 | Wire `releasePlaceholderInventoryInternal` from R6's `getStaleOnboardingsInternal` PR refactor | P3 | Currently `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` calls both `getStaleOnboardingsAction` and `releasePlaceholderInventoryAction` per row. A future consolidation PR could merge these into one batched mutation per pair. Not urgent. |
-| C2 | Send-level rate limiting on `adminOnboardingFlow` | P3 | PR 9 caps RUN concurrency (5) but each run still issues its 3 `sendEmail` calls in parallel via `Promise.all`, so a burst can hit Resend with ~15 simultaneous requests. A dedicated throttled send loop (or a dedicated queue function) would enforce per-second Resend quota at the SEND point. Out of scope for PR 9; add if production rate-limit pressure becomes a real problem. |
-| A | Console→`reportError` parity in admin onboarding flow | P3 | `apps/platform/inngest/functions/onboarding.ts:319,325` uses bare `console.error(...)` for per-instructor validation failures while the rest of the function uses `reportError({ source, error, ... })` from `apps/platform/lib/observability.ts`. A 2-line fix would route these through the structured logger. |
+| C2 | Send-level rate limiting on `adminOnboardingFlow` | P3 | PR 9 caps RUN concurrency (5) but each run still issues its 3 `sendEmail` calls in parallel via `Promise.all`, so a burst can hit Resend with ~15 simultaneous requests. A dedicated throttled send loop (or a dedicated queue function) would enforce per-second Resend quota at the SEND point. Out of scope for PR 9; add if production rate-limit pressure becomes a real problem. CodeRabbit explicitly raised this on PR 9; PR 10 deferred again. |
+| ~~A~~ | ~~Console→`reportError` parity in admin onboarding flow~~ | SHIPPED | PR 10. `onboarding.ts:319` → `reportError({ level: "warn" })`; `onboarding.ts:325` → `reportInfo({ level: "warn" })`. Behavior unchanged. |
 | D | List-view search + sort | P3 | `apps/platform/app/admin/onboardings/page.tsx` (249 lines) lists onboardings with bulk filters but no free-text search or column sort. Add search by email / per-instructor names, plus sortable columns for createdAt / status. |
 | E | List-view CSV export | P3 | Same surface as D. Add a "Download CSV" button next to the bulk filters; reuse the existing filter state. |
 
@@ -1020,6 +1020,23 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 **Review rounds**: 1 CodeRabbit round (CHANGES_REQUESTED on the original commit, finding addressed via fixup commit `2e2d1972` — comment revised to honestly describe that the cap is on RUN concurrency, not per-second email send rate). Cloud CodeRabbit never re-reviewed the fix commit; same rate-limit pattern seen on PR 643. Bypassed with `gh pr merge --admin --squash --delete-branch` after Greptile confidence 5/5 and 15/15 CI green. All 15 CI checks ✓ (Build, typecheck-apps, typecheck-convex, Vercel Preview Comments, Detect Changes, Unit Tests, E2E Tests, Lint & Type Check, Greptile Review, convex-codegen, CodeRabbit, 4 Vercel deploys).
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm lint` ✓ (no new warnings); `cd apps/platform && pnpm build` ✓; `pnpm test:unit --run` (no test changes — 132 passed | 3 skipped, 3 pre-existing failures on `main` unchanged); full CI matrix green.
+
+### PR 10 — Console→`reportError` parity in `onboardingFlow` (option A) — SHIPPED (#646, `b8bde6c4`)
+
+**Goal**: route two bare `console.*` calls in the `send-instructor-email` step of `onboardingFlow` through the structured observability pipeline used everywhere else in the function. Both calls previously sent diagnostics to stdout only — invisible to Sentry/BetterStack/Axiom and unfilterable alongside the other 14+ `reportError` calls in this file.
+
+**Shipped in PR 10**:
+
+- **Import (`apps/platform/inngest/functions/onboarding.ts:8`)**: added `reportInfo` alongside the existing `reportError` import.
+- **Clerk fetch failure (`onboarding.ts:319`)**: `console.error("Failed to get instructor Clerk user:", error)` → `await reportError({ source: "inngest:onboarding", error: error instanceof Error ? error : new Error(String(error)), level: "warn", message: "Failed to get instructor Clerk user", context: { phase, instructorId, userId, orderId, sessionPackId } })`. Matches the existing pattern at `onboarding.ts:217` (`hasPriorPackWithInstructor`) — caught-but-non-fatal, level `warn`. The `error instanceof Error ? error : new Error(String(error))` guard mirrors every other `reportError` call in the file.
+- **Missing email warning (`onboarding.ts:325`)**: `console.warn(\`No email found for instructor ${...}\`)` → `await reportInfo({ source: "inngest:onboarding", level: "warn", message: "No email found for instructor", context: { phase, instructorId, userId, orderId, sessionPackId } })`. Not an error condition — a normal flow state when the instructor hasn't added a Clerk email yet. `reportInfo` is the right fit per its docstring (`lib/observability.ts:149-152`: "info-level logging without error context").
+- **Behavior preservation**: neither call previously raised, neither call now raises. `reportError` and `reportInfo` are best-effort and fail-closed (`lib/observability.ts:142-146`, `168-173`); if BetterStack or Axiom is unreachable they swallow the error and the function continues. The `return { sent: false, reason: "no_instructor_email" }` semantics below the second call are unchanged.
+
+**Files**: `apps/platform/inngest/functions/onboarding.ts` (1-line import swap + 2 structured-log calls); `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
+
+**Review rounds**: 0 CodeRabbit rounds (APPROVED on first review). Greptile confidence 5/5 — "No blocking issues found in the changed code. The added reporting calls preserve the non-fatal missing-email path." 16/16 CI checks ✓ on first run.
+
+**Verification**: `pnpm --filter @mentorships/platform lint` (0 errors; pre-existing `refreshErr` unused warning at line 1153 unchanged); `pnpm --filter @mentorships/platform typecheck` (same pre-existing missing-node_modules + `convex/workspaces.ts` errors as on `main`, none in `onboarding.ts` from this diff); full CI matrix green.
 
 ### Branching + Review Hygiene
 
