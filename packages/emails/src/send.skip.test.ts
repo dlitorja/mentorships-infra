@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sendEmail, sendTemplateEmail } from "./send";
 
 // R7 (PR 8): the skip-on-missing-key behavior is the contract that
@@ -10,30 +10,26 @@ import { sendEmail, sendTemplateEmail } from "./send";
 const ORIGINAL_RESEND = process.env.RESEND_API_KEY;
 const ORIGINAL_FROM = process.env.EMAIL_FROM;
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
-const ORIGINAL_NEXT_PUBLIC_URL = process.env.NEXT_PUBLIC_URL;
 
 function clearEmailEnv() {
   delete process.env.RESEND_API_KEY;
   delete process.env.EMAIL_FROM;
 }
 
+beforeEach(() => {
+  clearEmailEnv();
+});
+
+afterEach(() => {
+  if (ORIGINAL_RESEND === undefined) delete process.env.RESEND_API_KEY;
+  else process.env.RESEND_API_KEY = ORIGINAL_RESEND;
+  if (ORIGINAL_FROM === undefined) delete process.env.EMAIL_FROM;
+  else process.env.EMAIL_FROM = ORIGINAL_FROM;
+  if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+});
+
 describe("sendEmail skip-on-missing-key behavior", () => {
-  beforeEach(() => {
-    clearEmailEnv();
-    vi.restoreAllMocks();
-  });
-
-  afterEach(() => {
-    if (ORIGINAL_RESEND === undefined) delete process.env.RESEND_API_KEY;
-    else process.env.RESEND_API_KEY = ORIGINAL_RESEND;
-    if (ORIGINAL_FROM === undefined) delete process.env.EMAIL_FROM;
-    else process.env.EMAIL_FROM = ORIGINAL_FROM;
-    if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
-    if (ORIGINAL_NEXT_PUBLIC_URL === undefined) delete process.env.NEXT_PUBLIC_URL;
-    else process.env.NEXT_PUBLIC_URL = ORIGINAL_NEXT_PUBLIC_URL;
-  });
-
   it("returns skipped result in dev when RESEND_API_KEY is missing", async () => {
     process.env.NODE_ENV = "development";
     const result = await sendEmail({
@@ -89,29 +85,11 @@ describe("sendEmail skip-on-missing-key behavior", () => {
       subject: "Welcome",
       html: "<p>hi</p>",
     });
-    expect(result.ok).toBe(false);
-    if (result.ok === false && "skipped" in result) {
-      expect(result.skipped).toBe(true);
-    } else {
-      throw new Error("expected a skipped result");
-    }
+    expect(result).toMatchObject({ ok: false, skipped: true });
   });
 });
 
 describe("sendTemplateEmail skip-on-missing-key behavior", () => {
-  beforeEach(() => {
-    clearEmailEnv();
-  });
-
-  afterEach(() => {
-    if (ORIGINAL_RESEND === undefined) delete process.env.RESEND_API_KEY;
-    else process.env.RESEND_API_KEY = ORIGINAL_RESEND;
-    if (ORIGINAL_FROM === undefined) delete process.env.EMAIL_FROM;
-    else process.env.EMAIL_FROM = ORIGINAL_FROM;
-    if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
-    else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
-  });
-
   it("returns skipped result in dev when RESEND_API_KEY is missing", async () => {
     process.env.NODE_ENV = "development";
     const result = await sendTemplateEmail({
