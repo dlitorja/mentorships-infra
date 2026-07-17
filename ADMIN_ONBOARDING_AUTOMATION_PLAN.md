@@ -882,7 +882,7 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 
 ### Resolved decisions
 
-- **D1 — List view location**: `/admin/onboardings` list view confirmed as the canonical ops triage surface. **Resolution**: PR 6 era — page already shipped (PR 5) at `apps/platform/app/admin/onboardings/page.tsx`; PR 6 polished it (bulk filters, per-row Retry, confirm dialog).
+- **D1 — List view location**: `/admin/onboardings` list view confirmed as the canonical ops triage surface. **Resolution**: PR 6 era — page already shipped before PR 5 at `apps/platform/app/admin/onboardings/page.tsx` (read-only scaffold landed in PR 1, schema-widened in PR 4, polished in PR 6 with bulk filters, per-row Retry, confirm dialog).
 - **D2 — Auto-retry vs manual retry**: Both shipped. **Resolution**: PR 4 ships the auto-retry (`adminOnboardingFlow` re-fetches `freshRow` and only sends undelivered addresses via `adminSummaryByEmail` map). PR 6 ships the manual per-row retry button + confirm dialog (`apps/platform/components/admin/retry-onboarding-button.tsx` calls existing `/api/admin/onboardings/[id]/retry` route, which calls `retryAdminOnboarding` mutation).
 - **D3 — Keep `purchase/mentorship` deprecated alias**: Confirmed — keep alive for backward compat, but **only as an `apps/web` emitter** (not a platform trigger). **Resolution**: PR 5 architecture — `apps/platform/inngest/functions/onboarding.ts` listens only to `purchase/instructor`; `apps/web` continues to own `purchase/mentorship`. Cleanup checklist for `apps/web` retirement is at the bottom of this document.
 
@@ -943,7 +943,7 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
   - Side bonus: replaced "mentorship" with "session pack" in page description copy per AGENTS.md naming rule.
 - **CI fix (rolled into PR 6)**: replaced `dorny/paths-filter@v3` with a `git diff`-based Bash step in `.github/workflows/test.yml`. The previous action's GitHub API call returned an HTML error page (rate limit / token scope) and the action also emitted a Node 20 deprecation warning. The replacement fetches full git history (`fetch-depth: 0`), diffs base vs head SHAs, and writes the same five output keys so the downstream `build` job's `needs.changes.outputs.*` references continue to work. No external action = no API rate-limit failure mode and no Node version mismatch warning.
 
-**Greptile review rounds**: 2 local. Round 1 (confidence 3/5): 1 P1 (bulk filter not reset on tab change) + 2 P2 (misleading empty-state, missing confirm dialog). All addressed in round 2 (commit `72066488`). Round 2 (confidence 5/5): "Safe to merge — changes are additive, scoped to admin-only pages, and the server-side state machine still enforces retry eligibility regardless of what the UI allows."
+**Greptile review rounds**: 2 local. Round 1 (confidence 3/5): 1 P1 (bulk filter not reset on tab change) + 2 P2 (misleading empty-state, missing confirm dialog). All addressed in round 2 and included in PR 6 commit `b3cfebac`. Round 2 (confidence 5/5): "Safe to merge — changes are additive, scoped to admin-only pages, and the server-side state machine still enforces retry eligibility regardless of what the UI allows."
 
 **Files**: `apps/platform/components/admin/retry-onboarding-button.tsx` (new), `apps/platform/app/admin/onboardings/[id]/page.tsx`, `apps/platform/app/admin/onboardings/page.tsx`, `.github/workflows/test.yml`.
 
