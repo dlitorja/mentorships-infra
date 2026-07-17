@@ -56,13 +56,33 @@ function makeSinglePageFetcher(rows: any[]): { fetcher: StaleRowFetcher; callCou
   return { fetcher, callCount };
 }
 
+/**
+ * Build a fetcher that always returns `rowsPerPage` rows and signals
+ * more pages remain (simulates "filter rejected some upstream but
+ * candidates keep coming").
+ */
+function makeEndlessFetcher(rowsPerPage: number): { fetcher: StaleRowFetcher; calls: number[] } {
+  const calls: number[] = [];
+  let served = 0;
+  let cursorSeq = 0;
+  const fetcher: StaleRowFetcher = async (_cursor, numItems) => {
+    calls.push(numItems);
+    const thisBatch = Math.min(numItems, rowsPerPage);
+    const rows = Array.from({ length: thisBatch }, (_, k) => makeRow(served + k));
+    served += thisBatch;
+    cursorSeq += 1;
+    return { rows, continueCursor: "cursor_" + cursorSeq, isDone: false };
+  };
+  return { fetcher, calls };
+}
+
 describe("paginateStaleOnboardings", () => {
-  it("returns empty result with no fetcher calls when there is nothing to fetch", async () => {
+  it("returns empty result when there is nothing to fetch", async () => {
     const { fetcher, callCount } = makeSinglePageFetcher([]);
     const result = await paginateStaleOnboardings(fetcher);
     expect(result.rows).toEqual([]);
     expect(result.truncated).toBe(false);
-    expect(result.totalFetched).toBe(0);
+    expect(result.totalRequested).toBe(DEFAULT_STALE_PAGE_SIZE);
     expect(callCount.value).toBe(1);
   });
 
@@ -72,7 +92,9 @@ describe("paginateStaleOnboardings", () => {
     const result = await paginateStaleOnboardings(fetcher);
     expect(result.rows).toEqual(rows);
     expect(result.truncated).toBe(false);
-    expect(result.totalFetched).toBe(3);
+    // totalRequested counts numItems asked, not what the fetcher returned;
+    // the single page requested 1000 (default pageSize) and got 3 back.
+    expect(result.totalRequested).toBe(DEFAULT_STALE_PAGE_SIZE);
     expect(callCount.value).toBe(1);
   });
 
@@ -81,7 +103,7 @@ describe("paginateStaleOnboardings", () => {
     const result = await paginateStaleOnboardings(fetcher, { pageSize: 1000, maxRows: 10_000 });
     expect(result.rows).toHaveLength(2500);
     expect(result.truncated).toBe(false);
-    expect(result.totalFetched).toBe(2500);
+    expect(result.totalRequested).toBe(3000);
     // Each call requests pageSize (1000); final page receives fewer rows from the fetcher.
     expect(calls).toEqual([1000, 1000, 1000]);
   });
@@ -91,18 +113,29 @@ describe("paginateStaleOnboardings", () => {
     const result = await paginateStaleOnboardings(fetcher, { pageSize: 1000, maxRows: 10_000 });
     expect(result.rows).toHaveLength(1234);
     expect(result.truncated).toBe(false);
-    expect(result.totalFetched).toBe(1234);
-    // Helper always asks for pageSize; the fetcher decides how many to return.
+    expect(result.totalRequested).toBe(2000);
     expect(calls).toEqual([1000, 1000]);
   });
 
-  it("respects the safety cap and flags truncation when more rows remain", async () => {
+  it("respects the safety cap and flags truncation when more rows remain (high filter accept)", async () => {
     const { fetcher, calls } = makeChunkedFetcher(15_000, 1000);
     const result = await paginateStaleOnboardings(fetcher, { pageSize: 1000, maxRows: DEFAULT_STALE_MAX_ROWS });
     expect(result.rows).toHaveLength(DEFAULT_STALE_MAX_ROWS);
     expect(result.truncated).toBe(true);
-    expect(result.totalFetched).toBe(DEFAULT_STALE_MAX_ROWS);
-    // 10 calls of 1000 = 10,000 rows reached cap exactly; 11th would never run because cap is hit.
+    expect(result.totalRequested).toBe(DEFAULT_STALE_MAX_ROWS);
+    expect(calls).toEqual([1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+  });
+
+  it("bounds scan cost regardless of filter rate (Greptile P1 fix)", async () => {
+    // Endless fetcher returns a full page each call and signals isDone=false.
+    // With maxRows=10000 and pageSize=1000, the loop must terminate after 10
+    // calls — never infinite — even if the upstream has millions of rows.
+    const { fetcher, calls } = makeEndlessFetcher(1000);
+    const result = await paginateStaleOnboardings(fetcher, { pageSize: 1000, maxRows: 10_000 });
+    expect(result.rows).toHaveLength(10_000);
+    expect(result.truncated).toBe(true);
+    expect(result.totalRequested).toBe(10_000);
+    expect(calls.length).toBe(10);
     expect(calls).toEqual([1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
   });
 

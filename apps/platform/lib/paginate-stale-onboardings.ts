@@ -19,7 +19,7 @@ export type PaginateStaleOptions = {
 export type PaginateStaleResult = {
   rows: Doc<"adminOnboardings">[];
   truncated: boolean;
-  totalFetched: number;
+  totalRequested: number;
 };
 
 export const DEFAULT_STALE_PAGE_SIZE = 1000;
@@ -33,6 +33,17 @@ export const DEFAULT_STALE_MAX_ROWS = 10_000;
  * surface a `reportError` so monitoring catches the unprocessed tail —
  * the next cron run will pick the rest up.
  *
+ * The cap (`maxRows`) bounds the **scan budget** — i.e. the total
+ * number of rows the upstream `paginate(numItems)` call had to look
+ * at across all iterations. This matters because `getStaleOnboardingsInternal`
+ * server-side filters candidates by `createdAt` cutoff + placeholder
+ * ownership, so a row that doesn't pass the filter still costs one
+ * upstream DB read. Capping on `rows.length` (returned count) instead
+ * would let a heavy-filter page silently issue many more scans than
+ * intended, exhausting Inngest step cost without ever signalling
+ * `truncated: true`. We bound by `numItems` requested per iteration
+ * instead.
+ *
  * Pure async helper — accepts a fetcher function so unit tests can
  * exercise pagination without touching Convex.
  */
@@ -45,17 +56,17 @@ export async function paginateStaleOnboardings(
   const rows: Doc<"adminOnboardings">[] = [];
   let cursor: string | null = null;
   let isDone = false;
-  let totalFetched = 0;
+  let totalRequested = 0;
 
-  while (!isDone && rows.length < maxRows) {
-    const remaining = maxRows - rows.length;
+  while (!isDone && totalRequested < maxRows) {
+    const remaining = maxRows - totalRequested;
     const numItems = Math.min(pageSize, remaining);
     const page = await fetch(cursor, numItems);
     rows.push(...page.rows);
-    totalFetched += page.rows.length;
+    totalRequested += numItems;
     cursor = page.continueCursor;
     isDone = page.isDone;
   }
 
-  return { rows, truncated: !isDone, totalFetched };
+  return { rows, truncated: !isDone, totalRequested };
 }

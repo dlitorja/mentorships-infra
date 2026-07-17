@@ -965,13 +965,14 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 - **Pure helper (`apps/platform/lib/paginate-stale-onboardings.ts`)**:
   - Accepts a `StaleRowFetcher` (cursor + numItems) so unit tests exercise pagination logic without touching Convex.
   - Exports `DEFAULT_STALE_PAGE_SIZE = 1000` and `DEFAULT_STALE_MAX_ROWS = 10_000` constants for callers and tests.
+  - Cap (`maxRows`) is a **scan budget**, not a returned-row budget — the loop terminates on `totalRequested >= maxRows` regardless of how many rows the upstream filter rejects. This bounds the Inngest step cost and the Convex scan cost regardless of filter rate. (Greptile P1: a low filter rate would otherwise let the loop scan many more pages than intended before returning `truncated: true`.)
 - **Unit tests (`apps/platform/lib/paginate-stale-onboardings.test.ts`)**:
-  - 8 tests: empty input, single page, multi-page, final-page undersize, 10k cap with `truncated: true`, default options, cursor propagation, custom pageSize.
+  - 9 tests: empty input, single page, multi-page, final-page undersize, 10k cap with `truncated: true` (high filter accept), scan-cost bound under endless fetcher (low filter accept / Greptile P1 regression test), default options, cursor propagation, custom pageSize.
   - Plan's R7 ("Unit tests for stale-digest + per-step gating") is partially addressed — the pagination helper is now under test, but `convex/adminOnboarding.ts` itself still has no direct unit tests. Future PR.
 
 **Files**: `convex/adminOnboarding.ts`, `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts`, `apps/platform/lib/paginate-stale-onboardings.ts` (new), `apps/platform/lib/paginate-stale-onboardings.test.ts` (new), `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
 
-**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm lint` ✓ (no new warnings); `pnpm test:unit --run` (8 new tests + 95 existing = 103 passed | 3 skipped); `cd apps/platform && pnpm build` ✓.
+**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm lint` ✓ (no new warnings); `pnpm test:unit --run` (9 new tests + 95 existing = 104 passed | 3 skipped); `cd apps/platform && pnpm build` ✓.
 
 ### Branching + Review Hygiene
 

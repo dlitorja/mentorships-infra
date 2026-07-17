@@ -89,7 +89,8 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
         level: "error",
         message: "Stale-onboarding scan truncated at " + DEFAULT_STALE_MAX_ROWS + " rows",
         context: {
-          totalFetched: scanResult.totalFetched,
+          totalRequested: scanResult.totalRequested,
+          returnedRows: scanResult.rows.length,
           pageSize: DEFAULT_STALE_PAGE_SIZE,
           maxRows: DEFAULT_STALE_MAX_ROWS,
         },
