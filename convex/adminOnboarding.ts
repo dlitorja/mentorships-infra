@@ -1385,8 +1385,10 @@ export const getStaleOnboardingsInternal = internalQuery({
     // `isStaleOnboardingRow` in
     // `apps/platform/lib/admin-onboarding/stale-onboarding-filter.ts` so
     // the semantics are unit-testable without a live database.
-    const fetchPack = (id: Id<"sessionPacks">) =>
-      ctx.db.get(id) as Promise<
+    const fetchPack: (id: string) => Promise<
+      { status?: string | null; userId?: string | null } | null
+    > = (id) =>
+      ctx.db.get(id as Id<"sessionPacks">) as Promise<
         { status?: string | null; userId?: string | null } | null
       >;
     const staleRows: Doc<"adminOnboardings">[] = [];
