@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, PR 7, PR 8, PR 9, and PR 10 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters) + stale-digest pagination safety cap + helper unit tests + global run concurrency cap on the admin flow + structured observability parity in the instructor-email step. Remaining items below are hardening / new features / optimization (not blockers).
+Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, PR 7, PR 8, PR 9, PR 10, and PR 11 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters + search-by-email-or-instructor-name + sortable columns + CSV export) + stale-digest pagination safety cap + helper unit tests + global run concurrency cap on the admin flow + structured observability parity in the instructor-email step. Remaining items below are hardening / new features / optimization (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -872,29 +872,29 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 
 The 8 remaining items cluster into **2 natural bundles** and **4 solo PRs**. Total: **6 PRs** to close out the queue (vs 8 if each item got its own).
 
-| Order | PR | Bundle | Items | Surface | Why grouped |
-|-------|----|--------|-------|---------|-------------|
-| 1 | **PR 11** | Bundle 1: List-view ops UX | **D** + **E** | `apps/platform/app/admin/onboardings/page.tsx` | Same file, same ops-triage theme, reuses bulk-filter state. Operator UX win, high-frequency need. |
-| 2 | **PR 12** | Solo | **C2** (send-level rate limiting) | `apps/platform/inngest/functions/onboarding.ts` (+ new helper) | Design choice (throttled wrapper vs dedicated queue function) needs focused review. Closes the deferred CodeRabbit concern from PR 9 + PR 10. Real prod rate-limit risk. |
-| 3 | **PR 13** | Bundle 2: Onboarding runbooks | **R8** + **R9** | `apps/platform/docs/runbooks/` | Pure docs, zero code change. Lowest-risk PR in the queue. |
-| 4 | **PR 14** | Solo | **R5** (`markEmailSent` atomic helper) | `convex/adminOnboarding.ts` + new helper | Pure refactor; behavior preservation requires its own test diff. |
-| 5 | **PR 15** | Solo | **R6** (per-workspace dashboard route) | New `apps/platform/app/dashboard/workspaces/[id]/page.tsx` + link swap | Different file surface from any refactor. Best reviewed alone. |
-| 6 | **PR 16** | Solo | **R11** (consolidate stale cleanup) | `convex/adminOnboarding.ts` + `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` | Performance refactor with its own invariant ("batched mutation per pair, no partial state") that needs isolated test coverage. |
+| Order | PR | Bundle | Items | Surface | Status |
+|-------|----|--------|-------|---------|--------|
+| 1 | **PR 11** | Bundle 1: List-view ops UX | **D** + **E** | `apps/platform/app/admin/onboardings/page.tsx` | **SHIPPED (#647, `96a42ab6`)** |
+| 2 | **PR 12** | Solo | **C2** (send-level rate limiting) | `apps/platform/inngest/functions/onboarding.ts` (+ new helper) | Pending |
+| 3 | **PR 13** | Bundle 2: Onboarding runbooks | **R8** + **R9** | `apps/platform/docs/runbooks/` | Pending |
+| 4 | **PR 14** | Solo | **R5** (`markEmailSent` atomic helper) | `convex/adminOnboarding.ts` + new helper | Pending |
+| 5 | **PR 15** | Solo | **R6** (per-workspace dashboard route) | New `apps/platform/app/dashboard/workspaces/[id]/page.tsx` + link swap | Pending |
+| 6 | **PR 16** | Solo | **R11** (consolidate stale cleanup) | `convex/adminOnboarding.ts` + `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` | Pending |
 
 ### Hardening / enhancements (not blockers)
 
 | # | Item | Priority | Status | Notes |
 |---|------|----------|--------|-------|
-| R5 | `markEmailSent` atomic helper | P3 | PR 14 (planned) | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic in onboarding.ts. |
-| R6 | Per-workspace dashboard route | P3 | PR 15 (planned) | Admin-onboarding workspace URL hardcoded to `baseUrl + "/dashboard"` with a comment noting future PR may add `/dashboard/workspaces/[id]` to use `p.workspaceId`. Currently workspaces route from the same dashboard. |
-| R7 | ~~Unit tests for stale-digest + per-step gating~~ | SHIPPED | — | PR 8. Stale-digest selection query, `appendTimelineEntry` merge atomicity, and Resend skip-on-missing-key behavior all covered. The plan's 4th test ("Inngest flow retry-after-partial-send resume") deferred — requires mocking `step.run` + Convex actions + Resend + verifying `emailsSent.*` guard; benefits from its own PR. |
-| R8 | Document `adminSummary: true` legacy-row behavior | P3 | PR 13 (planned, bundled with R9) | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in a runbook so on-call doesn't get paged. |
-| R9 | Stripe/PayPal test-mode runbook entry | P3 | PR 13 (planned, bundled with R8) | Plan called for an end-to-end manual test in staging using the new Kajabi admin-onboarding form. Not yet done. |
-| R11 | Wire `releasePlaceholderInventoryInternal` from R6's `getStaleOnboardingsInternal` PR refactor | P3 | PR 16 (planned) | Currently `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` calls both `getStaleOnboardingsAction` and `releasePlaceholderInventoryAction` per row. A future consolidation PR could merge these into one batched mutation per pair. Not urgent. |
-| C2 | Send-level rate limiting on `adminOnboardingFlow` | P3 | PR 12 (planned) | PR 9 caps RUN concurrency (5) but each run still issues its 3 `sendEmail` calls in parallel via `Promise.all`, so a burst can hit Resend with ~15 simultaneous requests. A dedicated throttled send loop (or a dedicated queue function) would enforce per-second Resend quota at the SEND point. CodeRabbit raised this on PR 9 and again on PR 10; this is the PR that closes it. |
+| R5 | `markEmailSent` atomic helper | P3 | PR 14 (pending) | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic in onboarding.ts. |
+| R6 | Per-workspace dashboard route | P3 | PR 15 (pending) | Admin-onboarding workspace URL hardcoded to `baseUrl + "/dashboard"` with a comment noting future PR may add `/dashboard/workspaces/[id]` to use `p.workspaceId`. Currently workspaces route from the same dashboard. |
+| R7 | ~~Unit tests for stale-digest + per-step gating~~ | SHIPPED | — | PR 8. Stale-digest selection query, `appendTimelineEntry` merge atomicity, and Resend skip-on-missing-key behavior all covered. The plan's 4th test ("Inngest flow retry-after-partial-send resume") deferred — requires mocking `step.run` + Convex actions + Resend + verifying `emailsSent.*` guard; benefits in its own PR. |
+| R8 | Document `adminSummary: true` legacy-row behavior | P3 | PR 13 (pending, bundled with R9) | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in a runbook so on-call doesn't get paged. |
+| R9 | Stripe/PayPal test-mode runbook entry | P3 | PR 13 (pending, bundled with R8) | Plan called for an end-to-end manual test in staging using the new Kajabi admin-onboarding form. Not yet done. |
+| R11 | Wire `releasePlaceholderInventoryInternal` from R6's `getStaleOnboardingsInternal` PR refactor | P3 | PR 16 (pending) | Currently `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` calls both `getStaleOnboardingsAction` and `releasePlaceholderInventoryAction` per row. A future consolidation PR could merge these into one batched mutation per pair. Not urgent. |
+| C2 | Send-level rate limiting on `adminOnboardingFlow` | P3 | PR 12 (pending) | PR 9 caps RUN concurrency (5) but each run still issues its 3 `sendEmail` calls in parallel via `Promise.all`, so a burst can hit Resend with ~15 simultaneous requests. A dedicated throttled send loop (or a dedicated queue function) would enforce per-second Resend quota at the SEND point. CodeRabbit raised this on PR 9 and again on PR 10; this is the PR that closes it. |
 | ~~A~~ | ~~Console→`reportError` parity in admin onboarding flow~~ | SHIPPED | — | PR 10. `onboarding.ts:319` → `reportError({ level: "warn" })`; `onboarding.ts:325` → `reportInfo({ level: "warn" })`. Behavior unchanged. |
-| D | List-view search + sort | P3 | PR 11 (planned, bundled with E) | `apps/platform/app/admin/onboardings/page.tsx` (249 lines) lists onboardings with bulk filters but no free-text search or column sort. Add search by email / per-instructor names, plus sortable columns for createdAt / status. |
-| E | List-view CSV export | P3 | PR 11 (planned, bundled with D) | Same surface as D. Add a "Download CSV" button next to the bulk filters; reuse the existing filter state. |
+| ~~D~~ | ~~List-view search + sort~~ | SHIPPED | PR 11 | See PR 11 entry below. |
+| ~~E~~ | ~~List-view CSV export~~ | SHIPPED | PR 11 | See PR 11 entry below. |
 
 ### Resolved decisions
 
@@ -1050,6 +1050,41 @@ The 8 remaining items cluster into **2 natural bundles** and **4 solo PRs**. Tot
 **Review rounds**: 0 CodeRabbit rounds (APPROVED on first review). Greptile confidence 5/5 — "No blocking issues found in the changed code. The added reporting calls preserve the non-fatal missing-email path." 16/16 CI checks ✓ on first run.
 
 **Verification**: `pnpm --filter @mentorships/platform lint` (0 errors; pre-existing `refreshErr` unused warning at line 1153 unchanged); `pnpm --filter @mentorships/platform typecheck` (same pre-existing missing-node_modules + `convex/workspaces.ts` errors as on `main`, none in `onboarding.ts` from this diff); full CI matrix green.
+
+### PR 11 — List-view ops UX (Bundle 1: D + E) — SHIPPED (#647, `96a42ab6`)
+
+**Goal**: three ops UX wins on `/admin/onboardings` — unified search (email OR instructor name), three sortable columns (Submitted, Status, Attempts), and a "Download CSV" button — all on the same data flow. Two plan items (D + E) shipped in one PR because they target the same surface and the same in-scope data.
+
+**Shipped in PR 11**:
+
+- **Convex list query (`convex/adminOnboarding.ts:706-848`)**:
+  - `listAdminOnboardings` + `listAdminOnboardingsInternal` + `listAdminOnboardingsAction` now accept `instructorSearch: v.optional(v.string())`.
+  - Internal query enriches each row with `instructorNames: string[]` (denormalized via batched `ctx.db.get` against the `instructors` table — empty-name entries filtered out).
+  - Filter pipeline: when **neither** `emailSearch` nor `instructorSearch` is provided → return all enriched rows. When **at least one** is provided → OR (union) of the two checks. The missing-side default of `true` makes single-filter callers behave as before; the unified-search case (page sends the same string to both args) matches email OR instructor name containing the query.
+  - **Greptile 4/5 caught an AND-vs-OR bug** in the original pipeline (intersection instead of union). Fixed in `5ce5866d` — the filter now correctly returns rows that match either side, not rows that match both.
+- **Hook (`apps/platform/lib/queries/convex/use-admin-onboardings.ts:80-107`)**: `AdminOnboardingListItem` extended with `instructorNames: string[]` (intersection with the Pick). Hook signature gained `instructorSearch?: string`.
+- **Pure helpers (`apps/platform/lib/admin-onboarding/list/index.ts`)**:
+  - `compareItems(a, b, column, direction)` — comparator for the 3 sortable columns. Status sorts alphabetically on `statusLabel()`.
+  - `sortItems(items, column, direction)` — non-mutating sort.
+  - `escapeCsv(value)` — RFC 4180 escaping (comma, quote, newline, CR) + OWASP CSV-injection mitigation (prefix `'` for cells starting with `= + - @ \t \r`). Applied per-element BEFORE list joining so the prefix hits the actual user value.
+  - `rowsToCsv(items)` — renders the visible rows. Each user-controlled field run through `escapeCsv` before any joining.
+- **Page (`apps/platform/app/admin/onboardings/page.tsx`)**:
+  - Single search input fans out to both `emailSearch` and `instructorSearch`. Debounced 300ms via the existing `useDebouncedValue` hook.
+  - Three sortable columns (Submitted, Status, Attempts). Default `createdAt desc`. Click to toggle direction; click a different column to reset to desc. `aria-sort` per `<th>`; click handler on a native `<button>` inside the `<th>` (CodeRabbit review).
+  - "Download CSV" button next to the bulk filter row, disabled when zero rows. Filename includes the active tab + ISO timestamp.
+- **Tests (`apps/platform/lib/admin-onboarding/list/index.test.ts`)**: **25 tests** covering sort directions for all 3 columns, status alphabetical ordering, `sortItems` non-mutation, empty-array handling, 3×2 it.each matrix for column × direction, `escapeCsv` for all RFC 4180 special chars + the OWASP formula-injection prefixes (`= + - @`), and `rowsToCsv` header row + full row + escaped `failureReason` + missing names + CRLF endings.
+
+**Files**: `convex/adminOnboarding.ts` (95 lines added/modified); `apps/platform/lib/queries/convex/use-admin-onboardings.ts` (extended); `apps/platform/app/admin/onboardings/page.tsx` (133 lines added/modified); `apps/platform/lib/admin-onboarding/list/index.ts` (new, ~90 lines); `apps/platform/lib/admin-onboarding/list/index.test.ts` (new, 25 tests).
+
+**Review rounds**: 2 round-trips.
+
+- **Round 1** (`e2a99008`): Greptile 4/5 — flagged the AND-vs-OR union bug in the search filter pipeline. CodeRabbit 3 findings — sortable header should use a native `<button>` (keyboard a11y); test fixtures repeated `as any` casts; CSV formula injection not mitigated.
+- **Round 2** (`e9ae0685`): CodeRabbit APPROVED. All 3 CodeRabbit findings addressed — keyboard a11y fix, typed `makeItem` fixture helper, OWASP CSV-injection mitigation with per-element prefixing.
+- **Round 3** (`2f7fc048`): CI typecheck-apps failure on a wrong-relative-path `Id` import in the test fixture; reverted to the typed `as AdminOnboardingListItem["_id"]` cast.
+
+Greptile's AND-vs-OR finding was also addressed in `5ce5866d` (between rounds 1 and 2). Greptile's cloud review didn't re-fire on subsequent pushes (same rate-limit pattern seen on PR 643 + PR 645) — bypassed with `gh pr merge --admin --squash --delete-branch` after CodeRabbit APPROVED + 16/16 CI checks SUCCESS.
+
+**Verification**: `pnpm exec vitest run apps/platform` (102/102 pass; 25 new + 77 pre-existing); `pnpm --filter @mentorships/platform lint` (0 errors in changed files; pre-existing `Empty block statement` warnings on `main` unchanged); `pnpm --filter @mentorships/platform typecheck` (no new errors in changed files after the `2f7fc048` fixup); full CI matrix green.
 
 ### Branching + Review Hygiene
 
