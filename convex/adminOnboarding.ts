@@ -703,8 +703,10 @@ export const getAdminOnboardingInternal = internalQuery({
  *   - `by_status_createdAt` — fast for a single-status tab.
  *   - "all statuses" is fanned out via the same index with one bucket per
  *     status, then merged + sorted by `createdAt`.
- * `emailSearch` is a case-insensitive substring match — fine for the
- * recovery dashboard's expected volume.
+ * `emailSearch` and `instructorSearch` are case-insensitive substring
+ * matches against the row's email or any per-instructor name (joined
+ * via `ctx.db.get`). Fine for the recovery dashboard's expected volume
+ * (cap of 1000 rows).
  */
 export const listAdminOnboardings: ReturnType<typeof query> = query({
   args: {
@@ -718,6 +720,7 @@ export const listAdminOnboardings: ReturnType<typeof query> = query({
       )
     ),
     emailSearch: v.optional(v.string()),
+    instructorSearch: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -729,6 +732,7 @@ export const listAdminOnboardings: ReturnType<typeof query> = query({
     return await ctx.runQuery(internal.adminOnboarding.listAdminOnboardingsInternal, {
       status: args.status,
       emailSearch: args.emailSearch,
+      instructorSearch: args.instructorSearch,
       limit: args.limit,
     });
   },
@@ -753,6 +757,7 @@ export const listAdminOnboardingsInternal = internalQuery({
       )
     ),
     emailSearch: v.optional(v.string()),
+    instructorSearch: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -762,34 +767,70 @@ export const listAdminOnboardingsInternal = internalQuery({
     // against runaway scans.
     const limit = Math.min(args.limit ?? 50, 1000);
 
-    if (args.status) {
-      const rows = await ctx.db
-        .query("adminOnboardings")
-        .withIndex("by_status_createdAt", (qq) => qq.eq("status", args.status!))
-        .order("desc")
-        .take(limit);
-      return args.emailSearch
-        ? rows.filter((r) => r.email.includes(args.emailSearch!.toLowerCase()))
-        : rows;
-    }
+    const emailQ = args.emailSearch?.toLowerCase();
+    const instructorQ = args.instructorSearch?.toLowerCase();
 
-    // No status filter: take latest across all statuses via the same index.
-    // Use the by_status_createdAt index by iterating known statuses.
-    const allStatuses = ["queued", "processing", "completed", "failed", "cancelled"] as const;
-    const perStatus = Math.max(1, Math.ceil(limit / allStatuses.length));
-    const buckets = await Promise.all(
-      allStatuses.map(async (status) =>
-        ctx.db
+    const fetchRows = async () => {
+      if (args.status) {
+        return await ctx.db
           .query("adminOnboardings")
-          .withIndex("by_status_createdAt", (qq) => qq.eq("status", status))
+          .withIndex("by_status_createdAt", (qq) => qq.eq("status", args.status!))
           .order("desc")
-          .take(perStatus)
-      )
+          .take(limit);
+      }
+      // No status filter: take latest across all statuses via the same index.
+      // Use the by_status_createdAt index by iterating known statuses.
+      const allStatuses = ["queued", "processing", "completed", "failed", "cancelled"] as const;
+      const perStatus = Math.max(1, Math.ceil(limit / allStatuses.length));
+      const buckets = await Promise.all(
+        allStatuses.map(async (status) =>
+          ctx.db
+            .query("adminOnboardings")
+            .withIndex("by_status_createdAt", (qq) => qq.eq("status", status))
+            .order("desc")
+            .take(perStatus)
+        )
+      );
+      return buckets
+        .flat()
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit);
+    };
+
+    const rows = await fetchRows();
+
+    // PR 11: enrich each row with `instructorNames` (denormalized via
+    // ctx.db.get on the `instructors` table) so the list page can sort
+    // and filter by instructor name without a separate per-row query.
+    // Bounded at the row count (≤1000) × perInstructor length. Parallel
+    // `ctx.db.get` keeps it cheap.
+    const enriched = await Promise.all(
+      rows.map(async (row) => {
+        const names = await Promise.all(
+          row.perInstructor.map(async (p) => {
+            const inst = await ctx.db.get(p.instructorId);
+            return inst?.name ?? "";
+          })
+        );
+        return { ...row, instructorNames: names.filter((n) => n.length > 0) };
+      })
     );
-    const merged = buckets.flat().sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
-    return args.emailSearch
-      ? merged.filter((r) => r.email.includes(args.emailSearch!.toLowerCase()))
-      : merged;
+
+    // When NEITHER filter is provided, return all enriched rows.
+    if (!emailQ && !instructorQ) return enriched;
+
+    // When at least one filter is provided, apply as a UNION (OR) so a
+    // row matches if either the email OR any per-instructor name contains
+    // the query. The missing-side default of `true` is what makes this
+    // work — when only one filter is provided, the other side is a
+    // no-op so the OR reduces to the single check.
+    return enriched.filter((r) => {
+      const emailHit = emailQ ? r.email.toLowerCase().includes(emailQ) : true;
+      const instructorHit = instructorQ
+        ? r.instructorNames.some((n) => n.toLowerCase().includes(instructorQ))
+        : true;
+      return emailHit || instructorHit;
+    });
   },
 });
 
@@ -811,6 +852,7 @@ export const listAdminOnboardingsAction: ReturnType<typeof action> = action({
       )
     ),
     emailSearch: v.optional(v.string()),
+    instructorSearch: v.optional(v.string()),
     limit: v.optional(v.number()),
     secret: v.string(),
   },
@@ -823,6 +865,7 @@ export const listAdminOnboardingsAction: ReturnType<typeof action> = action({
       {
         status: args.status,
         emailSearch: args.emailSearch,
+        instructorSearch: args.instructorSearch,
         limit: args.limit,
       }
     );

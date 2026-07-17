@@ -75,7 +75,9 @@ export type AdminOnboarding = {
 /**
  * Trimmed shape returned by `listAdminOnboardings` — excludes the heavy
  * `timeline` array so the list query stays cheap. Pick<> keeps this in
- * sync with `AdminOnboarding` automatically.
+ * sync with `AdminOnboarding` automatically. `instructorNames` is
+ * denormalized by the query (PR 11) so the list page can sort / filter /
+ * display instructor names without a separate per-row query.
  */
 export type AdminOnboardingListItem = Pick<
   AdminOnboarding,
@@ -92,7 +94,9 @@ export type AdminOnboardingListItem = Pick<
   | "createdAt"
   | "completedAt"
   | "cancelledAt"
->;
+> & {
+  instructorNames: string[];
+};
 
 /**
  * TanStack Query wrapper around `convex.adminOnboarding.listAdminOnboardings`.
@@ -101,6 +105,7 @@ export type AdminOnboardingListItem = Pick<
 export function useListAdminOnboardings(args: {
   status?: OnboardingStatus;
   emailSearch?: string;
+  instructorSearch?: string;
   limit?: number;
 }): UseQueryResult<AdminOnboardingListItem[], Error> {
   return useQuery(convexQuery(api.adminOnboarding.listAdminOnboardings, args));
