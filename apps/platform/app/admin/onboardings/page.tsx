@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -18,11 +18,28 @@ import {
   TabsTrigger,
   TabsContent,
 } from "@/components/ui/tabs";
-import { Loader2, AlertTriangle, ListChecks, Eye } from "lucide-react";
+import {
+  Loader2,
+  AlertTriangle,
+  ListChecks,
+  Eye,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  Download,
+} from "lucide-react";
 import { useListAdminOnboardings } from "@/lib/queries/convex/use-admin-onboardings";
 import { statusLabel, type OnboardingStatus } from "@/lib/admin-onboarding";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { RetryOnboardingButton } from "@/components/admin/retry-onboarding-button";
+import {
+  DEFAULT_SORT_COLUMN,
+  DEFAULT_SORT_DIRECTION,
+  rowsToCsv,
+  sortItems,
+  type SortColumn,
+  type SortDirection,
+} from "../../../lib/admin-onboarding/list";
 
 const STATUS_VARIANTS: Record<
   OnboardingStatus,
@@ -86,22 +103,94 @@ function formatRelative(ms: number | null | undefined): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
+// PR 11: client-side CSV download trigger. Hand-rolled to avoid pulling
+// in papaparse for a one-off export. Prepends a UTF-8 BOM so Excel
+// renders non-ASCII characters correctly without manual import.
+function downloadCsv(filename: string, csv: string): void {
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function AdminOnboardingsPage(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<typeof TABS[number]["value"]>("needs-attention");
-  const [emailInput, setEmailInput] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [bulkFilter, setBulkFilter] = useState<BulkFilter>("all");
-  const debouncedEmail = useDebouncedValue(emailInput, 300);
+  const [sortColumn, setSortColumn] = useState<SortColumn>(DEFAULT_SORT_COLUMN);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_SORT_DIRECTION);
+  const debouncedSearch = useDebouncedValue(searchInput, 300);
 
   const tab = TABS.find((t) => t.value === activeTab) ?? TABS[0];
 
+  // PR 11: a single search input fans out to both emailSearch and
+  // instructorSearch server-side. The Convex query unions the two
+  // filters (email OR any per-instructor name contains the substring).
+  const trimmedSearch = debouncedSearch.trim();
+
   const { data, isLoading, error } = useListAdminOnboardings({
     status: tab.status ?? undefined,
-    emailSearch: debouncedEmail || undefined,
+    emailSearch: trimmedSearch || undefined,
+    instructorSearch: trimmedSearch || undefined,
     limit: 50,
   });
 
   const allItems = data ?? [];
-  const items = allItems.filter((item) => matchesBulkFilter(item, bulkFilter));
+  const filteredItems = allItems.filter((item) => matchesBulkFilter(item, bulkFilter));
+  const items = useMemo(
+    () => sortItems(filteredItems, sortColumn, sortDirection),
+    [filteredItems, sortColumn, sortDirection]
+  );
+
+  function toggleSort(column: SortColumn): void {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("desc");
+    }
+  }
+
+  function handleDownloadCsv(): void {
+    if (items.length === 0) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    downloadCsv(`admin-onboardings-${tab.value}-${stamp}.csv`, rowsToCsv(items));
+  }
+
+  function sortIcon(column: SortColumn): React.JSX.Element {
+    if (sortColumn !== column) return <ArrowUpDown className="inline h-3 w-3 ml-1 text-muted-foreground" />;
+    return sortDirection === "asc" ? (
+      <ArrowUp className="inline h-3 w-3 ml-1" />
+    ) : (
+      <ArrowDown className="inline h-3 w-3 ml-1" />
+    );
+  }
+
+  const sortableHeader = (
+    column: SortColumn,
+    label: string
+  ): React.JSX.Element => (
+    <th
+      className="text-left py-3 px-4 font-medium cursor-pointer select-none hover:bg-muted/50"
+      onClick={() => toggleSort(column)}
+      role="button"
+      aria-sort={
+        sortColumn === column
+          ? sortDirection === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      {label}
+      {sortIcon(column)}
+    </th>
+  );
 
   return (
     <div className="container mx-auto py-8">
@@ -115,11 +204,12 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
             Recovery view for Kajabi and other admin-onboarded session pack submissions.
           </p>
         </div>
-        <div className="w-64">
+        <div className="w-72">
           <Input
-            placeholder="Filter by email"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
+            placeholder="Search email or instructor name"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            aria-label="Search by email or instructor name"
           />
         </div>
       </div>
@@ -162,6 +252,23 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                     ({allItems.length - items.length} hidden by filter)
                   </span>
                 ) : null}
+                <div className="ml-auto">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleDownloadCsv}
+                    disabled={items.length === 0}
+                    title={
+                      items.length === 0
+                        ? "No rows to export"
+                        : `Download ${items.length} row${items.length === 1 ? "" : "s"} as CSV`
+                    }
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    Download CSV
+                  </Button>
+                </div>
               </div>
               <CardContent>
                 {error ? (
@@ -184,12 +291,12 @@ export default function AdminOnboardingsPage(): React.JSX.Element {
                     <table className="w-full">
                       <thead>
                         <tr className="border-b">
-                          <th className="text-left py-3 px-4 font-medium">Submitted</th>
+                          {sortableHeader("createdAt", "Submitted")}
                           <th className="text-left py-3 px-4 font-medium">Email</th>
                           <th className="text-left py-3 px-4 font-medium">Source</th>
                           <th className="text-left py-3 px-4 font-medium">Instructors</th>
-                          <th className="text-left py-3 px-4 font-medium">Status</th>
-                          <th className="text-left py-3 px-4 font-medium">Attempts</th>
+                          {sortableHeader("status", "Status")}
+                          {sortableHeader("attemptCount", "Attempts")}
                           <th className="text-left py-3 px-4 font-medium">Failure</th>
                           <th className="text-left py-3 px-4 font-medium"></th>
                         </tr>
