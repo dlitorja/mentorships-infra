@@ -6,6 +6,11 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
+import {
+  paginateStaleOnboardings,
+  DEFAULT_STALE_MAX_ROWS,
+  DEFAULT_STALE_PAGE_SIZE,
+} from "@/lib/paginate-stale-onboardings";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -44,7 +49,7 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
     const convex = getConvexClient();
     const baseUrl = getBaseUrl();
 
-    const staleOnboardings = await step.run("scan-stale", async () => {
+    const scanResult = await step.run("scan-stale", async () => {
       // PR 4 fix: compute the cutoff INSIDE the step so a warm Lambda
       // doesn't drift toward "13 days after cold start".
       const staleCutoffMs = Date.now() - THIRTEEN_DAYS_MS;
@@ -55,18 +60,44 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
       if (!secret) throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin-onboarding-stale-digest cannot authenticate against Convex");
       // PR 4 cloud-review fix (CodeRabbit #9210 + #9214): delegate the
-      // ownership-aware scan to a single Convex action. The new action
-      // fetches up to 1000 completed onboardings and server-side verifies
-      // each placeholder pack is still owned by an "email:" placeholder
-      // (not already claimed by a real Clerk user). Returns only rows
-      // that pass all checks.
-      return await convex.action(api.adminOnboarding.getStaleOnboardingsAction, {
-        cutoffMs: staleCutoffMs,
-        secret,
-      });
+      // ownership-aware scan to a single Convex action. Server-side
+      // verifies each placeholder pack is still owned by an "email:"
+      // placeholder (not already claimed by a real Clerk user).
+      //
+      // R3 (PR 7): iterate pages via `paginateStaleOnboardings`. The
+      // helper bounds the scan at 10,000 rows per run as a safety cap;
+      // the remaining tail surfaces as `truncated: true` so monitoring
+      // can catch a sustained backlog (and the next cron run picks it up).
+      return await paginateStaleOnboardings(
+        async (cursor, numItems) =>
+          convex.action(api.adminOnboarding.getStaleOnboardingsAction, {
+            cutoffMs: staleCutoffMs,
+            paginationOpts: { numItems, cursor },
+            secret,
+          })
+      );
     });
 
-    if (staleOnboardings.length === 0) return { processed: 0 };
+    const staleOnboardings = scanResult.rows;
+
+    // R3 (PR 7): if the scan hit the safety cap with more rows remaining,
+    // surface a monitoring event so on-call sees the unprocessed tail.
+    if (scanResult.truncated) {
+      reportError({
+        source: "inngest:admin-onboarding-stale-digest",
+        error: new Error("Stale-onboarding scan truncated at " + DEFAULT_STALE_MAX_ROWS + " rows; remaining tail will be processed by the next cron run"),
+        level: "error",
+        message: "Stale-onboarding scan truncated at " + DEFAULT_STALE_MAX_ROWS + " rows",
+        context: {
+          totalRequested: scanResult.totalRequested,
+          returnedRows: scanResult.rows.length,
+          pageSize: DEFAULT_STALE_PAGE_SIZE,
+          maxRows: DEFAULT_STALE_MAX_ROWS,
+        },
+      });
+    }
+
+    if (staleOnboardings.length === 0) return { processed: 0, truncated: scanResult.truncated };
 
     await step.run("send-digest", async () => {
       const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art").split(",").map(function(e: string) { return e.trim(); }).filter(Boolean);
@@ -133,6 +164,6 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       }));
     });
 
-    return { processed: staleOnboardings.length };
+    return { processed: staleOnboardings.length, truncated: scanResult.truncated };
   }
 );

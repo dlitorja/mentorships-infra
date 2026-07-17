@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, PR 3, PR 4, PR 5, and PR 6 all merged to `main` (`b3cfebac`). Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters). Remaining items below are hardening / new features / optimization (not blockers).
+Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, and PR 7 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters) + stale-digest pagination safety cap. Remaining items below are hardening / new features / optimization (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -864,15 +864,14 @@ Steps:
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5.
 
-## Remaining Work (post-PR 6)
+## Remaining Work (post-PR 7)
 
-PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detail views) and **R10** (list-view polish: bulk filters, status guard, confirm dialog). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below. PR 6 also rolled in a CI fix that unblocked the `Detect Changes` workflow job.
+PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detail views) and **R10** (list-view polish: bulk filters, status guard, confirm dialog). PR 7 closed **R3** (stale-digest pagination safety cap). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below.
 
 ### Hardening / enhancements (not blockers)
 
 | # | Item | Priority | Notes |
 |---|------|----------|-------|
-| R3 | Pagination for `getStaleOnboardingsAction` | P2 | Currently bounded at 1000 rows. For backlogs >1000 stale onboardings, the daily cron silently misses the rest. Add a `cursor` arg + iterate until exhausted. Cap per-run at 10,000 to bound Inngest step cost. CodeRabbit flagged this as "Heavy lift". |
 | R5 | `markEmailSent` atomic helper | P3 | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic in onboarding.ts. |
 | R6 | Per-workspace dashboard route | P3 | Admin-onboarding workspace URL hardcoded to `baseUrl + "/dashboard"` with a comment noting future PR may add `/dashboard/workspaces/[id]` to use `p.workspaceId`. Currently workspaces route from the same dashboard. |
 | R7 | Unit tests for stale-digest + per-step gating | P3 | Plan called for unit tests for "stale-digest selection query, `markEmailSent` helper atomicity, Resend skip-on-missing-key behavior, Inngest flow retry-after-partial-send resume". None shipped. Current suite is 95 tests (mostly payment-flow); no tests touch `convex/adminOnboarding.ts` directly. |
@@ -948,6 +947,32 @@ PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detai
 **Files**: `apps/platform/components/admin/retry-onboarding-button.tsx` (new), `apps/platform/app/admin/onboardings/[id]/page.tsx`, `apps/platform/app/admin/onboardings/page.tsx`, `.github/workflows/test.yml`.
 
 **Verification**: `pnpm typecheck` ✓; `pnpm lint` on touched files ✓ (zero new errors/warnings; 13 pre-existing baseline lint errors are unrelated to PR 6); `pnpm build` ✓ (27s compile, 66/66 static pages); CI: 10/10 checks pass (Detect Changes, Lint & Type Check, Unit Tests, E2E Tests, typecheck-apps, typecheck-convex, convex-codegen, build-apps, Build, CodeRabbit).
+
+### PR 7 — Stale-digest pagination safety cap (R3) — SHIPPED
+
+**Goal**: the daily stale-digest cron was bounded at 1000 rows on the server side (`getStaleOnboardingsInternal` used `.take(1000)`), so any backlog beyond 1000 stale onboardings was silently dropped — no digest email, no placeholder release, no monitoring signal. PR 7 fixes the correctness bug.
+
+**Shipped in PR 7**:
+
+- **Server-side pagination (`convex/adminOnboarding.ts`)**:
+  - `getStaleOnboardingsInternal` switched from `.take(1000)` to `.paginate(paginationOpts)`, taking `v.any()` `paginationOpts` arg. Mirrors the pattern already used by `convex/adminWorkspaces.ts:99-153`.
+  - Return shape changed from `Doc<"adminOnboardings">[]` to `{ rows, continueCursor, isDone }` — matches Convex `paginate()` semantics.
+  - `getStaleOnboardingsAction` accepts the new `paginationOpts` arg and forwards to the internal query.
+- **Inngest-side pagination loop (`apps/platform/inngest/functions/admin-onboarding-stale-digest.ts`)**:
+  - The `scan-stale` step now calls a new pure helper `paginateStaleOnboardings` that loops pages with `numItems: 1000`, accumulating rows.
+  - Safety cap: 10,000 rows per cron run. Beyond the cap, the helper returns `truncated: true` and the handler emits a `reportError` so monitoring catches a sustained backlog (the next cron run picks the rest up — daily cadence).
+  - Return value extended to `{ processed, truncated }` so the Inngest dashboard surfaces the truncation flag.
+- **Pure helper (`apps/platform/lib/paginate-stale-onboardings.ts`)**:
+  - Accepts a `StaleRowFetcher` (cursor + numItems) so unit tests exercise pagination logic without touching Convex.
+  - Exports `DEFAULT_STALE_PAGE_SIZE = 1000` and `DEFAULT_STALE_MAX_ROWS = 10_000` constants for callers and tests.
+  - Cap (`maxRows`) is a **scan budget**, not a returned-row budget — the loop terminates on `totalRequested >= maxRows` regardless of how many rows the upstream filter rejects. This bounds the Inngest step cost and the Convex scan cost regardless of filter rate. (Greptile P1: a low filter rate would otherwise let the loop scan many more pages than intended before returning `truncated: true`.)
+- **Unit tests (`apps/platform/lib/paginate-stale-onboardings.test.ts`)**:
+  - 9 tests: empty input, single page, multi-page, final-page undersize, 10k cap with `truncated: true` (high filter accept), scan-cost bound under endless fetcher (low filter accept / Greptile P1 regression test), default options, cursor propagation, custom pageSize.
+  - Plan's R7 ("Unit tests for stale-digest + per-step gating") is partially addressed — the pagination helper is now under test, but `convex/adminOnboarding.ts` itself still has no direct unit tests. Future PR.
+
+**Files**: `convex/adminOnboarding.ts`, `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts`, `apps/platform/lib/paginate-stale-onboardings.ts` (new), `apps/platform/lib/paginate-stale-onboardings.test.ts` (new), `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
+
+**Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm lint` ✓ (no new warnings); `pnpm test:unit --run` (9 new tests + 95 existing = 104 passed | 3 skipped); `cd apps/platform && pnpm build` ✓.
 
 ### Branching + Review Hygiene
 

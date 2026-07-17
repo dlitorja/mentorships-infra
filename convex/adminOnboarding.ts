@@ -1360,20 +1360,27 @@ export const getInstructorContactsAction: ReturnType<typeof action> = action({
  * PR 4 cloud-review fix (CodeRabbit #9214): ownership verification happens
  * at scan time, not only at release time, so admins don't get repeated
  * alerts for onboardings whose placeholder has been claimed.
+ *
+ * R3 (PR 7): switched from `.take(1000)` to `.paginate(paginationOpts)` so
+ * the daily cron can iterate past 1000 stale rows. The Inngest handler
+ * (`paginateStaleOnboardings`) bounds the total scan at 10,000 rows per
+ * run as a safety cap; the remaining tail surfaces as a `truncated: true`
+ * flag so monitoring can detect a sustained backlog.
  */
 export const getStaleOnboardingsInternal = internalQuery({
   args: {
     cutoffMs: v.number(),
+    paginationOpts: v.any(),
   },
   handler: async (ctx, args) => {
-    const candidates = await ctx.db
+    const page = await ctx.db
       .query("adminOnboardings")
       .withIndex("by_status_createdAt", (q) => q.eq("status", "completed"))
       .order("desc")
-      .take(1000);
+      .paginate(args.paginationOpts);
 
     const staleRows: Doc<"adminOnboardings">[] = [];
-    for (const row of candidates) {
+    for (const row of page.page) {
       if (row.createdAt >= args.cutoffMs) continue;
       if (row.email.startsWith("clerk:")) continue;
       if (!Array.isArray(row.perInstructor) || row.perInstructor.length === 0) continue;
@@ -1395,7 +1402,11 @@ export const getStaleOnboardingsInternal = internalQuery({
       }
       if (hasPlaceholder) staleRows.push(row);
     }
-    return staleRows;
+    return {
+      rows: staleRows,
+      continueCursor: page.isDone ? null : page.continueCursor,
+      isDone: page.isDone,
+    };
   },
 });
 
@@ -1404,10 +1415,14 @@ export const getStaleOnboardingsInternal = internalQuery({
  * `CONVEX_SERVER_SHARED_SECRET` (Inngest workers have no Clerk session).
  * Mirrors the `listAdminOnboardingsAction` / `getAdminOnboardingAction` /
  * `releasePlaceholderInventoryAction` pattern.
+ *
+ * R3 (PR 7): returns `{ rows, continueCursor, isDone }` so the caller can
+ * iterate past 1000 rows.
  */
 export const getStaleOnboardingsAction: ReturnType<typeof action> = action({
   args: {
     cutoffMs: v.number(),
+    paginationOpts: v.any(),
     secret: v.string(),
   },
   handler: async (ctx, args) => {
@@ -1416,6 +1431,7 @@ export const getStaleOnboardingsAction: ReturnType<typeof action> = action({
     }
     return await ctx.runQuery(internal.adminOnboarding.getStaleOnboardingsInternal, {
       cutoffMs: args.cutoffMs,
+      paginationOpts: args.paginationOpts,
     });
   },
 });
