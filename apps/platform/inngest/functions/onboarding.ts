@@ -532,22 +532,27 @@ export const adminOnboardingFlow = inngest.createFunction(
     id: "admin-onboarding-flow",
     name: "Admin Onboarding Flow",
     retries: 2,
-    // PR 9 (option C): cap global concurrency so a burst of submissions
-    // (e.g. an operator batch-creating 100 rows from the new admin form,
-    // or a webhook backlog draining at once) doesn't fan out 100 flows
-    // simultaneously and exceed Resend's per-account rate limits.
+    // PR 9 (option C): cap global run concurrency so a burst of
+    // submissions (operator batch-create, webhook backlog drain) doesn't
+    // fan out 100 runs simultaneously. Bursts queue naturally — Inngest
+    // schedules new runs as in-flight ones complete.
     //
-    // 5 concurrent runs is well under Resend's default 2 req/sec/account
-    // for the per-run email fan-out (3 emails × 5 = 15 reqs over ~2s).
-    // Bursts queue naturally — Inngest schedules new runs as in-flight
-    // ones complete. Idempotency guards (expectedStatus +
-    // expectedAttemptCount on every appendTimelineEntryAction call) mean
-    // that even if an event is re-delivered, retry behavior is safe.
+    // SCOPE: this caps RUNS, not per-second email send rate. A single run
+    // still issues its 3 sendEmail calls concurrently via Promise.all,
+    // and 5 in-flight runs can mean up to ~15 simultaneous Resend calls
+    // during a burst. Resend rate-limiting at the SEND point is a
+    // separate concern (would need a throttled send loop or a dedicated
+    // queue function) and out of scope here. The 5-run cap reduces the
+    // blast radius of fan-out enough for typical Kajabi admin usage.
     //
     // No `key` here: the event payload only carries `onboardingId` +
     // `attemptCount`, not the perInstructor IDs, so per-instructor
     // throttling would require widening the event schema. Global cap is
     // the right blast radius for now.
+    //
+    // Idempotency: every appendTimelineEntryAction call carries an
+    // expectedStatus + expectedAttemptCount guard so re-deliveries and
+    // retries land on a no-op rather than a duplicate write.
     concurrency: { limit: 5 },
   },
   { event: "admin/onboarding.completed" },
