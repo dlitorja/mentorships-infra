@@ -566,13 +566,16 @@ export const adminOnboardingFlow = inngest.createFunction(
     // fan out 100 runs simultaneously. Bursts queue naturally — Inngest
     // schedules new runs as in-flight ones complete.
     //
-    // SCOPE: this caps RUNS, not per-second email send rate. A single run
-    // still issues its 3 sendEmail calls concurrently via Promise.all,
-    // and 5 in-flight runs can mean up to ~15 simultaneous Resend calls
-    // during a burst. Resend rate-limiting at the SEND point is a
-    // separate concern (would need a throttled send loop or a dedicated
-    // queue function) and out of scope here. The 5-run cap reduces the
-    // blast radius of fan-out enough for typical Kajabi admin usage.
+    // PR 12 (option C2): pair the run-level cap with send-level throttling.
+    // Step 4 (`send-admin-email`) used to fan admin summary emails via
+    // `Promise.all` — with the PR 9 cap of 5 concurrent runs, a burst
+    // could fire ~10 simultaneous Resend calls in a tight window. PR 12
+    // replaces that with a sequential `for` loop + `step.sleep("1s")`
+    // between iterations, which is a durable Inngest primitive (survives
+    // retries / worker restarts; no in-memory throttle). Combined
+    // throughput is ~5 sends/sec at peak, well within Resend's paid-tier
+    // quota. Step 3's instructor loop was already sequential; step 2 is
+    // a single student send per run.
     //
     // No `key` here: the event payload only carries `onboardingId` +
     // `attemptCount`, not the perInstructor IDs, so per-instructor
@@ -978,7 +981,28 @@ export const adminOnboardingFlow = inngest.createFunction(
       // Convex-append failure after a successful send doesn't trigger a
       // duplicate delivery on retry.
       const newResults: Array<{ email: string; ok: boolean; id?: string | null }> = [];
-      await Promise.all(toSend.map(async function(adminEmail: string) {
+      // PR 12 (option C2): serialize the admin summary sends with a
+      // 1-second `step.sleep` between iterations. The previous
+      // `Promise.all` shape could fire all admin emails in parallel from
+      // a single run; combined with the PR 9 run-level concurrency cap
+      // of 5, a Kajabi batch-import burst could hit Resend with up to
+      // ~10 simultaneous admin sends in a tight window.
+      //
+      // The `step.sleep` is a durable Inngest primitive — it survives
+      // retries, worker restarts, and process crashes (no in-memory
+      // throttle needed). With 1s between iterations per run, 5
+      // concurrent runs each doing N admin sends translates to roughly
+      // 5 sends/sec at peak, well within Resend's paid-tier quota.
+      //
+      // Per-iteration step id (`throttle-admin-${i}`) ensures Inngest
+      // memoizes each sleep separately so a retry-mid-iteration doesn't
+      // re-wait. The first iteration skips the sleep (no throttle before
+      // the first send).
+      for (let i = 0; i < toSend.length; i++) {
+        const adminEmail = toSend[i];
+        if (i > 0) {
+          await step.sleep("throttle-admin-" + i, "1s");
+        }
         let res: any;
         try {
           const idempotencyKey = "admin:" + row._id + ":" + adminEmail;
@@ -1022,7 +1046,7 @@ export const adminOnboardingFlow = inngest.createFunction(
           });
           newResults.push({ email: adminEmail, ok: false });
         }
-      }));
+      }
 
       const updatedByEmail: Record<string, boolean> = {};
       for (const r of newResults) updatedByEmail[r.email] = r.ok;
