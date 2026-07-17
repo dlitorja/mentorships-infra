@@ -5,7 +5,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { NonRetriableError } from "inngest";
 import { sendEmail, sendTemplateEmail } from "@/lib/email";
-import { reportError } from "@/lib/observability";
+import { reportError, reportInfo } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
 import { buildAdminPurchaseEmail } from "@/lib/emails/admin-purchase-notification-email";
@@ -316,13 +316,42 @@ export const onboardingFlow = inngest.createFunction(
           const instructorClerkUser = await clerk.users.getUser(instructor.userId);
           instructorEmail = instructorClerkUser.emailAddresses[0]?.emailAddress ?? null;
         } catch (error) {
-          console.error("Failed to get instructor Clerk user:", error);
+          // PR 10 (option A): route through structured observability instead of console.
+          // Caught-but-non-fatal — the surrounding flow falls through to the
+          // "no_instructor_email" return below. level "warn" matches the
+          // pattern at onboarding.ts:217 (hasPriorPackWithInstructor).
+          await reportError({
+            source: "inngest:onboarding",
+            error: error instanceof Error ? error : new Error(String(error)),
+            level: "warn",
+            message: "Failed to get instructor Clerk user",
+            context: {
+              phase: "send-instructor-email",
+              instructorId: instructor._id,
+              userId: instructor.userId ?? null,
+              orderId,
+              sessionPackId: pack._id,
+            },
+          });
         }
       }
 
       if (!instructorEmail) {
-        // Log warning but don't fail - instructor may need to add email
-        console.warn(`No email found for instructor ${instructor._id} (userId: ${instructor.userId})`);
+        // PR 10 (option A): route through structured observability. Not an
+        // error — normal flow condition when the instructor hasn't added an
+        // email yet. reportInfo with level "warn" is the right shape.
+        await reportInfo({
+          source: "inngest:onboarding",
+          level: "warn",
+          message: "No email found for instructor",
+          context: {
+            phase: "send-instructor-email",
+            instructorId: instructor._id,
+            userId: instructor.userId ?? null,
+            orderId,
+            sessionPackId: pack._id,
+          },
+        });
         return { sent: false, reason: "no_instructor_email" };
       }
 
