@@ -85,8 +85,9 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
     if (scanResult.truncated) {
       reportError({
         source: "inngest:admin-onboarding-stale-digest",
+        error: new Error("Stale-onboarding scan truncated at " + DEFAULT_STALE_MAX_ROWS + " rows; remaining tail will be processed by the next cron run"),
         level: "error",
-        message: "Stale-onboarding scan truncated at " + DEFAULT_STALE_MAX_ROWS + " rows; remaining tail will be processed by the next cron run",
+        message: "Stale-onboarding scan truncated at " + DEFAULT_STALE_MAX_ROWS + " rows",
         context: {
           totalFetched: scanResult.totalFetched,
           pageSize: DEFAULT_STALE_PAGE_SIZE,
