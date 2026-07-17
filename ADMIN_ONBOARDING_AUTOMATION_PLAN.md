@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, PR 3, PR 4, and PR 5 all merged to `main` (`a2a330ac`). Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy. Remaining items below are enhancements / hardening / new features (not blockers).
+Status: PR 1, PR 2, PR 3, PR 4, PR 5, and PR 6 all merged to `main` (`b3cfebac`). Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters). Remaining items below are hardening / new features / optimization (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -864,28 +864,26 @@ Steps:
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` 95 passed | 3 skipped. Greptile CLI confidence 5/5.
 
-## Remaining Work (post-PR 5)
+## Remaining Work (post-PR 6)
 
-PR 5 (commit `a2a330ac`) closed **R1** (event rename) and **R2** (mentorship copy in onboarding). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below.
+PR 6 (commit `b3cfebac`) closed **R4** (per-row Retry button on the list + detail views) and **R10** (list-view polish: bulk filters, status guard, confirm dialog). The decisions **D1, D2, D3** are all resolved — see "Resolved decisions" below. PR 6 also rolled in a CI fix that unblocked the `Detect Changes` workflow job.
 
 ### Hardening / enhancements (not blockers)
 
 | # | Item | Priority | Notes |
 |---|------|----------|-------|
 | R3 | Pagination for `getStaleOnboardingsAction` | P2 | Currently bounded at 1000 rows. For backlogs >1000 stale onboardings, the daily cron silently misses the rest. Add a `cursor` arg + iterate until exhausted. Cap per-run at 10,000 to bound Inngest step cost. CodeRabbit flagged this as "Heavy lift". |
-| R4 | Per-row retry button on `/admin/onboardings` list view | P2 | PR 4 surfaces partial admin-delivery failures (per-address) but there's no dashboard button to re-trigger a single failed admin recipient. The admin summary email deep-links to `/admin/onboardings/[id]` but no retry-from-there action exists. Action should re-fire the full `adminOnboardingFlow` with bumped `attemptCount` (idempotency keys handle the already-sent pieces). |
 | R5 | `markEmailSent` atomic helper | P3 | Plan called for an atomic "append timeline + patch emailsSent in one mutation" helper. PR 4 ended up implementing this indirectly via `appendTimelineEntry` merge logic (instructors concat+dedupe; adminSummaryByEmail spread-merge). Adding a dedicated `markEmailSent` helper would simplify the per-step logic in onboarding.ts. |
 | R6 | Per-workspace dashboard route | P3 | Admin-onboarding workspace URL hardcoded to `baseUrl + "/dashboard"` with a comment noting future PR may add `/dashboard/workspaces/[id]` to use `p.workspaceId`. Currently workspaces route from the same dashboard. |
 | R7 | Unit tests for stale-digest + per-step gating | P3 | Plan called for unit tests for "stale-digest selection query, `markEmailSent` helper atomicity, Resend skip-on-missing-key behavior, Inngest flow retry-after-partial-send resume". None shipped. Current suite is 95 tests (mostly payment-flow); no tests touch `convex/adminOnboarding.ts` directly. |
 | R8 | Document `adminSummary: true` legacy-row behavior | P3 | PR 4 widens schema with `adminSummaryByEmail` but doesn't backfill legacy `adminSummary: true` rows. They will re-send to all admins on first run after deploy. Acceptable but document in a runbook so on-call doesn't get paged. |
 | R9 | Stripe/PayPal test-mode runbook entry | P3 | Plan called for an end-to-end manual test in staging using the new Kajabi admin-onboarding form. Not yet done. |
-| R10 | Polish `/admin/onboardings` list view | P2 | Page already exists at `apps/platform/app/admin/onboardings/page.tsx` (185 lines, uses `useListAdminOnboardings` + status tabs + email search). Add bulk filters (failed-in-7-days, stale-13-days), per-row "View" deep-link, and richer timeline preview. Pairs with R4. |
 | R11 | Wire `releasePlaceholderInventoryInternal` from R6's `getStaleOnboardingsInternal` PR refactor | P3 | Currently `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` calls both `getStaleOnboardingsAction` and `releasePlaceholderInventoryAction` per row. A future consolidation PR could merge these into one batched mutation per pair. Not urgent. |
 
 ### Resolved decisions
 
-- **D1 — List view location**: `/admin/onboardings` list view confirmed as the canonical ops triage surface. **Resolution**: PR 5 era — the page already ships at `apps/platform/app/admin/onboardings/page.tsx`. R10 covers polish.
-- **D2 — Auto-retry vs manual retry**: Auto-retry on each cron confirmed. **Resolution**: PR 4 ships the auto-retry (`adminOnboardingFlow` re-fetches `freshRow` and only sends undelivered addresses via `adminSummaryByEmail` map). Manual per-row retry is a follow-up (R4).
+- **D1 — List view location**: `/admin/onboardings` list view confirmed as the canonical ops triage surface. **Resolution**: PR 6 era — page already shipped before PR 5 at `apps/platform/app/admin/onboardings/page.tsx` (read-only scaffold landed in PR 1, schema-widened in PR 4, polished in PR 6 with bulk filters, per-row Retry, confirm dialog).
+- **D2 — Auto-retry vs manual retry**: Both shipped. **Resolution**: PR 4 ships the auto-retry (`adminOnboardingFlow` re-fetches `freshRow` and only sends undelivered addresses via `adminSummaryByEmail` map). PR 6 ships the manual per-row retry button + confirm dialog (`apps/platform/components/admin/retry-onboarding-button.tsx` calls existing `/api/admin/onboardings/[id]/retry` route, which calls `retryAdminOnboarding` mutation).
 - **D3 — Keep `purchase/mentorship` deprecated alias**: Confirmed — keep alive for backward compat, but **only as an `apps/web` emitter** (not a platform trigger). **Resolution**: PR 5 architecture — `apps/platform/inngest/functions/onboarding.ts` listens only to `purchase/instructor`; `apps/web` continues to own `purchase/mentorship`. Cleanup checklist for `apps/web` retirement is at the bottom of this document.
 
 ### Future / Out of Scope (Not in v1)
@@ -915,6 +913,41 @@ PR 5 (commit `a2a330ac`) closed **R1** (event rename) and **R2** (mentorship cop
 **Files**: `apps/platform/inngest/types.ts`, `apps/platform/inngest/functions/onboarding.ts`, `apps/platform/inngest/functions/payments.ts`, `apps/platform/lib/emails/purchase-onboarding-email.ts`, `apps/platform/lib/emails/instructor-onboarding-email.ts`, `apps/platform/lib/emails/admin-purchase-notification-email.ts`, `PROJECT_STATUS.md`, `ADMIN_ONBOARDING_AUTOMATION_PLAN.md` (this file).
 
 **Verification**: `npx convex codegen --typecheck enable` ✓; `pnpm typecheck` ✓; `pnpm build` ✓; `pnpm test:unit --run` ✓.
+
+### PR 6 — Recovery dashboard ops UX (R4 + R10) + CI fix — SHIPPED (#641, `b3cfebac`)
+
+**Goal**: give ops a real interface to recover from partial admin-delivery failures surfaced by PR 4 (`adminSummaryByEmail`). The dashboard already listed rows by status tab + email search but offered no way to act on a `failed` row without leaving the page. Also rolled in a CI fix that unblocked the `Detect Changes` workflow.
+
+**Shipped in PR 6**:
+
+- **R4 — manual per-row retry**:
+  - New shared client component `apps/platform/components/admin/retry-onboarding-button.tsx`:
+    - Status guard: only renders for `failed` or `queued` rows (matches PR 4's state-machine enforcement in the mutation). UI hides preemptively so admins don't see an action that would just 409.
+    - Variants: `default` for the detail-page banner, `ghost` for the compact per-row list view.
+    - `window.confirm()` guard before firing (retry bumps `attemptCount` — not trivially undone). Confirm message reassures that only undelivered emails get re-sent (the existing flow re-runs with idempotency keys).
+    - `sonner` toast on success/failure; `router.refresh()` on success so the bumped `attemptCount` re-renders immediately.
+    - `aria-label` includes the onboarding id.
+  - Detail page (`apps/platform/app/admin/onboardings/[id]/page.tsx`): added a status summary banner above the timeline showing current status badge + attempt count, with a prominent Retry button on the right.
+  - List view (`apps/platform/app/admin/onboardings/page.tsx`): per-row Retry button beside the existing View link.
+  - Reuses existing server-side infra unchanged:
+    - `apps/platform/app/api/admin/onboardings/[id]/retry/route.ts` (POST handler that calls `retryAdminOnboarding` mutation + emits `admin/onboarding.completed` Inngest event with bumped attemptCount).
+    - `convex/adminOnboarding.ts:retryAdminOnboarding` (admin/support gated; transitions `failed|queued → processing`; bumps `attemptCount`; appends `retrying` + `processing_started` timeline events).
+- **R10 — list-view polish**:
+  - Three bulk filter chips layered client-side on top of the existing status tab + email search:
+    - **All** — default; show every row in the current tab.
+    - **Failed (last 7d)** — only `failed` rows updated in the last 7 days (uses `lastAttemptAt`, falls back to `createdAt`).
+    - **Stale (13d+)** — only `queued` or `processing` rows whose `createdAt` is ≥ 13 days old.
+  - Bulk filter resets when the admin switches tabs (each tab shows a different status subset; a carried-over filter can silently exclude every row).
+  - Empty-state copy now distinguishes "tab is empty" from "all hidden by filter".
+  - Card description appends the active filter label + hidden-row count when a filter is active.
+  - Side bonus: replaced "mentorship" with "session pack" in page description copy per AGENTS.md naming rule.
+- **CI fix (rolled into PR 6)**: replaced `dorny/paths-filter@v3` with a `git diff`-based Bash step in `.github/workflows/test.yml`. The previous action's GitHub API call returned an HTML error page (rate limit / token scope) and the action also emitted a Node 20 deprecation warning. The replacement fetches full git history (`fetch-depth: 0`), diffs base vs head SHAs, and writes the same five output keys so the downstream `build` job's `needs.changes.outputs.*` references continue to work. No external action = no API rate-limit failure mode and no Node version mismatch warning.
+
+**Greptile review rounds**: 2 local. Round 1 (confidence 3/5): 1 P1 (bulk filter not reset on tab change) + 2 P2 (misleading empty-state, missing confirm dialog). All addressed in round 2 and included in PR 6 commit `b3cfebac`. Round 2 (confidence 5/5): "Safe to merge — changes are additive, scoped to admin-only pages, and the server-side state machine still enforces retry eligibility regardless of what the UI allows."
+
+**Files**: `apps/platform/components/admin/retry-onboarding-button.tsx` (new), `apps/platform/app/admin/onboardings/[id]/page.tsx`, `apps/platform/app/admin/onboardings/page.tsx`, `.github/workflows/test.yml`.
+
+**Verification**: `pnpm typecheck` ✓; `pnpm lint` on touched files ✓ (zero new errors/warnings; 13 pre-existing baseline lint errors are unrelated to PR 6); `pnpm build` ✓ (27s compile, 66/66 static pages); CI: 10/10 checks pass (Detect Changes, Lint & Type Check, Unit Tests, E2E Tests, typecheck-apps, typecheck-convex, convex-codegen, build-apps, Build, CodeRabbit).
 
 ### Branching + Review Hygiene
 
