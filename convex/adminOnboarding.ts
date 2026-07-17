@@ -816,20 +816,21 @@ export const listAdminOnboardingsInternal = internalQuery({
       })
     );
 
-    // Email filter — case-insensitive substring.
-    const emailFiltered = emailQ
-      ? enriched.filter((r) => r.email.toLowerCase().includes(emailQ))
-      : enriched;
+    // When NEITHER filter is provided, return all enriched rows.
+    if (!emailQ && !instructorQ) return enriched;
 
-    // Instructor name filter — match if any per-instructor name contains
-    // the query. Also case-insensitive substring.
-    const finalFiltered = instructorQ
-      ? emailFiltered.filter((r) =>
-          r.instructorNames.some((n) => n.toLowerCase().includes(instructorQ))
-        )
-      : emailFiltered;
-
-    return finalFiltered;
+    // When at least one filter is provided, apply as a UNION (OR) so a
+    // row matches if either the email OR any per-instructor name contains
+    // the query. The missing-side default of `true` is what makes this
+    // work — when only one filter is provided, the other side is a
+    // no-op so the OR reduces to the single check.
+    return enriched.filter((r) => {
+      const emailHit = emailQ ? r.email.toLowerCase().includes(emailQ) : true;
+      const instructorHit = instructorQ
+        ? r.instructorNames.some((n) => n.toLowerCase().includes(instructorQ))
+        : true;
+      return emailHit || instructorHit;
+    });
   },
 });
 
