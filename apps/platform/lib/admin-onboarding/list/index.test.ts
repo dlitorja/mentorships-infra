@@ -8,17 +8,18 @@ import {
   type SortDirection,
 } from "./index";
 import type { AdminOnboardingListItem } from "../../queries/convex/use-admin-onboardings";
-import type { Id } from "../../../convex/_generated/dataModel";
 
 /**
- * Build a list-item fixture with proper Convex ID typing. Each call
- * produces a fresh id so equality-by-id in tests stays stable.
+ * Build a list-item fixture. Each call produces a fresh id so
+ * equality-by-id in tests stays stable. The `_id` cast reuses the
+ * existing typed shape on `AdminOnboardingListItem` so we don't have
+ * to import `Id<"adminOnboardings">` from the Convex dataModel here.
  */
 let _fixtureSeq = 0;
 function makeItem(overrides: Partial<AdminOnboardingListItem> = {}): AdminOnboardingListItem {
   _fixtureSeq += 1;
   return {
-    _id: `fixture-${_fixtureSeq}` as Id<"adminOnboardings">,
+    _id: `fixture-${_fixtureSeq}` as AdminOnboardingListItem["_id"],
     _creationTime: 1700000000000,
     email: "student@example.com",
     source: "kajabi",
