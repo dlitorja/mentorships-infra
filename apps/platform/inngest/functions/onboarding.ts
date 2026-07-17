@@ -532,6 +532,23 @@ export const adminOnboardingFlow = inngest.createFunction(
     id: "admin-onboarding-flow",
     name: "Admin Onboarding Flow",
     retries: 2,
+    // PR 9 (option C): cap global concurrency so a burst of submissions
+    // (e.g. an operator batch-creating 100 rows from the new admin form,
+    // or a webhook backlog draining at once) doesn't fan out 100 flows
+    // simultaneously and exceed Resend's per-account rate limits.
+    //
+    // 5 concurrent runs is well under Resend's default 2 req/sec/account
+    // for the per-run email fan-out (3 emails × 5 = 15 reqs over ~2s).
+    // Bursts queue naturally — Inngest schedules new runs as in-flight
+    // ones complete. Idempotency guards (expectedStatus +
+    // expectedAttemptCount on every appendTimelineEntryAction call) mean
+    // that even if an event is re-delivered, retry behavior is safe.
+    //
+    // No `key` here: the event payload only carries `onboardingId` +
+    // `attemptCount`, not the perInstructor IDs, so per-instructor
+    // throttling would require widening the event schema. Global cap is
+    // the right blast radius for now.
+    concurrency: { limit: 5 },
   },
   { event: "admin/onboarding.completed" },
   async ({ event, step }) => {
