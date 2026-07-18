@@ -16,9 +16,15 @@
  * mapping in isolation; the merge invariants are already covered by
  * `emails-sent-merge.test.ts` (PR 8 / R7).
  *
+ * Type choice for `instructors`: typed as `Id<"instructors">[]` (a
+ * branded string) so the return value matches the `appendTimelineEntry`
+ * validator (`v.array(v.id("instructors"))`) WITHOUT requiring a cast
+ * at the boundary. `Id` is imported from the generated Convex
+ * dataModel so it round-trips through the typechecker cleanly.
+ *
  * Note: the adminSummary recipient maps BOTH `adminSummary: true` AND
  * `adminSummaryByEmail: { email: true }`. No current caller invokes this
- * mapping for adminSummary sends — `send-admin-email-finalize` uses
+ * mapping for adminSummary sends -- `send-admin-email-finalize` uses
  * aggregate semantics (one timeline entry per run with a per-address
  * map) and continues to call `appendTimelineEntryAction` directly.
  * The adminSummary mapping is provided for future per-recipient admin
@@ -26,14 +32,16 @@
  * per-recipient, this helper is the single source of truth.
  */
 
+import type { Id } from "../../../../convex/_generated/dataModel";
+
 export type MarkEmailSentRecipient =
   | { kind: "student" }
-  | { kind: "instructor"; instructorId: string }
+  | { kind: "instructor"; instructorId: Id<"instructors"> }
   | { kind: "adminSummary"; email: string };
 
 export interface EmailsSentPatchShape {
   student?: boolean;
-  instructors?: string[];
+  instructors?: Id<"instructors">[];
   adminSummary?: boolean;
   adminSummaryByEmail?: Record<string, boolean>;
 }
