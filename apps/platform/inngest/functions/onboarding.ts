@@ -4,7 +4,7 @@ import type { Doc } from "../../../../convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { NonRetriableError } from "inngest";
-import { sendEmail, sendTemplateEmail } from "@/lib/email";
+import { sendEmail, sendTemplateEmail, type SendEmailResult } from "@/lib/email";
 import { reportError, reportInfo } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
@@ -566,13 +566,16 @@ export const adminOnboardingFlow = inngest.createFunction(
     // fan out 100 runs simultaneously. Bursts queue naturally — Inngest
     // schedules new runs as in-flight ones complete.
     //
-    // SCOPE: this caps RUNS, not per-second email send rate. A single run
-    // still issues its 3 sendEmail calls concurrently via Promise.all,
-    // and 5 in-flight runs can mean up to ~15 simultaneous Resend calls
-    // during a burst. Resend rate-limiting at the SEND point is a
-    // separate concern (would need a throttled send loop or a dedicated
-    // queue function) and out of scope here. The 5-run cap reduces the
-    // blast radius of fan-out enough for typical Kajabi admin usage.
+    // PR 12 (option C2): pair the run-level cap with send-level throttling.
+    // Step 4 (`send-admin-email`) used to fan admin summary emails via
+    // `Promise.all` — with the PR 9 cap of 5 concurrent runs, a burst
+    // could fire ~10 simultaneous Resend calls in a tight window. PR 12
+    // replaces that with a sequential `for` loop + `step.sleep("1s")`
+    // between iterations, which is a durable Inngest primitive (survives
+    // retries / worker restarts; no in-memory throttle). Combined
+    // throughput is ~5 sends/sec at peak, well within Resend's paid-tier
+    // quota. Step 3's instructor loop was already sequential; step 2 is
+    // a single student send per run.
     //
     // No `key` here: the event payload only carries `onboardingId` +
     // `attemptCount`, not the perInstructor IDs, so per-instructor
@@ -899,7 +902,26 @@ export const adminOnboardingFlow = inngest.createFunction(
     });
 
     // ---- Step 4: send admin summary email ----
-    const adminEmailResult = await step.run("send-admin-email", async function() {
+    // PR 12 (option C2) restructured this step into 3 sub-steps at the
+    // function level so that `step.sleep` calls (a durable Inngest
+    // primitive) sit at the function level, NOT nested inside another
+    // step.run. Inngest's step tools are only valid as direct children
+    // of the function handler — calling `step.sleep` from inside a
+    // `step.run` callback is a documented anti-pattern (Greptile 4/5).
+    //
+    //   step 4a (send-admin-email-prep): re-fetch row, compute
+    //     alreadyDelivered / toSend / templateData once.
+    //   step 4b (loop, function-level): `step.sleep("throttle-admin-${i}",
+    //     "1s")` BETWEEN iterations + `step.run("send-admin-email-${i}")`
+    //     per iteration. Each iteration is its own durable step.
+    //   step 4c (send-admin-email-finalize): merge newResults into
+    //     adminSummaryByEmail + append timeline entry.
+    //
+    // Throughput: with PR 9's run cap of 5, ~5 sends/sec peak across
+    // all admin summary sends, well within Resend's paid-tier quota.
+
+    // Step 4a: prep
+    const adminPrep = await step.run("send-admin-email-prep", async function() {
       // PR 4 cloud-review fix (greptile-apps): per-address tracking via
       // `emailsSent.adminSummaryByEmail`. We re-fetch the row so we know
       // which addresses already succeeded (and should be skipped on retry).
@@ -913,21 +935,30 @@ export const adminOnboardingFlow = inngest.createFunction(
         id: row._id,
         secret,
       }) as Doc<"adminOnboardings"> | null;
-      if (!freshRow) return { sent: false, skipped: "missing", results: [] };
-      if (freshRow.status !== "processing") return { sent: false, skipped: "non_processing", status: freshRow.status, results: [] };
-      if (freshRow.attemptCount !== parsed.data.attemptCount) return { sent: false, skipped: "attempt_mismatch", expected: parsed.data.attemptCount, actual: freshRow.attemptCount, results: [] };
-      const alreadyDelivered: Record<string, boolean> = (freshRow.emailsSent as any)?.adminSummaryByEmail ?? {};
+      if (!freshRow) return { skip: "missing" as const };
+      if (freshRow.status !== "processing") return { skip: "non_processing" as const, status: freshRow.status };
+      if (freshRow.attemptCount !== parsed.data.attemptCount) {
+        return { skip: "attempt_mismatch" as const, expected: parsed.data.attemptCount, actual: freshRow.attemptCount };
+      }
+
+      const alreadyDelivered: Record<string, boolean> = freshRow.emailsSent?.adminSummaryByEmail ?? {};
 
       const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
         .split(",")
         .map(function(e: string) { return e.trim(); })
         .filter(Boolean);
 
-      if (adminEmails.length === 0) return { sent: false, skipped: false, results: [] };
+      if (adminEmails.length === 0) {
+        return { skip: "no_admin_emails" as const };
+      }
 
       const toSend = adminEmails.filter(function(e: string) { return alreadyDelivered[e] !== true; });
       if (toSend.length === 0) {
-        return { sent: true, skipped: true, results: adminEmails.map(function(e: string) { return { email: e, ok: true }; }) };
+        // On retry, every address is already marked delivered. We surface
+        // this as a skip rather than re-running the loop. The aggregate
+        // `email_sent` timeline entry has already been recorded in the
+        // original run; no additional entry is needed.
+        return { skip: "all_already_delivered" as const, adminEmails };
       }
 
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
@@ -969,89 +1000,165 @@ export const adminOnboardingFlow = inngest.createFunction(
         perInstructorRows,
       };
 
-      // PR 4 cloud-review fix: each send attempted independently with
-      // its own try/catch so one transient Resend failure does not block
-      // the others (this matches the same pattern used in the stale-digest
-      // cron and the catch handler's admin-failure-digest send).
-      // PR 4 cloud-review fix (CodeRabbit #9227): deterministic
-      // idempotency key per (onboarding, admin-email) so a transient
-      // Convex-append failure after a successful send doesn't trigger a
-      // duplicate delivery on retry.
-      const newResults: Array<{ email: string; ok: boolean; id?: string | null }> = [];
-      await Promise.all(toSend.map(async function(adminEmail: string) {
-        let res: any;
-        try {
+      return { toSend, adminEmails, alreadyDelivered, useTemplates, templateId, templateData };
+    });
+
+    // Step 4b: per-iteration sends with throttle (function-level loop).
+    const newResults: Array<{ email: string; ok: boolean; id?: string | null }> = [];
+    let adminEmailResult: { sent: boolean; skipped: boolean | string; results: Array<{ email: string; ok: boolean }> };
+
+    if ("skip" in adminPrep) {
+      // Prep step indicated no sends needed. Two cases:
+      //   - "all_already_delivered" / "no_admin_emails": continue to
+      //     steps 5 + 6 below (Discord DMs and mark-completed still
+      //     apply; the admin-email leg was simply not needed this run).
+      //   - "missing" / "non_processing" / "attempt_mismatch": the row
+      //     is in a stale state, so the rest of the flow must NOT run —
+      //     enqueueing Discord DMs or marking "completed" on a row
+      //     already in a terminal state (or one a newer attempt owns)
+      //     would clobber the canonical record. PR 12 cloud-review fix
+      //     (CodeRabbit, run c567c97c) returns early with a structured
+      //     result that surfaces the skip reason for observability.
+      const skipReason = adminPrep.skip;
+      if (skipReason === "all_already_delivered") {
+        adminEmailResult = {
+          sent: true,
+          skipped: true,
+          results: adminPrep.adminEmails.map(function(e: string) { return { email: e, ok: true }; }),
+        };
+      } else if (skipReason === "no_admin_emails") {
+        adminEmailResult = { sent: false, skipped: false, results: [] };
+      } else {
+        // missing / non_processing / attempt_mismatch — stale, do not
+        // continue to Discord/mark-completed.
+        return {
+          success: false,
+          onboardingId: row._id,
+          studentEmailSent: studentEmailResult.sent,
+          instructorEmails: instructorEmailResults,
+          adminEmailSent: false,
+          skippedAt: "admin_email",
+          skipReason,
+        };
+      }
+    } else {
+      // PR 12 (option C2): each iteration is a function-level step with
+      // a `step.sleep("1s")` BETWEEN iterations. Per-iteration step ids
+      // (`throttle-admin-${i}`, `send-admin-email-${i}`) ensure Inngest
+      // memoizes each sleep/send separately so a retry-mid-iteration
+      // doesn't re-wait or re-send. The first iteration skips the sleep
+      // (no throttle before the first send).
+      for (let i = 0; i < adminPrep.toSend.length; i++) {
+        if (i > 0) {
+          await step.sleep("throttle-admin-" + i, "1s");
+        }
+        const adminEmail = adminPrep.toSend[i];
+        // PR 4 cloud-review fix (CodeRabbit #9227): deterministic
+        // idempotency key per (onboarding, admin-email) so a transient
+        // Convex-append failure after a successful send doesn't trigger
+        // a duplicate delivery on retry.
+        const result = await step.run("send-admin-email-" + i, async function() {
           const idempotencyKey = "admin:" + row._id + ":" + adminEmail;
-          if (useTemplates && templateId) {
-            res = await sendTemplateEmail({
-              to: adminEmail,
-              templateId,
-              subject: "Kajabi admin onboarding — " + studentEmail + " \u00d7 " + instructorCount + " instructor" + (instructorCount > 1 ? "s" : ""),
-              templateData: templateData as Record<string, unknown>,
-              headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
-            });
-          } else {
-            const content = buildAdminPurchaseEmail(templateData);
-            res = await sendEmail({
-              to: adminEmail,
-              subject: content.subject,
-              html: content.html,
-              text: content.text,
-              headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
-            });
-          }
-          // PR 4 cloud-review fix (CodeRabbit #9221): report when the
-          // provider accepted the request but the delivery itself failed.
-          if (!res.ok) {
+          let res: SendEmailResult;
+          try {
+            if (adminPrep.useTemplates && adminPrep.templateId) {
+              res = await sendTemplateEmail({
+                to: adminEmail,
+                templateId: adminPrep.templateId,
+                subject: "Kajabi admin onboarding — " + studentEmail + " \u00d7 " + instructorCount + " instructor" + (instructorCount > 1 ? "s" : ""),
+                templateData: adminPrep.templateData as Record<string, unknown>,
+                headers: { "X-Email-Type": "admin_onboarding_summary", "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+              });
+            } else {
+              const content = buildAdminPurchaseEmail(adminPrep.templateData);
+              res = await sendEmail({
+                to: adminEmail,
+                subject: content.subject,
+                html: content.html,
+                text: content.text,
+                headers: { ...content.headers, "X-Onboarding-Id": row._id, "X-Idempotency-Key": idempotencyKey },
+              });
+            }
+            // PR 4 cloud-review fix (CodeRabbit #9221): report when the
+            // provider accepted the request but the delivery itself failed.
+            if (!res.ok) {
+              reportError({
+                source: "inngest:admin-onboarding-flow",
+                error: new Error("sendEmail returned ok:false: " + ("error" in res ? res.error : "skipped" in res ? res.reason : "unknown")),
+                level: "error",
+                message: "Admin onboarding summary send reported non-ok result for " + adminEmail,
+                context: { onboardingId: row._id },
+              });
+            }
+            return { email: adminEmail, ok: res.ok, id: res.ok && res.id ? res.id : null };
+          } catch (e: unknown) {
             reportError({
               source: "inngest:admin-onboarding-flow",
-              error: new Error("sendEmail returned ok:false: " + ("error" in res ? res.error : "skipped" in res ? res.reason : "unknown")),
+              error: e instanceof Error ? e : new Error(String(e)),
               level: "error",
-              message: "Admin onboarding summary send reported non-ok result for " + adminEmail,
+              message: "Failed to send admin onboarding summary to " + adminEmail,
               context: { onboardingId: row._id },
             });
+            return { email: adminEmail, ok: false, id: null };
           }
-          newResults.push({ email: adminEmail, ok: res.ok, id: res.ok && res.id ? res.id : null });
-        } catch (e: unknown) {
-          reportError({
-            source: "inngest:admin-onboarding-flow",
-            error: e instanceof Error ? e : new Error(String(e)),
-            level: "error",
-            message: "Failed to send admin onboarding summary to " + adminEmail,
-            context: { onboardingId: row._id },
-          });
-          newResults.push({ email: adminEmail, ok: false });
+        });
+        newResults.push(result);
+      }
+
+      // Step 4c: merge + timeline.
+      // `emailsSentPatch.adminSummaryByEmail` is keyed-merged by Convex's
+      // `mergeEmailsSentPatch` helper, so we only send the new per-address
+      // SUCCESSES here. PR 12 cloud-review fix (CodeRabbit, run c567c97c):
+      // filtering the patch to `true`-only entries prevents a transient
+      // send failure in this run from overwriting a previously-delivered
+      // marker (which `mergeEmailsSentPatch` would otherwise re-apply as
+      // `false`). Failed sends remain observable via the timeline
+      // `perAddress` field for this run, but do not poison the durable
+      // success-tracking map. The full `mergedByEmail` view (prior +
+      // current, including `false`) is preserved for the timeline
+      // aggregate stats below.
+      await step.run("send-admin-email-finalize", async function() {
+        const updatedByEmail: Record<string, boolean> = {};
+        for (const r of newResults) updatedByEmail[r.email] = r.ok;
+        const successfulPatches: Record<string, boolean> = {};
+        for (const [e, ok] of Object.entries(updatedByEmail)) {
+          if (ok === true) successfulPatches[e] = true;
         }
-      }));
+        const mergedByEmail: Record<string, boolean> = { ...adminPrep.alreadyDelivered, ...updatedByEmail };
+        const allOk = adminPrep.adminEmails.every(function(e: string) { return mergedByEmail[e] === true; });
+        const anyOk = adminPrep.adminEmails.some(function(e: string) { return mergedByEmail[e] === true; });
 
-      const updatedByEmail: Record<string, boolean> = {};
-      for (const r of newResults) updatedByEmail[r.email] = r.ok;
-      const mergedByEmail: Record<string, boolean> = { ...alreadyDelivered, ...updatedByEmail };
-      const allOk = adminEmails.every(function(e: string) { return mergedByEmail[e] === true; });
-      const anyOk = adminEmails.some(function(e: string) { return mergedByEmail[e] === true; });
-
-      // Record the per-address results in the timeline and merge into
-      // `adminSummaryByEmail` so future retries skip the successful ones.
-      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-        onboardingId: row._id,
-        event: "email_sent",
-        actorUserId: row.submittedByUserId,
-        details: JSON.stringify({
-          recipient: "admin",
-          count: adminEmails.length,
-          attempted: toSend.length,
-          allOk,
-          anyOk,
-          perAddress: adminEmails.map(function(e: string) { return { email: e, ok: mergedByEmail[e] === true }; }),
-        }),
-        emailsSentPatch: { adminSummaryByEmail: mergedByEmail },
-        expectedStatus: "processing",
-        expectedAttemptCount: parsed.data.attemptCount,
-        secret,
+        // Record the per-address results in the timeline and merge into
+        // `adminSummaryByEmail` so future retries skip the successful ones.
+        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+          onboardingId: row._id,
+          event: "email_sent",
+          actorUserId: row.submittedByUserId,
+          details: JSON.stringify({
+            recipient: "admin",
+            count: adminPrep.adminEmails.length,
+            attempted: adminPrep.toSend.length,
+            allOk,
+            anyOk,
+            perAddress: adminPrep.adminEmails.map(function(e: string) { return { email: e, ok: mergedByEmail[e] === true }; }),
+          }),
+          emailsSentPatch: { adminSummaryByEmail: successfulPatches },
+          expectedStatus: "processing",
+          expectedAttemptCount: parsed.data.attemptCount,
+          secret,
+        });
       });
 
-      return { sent: allOk, skipped: false, results: adminEmails.map(function(e: string) { return { email: e, ok: mergedByEmail[e] === true }; }) };
-    });
+      // Build the result shape downstream code expects.
+      const updatedByEmail: Record<string, boolean> = {};
+      for (const r of newResults) updatedByEmail[r.email] = r.ok;
+      const mergedByEmail: Record<string, boolean> = { ...adminPrep.alreadyDelivered, ...updatedByEmail };
+      adminEmailResult = {
+        sent: adminPrep.adminEmails.every(function(e: string) { return mergedByEmail[e] === true; }),
+        skipped: false,
+        results: adminPrep.adminEmails.map(function(e: string) { return { email: e, ok: mergedByEmail[e] === true }; }),
+      };
+    }
 
     // ---- Step 5: enqueue Discord DMs ----
     await step.run("enqueue-discord-dms", async function() {
