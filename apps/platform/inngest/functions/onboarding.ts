@@ -14,6 +14,7 @@ import {
   adminOnboardingCompletedEventSchema,
 } from "../types";
 import { inngest } from "../client";
+import { workspaceUrlFor } from "@/lib/admin-onboarding/workspace-url";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -688,11 +689,14 @@ export const adminOnboardingFlow = inngest.createFunction(
         secret,
       });
 
-      // All admin-onboarded workspaces link to the same dashboard page
-      // (the platform doesn't have per-workspace routes — see
-      // `apps/platform/app/dashboard/page.tsx`). Future PR may add
-      // `/dashboard/workspaces/[id]` and use p.workspaceId here.
-      const workspaceUrl = baseUrl + "/dashboard";
+      // R6 (PR 15): each per-instructor row now links to the
+      // per-workspace dashboard route (`/dashboard/workspaces/[id]`)
+      // via the module-level pure helper `workspaceUrlFor(baseUrl, p)`.
+      // For NEW workspaces (p.workspaceId is set) the link is
+      // `/dashboard/workspaces/<id>`. For RENEWAL onboardings
+      // (p.workspaceId is undefined -- no new workspace was created),
+      // fall back to `/dashboard` (the listing page) so the link
+      // doesn't 404 on an empty workspace id.
 
       const instructorNames = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
         return contacts[p.instructorId]?.name || "your instructor";
@@ -709,7 +713,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         isRenewal: allRenewal,
         instructorCount,
         instructorList: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number], i: number) {
-          return { instructorName: instructorNames[i] ?? "your instructor", workspaceUrl };
+          return { instructorName: instructorNames[i] ?? "your instructor", workspaceUrl: workspaceUrlFor(baseUrl, p) };
         }),
       };
 
@@ -989,7 +993,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         return {
           instructorName: instructorNames[i] ?? "",
           isRenewal: p.isRenewal,
-          workspaceUrl: baseUrl + "/dashboard",
+          workspaceUrl: workspaceUrlFor(baseUrl, p),
           sessionsCount: p.sessionsPerInstructor,
           expirationDate: expiresAtStr,
           clerkInvitationId: p.clerkInvitationId,
