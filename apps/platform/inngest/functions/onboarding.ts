@@ -4,7 +4,7 @@ import type { Doc } from "../../../../convex/_generated/dataModel";
 import { ConvexHttpClient } from "convex/browser";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { NonRetriableError } from "inngest";
-import { sendEmail, sendTemplateEmail } from "@/lib/email";
+import { sendEmail, sendTemplateEmail, type SendEmailResult } from "@/lib/email";
 import { reportError, reportInfo } from "@/lib/observability";
 import { buildPurchaseOnboardingEmail } from "@/lib/emails/purchase-onboarding-email";
 import { buildInstructorOnboardingEmail } from "@/lib/emails/instructor-onboarding-email";
@@ -1041,7 +1041,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         // a duplicate delivery on retry.
         const result = await step.run("send-admin-email-" + i, async function() {
           const idempotencyKey = "admin:" + row._id + ":" + adminEmail;
-          let res: any;
+          let res: SendEmailResult;
           try {
             if (adminPrep.useTemplates && adminPrep.templateId) {
               res = await sendTemplateEmail({
