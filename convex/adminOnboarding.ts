@@ -1320,6 +1320,122 @@ export const getAdminOnboardingAction: ReturnType<typeof action> = action({
 });
 
 /**
+ * Shared per-row release logic used by both `releasePlaceholderInventoryInternal`
+ * (single-row, public-action wrapper) and `releasePlaceholderInventoryBatchInternal`
+ * (multi-row, batched-action wrapper). PR 16 (R11) extraction so the batch
+ * caller doesn't duplicate the placeholder guards (seat.userId.startsWith("email:"),
+ * workspace ownerId guard, sessionPack userId guard) or the timeline-append
+ * bookkeeping.
+ *
+ * Returns per-row counters; the batch caller aggregates them.
+ */
+async function releaseInventoryForRow(
+  ctx: MutationCtx,
+  args: {
+    onboardingId: Id<"adminOnboardings">;
+    actorUserId: string | undefined;
+    details: string | undefined;
+  }
+): Promise<{
+  releasedCount: number;
+  seatsReleased: number;
+  workspacesEnded: number;
+  packsExpired: number;
+  skipped: number;
+}> {
+  const row = await ctx.db.get(args.onboardingId);
+  if (!row) throw new Error("Onboarding row not found: " + args.onboardingId);
+
+  const now = Date.now();
+  let seatsReleased = 0;
+  let workspacesEnded = 0;
+  let packsExpired = 0;
+  let skipped = 0;
+
+  for (const entry of row.perInstructor) {
+    // 1. Release placeholder seat reservation.
+    //    PR 4 cloud-review fix (greptile-apps): skip seats whose userId
+    //    has been rewritten to a real Clerk ID — those are now owned by
+    //    a real student, and releasing the seat would orphan their
+    //    allocation. Placeholder seat reservations always have userId
+    //    starting with "email:" (set during admin onboarding); real
+    //    users use Clerk IDs.
+    if (entry.seatReservationId) {
+      const seat = await ctx.db.get(entry.seatReservationId);
+      if (seat && seat.status !== "released") {
+        if (typeof seat.userId === "string" && seat.userId.startsWith("email:")) {
+          await ctx.db.patch(entry.seatReservationId, { status: "released" });
+          seatsReleased++;
+        } else {
+          skipped++;
+        }
+      } else {
+        skipped++;
+      }
+    }
+
+    // 2. End any workspace that was auto-created by this onboarding
+    //    (only newly-created workspaces, not reused renewals). Renewal
+    //    pairs leave `workspaceId` undefined.
+    //    PR 4 cloud-review fix (greptile-apps): also guard on
+    //    `ownerId.startsWith("email:")` so we never end a workspace
+    //    whose owner has been rewritten to a real Clerk ID by the
+    //    linking flow.
+    if (entry.workspaceId) {
+      const ws = await ctx.db.get(entry.workspaceId);
+      if (ws && ws.endedAt === undefined && ws.deletedAt === undefined && typeof ws.ownerId === "string" && ws.ownerId.startsWith("email:")) {
+        await ctx.db.patch(entry.workspaceId, { endedAt: now });
+        workspacesEnded++;
+      } else if (ws && ws.endedAt === undefined && ws.deletedAt === undefined) {
+        skipped++;
+      }
+    }
+
+    // 3. Expire the placeholder session pack (mirror `expireSessionPack`
+    //    in `convex/sessionPacks.ts:336` — schema has no `cancelled`).
+    //    PR 4 fix: skip packs whose userId has been rewritten to a
+    //    real Clerk ID — those are live in-use packs the student
+    //    owns, and we must not revoke their access. Placeholder packs
+    //    always have userId starting with "email:" (set during
+    //    admin onboarding); real users use Clerk IDs.
+    if (entry.sessionPackId) {
+      const pack = await ctx.db.get(entry.sessionPackId);
+      if (pack && pack.status === "active" && typeof pack.userId === "string" && pack.userId.startsWith("email:")) {
+        await ctx.db.patch(entry.sessionPackId, { status: "expired" });
+        packsExpired++;
+      } else if (pack && pack.status === "active") {
+        skipped++;
+      }
+    }
+  }
+
+  // Append a single "released" timeline entry. Idempotent on
+  // `appendTimelineEntry` itself — if the event already exists in the
+  // bounded timeline, no double-append occurs.
+  await ctx.runMutation(internal.adminOnboarding.appendTimelineEntry, {
+    onboardingId: args.onboardingId,
+    event: "released",
+    actorUserId: args.actorUserId,
+    details:
+      (args.details ? args.details + " | " : "") +
+      "seats=" + seatsReleased +
+      ",workspaces=" + workspacesEnded +
+      ",packs=" + packsExpired +
+      ",skipped=" + skipped,
+    expectedStatus: undefined,
+    expectedAttemptCount: undefined,
+  });
+
+  return {
+    releasedCount: seatsReleased + workspacesEnded + packsExpired,
+    seatsReleased,
+    workspacesEnded,
+    packsExpired,
+    skipped,
+  };
+}
+
+/**
  * Internal mutation: release placeholder inventory held by an admin
  * onboarding row. For each entry in `perInstructor`, patches:
  *   - `seatReservations.status = "released"` (idempotent — skipped if already)
@@ -1341,95 +1457,79 @@ export const releasePlaceholderInventoryInternal = internalMutation({
     details: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.onboardingId);
-    if (!row) throw new Error("Onboarding row not found: " + args.onboardingId);
+    return await releaseInventoryForRow(ctx, args);
+  },
+});
 
-    const now = Date.now();
-    let seatsReleased = 0;
-    let workspacesEnded = 0;
-    let packsExpired = 0;
-    let skipped = 0;
+/**
+ * Internal mutation: batched release of placeholder inventory for
+ * multiple admin onboarding rows in a single Convex transaction.
+ * PR 16 (R11) consolidation — replaces the N-times-`ctx.runMutation`
+ * pattern in `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts`
+ * with one transaction that loops per-row.
+ *
+ * Per-row errors are caught and reported via the timeline so a single
+ * bad row never aborts the batch (matches the existing per-row
+ * try/catch in the Inngest flow). Aggregate counters are returned for
+ * observability.
+ *
+ * Bounded to ~50 onboardings per call by the Inngest caller; the
+ * paginated scan yields a flat list which the caller chunks before
+ * dispatching.
+ */
+export const releasePlaceholderInventoryBatchInternal = internalMutation({
+  args: {
+    onboardingIds: v.array(v.id("adminOnboardings")),
+    actorUserId: v.optional(v.string()),
+    details: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    let onboardingsProcessed = 0;
+    let onboardingsSkipped = 0;
+    let totalSeatsReleased = 0;
+    let totalWorkspacesEnded = 0;
+    let totalPacksExpired = 0;
+    let totalSkipped = 0;
 
-    for (const entry of row.perInstructor) {
-      // 1. Release placeholder seat reservation.
-      //    PR 4 cloud-review fix (greptile-apps): skip seats whose userId
-      //    has been rewritten to a real Clerk ID — those are now owned by
-      //    a real student, and releasing the seat would orphan their
-      //    allocation. Placeholder seat reservations always have userId
-      //    starting with "email:" (set during admin onboarding); real
-      //    users use Clerk IDs.
-      if (entry.seatReservationId) {
-        const seat = await ctx.db.get(entry.seatReservationId);
-        if (seat && seat.status !== "released") {
-          if (typeof seat.userId === "string" && seat.userId.startsWith("email:")) {
-            await ctx.db.patch(entry.seatReservationId, { status: "released" });
-            seatsReleased++;
-          } else {
-            skipped++;
-          }
+    for (const onboardingId of args.onboardingIds) {
+      try {
+        const result = await releaseInventoryForRow(ctx, {
+          onboardingId,
+          actorUserId: args.actorUserId,
+          details: args.details,
+        });
+        if (result.releasedCount > 0) {
+          onboardingsProcessed++;
         } else {
-          skipped++;
+          onboardingsSkipped++;
         }
-      }
-
-      // 2. End any workspace that was auto-created by this onboarding
-      //    (only newly-created workspaces, not reused renewals). Renewal
-      //    pairs leave `workspaceId` undefined.
-      //    PR 4 cloud-review fix (greptile-apps): also guard on
-      //    `ownerId.startsWith("email:")` so we never end a workspace
-      //    whose owner has been rewritten to a real Clerk ID by the
-      //    linking flow.
-      if (entry.workspaceId) {
-        const ws = await ctx.db.get(entry.workspaceId);
-        if (ws && ws.endedAt === undefined && ws.deletedAt === undefined && typeof ws.ownerId === "string" && ws.ownerId.startsWith("email:")) {
-          await ctx.db.patch(entry.workspaceId, { endedAt: now });
-          workspacesEnded++;
-        } else if (ws && ws.endedAt === undefined && ws.deletedAt === undefined) {
-          skipped++;
-        }
-      }
-
-      // 3. Expire the placeholder session pack (mirror `expireSessionPack`
-      //    in `convex/sessionPacks.ts:336` — schema has no `cancelled`).
-      //    PR 4 fix: skip packs whose userId has been rewritten to a
-      //    real Clerk ID — those are live in-use packs the student
-      //    owns, and we must not revoke their access. Placeholder packs
-      //    always have userId starting with "email:" (set during
-      //    admin onboarding); real users use Clerk IDs.
-      if (entry.sessionPackId) {
-        const pack = await ctx.db.get(entry.sessionPackId);
-        if (pack && pack.status === "active" && typeof pack.userId === "string" && pack.userId.startsWith("email:")) {
-          await ctx.db.patch(entry.sessionPackId, { status: "expired" });
-          packsExpired++;
-        } else if (pack && pack.status === "active") {
-          skipped++;
-        }
+        totalSeatsReleased += result.seatsReleased;
+        totalWorkspacesEnded += result.workspacesEnded;
+        totalPacksExpired += result.packsExpired;
+        totalSkipped += result.skipped;
+      } catch (err) {
+        // Per-row defensive: a missing/deleted row or a transient
+        // patch failure must not abort the rest of the batch. The
+        // timeline entry from the failed row will be missing, but
+        // the Inngest caller logs the failed ID for manual follow-up.
+        onboardingsSkipped++;
+        console.error(
+          "releasePlaceholderInventoryBatchInternal: row failed",
+          {
+            onboardingId,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
       }
     }
 
-    // Append a single "released" timeline entry. Idempotent on
-    // `appendTimelineEntry` itself — if the event already exists in the
-    // bounded timeline, no double-append occurs.
-    await ctx.runMutation(internal.adminOnboarding.appendTimelineEntry, {
-      onboardingId: args.onboardingId,
-      event: "released",
-      actorUserId: args.actorUserId,
-      details:
-        (args.details ? args.details + " | " : "") +
-        "seats=" + seatsReleased +
-        ",workspaces=" + workspacesEnded +
-        ",packs=" + packsExpired +
-        ",skipped=" + skipped,
-      expectedStatus: undefined,
-      expectedAttemptCount: undefined,
-    });
-
     return {
-      releasedCount: seatsReleased + workspacesEnded + packsExpired,
-      seatsReleased,
-      workspacesEnded,
-      packsExpired,
-      skipped,
+      onboardingsProcessed,
+      onboardingsSkipped,
+      totalSeatsReleased,
+      totalWorkspacesEnded,
+      totalPacksExpired,
+      totalSkipped,
     };
   },
 });
@@ -1456,6 +1556,39 @@ export const releasePlaceholderInventoryAction: ReturnType<typeof action> = acti
       internal.adminOnboarding.releasePlaceholderInventoryInternal,
       {
         onboardingId: args.onboardingId,
+        actorUserId: args.actorUserId,
+        details: args.details,
+      }
+    );
+  },
+});
+
+/**
+ * Public action wrapper for `releasePlaceholderInventoryBatchInternal`.
+ * PR 16 (R11) consolidation: replaces the per-row release loop in the
+ * stale-digest Inngest flow with a single batched transaction. Mirrors
+ * the `releasePlaceholderInventoryAction` pattern (CONVEX_SERVER_SHARED_SECRET
+ * gate → `ctx.runMutation`).
+ *
+ * The Inngest caller is responsible for chunking the paginated stale-list
+ * into batches of ≤50 onboarding IDs to stay under Convex mutation
+ * read/write limits (each row touches up to 3 perInstructor entries).
+ */
+export const releasePlaceholderInventoryBatchAction: ReturnType<typeof action> = action({
+  args: {
+    onboardingIds: v.array(v.id("adminOnboardings")),
+    actorUserId: v.optional(v.string()),
+    details: v.optional(v.string()),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    return await ctx.runMutation(
+      internal.adminOnboarding.releasePlaceholderInventoryBatchInternal,
+      {
+        onboardingIds: args.onboardingIds,
         actorUserId: args.actorUserId,
         details: args.details,
       }

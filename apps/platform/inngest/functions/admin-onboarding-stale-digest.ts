@@ -141,13 +141,21 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       // scheduled cron than to silently skip releasing inventory.
       const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
       if (!secret) throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin-onboarding-stale-digest cannot release placeholder inventory");
-      // PR 4 fix: await each convex.action so the step only resolves after
-      // all releases have completed. Errors are caught per-row so a single
-      // failure doesn't abort the entire digest run.
-      await Promise.all(staleOnboardings.map(async function(row: any) {
+      // PR 16 (R11) consolidation: one batched Convex transaction per chunk
+      // instead of N per-row actions. The batch mutation handles per-row
+      // errors internally (catches + skips + logs) so a single bad row
+      // never aborts the rest of the batch. We still wrap the whole step in
+      // try/catch as a defense-in-depth measure.
+      //
+      // Chunk at 50 onboarding IDs per call to stay under Convex mutation
+      // read/write limits (each row touches up to 3 perInstructor entries
+      // + a timeline append).
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < staleOnboardings.length; i += BATCH_SIZE) {
+        const chunk = staleOnboardings.slice(i, i + BATCH_SIZE);
         try {
-          await convex.action(api.adminOnboarding.releasePlaceholderInventoryAction, {
-            onboardingId: row._id as Id<"adminOnboardings">,
+          await convex.action(api.adminOnboarding.releasePlaceholderInventoryBatchAction, {
+            onboardingIds: chunk.map(function(row: any) { return row._id as Id<"adminOnboardings">; }),
             actorUserId: undefined,
             details: "stale-invite-digest auto-release: placeholder held > 13 days",
             secret,
@@ -157,11 +165,11 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
             source: "inngest:admin-onboarding-stale-digest",
             error: e instanceof Error ? e : new Error(String(e)),
             level: "error",
-            message: "Failed to release placeholder inventory for stale onboarding " + row._id,
-            context: { onboardingId: row._id },
+            message: "Batch release-placeholder-inventory failed for stale onboardings chunk starting at index " + i,
+            context: { chunkStartIndex: i, chunkSize: chunk.length, onboardingIds: chunk.map(function(row: any) { return row._id; }) },
           });
         }
-      }));
+      }
     });
 
     return { processed: staleOnboardings.length, truncated: scanResult.truncated };
