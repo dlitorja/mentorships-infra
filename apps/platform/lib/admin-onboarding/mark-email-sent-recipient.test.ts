@@ -3,6 +3,24 @@ import {
   emailsSentPatchForRecipient,
   type MarkEmailSentRecipient,
 } from "./mark-email-sent-recipient";
+import type { Id } from "../../../../convex/_generated/dataModel";
+
+// R5 (PR 14): these tests lock down the recipient->patch-shape mapping
+// used by the new `markEmailSent` Convex mutation. The mapping is the
+// ONLY new behavior in PR 14 (the merge logic is unchanged and is
+// already covered by `emails-sent-merge.test.ts` / R7 / PR 8).
+//
+// The point of these tests is to catch regressions if a future PR
+// edits the mapping helper -- e.g. accidentally dropping
+// `adminSummary: true` on the adminSummary branch, or returning
+// `instructors: []` (empty array) instead of omitting the field.
+
+// `Id<"instructors">` is a branded string. The helper requires the
+// branded type so its return value round-trips through `appendTimelineEntry`'s
+// `v.array(v.id("instructors"))` validator without a cast. For test
+// purposes, casting plain string literals is fine -- they're stand-ins
+// for real Convex IDs that would otherwise come from `ctx.db.get`.
+const idOf = (s: string): Id<"instructors"> => s as Id<"instructors">;
 
 // R5 (PR 14): these tests lock down the recipient→patch-shape mapping
 // used by the new `markEmailSent` Convex mutation. The mapping is the
@@ -35,7 +53,7 @@ describe("emailsSentPatchForRecipient", () => {
       expect(
         emailsSentPatchForRecipient({
           kind: "instructor",
-          instructorId: "inst_123",
+          instructorId: idOf("inst_123"),
         }),
       ).toEqual({ instructors: ["inst_123"] });
     });
@@ -43,7 +61,7 @@ describe("emailsSentPatchForRecipient", () => {
     it("preserves the instructor id exactly (no trimming, no normalization)", () => {
       const result = emailsSentPatchForRecipient({
         kind: "instructor",
-        instructorId: "inst_abc_DEF-123",
+        instructorId: idOf("inst_abc_DEF-123"),
       });
       expect(result.instructors).toEqual(["inst_abc_DEF-123"]);
     });
@@ -51,7 +69,7 @@ describe("emailsSentPatchForRecipient", () => {
     it("does not include student, adminSummary, or adminSummaryByEmail", () => {
       const result = emailsSentPatchForRecipient({
         kind: "instructor",
-        instructorId: "inst_x",
+        instructorId: idOf("inst_x"),
       });
       expect(result).not.toHaveProperty("student");
       expect(result).not.toHaveProperty("adminSummary");
@@ -67,7 +85,7 @@ describe("emailsSentPatchForRecipient", () => {
       // just returns the patch for one recipient.
       const result = emailsSentPatchForRecipient({
         kind: "instructor",
-        instructorId: "inst_y",
+        instructorId: idOf("inst_y"),
       });
       expect(result.instructors).toHaveLength(1);
     });
@@ -134,7 +152,7 @@ describe("emailsSentPatchForRecipient", () => {
       const keys = Object.keys(
         emailsSentPatchForRecipient({
           kind: "instructor",
-          instructorId: "i",
+          instructorId: idOf("i"),
         }),
       ).sort();
       expect(keys).toEqual(["instructors"]);
