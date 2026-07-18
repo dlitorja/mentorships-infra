@@ -143,23 +143,43 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       if (!secret) throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin-onboarding-stale-digest cannot release placeholder inventory");
       // PR 16 (R11) consolidation: one batched Convex transaction per chunk
       // instead of N per-row actions. The batch mutation handles per-row
-      // errors internally (catches + skips + logs) so a single bad row
-      // never aborts the rest of the batch. We still wrap the whole step in
-      // try/catch as a defense-in-depth measure.
+      // errors internally (catches + skips + logs) and returns the
+      // `failedOnboardingIds` list so we can surface each row's failure
+      // through the existing observability path (matches the pre-PR-16
+      // per-row `reportError` behavior).
       //
-      // Chunk at 50 onboarding IDs per call to stay under Convex mutation
-      // read/write limits (each row touches up to 3 perInstructor entries
-      // + a timeline append).
-      const BATCH_SIZE = 50;
+      // Chunk at 20 onboarding IDs per call (PR 16 follow-up: Greptile
+      // flagged that batch size should account for variable per-row work
+      // — each onboarding has up to N perInstructor entries, each
+      // touching 3 inventory records + a timeline append. Bounding at
+      // 20 onboarding IDs keeps even worst-case per-instructor counts
+      // safely under Convex mutation read/write limits.)
+      const BATCH_SIZE = 20;
       for (let i = 0; i < staleOnboardings.length; i += BATCH_SIZE) {
         const chunk = staleOnboardings.slice(i, i + BATCH_SIZE);
         try {
-          await convex.action(api.adminOnboarding.releasePlaceholderInventoryBatchAction, {
+          const result = await convex.action(api.adminOnboarding.releasePlaceholderInventoryBatchAction, {
             onboardingIds: chunk.map(function(row: any) { return row._id as Id<"adminOnboardings">; }),
             actorUserId: undefined,
             details: "stale-invite-digest auto-release: placeholder held > 13 days",
             secret,
           });
+          // Surface per-row failures through the existing observability
+          // path — the batch mutation caught them internally so we have
+          // to forward them explicitly. One `reportError` per failed
+          // onboarding ID so on-call can correlate with the original
+          // stale-digest scan.
+          if (result && Array.isArray(result.failedOnboardingIds)) {
+            for (const failedId of result.failedOnboardingIds) {
+              reportError({
+                source: "inngest:admin-onboarding-stale-digest",
+                error: new Error("releasePlaceholderInventoryBatchInternal reported per-row failure for " + failedId),
+                level: "error",
+                message: "Failed to release placeholder inventory for stale onboarding " + failedId,
+                context: { onboardingId: failedId },
+              });
+            }
+          }
         } catch (e: unknown) {
           reportError({
             source: "inngest:admin-onboarding-stale-digest",

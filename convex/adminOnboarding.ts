@@ -1490,6 +1490,7 @@ export const releasePlaceholderInventoryBatchInternal = internalMutation({
     let totalWorkspacesEnded = 0;
     let totalPacksExpired = 0;
     let totalSkipped = 0;
+    const failedOnboardingIds: Id<"adminOnboardings">[] = [];
 
     for (const onboardingId of args.onboardingIds) {
       try {
@@ -1510,9 +1511,11 @@ export const releasePlaceholderInventoryBatchInternal = internalMutation({
       } catch (err) {
         // Per-row defensive: a missing/deleted row or a transient
         // patch failure must not abort the rest of the batch. The
-        // timeline entry from the failed row will be missing, but
-        // the Inngest caller logs the failed ID for manual follow-up.
+        // failed ID is recorded so the Inngest caller can surface it
+        // through the existing observability path (matches the
+        // pre-PR-16 per-row `reportError` behavior).
         onboardingsSkipped++;
+        failedOnboardingIds.push(onboardingId);
         console.error(
           "releasePlaceholderInventoryBatchInternal: row failed",
           {
@@ -1530,6 +1533,7 @@ export const releasePlaceholderInventoryBatchInternal = internalMutation({
       totalWorkspacesEnded,
       totalPacksExpired,
       totalSkipped,
+      failedOnboardingIds,
     };
   },
 });
