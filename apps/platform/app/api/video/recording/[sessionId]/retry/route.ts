@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { ConvexHttpClient } from "convex/browser";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { convexIdSchema } from "@/lib/validators";
 import { reportError } from "@/lib/observability";
+import { tasks } from "@trigger.dev/sdk";
+import type { transferDailyRecordingToB2 } from "@/trigger/recording-transfer";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,22 @@ export const runtime = "nodejs";
  * raced against the task's catchError hook. Surface as 409 so the
  * UI's retry button can render a "Recording is being processed"
  * pill instead.
+ *
+ * Failure recovery: when the row is flipped to `uploading` and the
+ * subsequent `tasks.trigger()` call throws (network / Trigger API
+ * error / 5xx), we POST a compensating `mark-failed` callback to
+ * Convex so the row returns to the `failed` state with the
+ * incremented attempt counter and the operator-visible error.
+ * Otherwise the row would sit in `uploading` forever and the
+ * manual retry endpoint would 409 on the next click.
+ *
+ * The `mark-retrying` / `mark-failed` callbacks share the same
+ * `TRIGGER_CONVEX_CALLBACK_SECRET` + `CONVEX_HTTP_KEY` auth as the
+ * Trigger task — there is no public Convex mutation for these
+ * transitions (Greptile review flagged the prior
+ * `markRecordingTransferRetryingPublic` mutation as an auth
+ * bypass). The instructor-auth check is performed here at the
+ * route layer; the callbacks themselves are server-side only.
  */
 export async function POST(
   req: NextRequest,
@@ -118,25 +135,21 @@ export async function POST(
       );
     }
 
-    const triggerSecretKey =
-      process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
-    if (!triggerSecretKey) {
+    const callbackSecret = process.env.TRIGGER_CONVEX_CALLBACK_SECRET;
+    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+    const convexHttpKey = process.env.CONVEX_HTTP_KEY;
+    if (!callbackSecret || !convexUrl || !convexHttpKey) {
       await reportError({
         source: "api/video/recording/retry",
-        error: new Error("TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not configured"),
-        message: "Transfer trigger is not configured",
+        error: new Error(
+          "TRIGGER_CONVEX_CALLBACK_SECRET / NEXT_PUBLIC_CONVEX_URL / CONVEX_HTTP_KEY are not all configured"
+        ),
+        message: "Transfer retry is not configured",
         level: "error",
         context: { sessionId },
       });
       return NextResponse.json(
-        { error: "Transfer trigger is not configured" },
-        { status: 500 }
-      );
-    }
-    const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-    if (!convexUrl) {
-      return NextResponse.json(
-        { error: "NEXT_PUBLIC_CONVEX_URL is not set" },
+        { error: "Transfer retry is not configured" },
         { status: 500 }
       );
     }
@@ -144,54 +157,76 @@ export async function POST(
     const nextAttempt = (session.recordingTransferAttempts ?? 0) + 1;
     const idempotencyKey = `transfer-recording:${sessionIdTyped}:${session.recordingId}:retry:${nextAttempt}`;
 
-    const convex = new ConvexHttpClient(convexUrl);
-    await convex.mutation(api.sessions.markRecordingTransferRetryingPublic, {
-      sessionId: sessionIdTyped,
-      attemptNumber: nextAttempt,
+    await postConvexTransferCallback({
+      convexUrl,
+      convexHttpKey,
+      callbackSecret,
+      path: "mark-retrying",
+      body: {
+        sessionId: String(sessionIdTyped),
+        attemptNumber: nextAttempt,
+      },
     });
 
-    const response = await fetch(
-      "https://api.trigger.dev/api/v1/tasks/transfer-daily-recording-to-b2/trigger",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${triggerSecretKey}`,
+    try {
+      const handle = await tasks.trigger<typeof transferDailyRecordingToB2>(
+        "transfer-daily-recording-to-b2",
+        {
+          sessionId: String(sessionIdTyped),
+          recordingId: session.recordingId,
+          dailyS3Key: session.recordingDailyS3Key ?? "",
+          durationSeconds: session.recordingDurationSeconds,
         },
-        body: JSON.stringify({
-          payload: {
-            sessionId: String(sessionIdTyped),
-            recordingId: session.recordingId,
-            dailyS3Key: session.recordingDailyS3Key ?? "",
-            durationSeconds: session.recordingDurationSeconds,
-          },
+        { idempotencyKey }
+      );
+
+      return NextResponse.json(
+        {
+          ok: true,
+          attemptNumber: nextAttempt,
           idempotencyKey,
-        }),
-      }
-    );
-    if (!response.ok) {
-      const body = await response.text();
+          runId: handle.id,
+        },
+        { status: 202 }
+      );
+    } catch (triggerError) {
       await reportError({
         source: "api/video/recording/retry",
-        error: new Error(`Trigger.dev re-trigger failed: ${response.status}`),
-        message: "Trigger.dev re-trigger failed",
+        error: triggerError,
+        message: "Trigger.dev re-trigger threw; rolling session back to failed",
         level: "error",
         context: {
           sessionId,
           recordingId: session.recordingId,
-          status: response.status,
+          attemptNumber: nextAttempt,
         },
       });
+      try {
+        await postConvexTransferCallback({
+          convexUrl,
+          convexHttpKey,
+          callbackSecret,
+          path: "mark-failed",
+          body: {
+            sessionId: String(sessionIdTyped),
+            errorMessage: `Retry trigger failed: ${triggerError instanceof Error ? triggerError.message : String(triggerError)}`,
+            attempts: nextAttempt,
+          },
+        });
+      } catch (rollbackError) {
+        await reportError({
+          source: "api/video/recording/retry",
+          error: rollbackError,
+          message: "Compensating mark-failed callback also threw",
+          level: "error",
+          context: { sessionId, attemptNumber: nextAttempt },
+        });
+      }
       return NextResponse.json(
-        { error: `Trigger.dev re-trigger failed: ${response.status}`, detail: body.slice(0, 200) },
+        { error: "Unable to start recording transfer" },
         { status: 502 }
       );
     }
-
-    return NextResponse.json(
-      { ok: true, attemptNumber: nextAttempt, idempotencyKey },
-      { status: 202 }
-    );
   } catch (error) {
     await reportError({
       source: "api/video/recording/retry",
@@ -202,6 +237,33 @@ export async function POST(
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
+    );
+  }
+}
+
+async function postConvexTransferCallback(params: {
+  convexUrl: string;
+  convexHttpKey: string;
+  callbackSecret: string;
+  path: "mark-retrying" | "mark-failed";
+  body: Record<string, unknown>;
+}): Promise<void> {
+  const response = await fetch(
+    `${params.convexUrl}/recording-transfer/${params.path}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.convexHttpKey}`,
+        "X-Trigger-Callback-Secret": params.callbackSecret,
+      },
+      body: JSON.stringify(params.body),
+    }
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(
+      `Convex callback /recording-transfer/${params.path} failed: ${response.status} ${text.slice(0, 200)}`
     );
   }
 }

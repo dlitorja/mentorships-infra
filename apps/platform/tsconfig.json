@@ -33,6 +33,9 @@
       "@mentorships/db": [
         "../../packages/db/src"
       ],
+      "@mentorships/storage": [
+        "../../packages/storage/src"
+      ],
       "@mentorships/payments": [
         "../../packages/payments/src"
       ],

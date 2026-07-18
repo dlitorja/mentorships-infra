@@ -230,6 +230,13 @@ function RecordingRow({
     },
   });
 
+  const retryErrorMessage =
+    retryMutation.error instanceof Error
+      ? retryMutation.error.message
+      : retryMutation.error
+        ? "Retry failed"
+        : null;
+
   return (
     <li className="flex items-center gap-3 py-2 px-1">
       <div className="flex-1 min-w-0">
@@ -261,12 +268,9 @@ function RecordingRow({
         <div className="text-xs text-muted-foreground truncate">
           {subtitleParts.join(" · ")}
         </div>
-        {isFailed && recording.recordingTransferError ? (
-          <p
-            className="text-xs text-muted-foreground mt-1 max-w-md"
-            title={recording.recordingTransferError}
-          >
-            {summarizeTransferError(recording.recordingTransferError)}
+        {isFailed && recording.recordingTransferErrorCode ? (
+          <p className="text-xs text-muted-foreground mt-1 max-w-md">
+            {summarizeTransferError(recording.recordingTransferErrorCode)}
           </p>
         ) : null}
       </div>
@@ -297,7 +301,7 @@ function RecordingRow({
               Download
             </a>
           </Button>
-        ) : isFailed ? (
+        ) : isFailed && recording.canRetryRecording ? (
           <Button
             type="button"
             variant="outline"
@@ -315,38 +319,49 @@ function RecordingRow({
           </Button>
         ) : null}
       </div>
-      {retryMutation.isError ? (
-        <p
-          className="sr-only"
-          role="status"
-          aria-live="polite"
-        >
-          Retry failed: {retryMutation.error?.message ?? "Unknown error"}
-        </p>
+      {retryErrorMessage ? (
+        <div className="basis-full">
+          <p
+            className="text-xs text-destructive mt-1"
+            role="status"
+            aria-live="polite"
+          >
+            {`Retry failed: ${retryErrorMessage}`}
+          </p>
+        </div>
       ) : null}
     </li>
   );
 }
 
 /**
- * Reduces a raw `recordingTransferError` to a user-facing one-liner.
- * The full message is preserved in the `title` attribute on the
- * tooltip so engineers / support staff can still read it on hover.
+ * Maps a server-derived `recordingTransferErrorCode` to a
+ * user-facing one-liner. The raw error string is intentionally
+ * NOT returned to the client (CodeRabbit review flagged that the
+ * prior tooltip text could leak presigned URLs, B2 endpoint
+ * diagnostics, or other provider internals); the Convex query
+ * classifies the raw message into one of these four buckets.
  *
  * Most common causes in production:
- *   - Daily auto-purged the recording (>7 days old)
- *   - B2 credentials missing or rotated
- *   - Transient network blip on the Trigger task
+ *   - Daily auto-purged the recording (>7 days old) → `daily_purged`
+ *   - B2 credentials missing or rotated → `storage`
+ *   - Transient network blip on the Trigger task → `network`
+ *   - Anything else → `unknown`
  */
-function summarizeTransferError(raw: string): string {
-  const lower = raw.toLowerCase();
-  if (lower.includes("not found") || lower.includes("auto-purged")) {
-    return "Daily purged this recording before the transfer ran. Retrying won't help — please contact support.";
+function summarizeTransferError(
+  code: NonNullable<CallRecording["recordingTransferErrorCode"]>
+): string {
+  switch (code) {
+    case "daily_purged":
+      return "Daily purged this recording before the transfer ran. Retrying won't help — please contact support.";
+    case "storage":
+      return "Could not save to storage. Click retry; if it keeps failing, contact support.";
+    case "network":
+      return "Network blip during transfer. Click retry to try again.";
+    case "unknown":
+    default:
+      return "Something went wrong saving the recording. Click retry; if it keeps failing, contact support.";
   }
-  if (lower.includes("b2") || lower.includes("credentials")) {
-    return "Could not save to storage. Click retry; if it keeps failing, contact support.";
-  }
-  return "Something went wrong saving the recording. Click retry; if it keeps failing, contact support.";
 }
 
 function formatDuration(totalSeconds: number): string {

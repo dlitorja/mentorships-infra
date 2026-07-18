@@ -49,7 +49,16 @@ describe("uploadFromUrl", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    mockSend.mockResolvedValueOnce({ ETag: "etag-123", VersionId: "v1" });
+    mockSend.mockImplementation(async (command) => {
+      const body = (command as { input: { Body: ReadableStream<Uint8Array> } })
+        .input.Body;
+      const reader = body.getReader();
+      while (true) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+      return { ETag: "etag-123", VersionId: "v1" };
+    });
 
     const result = await uploadFromUrl({
       sourceUrl: "https://daily.example/signed",
@@ -120,5 +129,93 @@ describe("uploadFromUrl", () => {
         contentType: "video/mp4",
       })
     ).rejects.toThrow(/no body/);
+  });
+
+  it("enforces maxBytes while streaming a chunked (no Content-Length) source", async () => {
+    const chunks = [
+      new Uint8Array(600),
+      new Uint8Array(600),
+    ];
+    const fakeStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      body: fakeStream,
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    mockSend.mockImplementation(async (command) => {
+      const body = (command as { input: { Body: ReadableStream<Uint8Array> } })
+        .input.Body;
+      const reader = body.getReader();
+      while (true) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+      return { ETag: "etag-stream", VersionId: "v1" };
+    });
+
+    await expect(
+      uploadFromUrl({
+        sourceUrl: "https://daily.example/signed",
+        key: "recordings/x.mp4",
+        contentType: "video/mp4",
+        maxBytes: 1000,
+      })
+    ).rejects.toThrow(/exceeded maxBytes=1000/);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the streamed byte count when Content-Length is absent", async () => {
+    const chunks = [
+      new Uint8Array(100),
+      new Uint8Array(250),
+      new Uint8Array(50),
+    ];
+    const fakeStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(chunk);
+        }
+        controller.close();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      body: fakeStream,
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    mockSend.mockImplementation(async (command) => {
+      const body = (command as { input: { Body: ReadableStream<Uint8Array> } })
+        .input.Body;
+      const reader = body.getReader();
+      let total = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) total += value.byteLength;
+      }
+      return { ETag: "etag-stream", VersionId: "v2" };
+    });
+
+    const result = await uploadFromUrl({
+      sourceUrl: "https://daily.example/signed",
+      key: "recordings/x.mp4",
+      contentType: "video/mp4",
+    });
+
+    expect(result.bytes).toBe(400);
+    expect(result.etag).toBe("etag-stream");
   });
 });

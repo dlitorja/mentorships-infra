@@ -12,14 +12,22 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
-    "baseUrl": ".",
+    "baseUrl": "../../",
     "paths": {
-      "@/*": ["./*"],
-      "@mentorships/db": ["../packages/db/src"],
-      "@mentorships/storage": ["../packages/storage/src"],
-      "@mentorships/emails": ["../packages/emails/src"]
+      "@/*": ["./src/trigger/*"],
+      "@mentorships/db": ["./packages/db/src"],
+      "@mentorships/storage": ["./packages/storage/src"],
+      "@mentorships/emails": ["./packages/emails/src"],
+      "@/convex/_generated/*": ["./convex/_generated/*"],
+      "@/apps/platform/*": ["./apps/platform/*"]
     }
   },
-  "include": ["./**/*", "../packages/db/src/**/*", "../packages/storage/src/**/*"],
+  "include": [
+    "./**/*",
+    "../packages/db/src/**/*",
+    "../packages/storage/src/**/*",
+    "../convex/_generated/**/*",
+    "../apps/platform/lib/**/*"
+  ],
   "exclude": ["node_modules"]
 }

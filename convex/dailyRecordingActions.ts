@@ -231,6 +231,16 @@ export const attachRecordingFromDailyWebhookAction = action({
     );
 
     if (result.alreadyAttached || parsed.recordingId === undefined) {
+      if (!result.alreadyAttached && parsed.recordingId === undefined) {
+        await ctx.runMutation(
+          internal.sessions.markRecordingTransferFailed,
+          {
+            sessionId: result.sessionId,
+            errorMessage: "Daily webhook missing recording_id",
+            attempts: 0,
+          }
+        );
+      }
       return {
         sessionId: result.sessionId,
         alreadyAttached: result.alreadyAttached,

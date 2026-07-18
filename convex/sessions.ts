@@ -1182,6 +1182,7 @@ export const attachRecordingFromDailyWebhook = internalMutation({
 
     const patch: Partial<Doc<"sessions">> = {
       recordingTransferStatus: "pending",
+      recordingTransferUpdatedAt: Date.now(),
       recordingDailyS3Key: args.recordingS3Key,
     };
     if (session.callEndedAt === undefined) {
@@ -1253,6 +1254,7 @@ export const attachRecordingFromB2Upload = internalMutation({
     const patch: Partial<Doc<"sessions">> = {
       recordingUrl: args.b2Key,
       recordingTransferStatus: "ready",
+      recordingTransferUpdatedAt: Date.now(),
       recordingTransferError: undefined,
     };
     if (args.durationSeconds !== undefined) {
@@ -1275,6 +1277,14 @@ export const attachRecordingFromB2Upload = internalMutation({
  * (`convex/audit/recordingTransferAudit.ts`) can surface rows
  * with an attempt counter that matches the task's configured
  * `maxAttempts` and no terminal status.
+ *
+ * This is an internal mutation: it is reachable only via the
+ * `/recording-transfer/mark-retrying` HTTP endpoint (which
+ * verifies `X-Trigger-Callback-Secret` + `CONVEX_HTTP_KEY`).
+ * No public mutation exists — Greptile review flagged a prior
+ * `markRecordingTransferRetryingPublic` wrapper as an auth
+ * bypass; the Next.js retry route now POSTs to the HTTP endpoint
+ * directly using `TRIGGER_CONVEX_CALLBACK_SECRET` instead.
  */
 export const markRecordingTransferRetrying = internalMutation({
   args: {
@@ -1292,40 +1302,7 @@ export const markRecordingTransferRetrying = internalMutation({
     await ctx.db.patch(session._id, {
       recordingTransferStatus: "uploading",
       recordingTransferAttempts: args.attemptNumber,
-    });
-    return { sessionId: session._id };
-  },
-});
-
-/**
- * Public wrapper around `markRecordingTransferRetrying` for the
- * manual retry endpoint
- * (`apps/platform/app/api/video/recording/[sessionId]/retry/route.ts`).
- * The route layer needs to flip the row to `uploading` BEFORE it
- * HTTP-triggers Trigger.dev so the UI pill updates immediately
- * rather than after the trigger request returns.
- *
- * Auth: `assertParticipantForSession` is called server-side by the
- * route layer before this mutation runs; the mutation itself does
- * not need an additional auth check because the sessionId is
- * typed and the row exists.
- */
-export const markRecordingTransferRetryingPublic = mutation({
-  args: {
-    sessionId: v.id("sessions"),
-    attemptNumber: v.number(),
-  },
-  handler: async (
-    ctx,
-    args
-  ): Promise<{ sessionId: Id<"sessions"> }> => {
-    const session = await ctx.db.get(args.sessionId);
-    if (!session) {
-      throw new Error("Session not found");
-    }
-    await ctx.db.patch(session._id, {
-      recordingTransferStatus: "uploading",
-      recordingTransferAttempts: args.attemptNumber,
+      recordingTransferUpdatedAt: Date.now(),
     });
     return { sessionId: session._id };
   },
@@ -1358,6 +1335,7 @@ export const markRecordingTransferFailed = internalMutation({
     }
     await ctx.db.patch(session._id, {
       recordingTransferStatus: "failed",
+      recordingTransferUpdatedAt: Date.now(),
       recordingTransferError: args.errorMessage,
       recordingTransferAttempts: args.attempts,
     });
@@ -1676,7 +1654,26 @@ export type CallRecording = {
   // clean these up in NARROW.
   recordingTransferStatus: "pending" | "uploading" | "ready" | "failed" | null;
   recordingTransferAttempts: number | null;
-  recordingTransferError: string | null;
+  // Sanitized bucket describing the last failure, mapped from the
+  // raw `recordingTransferError` server-side. The raw message is
+  // intentionally NOT returned to the client (it can contain
+  // presigned URLs, B2 endpoint diagnostics, etc.); the UI
+  // translates the code to a user-facing string via
+  // `summarizeTransferError` in `apps/platform/components/workspace/calls-section.tsx`.
+  recordingTransferErrorCode:
+    | "daily_purged"
+    | "storage"
+    | "network"
+    | "unknown"
+    | null;
+  // Server-derived permission to surface the manual "Retry transfer"
+  // button. True only when (a) the transfer has terminally failed,
+  // AND (b) the caller is the instructor on the session. The
+  // workspace owner (student side) does NOT get the retry control
+  // because the underlying retry endpoint is instructor-only — the
+  // UI previously rendered the button for everyone, leaking the
+  // affordance to viewers who would get a 403 on click.
+  canRetryRecording: boolean;
 };
 
 export const getCallRecordingsForWorkspace = query({
@@ -1769,7 +1766,12 @@ export const getCallRecordingsForWorkspace = query({
         isAdhoc: s.isAdhoc ?? false,
         recordingTransferStatus: s.recordingTransferStatus ?? null,
         recordingTransferAttempts: s.recordingTransferAttempts ?? null,
-        recordingTransferError: s.recordingTransferError ?? null,
+        recordingTransferErrorCode:
+          s.recordingTransferStatus === "failed"
+            ? classifyTransferError(s.recordingTransferError)
+            : null,
+        canRetryRecording:
+          isInstructor && s.recordingTransferStatus === "failed",
       }))
       // Sort by callStartedAt desc — nulls last so ad-hoc calls
       // with no start timestamp sink to the bottom.
@@ -1784,6 +1786,49 @@ export const getCallRecordingsForWorkspace = query({
     return recordings;
   },
 });
+
+/**
+ * Maps the raw `recordingTransferError` (server-side diagnostic
+ * text, never returned to the client) to one of four sanitized
+ * buckets that the UI uses to render a friendly explanation.
+ *
+ * The "not found" branch deliberately requires BOTH "daily" and
+ * "not found" — without "daily", generic "B2 bucket not found"
+ * messages would be misclassified as a Daily purge, telling the
+ * user "retry won't help" when the real cause is a missing B2
+ * bucket (which retry CAN recover once ops re-create the bucket).
+ */
+function classifyTransferError(
+  raw: string | undefined
+): CallRecording["recordingTransferErrorCode"] {
+  if (raw === undefined || raw.length === 0) {
+    return "unknown";
+  }
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("auto-purged") ||
+    (lower.includes("daily") && lower.includes("not found"))
+  ) {
+    return "daily_purged";
+  }
+  if (
+    lower.includes("b2") ||
+    lower.includes("credentials") ||
+    lower.includes("bucket") ||
+    lower.includes("storage")
+  ) {
+    return "storage";
+  }
+  if (
+    lower.includes("timeout") ||
+    lower.includes("econnreset") ||
+    lower.includes("network") ||
+    lower.includes("fetch")
+  ) {
+    return "network";
+  }
+  return "unknown";
+}
 export type ActiveSessionForWorkspace = {
   sessionId: Id<"sessions">;
   roomName: string;

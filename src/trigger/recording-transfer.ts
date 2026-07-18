@@ -1,7 +1,10 @@
 import { task, logger, metadata } from "@trigger.dev/sdk";
 import { ConvexHttpClient } from "convex/browser";
-import { internal } from "../convex/_generated/api";
-import { getDailyRecordingAccessLink, deleteDailyRecording } from "../apps/platform/lib/daily";
+import { internal } from "../../convex/_generated/api";
+import {
+  getDailyRecordingAccessLink,
+  deleteDailyRecording,
+} from "../../apps/platform/lib/daily";
 import { uploadFromUrl } from "@mentorships/storage";
 
 const CONVEX_DEPLOYMENT_URL =
@@ -76,15 +79,15 @@ export const transferDailyRecordingToB2 = task({
     logger.info("Recording transfer started", {
       sessionId: payload.sessionId,
       recordingId: payload.recordingId,
-      attempt: ctx.attempt.attempts,
+      attempt: ctx.attempt.number,
     });
     metadata.set("sessionId", payload.sessionId);
     metadata.set("recordingId", payload.recordingId);
-    metadata.set("attempt", ctx.attempt.attempts);
+    metadata.set("attempt", ctx.attempt.number);
 
     await convexCallback("mark-retrying", {
       sessionId: payload.sessionId,
-      attemptNumber: ctx.attempt.attempts,
+      attemptNumber: ctx.attempt.number,
     });
 
     const downloadUrl = await getDailyRecordingAccessLink(payload.recordingId);
@@ -146,20 +149,20 @@ export const transferDailyRecordingToB2 = task({
     logger.error("Recording transfer failed", {
       sessionId: payload.sessionId,
       recordingId: payload.recordingId,
-      attempt: ctx.attempt.attempts,
-      maxAttempts: ctx.run.maxAttempts,
+      attempt: ctx.attempt.number,
+      maxAttempts: ctx.run.maxAttempts ?? 1,
       error: error instanceof Error ? error.message : String(error),
     });
-    if (ctx.attempt.attempts >= ctx.run.maxAttempts) {
+    if (ctx.attempt.number >= (ctx.run.maxAttempts ?? 1)) {
       await convexCallback("mark-failed", {
         sessionId: payload.sessionId,
         errorMessage:
           error instanceof Error ? error.message : String(error),
-        attempts: ctx.attempt.attempts,
+        attempts: ctx.attempt.number,
       });
       logger.error("Recording transfer marked failed (no retries left)", {
         sessionId: payload.sessionId,
-        attempts: ctx.attempt.attempts,
+        attempts: ctx.attempt.number,
       });
     }
   },

@@ -65,7 +65,7 @@ export const auditRecordingTransferDrift = internalQuery({
       if (s.recordingTransferStatus === undefined) continue;
       withState++;
 
-      const lastUpdated = s._creationTime;
+      const lastUpdated = s.recordingTransferUpdatedAt ?? s._creationTime;
       const row: StuckRow = {
         sessionId: s._id,
         transferStatus: s.recordingTransferStatus,

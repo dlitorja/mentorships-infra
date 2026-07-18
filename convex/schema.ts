@@ -127,6 +127,12 @@ export default defineSchema({
     recordingDailyS3Key: v.optional(v.string()),
     recordingTransferAttempts: v.optional(v.number()),
     recordingTransferError: v.optional(v.string()),
+    // Last transfer-status transition timestamp (ms since epoch).
+    // Updated by every mutation that changes `recordingTransferStatus`,
+    // so the drift cron can flag rows stuck in "pending" / "uploading"
+    // for >10 min or "failed" for >24 h based on the actual transition
+    // age, not the immutable session creation time.
+    recordingTransferUpdatedAt: v.optional(v.number()),
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
     cancelReason: v.optional(v.string()),
