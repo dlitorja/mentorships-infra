@@ -1333,8 +1333,8 @@ async function releaseInventoryForRow(
   ctx: MutationCtx,
   args: {
     onboardingId: Id<"adminOnboardings">;
-    actorUserId: string | undefined;
-    details: string | undefined;
+    actorUserId?: string | undefined;
+    details?: string | undefined;
   }
 ): Promise<{
   releasedCount: number;
