@@ -28,9 +28,18 @@ interface DashboardWorkspaceIdPageProps {
  *
  * Behavior:
  *   - Mirrors the existing `/workspace/[id]` deep-link route but
- *     parented under `/dashboard` so the dashboard nav item stays
- *     highlighted (the existing route uses `currentPath="/workspace"`
- *     to keep the workspace nav item active).
+ *     parented under `/dashboard` (so the URL reflects the
+ *     source-of-truth navigation context: admin-onboarding emails
+ *     land here from the student/admin dashboard, not from the
+ *     standalone Workspace picker).
+ *   - Uses `currentPath="/workspace"` to highlight the active nav
+ *     item, mirroring `/workspace/[id]` and matching the fact that
+ *     the page IS a workspace view. The `/workspace` nav item exists
+ *     in BOTH the student and the instructor/admin navigation, so
+ *     every reachable role sees an active item. (Greptile P2 finding
+ *     on the initial PR: admin/instructor nav has no `/dashboard`
+ *     item, so `currentPath="/dashboard"` would have left their nav
+ *     un-highlighted.)
  *   - Reuses `WorkspaceClientPage` so the rendering is identical to
  *     `/workspace/[id]` -- no duplicated workspace UI.
  *   - Does NOT accept `?join={sessionId}` because the dashboard route
@@ -85,7 +94,7 @@ export default async function DashboardWorkspaceIdPage({
   const userRole: UserRole = await getServerUserRole(clerkUserId);
 
   return (
-    <ProtectedLayout currentPath="/dashboard">
+    <ProtectedLayout currentPath="/workspace">
       <WorkspaceClientPage
         clerkUserId={clerkUserId}
         workspaces={[workspace]}
