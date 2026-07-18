@@ -881,4 +881,134 @@ http.route({
   handler: httpMigrateWorkspaceImage,
 });
 
+/**
+ * Recording-transfer callback endpoints invoked by the Trigger.dev
+ * task `transfer-daily-recording-to-b2` (see
+ * `src/trigger/recording-transfer.ts`). All three share the same
+ * auth model: the standard `CONVEX_HTTP_KEY` (already enforced by
+ * `verifyAuth` above) PLUS an additional `X-Trigger-Callback-Secret`
+ * header so a leaked Convex deploy key alone cannot be used to
+ * forge a callback. The shared secret is
+ * `TRIGGER_CONVEX_CALLBACK_SECRET` and is set identically on
+ * both sides; this is the standard "two-key" pattern for
+ * service-to-service callbacks.
+ *
+ * Why we don't put these in an `internalMutation`-only chain:
+ * Trigger.dev runs in a different deployment than Convex and
+ * cannot reach `ctx.runMutation` directly, so we accept HTTP and
+ * forward into the internal mutation layer. The b2Key passed in
+ * `attach-from-b2` is constrained to start with `recordings/` by
+ * the mutation itself (defence in depth) so a forged callback
+ * could not, for example, point `recordingUrl` at someone else's
+ * B2 key.
+ */
+
+function verifyCallbackSecret(request: Request): boolean {
+  const expected = process.env.TRIGGER_CONVEX_CALLBACK_SECRET;
+  if (!expected) return false;
+  const provided = request.headers.get("X-Trigger-Callback-Secret");
+  if (provided === null) return false;
+  // Constant-time compare on equal-length buffers; pad to a
+  // fixed-length buffer so the timing-side-channel doesn't leak
+  // the secret length.
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  const len = Math.max(a.length, b.length, 64);
+  const aPadded = Buffer.alloc(len);
+  const bPadded = Buffer.alloc(len);
+  a.copy(aPadded);
+  b.copy(bPadded);
+  return a.length === b.length && timingSafeEqualStr(aPadded, bPadded);
+}
+
+function timingSafeEqualStr(a: Buffer, b: Buffer): boolean {
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+
+const httpAttachRecordingFromB2Upload = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const { sessionId, b2Key, durationSeconds, recordingId } = await request.json();
+  if (typeof sessionId !== "string" || typeof b2Key !== "string") {
+    return new Response(JSON.stringify({ error: "sessionId and b2Key are required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const result = await ctx.runMutation(internal.sessions.attachRecordingFromB2Upload, {
+    sessionId: sessionId as any,
+    b2Key,
+    durationSeconds: typeof durationSeconds === "number" ? durationSeconds : undefined,
+    recordingId: typeof recordingId === "string" ? recordingId : undefined,
+  });
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpMarkRecordingTransferRetrying = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const { sessionId, attemptNumber } = await request.json();
+  if (typeof sessionId !== "string" || typeof attemptNumber !== "number") {
+    return new Response(JSON.stringify({ error: "sessionId and attemptNumber are required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const result = await ctx.runMutation(internal.sessions.markRecordingTransferRetrying, {
+    sessionId: sessionId as any,
+    attemptNumber,
+  });
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpMarkRecordingTransferFailed = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+  if (!verifyCallbackSecret(request)) return unauthorizedResponse();
+  const { sessionId, errorMessage, attempts } = await request.json();
+  if (
+    typeof sessionId !== "string" ||
+    typeof errorMessage !== "string" ||
+    typeof attempts !== "number"
+  ) {
+    return new Response(JSON.stringify({ error: "sessionId, errorMessage, and attempts are required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const result = await ctx.runMutation(internal.sessions.markRecordingTransferFailed, {
+    sessionId: sessionId as any,
+    errorMessage,
+    attempts,
+  });
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/recording-transfer/attach-from-b2",
+  method: "POST",
+  handler: httpAttachRecordingFromB2Upload,
+});
+
+http.route({
+  path: "/recording-transfer/mark-retrying",
+  method: "POST",
+  handler: httpMarkRecordingTransferRetrying,
+});
+
+http.route({
+  path: "/recording-transfer/mark-failed",
+  method: "POST",
+  handler: httpMarkRecordingTransferFailed,
+});
+
 export default http;

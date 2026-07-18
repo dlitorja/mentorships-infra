@@ -250,8 +250,9 @@ Before any code lands, the user creates these resources outside the repo. The ag
 | Resource | Where to create | Env var name |
 |---|---|---|
 | Daily.co account + domain | https://dashboard.daily.co/ | `DAILY_API_KEY` |
+| Daily.co webhook secret | Daily dashboard → room webhook config (base64) | `DAILY_WEBHOOK_SECRET` |
+| Trigger.dev → Convex recording-transfer callback secret | 32+ bytes random; shared between Convex action and Trigger task | `TRIGGER_CONVEX_CALLBACK_SECRET` |
 | B2 bucket for recordings | Backblaze B2 | `B2_KEY_ID`, `B2_APPLICATION_KEY`, `B2_BUCKET_NAME` |
-| IAM-limited Daily access key for B2 | B2 → Application Keys, scope `listBuckets`, `listFiles`, `readFiles`, `writeFiles` to recordings bucket only | `DAILY_B2_KEY_ID`, `DAILY_B2_APPLICATION_KEY` |
 | Webhook secret (Daily → `/api/webhooks/daily/recordings`) | Daily dashboard generates the secret as base64 (NOT hex). Paste into Daily webhook config + Vercel as `DAILY_WEBHOOK_SECRET`. | `DAILY_WEBHOOK_SECRET` |
 
 When done, paste the env var names into the Vercel project's environment variables (preview + production). Ping the agent with "Phase 0 done" to start PR #1.
@@ -675,33 +676,63 @@ Every endpoint below the webhook must derive the caller's permissions from the a
 
 The same identity-check helper should be reused across all endpoints to keep authorization logic in one place and easy to audit.
 
-### B2 IAM Role (Daily.co)
+### Recording Storage Architecture (Daily → B2 Transfer)
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Sid": "DailyRecordings",
-    "Effect": "Allow",
-    "Action": [
-      "s3:PutObject",
-      "s3:GetObject",
-      "s3:ListBucketMultipartUploads",
-      "s3:AbortMultipartUpload",
-      "s3:ListBucketVersions",
-      "s3:ListBucket",
-      "s3:GetObjectVersion",
-      "s3:ListMultipartUploadParts"
-    ],
-    "Resource": [
-      "arn:aws:s3:::instructor-uploads",
-      "arn:aws:s3:::instructor-uploads/recordings/*"
-    ]
-  }]
-}
+The original "B2 IAM Role for Daily" design above assumed Daily.co's
+`recordings_bucket` mechanism could point at Backblaze B2. That
+turned out to be **incompatible**: Daily's `recordings_bucket` only
+supports AWS IAM role assumption (trusted account `291871421005`,
+external ID = Daily domain), and B2 does not support IAM role
+assumption — only static access keys.
+
+The actual implementation is a post-webhook transfer pipeline:
+
+```
+[Call ends]                Daily.co writes MP4 → Daily's S3 (default bucket)
+                            │
+                            ▼
+[Daily webhook]            POST /api/webhooks/daily/recordings
+                            │  HMAC verify (apps/platform/app/api/webhooks/daily/recordings/route.ts)
+                            ▼
+[Convex action]            attachRecordingFromDailyWebhookAction
+                            │  HMAC re-verify
+                            │  Writes sessions.recordingTransferStatus = "pending"
+                            │  Captures daily s3_key for diagnostics (recordingDailyS3Key)
+                            │  Does NOT touch sessions.recordingUrl
+                            │  HTTP-triggers Trigger.dev task
+                            ▼
+[Trigger.dev task]         transfer-daily-recording-to-b2
+                            │  1. GET /recordings/{id}/access-link → presigned URL
+                            │  2. PutObjectCommand to B2 at recordings/{sessionId}/{epoch}.mp4
+                            │     via packages/storage/src/uploads.ts uploadFromUrl()
+                            │  3. Convex HTTP callback: attachRecordingFromB2Upload
+                            │     → writes sessions.recordingUrl = b2Key
+                            │     → recordingTransferStatus = "ready"
+                            │  4. DELETE /recordings/{id} (idempotent; 404 ok)
+                            ▼
+[UI on next poll]          CallsSection row shows Play + Download
+                            │  /api/video/recording/[sessionId] presigns against B2
+                            ▼
+[Browser]                  Signed B2 URL via @mentorships/storage
 ```
 
-> **Scope note:** Resources are scoped to `recordings/*` so Daily.co's storage service can only read/write recording objects — not user-uploaded workspace content that shares the bucket. Bucket-level ARNs are retained only because `s3:ListBucket` requires them; restrict that action with a `Condition` (`s3:prefix=recordings/`) if B2 supports it.
+Key implementation files:
+
+- `apps/platform/lib/daily.ts` — `getDailyRecordingAccessLink`, `deleteDailyRecording` helpers
+- `packages/storage/src/uploads.ts` — `uploadFromUrl` (single-PUT, ≤5 GiB)
+- `convex/dailyRecordingActions.ts` — public action: HMAC verify → mark pending → trigger task
+- `convex/sessions.ts` — `attachRecordingFromDailyWebhook` (writes pending), `attachRecordingFromB2Upload` (writes b2 key on task success), `markRecordingTransferRetrying` / `markRecordingTransferFailed` (terminal states)
+- `src/trigger/recording-transfer.ts` — task body
+- `convex/http.ts` — `/recording-transfer/{attach-from-b2,mark-retrying,mark-failed}` callbacks (Convex HTTP key + shared `X-Trigger-Callback-Secret`)
+- `apps/platform/app/api/video/recording/[sessionId]/retry/route.ts` — instructor-only manual retry endpoint
+- `convex/audit/recordingTransferAudit.ts` — cron drift monitor (alerts on stuck `pending`/`uploading`/`failed` rows)
+
+Idempotency: the webhook → Convex mutation guards on `recordingTransferStatus !== "ready" && !== "failed"`, and the Trigger.dev task uses an idempotency key of `transfer-recording:{sessionId}:{recordingId}` (manual retry uses `:retry:{attempt+1}` suffix). Re-deliveries from Daily reuse the original run id; manual retries always run a fresh task.
+
+Failure modes:
+- Daily 404 on access-link (recording auto-purged at 7-day retention boundary) — terminal; user sees "Recording unavailable, contact support" pill.
+- B2 PUT fails — Trigger retries 5× with backoff; between attempts the UI flips to "Processing (attempt N/5)". After final failure the row is marked `failed` and the instructor sees a retry button.
+- Convex callback fails — Transfer task body is already past the upload at that point; the B2 copy is the source of truth. UI shows `ready` once `attachRecordingFromB2Upload` actually lands, otherwise `failed` after retries.
 
 ## Implementation Phases
 

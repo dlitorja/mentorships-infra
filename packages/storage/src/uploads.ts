@@ -335,3 +335,92 @@ export async function deleteAllVersionsFromB2(fileName: string): Promise<{ delet
 
   return { deleted, errors };
 }
+
+export type UploadFromUrlParams = {
+  sourceUrl: string;
+  key: string;
+  contentType: string;
+  maxBytes?: number;
+};
+
+export type UploadFromUrlResult = {
+  etag: string;
+  versionId: string;
+  bytes: number;
+};
+
+/**
+ * Streams a remote URL (typically a Daily.co presigned access-link)
+ * into a Backblaze B2 object using a single `PutObjectCommand`.
+ *
+ * Why single-shot and not multipart: `@aws-sdk/lib-storage` is not
+ * a workspace dependency and adding it pulls in a transitive set
+ * we do not otherwise need. The S3 single-PUT limit is 5 GiB which
+ * comfortably covers a 4-hour Daily recording at the default
+ * 720p/30fps bitrate (~1–2 GiB); anything larger than `maxBytes`
+ * (default 5 GiB) is rejected before any network IO so we never
+ * silently chunk and lose progress on a truncated PUT.
+ *
+ * Streaming: `fetch` returns a `ReadableStream` and the AWS SDK
+ * `Body` field accepts a web `ReadableStream` directly when the
+ * runtime supports it (Node 18+ / Next.js). Backpressure is handled
+ * by the SDK — chunks are pulled from the source stream at the
+ * rate the SDK writes them. We DO NOT buffer the whole file in
+ * memory.
+ *
+ * Failure modes:
+ *  - source URL fetch fails (non-2xx): the underlying `fetch` throws
+ *    and bubbles up so the caller's retry logic can act.
+ *  - B2 PUT fails: AWS SDK throws `S3ServiceError` carrying the B2
+ *    error class; same retry handling.
+ *  - `Content-Length` advertised > `maxBytes`: we reject before
+ *    streaming so a malicious or runaway source can't fill the
+ *    process with bytes we'd have to abort mid-PUT anyway.
+ *
+ * Returned `bytes` is the `Content-Length` reported by the source
+ * when present, falling back to 0 so callers can still log the
+ * upload size in the common (unannounced) case without throwing.
+ */
+export async function uploadFromUrl(
+  params: UploadFromUrlParams
+): Promise<UploadFromUrlResult> {
+  const maxBytes = params.maxBytes ?? 5 * 1024 * 1024 * 1024;
+  const response = await fetch(params.sourceUrl, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(
+      `Source fetch failed: ${response.status} ${response.statusText}`
+    );
+  }
+  if (response.body === null) {
+    throw new Error("Source response had no body");
+  }
+
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader !== null) {
+    const announced = Number.parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(announced) && announced > maxBytes) {
+      throw new Error(
+        `Source advertises ${announced} bytes; exceeds maxBytes=${maxBytes}`
+      );
+    }
+  }
+
+  const client = getB2Client();
+  const command = new PutObjectCommand({
+    Bucket: B2_BUCKET_NAME,
+    Key: params.key,
+    Body: response.body as unknown as ReadableStream,
+    ContentType: params.contentType,
+  });
+
+  const result = await client.send(command);
+  const bytes =
+    contentLengthHeader !== null
+      ? Number.parseInt(contentLengthHeader, 10) || 0
+      : 0;
+  return {
+    etag: result.ETag ?? "",
+    versionId: result.VersionId ?? "",
+    bytes,
+  };
+}

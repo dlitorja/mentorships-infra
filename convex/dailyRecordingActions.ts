@@ -97,9 +97,82 @@ function parseVerifiedPayload(rawBody: string): {
 }
 
 /**
+ * Triggers the Trigger.dev transfer task. Mirrors the HTTP-trigger
+ * pattern used by `convex/workspaces.ts:1591` for workspace exports —
+ * the Convex action layer cannot import `@trigger.dev/sdk` directly
+ * because it lives on the deploy side, not the trigger side, so we
+ * call Trigger.dev's REST API with the same `TRIGGER_SECRET_KEY`
+ * (falls back to `TRIGGER_API_KEY`) the workspace-export path uses.
+ *
+ * Idempotency key is derived from `(sessionId, recordingId)` —
+ * re-deliveries from Daily (which Daily explicitly supports for
+ * at-least-once semantics on the `recording.ready-to-download`
+ * event) reuse the same Trigger.dev run id and don't double-upload.
+ *
+ * If the trigger request fails for any reason we surface the error
+ * so the Next.js route layer returns 500 — but the Convex
+ * `attachRecordingFromDailyWebhook` mutation has ALREADY written
+ * `recordingTransferStatus: "pending"` to the row by this point,
+ * so the drift monitor (`convex/audit/recordingTransferAudit.ts`)
+ * can re-fire the transfer task from the cron path.
+ */
+async function triggerTransferTask(params: {
+  sessionId: Id<"sessions">;
+  recordingId: string;
+  dailyS3Key: string;
+  durationSeconds: number | undefined;
+}): Promise<void> {
+  const triggerSecretKey =
+    process.env.TRIGGER_SECRET_KEY ?? process.env.TRIGGER_API_KEY;
+  if (!triggerSecretKey) {
+    throw new Error(
+      "TRIGGER_SECRET_KEY (or TRIGGER_API_KEY) is not configured for the Convex action layer"
+    );
+  }
+  const idempotencyKey = `transfer-recording:${params.sessionId}:${params.recordingId}`;
+  const response = await fetch(
+    "https://api.trigger.dev/api/v1/tasks/transfer-daily-recording-to-b2/trigger",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${triggerSecretKey}`,
+      },
+      body: JSON.stringify({
+        payload: {
+          sessionId: String(params.sessionId),
+          recordingId: params.recordingId,
+          dailyS3Key: params.dailyS3Key,
+          durationSeconds: params.durationSeconds,
+        },
+        idempotencyKey,
+      }),
+    }
+  );
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `Trigger.dev trigger failed: ${response.status} ${body.slice(0, 200)}`
+    );
+  }
+}
+
+/**
  * Public Convex action that performs HMAC-SHA256 verification of the
- * Daily.co webhook payload and then invokes the internal mutation
- * `sessions.attachRecordingFromDailyWebhook`.
+ * Daily.co webhook payload and then:
+ *   1. Invokes the internal mutation `sessions.attachRecordingFromDailyWebhook`
+ *      which writes `recordingTransferStatus: "pending"` and captures
+ *      Daily's transient `s3_key` for diagnostics. `sessions.recordingUrl`
+ *      is intentionally NOT touched here — that field will only hold
+ *      a Backblaze B2 key after the transfer task succeeds.
+ *   2. HTTP-triggers the Trigger.dev task `transfer-daily-recording-to-b2`
+ *      with the (sessionId, recordingId) idempotency key, which streams
+ *      the MP4 out of Daily's storage via the access-link API and
+ *      `PutObjectCommand`s it into the B2 bucket at
+ *      `recordings/{sessionId}/{epoch}.mp4`. The task then calls back
+ *      into `sessions.attachRecordingFromB2Upload` via the
+ *      `/recording-transfer/attach-from-b2` HTTP endpoint to write the
+ *      B2 key into `sessions.recordingUrl`.
  *
  * Auth model: this action is public (callable from the webhook) but
  * gated by HMAC verification against `DAILY_WEBHOOK_SECRET` (base64-
@@ -127,7 +200,11 @@ export const attachRecordingFromDailyWebhookAction = action({
   handler: async (
     ctx,
     args
-  ): Promise<{ sessionId: Id<"sessions">; alreadyAttached: boolean }> => {
+  ): Promise<{
+    sessionId: Id<"sessions">;
+    alreadyAttached: boolean;
+    transferTriggered: boolean;
+  }> => {
     const secret = process.env.DAILY_WEBHOOK_SECRET;
     if (!secret) {
       throw new Error("DAILY_WEBHOOK_SECRET is not configured");
@@ -142,7 +219,8 @@ export const attachRecordingFromDailyWebhookAction = action({
       throw new Error("Daily webhook signature verification failed");
     }
     const parsed = parseVerifiedPayload(args.rawBody);
-    return await ctx.runMutation(
+
+    const result = await ctx.runMutation(
       internal.sessions.attachRecordingFromDailyWebhook,
       {
         roomName: parsed.roomName,
@@ -151,5 +229,26 @@ export const attachRecordingFromDailyWebhookAction = action({
         recordingId: parsed.recordingId,
       }
     );
+
+    if (result.alreadyAttached || parsed.recordingId === undefined) {
+      return {
+        sessionId: result.sessionId,
+        alreadyAttached: result.alreadyAttached,
+        transferTriggered: false,
+      };
+    }
+
+    await triggerTransferTask({
+      sessionId: result.sessionId,
+      recordingId: parsed.recordingId,
+      dailyS3Key: parsed.s3Key,
+      durationSeconds: parsed.durationSeconds,
+    });
+
+    return {
+      sessionId: result.sessionId,
+      alreadyAttached: result.alreadyAttached,
+      transferTriggered: true,
+    };
   },
 });

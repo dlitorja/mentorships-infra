@@ -107,6 +107,26 @@ export default defineSchema({
     isAdhoc: v.optional(v.boolean()),
     recordingDurationSeconds: v.optional(v.number()),
     recordingId: v.optional(v.string()),
+    // Post-webhook Daily → B2 transfer pipeline state. The webhook
+    // handler sets this to "pending" + triggers a Trigger.dev task;
+    // the task flips it through "uploading" → "ready" (B2 key written
+    // to `recordingUrl`) or → "failed" (terminal, surfaced in the UI
+    // with a manual-retry affordance). `recordingUrl` MUST NOT be
+    // considered valid until `recordingTransferStatus === "ready"` —
+    // pre-fix sessions wrote Daily's transient `s3_key` here, which
+    // caused Play/Download to 404 (see PR #video-recording-to-b2).
+    recordingTransferStatus: v.optional(v.union(
+      v.literal("pending"),
+      v.literal("uploading"),
+      v.literal("ready"),
+      v.literal("failed")
+    )),
+    // Capture Daily's raw s3_key from the webhook payload for
+    // diagnostics — never read by the UI, only logged + shown on
+    // the admin audit query.
+    recordingDailyS3Key: v.optional(v.string()),
+    recordingTransferAttempts: v.optional(v.number()),
+    recordingTransferError: v.optional(v.string()),
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
     cancelReason: v.optional(v.string()),
