@@ -941,7 +941,7 @@ export const adminOnboardingFlow = inngest.createFunction(
         return { skip: "attempt_mismatch" as const, expected: parsed.data.attemptCount, actual: freshRow.attemptCount };
       }
 
-      const alreadyDelivered: Record<string, boolean> = (freshRow.emailsSent as any)?.adminSummaryByEmail ?? {};
+      const alreadyDelivered: Record<string, boolean> = freshRow.emailsSent?.adminSummaryByEmail ?? {};
 
       const adminEmails = (process.env.ADMIN_EMAILS || "admin@huckleberry.art")
         .split(",")
@@ -1008,8 +1008,17 @@ export const adminOnboardingFlow = inngest.createFunction(
     let adminEmailResult: { sent: boolean; skipped: boolean | string; results: Array<{ email: string; ok: boolean }> };
 
     if ("skip" in adminPrep) {
-      // Prep step indicated no sends needed. Build a result shape that
-      // matches the success path for downstream compatibility.
+      // Prep step indicated no sends needed. Two cases:
+      //   - "all_already_delivered" / "no_admin_emails": continue to
+      //     steps 5 + 6 below (Discord DMs and mark-completed still
+      //     apply; the admin-email leg was simply not needed this run).
+      //   - "missing" / "non_processing" / "attempt_mismatch": the row
+      //     is in a stale state, so the rest of the flow must NOT run —
+      //     enqueueing Discord DMs or marking "completed" on a row
+      //     already in a terminal state (or one a newer attempt owns)
+      //     would clobber the canonical record. PR 12 cloud-review fix
+      //     (CodeRabbit, run c567c97c) returns early with a structured
+      //     result that surfaces the skip reason for observability.
       const skipReason = adminPrep.skip;
       if (skipReason === "all_already_delivered") {
         adminEmailResult = {
@@ -1020,8 +1029,17 @@ export const adminOnboardingFlow = inngest.createFunction(
       } else if (skipReason === "no_admin_emails") {
         adminEmailResult = { sent: false, skipped: false, results: [] };
       } else {
-        // missing / non_processing / attempt_mismatch
-        adminEmailResult = { sent: false, skipped: skipReason, results: [] };
+        // missing / non_processing / attempt_mismatch — stale, do not
+        // continue to Discord/mark-completed.
+        return {
+          success: false,
+          onboardingId: row._id,
+          studentEmailSent: studentEmailResult.sent,
+          instructorEmails: instructorEmailResults,
+          adminEmailSent: false,
+          skippedAt: "admin_email",
+          skipReason,
+        };
       }
     } else {
       // PR 12 (option C2): each iteration is a function-level step with
@@ -1090,10 +1108,22 @@ export const adminOnboardingFlow = inngest.createFunction(
       // Step 4c: merge + timeline.
       // `emailsSentPatch.adminSummaryByEmail` is keyed-merged by Convex's
       // `mergeEmailsSentPatch` helper, so we only send the new per-address
-      // results here. Prior-run successes (`alreadyDelivered`) are preserved.
+      // SUCCESSES here. PR 12 cloud-review fix (CodeRabbit, run c567c97c):
+      // filtering the patch to `true`-only entries prevents a transient
+      // send failure in this run from overwriting a previously-delivered
+      // marker (which `mergeEmailsSentPatch` would otherwise re-apply as
+      // `false`). Failed sends remain observable via the timeline
+      // `perAddress` field for this run, but do not poison the durable
+      // success-tracking map. The full `mergedByEmail` view (prior +
+      // current, including `false`) is preserved for the timeline
+      // aggregate stats below.
       await step.run("send-admin-email-finalize", async function() {
         const updatedByEmail: Record<string, boolean> = {};
         for (const r of newResults) updatedByEmail[r.email] = r.ok;
+        const successfulPatches: Record<string, boolean> = {};
+        for (const [e, ok] of Object.entries(updatedByEmail)) {
+          if (ok === true) successfulPatches[e] = true;
+        }
         const mergedByEmail: Record<string, boolean> = { ...adminPrep.alreadyDelivered, ...updatedByEmail };
         const allOk = adminPrep.adminEmails.every(function(e: string) { return mergedByEmail[e] === true; });
         const anyOk = adminPrep.adminEmails.some(function(e: string) { return mergedByEmail[e] === true; });
@@ -1112,7 +1142,7 @@ export const adminOnboardingFlow = inngest.createFunction(
             anyOk,
             perAddress: adminPrep.adminEmails.map(function(e: string) { return { email: e, ok: mergedByEmail[e] === true }; }),
           }),
-          emailsSentPatch: { adminSummaryByEmail: updatedByEmail },
+          emailsSentPatch: { adminSummaryByEmail: successfulPatches },
           expectedStatus: "processing",
           expectedAttemptCount: parsed.data.attemptCount,
           secret,
