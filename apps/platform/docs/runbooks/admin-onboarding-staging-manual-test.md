@@ -123,12 +123,15 @@ Prereq: scenario 1 must have completed for `student-1@example.com` and a Clerk s
 2. From the Inngest dashboard, find the `admin-onboarding-stale-digest-flow` scheduled function. Click "Invoke" (or send the `admin/onboarding.stale-digest` event manually).
 3. Verify:
    - **Admin inbox**: 1 batched digest email listing the stale invite with days pending + suggested action.
-   - **`studentInvitations`** (if the column exists): status flipped to `expired`.
-   - **`seatReservations`**: matching placeholder row flipped to `released`.
-   - **`workspaces`**: matching workspace's `endedAt` set to now.
-   - **`adminOnboardings.timeline`**: appends a `released` entry with `details: "stale-invite-digest auto-release"`.
+   - **`seatReservations`**: matching placeholder row flipped to `released` (PR 4 only releases seats whose `userId` still starts with `email:` — those rewritten to a real Clerk ID are skipped).
+   - **`workspaces`**: matching workspace's `endedAt` set to now (only for workspaces whose `ownerId` still starts with `email:`; reused renewal workspaces are NOT touched because their `workspaceId` is undefined on the onboarding row).
+   - **`sessionPacks`**: matching placeholder pack flipped to `expired` (NOT `cancelled` — the schema has no cancelled status; only active packs are touched).
+   - **`studentInvitations`**: NOT touched by the digest. The digest does not update the `studentInvitations` table; that table is updated by the invitation-creation and acceptance flows, not by the stale-cleanup path. Do not assert on it for this scenario.
+   - **`adminOnboardings.status`**: stays `completed`. The schema does not have a `released` status — release is a sub-event of `completed`, recorded only in the timeline.
+   - **`adminOnboardings.timeline`**: appends a `released` entry with `details` of the form `"stale-invite-digest auto-release: placeholder held > 13 days | seats=<N>,workspaces=<N>,packs=<N>,skipped=<N>"`. The trailing `seats/workspaces/packs/skipped` counters come from `releasePlaceholderInventoryInternal` (`convex/adminOnboarding.ts:1184-1282`) — `skipped` counts placeholders that were already released or that have been claimed by a real Clerk user.
+   - **`adminOnboardings.releasedAt`**: NOT set. The PR 4 plan referenced a `releasedAt` field on the row, but it was never added to the schema — release observability lives in the timeline only.
 
-Repeat with `createdAt = now - 1 day` to verify the 13-day cutoff correctly **excludes** recent completed onboardings.
+Repeat with `createdAt = now - 1 day` to verify the 13-day cutoff correctly **excludes** recent completed onboardings (`isStaleOnboardingRow` requires `row.createdAt >= cutoffMs` where `cutoffMs = now - 13 days`, so recent rows pass the `>=` check and are not returned).
 
 ## Scenario 8 — Failure mode: malformed event
 
@@ -160,7 +163,9 @@ Repeat with `createdAt = now - 1 day` to verify the 13-day cutoff correctly **ex
 ## Related code references
 
 - `apps/platform/inngest/functions/onboarding.ts` — the `adminOnboardingFlow` handler.
-- `convex/adminOnboarding.ts` — mutations, queries, helpers (`detectRenewal`, `isStaleOnboardingRow` consumer, `appendTimelineEntry`).
+- `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` — the daily stale-digest cron + manual-trigger flow.
+- `convex/adminOnboarding.ts` — mutations, queries, helpers (`detectRenewal`, `releasePlaceholderInventoryInternal`, `appendTimelineEntry`).
 - `apps/platform/components/admin/admin-onboarding-form.tsx` — the two-phase form component.
 - `apps/platform/lib/admin-onboarding/stale-onboarding-filter.ts` — pure helper for the stale-digest row filter.
 - `apps/platform/lib/admin-onboarding/emails-sent-merge.ts` — pure helper for `appendTimelineEntry` merge semantics.
+- `apps/platform/lib/admin-onboarding.ts:7-13` — `ALLOWED_TRANSITIONS` state machine (source of truth for the state machine referenced in the R8 runbook).

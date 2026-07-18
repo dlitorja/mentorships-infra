@@ -74,14 +74,28 @@ Watch the Resend dashboard for `admin-onboarding-summary` traffic spike. Expecte
 
 ## Drain procedure (optional pre-deploy)
 
-If `count > 100`, drain legacy rows before deploy to make the post-deploy window boring:
+If `count > 100`, drain legacy rows before deploy to make the post-deploy window boring — but **only drain rows the operator is willing to lose as cancelled**. The state machine (`apps/platform/lib/admin-onboarding.ts:7-13`) is:
 
-1. Force each legacy row to terminal: from Convex dashboard, run an internal mutation that patches `status: "cancelled"` and appends a `{ event: "cancelled", actorUserId: "<drain-script>" }` timeline entry.
-2. The re-send no longer happens (step 4a bails on `non_processing` early-return after PR 12).
+```
+ALLOWED_TRANSITIONS = {
+  queued: ["processing", "cancelled"],
+  processing: ["completed", "failed", "cancelled"],
+  failed: ["processing", "cancelled"],
+  cancelled: [],   // ← terminal, no transitions out
+  completed: [],   // ← terminal, no transitions out
+}
+```
+
+`cancelled` and `completed` are terminal. `retryAdminOnboarding` (`convex/adminOnboarding.ts:595-629`) only transitions `failed` or `queued` back to `processing`. There is no path from `cancelled` back to a retryable state — once cancelled, the row stays cancelled.
+
+Procedure (only for rows the operator is OK losing as cancelled):
+
+1. From the Convex dashboard, run an internal mutation that patches `status: "cancelled"` and appends a `{ event: "cancelled", actorUserId: "<drain-script>" }` timeline entry on each legacy row you want to drain.
+2. The re-send no longer happens for those rows (step 4a bails on `non_processing` early-return after PR 12).
 3. Re-deploy.
-4. After deploy, manually re-emit `admin/onboarding.completed` for any row that the drain prematurely cancelled and you actually want to retry — use `apps/platform/app/api/admin/onboardings/[id]/retry/route.ts` for that.
+4. **Do not** try to recover drained rows via the per-row Retry button — it will throw `Cannot retry from status 'cancelled'`. If you discover after deploy that you actually wanted a drained row to complete, you have to manually walk it through: re-create the session pack, seat, and workspace from the existing artifacts (the row preserves them — `cancelAdminOnboarding` does not delete artifacts), then submit a NEW admin-onboarding form entry. This is a manual recovery, not an automated one.
 
-A future Convex migration script (`scripts/backfill-admin-summary-by-email.ts`, not yet shipped) could instead initialize `adminSummaryByEmail = {}` on every legacy row so the per-address logic still treats them as "not yet delivered per address" — this preserves the user's choice to retry without re-sending to addresses the original code may have already sent to. **Out of scope for this runbook**; tracked as a follow-up.
+For rows that must succeed, do NOT drain them. Let them re-send naturally on the first run after deploy — PR 9 + PR 12 throttle the burst to inside the Resend paid-tier rate limit.
 
 ## Long-term mitigation (future PR, not this runbook)
 

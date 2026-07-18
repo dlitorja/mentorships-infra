@@ -2,7 +2,7 @@
 
 Operational runbooks for the `apps/platform` admin onboarding automation. Each entry is a self-contained procedure for on-call responders and SRE-style incident response. Not a tutorial — assume the reader is already comfortable with Convex dashboards, the Inngest dashboard, the Resend dashboard, and the Clerk dashboard.
 
-Source-of-truth plan: [`ADMIN_ONBOARDING_AUTOMATION_PLAN.md`](../../../ADMIN_ONBOARDING_AUTOMATION_PLAN.md) at the repo root.
+Source-of-truth plan: [`ADMIN_ONBOARDING_AUTOMATION_PLAN.md`](../../../../ADMIN_ONBOARDING_AUTOMATION_PLAN.md) at the repo root.
 
 ## Index
 
