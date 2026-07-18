@@ -747,14 +747,17 @@ export const adminOnboardingFlow = inngest.createFunction(
       // PR 4 cloud-review fix (CodeRabbit #9227): only mark `emailsSent.student`
       // as true when the provider actually delivered (ok or skipped-missing-config).
       // Failed deliveries should retry on the next attempt.
+      // PR 14 (R5): record the tick via the new `markEmailSentAction`
+      // helper (discriminated-union `recipient` arg) instead of hand-building
+      // the `emailsSentPatch` shape.
       const markSent = ok || skipped;
       if (markSent) {
-        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+        await convex.action(api.adminOnboarding.markEmailSentAction, {
           onboardingId: row._id,
-          event: "email_sent",
+          recipient: { kind: "student" },
+          resendMessageId: id ?? undefined,
+          skipped: skipped || undefined,
           actorUserId: row.submittedByUserId,
-          details: JSON.stringify({ recipient: "student", resendMessageId: id, skipped: skipped || undefined }),
-          emailsSentPatch: { student: true },
           expectedStatus: "processing",
           expectedAttemptCount: parsed.data.attemptCount,
           secret,
@@ -815,14 +818,16 @@ export const adminOnboardingFlow = inngest.createFunction(
 
         // If no resolvable email, record a skip event but still mark the
         // instructor as processed in `emailsSent.instructors` for idempotency.
+        // PR 14 (R5): use `markEmailSentAction` with `skipped: true` +
+        // `reason` so the timeline stays informative for on-call.
         if (!instructorEmail) {
           noEmail++;
-          await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+          await convex.action(api.adminOnboarding.markEmailSentAction, {
             onboardingId: row._id,
-            event: "email_sent",
+            recipient: { kind: "instructor", instructorId: pair.instructorId as Id<"instructors"> },
+            skipped: true,
+            reason: contact?.reason ?? "no_email",
             actorUserId: row.submittedByUserId,
-            details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, skipped: true, reason: contact?.reason ?? "no_email" }),
-            emailsSentPatch: { instructors: [pair.instructorId as Id<"instructors">] },
             expectedStatus: "processing",
             expectedAttemptCount: parsed.data.attemptCount,
             secret,
@@ -876,14 +881,17 @@ export const adminOnboardingFlow = inngest.createFunction(
         // instructor as emailed when the provider actually delivered
         // (ok or skipped). Failed deliveries should retry on the next
         // attempt rather than being silently dropped.
+        // PR 14 (R5): record the tick via `markEmailSentAction` with
+        // the `recipient: { kind: "instructor", instructorId }`
+        // discriminated-union arg.
         const markSent = ok || (!ok && "skipped" in res && res.skipped);
         if (markSent) {
-          await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+          await convex.action(api.adminOnboarding.markEmailSentAction, {
             onboardingId: row._id,
-            event: "email_sent",
+            recipient: { kind: "instructor", instructorId: pair.instructorId as Id<"instructors"> },
+            resendMessageId: ok && res.id ? res.id : undefined,
+            skipped: !ok && "skipped" in res ? true : undefined,
             actorUserId: row.submittedByUserId,
-            details: JSON.stringify({ recipient: "instructor", instructorId: instructorIdStr, resendMessageId: ok && res.id ? res.id : null, skipped: !ok && "skipped" in res ? true : undefined }),
-            emailsSentPatch: { instructors: [pair.instructorId as Id<"instructors">] },
             expectedStatus: "processing",
             expectedAttemptCount: parsed.data.attemptCount,
             secret,
@@ -1117,6 +1125,17 @@ export const adminOnboardingFlow = inngest.createFunction(
       // success-tracking map. The full `mergedByEmail` view (prior +
       // current, including `false`) is preserved for the timeline
       // aggregate stats below.
+      //
+      // PR 14 (R5): this site intentionally stays on
+      // `appendTimelineEntryAction` instead of `markEmailSentAction`.
+      // The step is AGGREGATE -- ONE timeline entry per run summarizing
+      // the multi-address send -- not per-recipient. `markEmailSent`
+      // is for marking a single recipient's tick; using it here would
+      // require N calls inside the finalize step (one per admin email)
+      // and lose the per-run aggregate stats. The aggregate path
+      // remains on `appendTimelineEntryAction`; if a future PR wants
+      // to migrate to per-recipient admin tracking, that's a separate
+      // architectural change, not an R5 cleanup.
       await step.run("send-admin-email-finalize", async function() {
         const updatedByEmail: Record<string, boolean> = {};
         for (const r of newResults) updatedByEmail[r.email] = r.ok;

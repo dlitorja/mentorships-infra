@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { isStaleOnboardingRow } from "../apps/platform/lib/admin-onboarding/stale-onboarding-filter";
 import { mergeEmailsSentPatch } from "../apps/platform/lib/admin-onboarding/emails-sent-merge";
+import { emailsSentPatchForRecipient, type MarkEmailSentRecipient } from "../apps/platform/lib/admin-onboarding/mark-email-sent-recipient";
 
 /**
  * State machine: which `(from, to)` transitions are allowed for the
@@ -1129,6 +1130,158 @@ export const appendTimelineEntryAction = action({
         actorUserId: args.actorUserId,
         details: args.details,
         emailsSentPatch: args.emailsSentPatch,
+        expectedStatus: args.expectedStatus,
+        expectedAttemptCount: args.expectedAttemptCount,
+      }
+    );
+    return result;
+  },
+});
+
+/**
+ * R5 (PR 14): semantic helper for the per-recipient email-send tick
+ * (step 2: student, step 3: instructor, step 4c per-address if ever
+ * migrated from aggregate). Wraps `appendTimelineEntry` so callers say
+ * "what was sent" via a discriminated-union `recipient` arg instead of
+ * constructing the underlying `emailsSentPatch` shape by hand.
+ *
+ * Behavior:
+ *   - Maps `recipient` -> `emailsSentPatch` via
+ *     `emailsSentPatchForRecipient` (unit-tested in
+ *     `apps/platform/lib/admin-onboarding/mark-email-sent-recipient.test.ts`).
+ *   - Appends a `{ event: "email_sent", details: <JSON of recipient+metadata> }`
+ *     timeline entry.
+ *   - Performs the same `expectedStatus` / `expectedAttemptCount` stale
+ *     guards as `appendTimelineEntry` -- re-fetching logic in step 2 / 3
+ *     already checks these; the guard inside this mutation is the
+ *     second line of defense against a stale call landing after a newer
+ *     attempt took ownership.
+ *   - Returns the new timeline entry (same return type as
+ *     `appendTimelineEntry`).
+ *
+ * Why this is additive, not a replacement:
+ *   - `appendTimelineEntry` continues to support arbitrary events
+ *     (discord_queued, completed, failed, released, ...) and arbitrary
+ *     patch shapes. Those callers (step 5, step 6, mark-failed catch,
+ *     `releasePlaceholderInventoryInternal`, ...) are unaffected.
+ *   - `markEmailSent` is the canonical way for the three per-recipient
+ *     send legs to record their tick.
+ *
+ * Why this delegates to `appendTimelineEntry` instead of re-implementing
+ * the merge:
+ *   - The merge logic (instructor concat+dedupe, adminSummaryByEmail
+ *     keyed merge, top-level shallow patch) is single-source-of-truth
+ *     in `appendTimelineEntry` + `mergeEmailsSentPatch`. Delegating
+ *     keeps `markEmailSent` tiny and prevents drift between the two
+ *     paths.
+ *
+ * `reason` arg:
+ *   - For the no-email / no-config instructor-skip path, the previous
+ *     `appendTimelineEntryAction` caller passed a bespoke
+ *     `details.reason` ("no_email" / "missing_config"). `reason` is
+ *     preserved here so the timeline stays informative for on-call.
+ *   - For other paths, leave `reason` unset (omitted from details JSON).
+ */
+export const markEmailSent = internalMutation({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    recipient: v.union(
+      v.object({ kind: v.literal("student") }),
+      v.object({ kind: v.literal("instructor"), instructorId: v.id("instructors") }),
+      v.object({ kind: v.literal("adminSummary"), email: v.string() }),
+    ),
+    resendMessageId: v.optional(v.string()),
+    skipped: v.optional(v.boolean()),
+    reason: v.optional(v.string()),
+    actorUserId: v.optional(v.string()),
+    expectedStatus: v.optional(v.literal("processing")),
+    expectedAttemptCount: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<Doc<"adminOnboardings">["timeline"][number]> => {
+    // Stale-call guard: same semantics as `appendTimelineEntry`. If a
+    // newer attempt has already taken ownership of the row (status
+    // changed away from "processing" or attemptCount incremented), throw
+    // so Inngest's step.run marks the step as failed and the catch
+    // block surfaces the outcome (suppress digest / send informational
+    // digest / non-retriable error, depending on the row's terminal
+    // state -- see `onboarding.ts` mark-failed catch logic).
+    const row = await ctx.db.get(args.onboardingId);
+    if (!row) throw new Error("markEmailSent: onboarding not found");
+    if (
+      args.expectedStatus !== undefined &&
+      row.status !== args.expectedStatus
+    ) {
+      throw new Error(
+        `markEmailSent: row status is '${row.status}', expected '${args.expectedStatus}' -- stale call rejected`,
+      );
+    }
+    if (
+      args.expectedAttemptCount !== undefined &&
+      row.attemptCount !== args.expectedAttemptCount
+    ) {
+      throw new Error(
+        `markEmailSent: row attemptCount is ${row.attemptCount}, expected ${args.expectedAttemptCount} -- stale call rejected`,
+      );
+    }
+
+    const recipient = args.recipient as MarkEmailSentRecipient;
+    const detailsPayload: Record<string, unknown> = { recipient: recipient.kind };
+    if (recipient.kind === "instructor") {
+      detailsPayload.instructorId = recipient.instructorId;
+    } else if (recipient.kind === "adminSummary") {
+      detailsPayload.email = recipient.email;
+    }
+    if (args.resendMessageId !== undefined) detailsPayload.resendMessageId = args.resendMessageId;
+    if (args.skipped !== undefined) detailsPayload.skipped = args.skipped;
+    if (args.reason !== undefined) detailsPayload.reason = args.reason;
+
+    return await ctx.runMutation(internal.adminOnboarding.appendTimelineEntry, {
+      onboardingId: args.onboardingId,
+      event: "email_sent",
+      actorUserId: args.actorUserId,
+      details: JSON.stringify(detailsPayload),
+      emailsSentPatch: emailsSentPatchForRecipient(recipient),
+      expectedStatus: args.expectedStatus,
+      expectedAttemptCount: args.expectedAttemptCount,
+    });
+  },
+});
+
+/**
+ * R5 (PR 14): public action wrapper for `markEmailSent`. Mirrors the
+ * `appendTimelineEntryAction` pattern (`CONVEX_SERVER_SHARED_SECRET`
+ * gate, then forwards to the internal mutation via `ctx.runMutation`).
+ * This is the call the per-recipient Inngest send steps use.
+ */
+export const markEmailSentAction = action({
+  args: {
+    onboardingId: v.id("adminOnboardings"),
+    recipient: v.union(
+      v.object({ kind: v.literal("student") }),
+      v.object({ kind: v.literal("instructor"), instructorId: v.id("instructors") }),
+      v.object({ kind: v.literal("adminSummary"), email: v.string() }),
+    ),
+    resendMessageId: v.optional(v.string()),
+    skipped: v.optional(v.boolean()),
+    reason: v.optional(v.string()),
+    actorUserId: v.optional(v.string()),
+    expectedStatus: v.optional(v.literal("processing")),
+    expectedAttemptCount: v.optional(v.number()),
+    secret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
+      throw new Error("Unauthorized: invalid secret");
+    }
+    const result: Doc<"adminOnboardings">["timeline"][number] = await ctx.runMutation(
+      internal.adminOnboarding.markEmailSent,
+      {
+        onboardingId: args.onboardingId,
+        recipient: args.recipient,
+        resendMessageId: args.resendMessageId,
+        skipped: args.skipped,
+        reason: args.reason,
+        actorUserId: args.actorUserId,
         expectedStatus: args.expectedStatus,
         expectedAttemptCount: args.expectedAttemptCount,
       }

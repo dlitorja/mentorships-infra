@@ -1,6 +1,6 @@
 # Admin Onboarding Automation (Kajabi) — Plan
 
-Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, PR 7, PR 8, PR 9, PR 10, PR 11, and PR 12 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters + search-by-email-or-instructor-name + sortable columns + CSV export) + stale-digest pagination safety cap + helper unit tests + global run concurrency cap on the admin flow + structured observability parity in the instructor-email step + send-level rate limiting on admin summary emails (1 s throttle between recipients, durable Inngest `step.sleep` at function level, true-only `adminSummaryByEmail` patch filtering, stale-skip early return). Remaining items below are hardening / new features / optimization (not blockers).
+Status: PR 1, PR 2, PR 3, PR 4, PR 5, PR 6, PR 7, PR 8, PR 9, PR 10, PR 11, PR 12, and PR 13 all merged to `main`. Admin onboarding automation is feature-complete end-to-end, plus naming compliance for Inngest event names + onboarding email copy + recovery dashboard ops UX (per-row Retry + bulk filters + search-by-email-or-instructor-name + sortable columns + CSV export) + stale-digest pagination safety cap + helper unit tests + global run concurrency cap on the admin flow + structured observability parity in the instructor-email step + send-level rate limiting on admin summary emails (1 s throttle between recipients, durable Inngest `step.sleep` at function level, true-only `adminSummaryByEmail` patch filtering, stale-skip early return) + R8 legacy `adminSummary: true` row runbook + R9 end-to-end staging manual-test runbook (eight scenarios). Remaining items below are hardening / new features / optimization (not blockers).
 
 Source of truth for the work below; supersedes any informal discussion in chat.
 
@@ -876,7 +876,7 @@ The 8 remaining items cluster into **2 natural bundles** and **4 solo PRs**. Tot
 |-------|----|--------|-------|---------|--------|
 | 1 | **PR 11** | Bundle 1: List-view ops UX | **D** + **E** | `apps/platform/app/admin/onboardings/page.tsx` | **SHIPPED (#647, `96a42ab6`)** |
 | 2 | **PR 12** | Solo | **C2** (send-level rate limiting) | `apps/platform/inngest/functions/onboarding.ts` (+ new helper) | **SHIPPED (#648, `0495f88f`)** |
-| 3 | **PR 13** | Bundle 2: Onboarding runbooks | **R8** + **R9** | `apps/platform/docs/runbooks/` | Pending |
+| 3 | **PR 13** | Bundle 2: Onboarding runbooks | **R8** + **R9** | `apps/platform/docs/runbooks/` | **SHIPPED (#649, `f2eb1f9e`)** |
 | 4 | **PR 14** | Solo | **R5** (`markEmailSent` atomic helper) | `convex/adminOnboarding.ts` + new helper | Pending |
 | 5 | **PR 15** | Solo | **R6** (per-workspace dashboard route) | New `apps/platform/app/dashboard/workspaces/[id]/page.tsx` + link swap | Pending |
 | 6 | **PR 16** | Solo | **R11** (consolidate stale cleanup) | `convex/adminOnboarding.ts` + `apps/platform/inngest/functions/admin-onboarding-stale-digest.ts` | Pending |
