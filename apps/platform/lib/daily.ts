@@ -39,6 +39,16 @@ export type DailyRoom = {
   roomUrl: string;
 };
 
+type DailyAccessLinkResponse = {
+  download_url?: string;
+  url?: string;
+};
+
+const dailyAccessLinkResponseSchema = z.object({
+  download_url: z.string().optional(),
+  url: z.string().optional(),
+});
+
 /**
  * Thrown for any non-2xx response from the Daily REST API. Includes the
  * HTTP status and the Daily error type (`error`) + human-readable detail
@@ -382,4 +392,93 @@ export async function createMeetingToken(
     });
   }
   return { token: data.token };
+}
+
+/**
+ * Requests a short-lived presigned download URL for a Daily.co
+ * cloud recording. Used by the post-webhook transfer pipeline
+ * (`src/trigger/recording-transfer.ts`) to pull the MP4 out of
+ * Daily's storage and re-upload it to our Backblaze B2 bucket.
+ *
+ * Background: Daily's `recordings_bucket` mechanism requires AWS
+ * IAM role assumption, which Backblaze B2 does not support. We
+ * therefore leave Daily to store the recording in its default S3
+ * and use this API to fetch it back into our own bucket on receipt
+ * of the `recording.ready-to-download` webhook. See
+ * `docs/plans/video-calling.md` for the full architecture.
+ *
+ * Daily's docs (https://docs.daily.co/reference/rest-api/recordings/access-link)
+ * specify the response shape as `{ download_url, link_expires_at,
+ * meeting_id, recording_id, session_id, ... }`. We only need the
+ * URL — the expiry is short (~1h) which is fine for our
+ * single-shot `PutObjectCommand` upload path; see the JSDoc on
+ * `uploadFromUrl` in `packages/storage/src/uploads.ts` for why we
+ * cap the download at the S3 single-PUT limit (5 GiB).
+ *
+ * 404 is surfaced as `null` so the transfer task can treat a
+ * pre-purged recording (Daily's 7-day retention expired before
+ * we processed the webhook) as a permanent failure rather than
+ * retrying indefinitely.
+ */
+export async function getDailyRecordingAccessLink(
+  recordingId: string
+): Promise<string | null> {
+  const response = await dailyFetch(
+    `/recordings/${encodeURIComponent(recordingId)}/access-link`,
+    { method: "GET" }
+  );
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
+  const raw = (await response.json()) as DailyAccessLinkResponse;
+  const parsed = dailyAccessLinkResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new DailyApiError({
+      statusCode: response.status,
+      message: "Daily access-link response missing download_url",
+    });
+  }
+  const link = parsed.data.download_url ?? parsed.data.url;
+  if (typeof link !== "string" || link.length === 0) {
+    throw new DailyApiError({
+      statusCode: response.status,
+      message: "Daily access-link response did not include a download URL",
+    });
+  }
+  return link;
+}
+
+/**
+ * Deletes a Daily.co cloud recording. Called by the transfer
+ * pipeline AFTER a successful B2 upload so we don't accumulate
+ * per-GB-month storage charges on Daily's side.
+ *
+ * Idempotent: Daily returns 404 when the recording was already
+ * purged (auto-deletion at the 7-day retention boundary, or a
+ * prior successful delete). We swallow 404 as success so a
+ * re-run of the transfer task (e.g., from the manual retry
+ * endpoint) is safe even if the original delete landed first.
+ *
+ * Any other non-2xx response is surfaced as a `DailyApiError` so
+ * the caller can decide whether to retry — the transfer task
+ * logs at warn level but does not abort the run, since the B2
+ * copy is already persisted at that point and a stale Daily copy
+ * is a billing concern, not a correctness one.
+ */
+export async function deleteDailyRecording(
+  recordingId: string
+): Promise<void> {
+  const response = await dailyFetch(
+    `/recordings/${encodeURIComponent(recordingId)}`,
+    { method: "DELETE" }
+  );
+  if (response.status === 404) {
+    return;
+  }
+  if (!response.ok) {
+    throw await parseErrorResponse(response);
+  }
 }

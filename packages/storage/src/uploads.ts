@@ -335,3 +335,141 @@ export async function deleteAllVersionsFromB2(fileName: string): Promise<{ delet
 
   return { deleted, errors };
 }
+
+export type UploadFromUrlParams = {
+  sourceUrl: string;
+  key: string;
+  contentType: string;
+  maxBytes?: number;
+};
+
+export type UploadFromUrlResult = {
+  etag: string;
+  versionId: string;
+  bytes: number;
+};
+
+/**
+ * Streams a remote URL (typically a Daily.co presigned access-link)
+ * into a Backblaze B2 object using a single `PutObjectCommand`.
+ *
+ * Why single-shot and not multipart: `@aws-sdk/lib-storage` is not
+ * a workspace dependency and adding it pulls in a transitive set
+ * we do not otherwise need. The S3 single-PUT limit is 5 GiB which
+ * comfortably covers a 4-hour Daily recording at the default
+ * 720p/30fps bitrate (~1–2 GiB); anything larger than `maxBytes`
+ * (default 5 GiB) is rejected before any network IO so we never
+ * silently chunk and lose progress on a truncated PUT.
+ *
+ * Streaming: `fetch` returns a `ReadableStream` and the AWS SDK
+ * `Body` field accepts a web `ReadableStream` directly when the
+ * runtime supports it (Node 18+ / Next.js). Backpressure is handled
+ * by the SDK — chunks are pulled from the source stream at the
+ * rate the SDK writes them. We DO NOT buffer the whole file in
+ * memory.
+ *
+ * Size enforcement: `Content-Length` (when present) is checked
+ * upfront. For chunked responses (no Content-Length) we wrap the
+ * stream in a counting `TransformStream` that aborts as soon as the
+ * cumulative byte count exceeds `maxBytes`, and surfaces the
+ * rejected upload as a thrown error so the caller's retry logic
+ * can act. The streamed byte count is also returned as `bytes` so
+ * callers log the actual uploaded size, not the announced size.
+ *
+ * Failure modes:
+ *  - source URL fetch fails (non-2xx): the underlying `fetch` throws
+ *    and bubbles up so the caller's retry logic can act.
+ *  - B2 PUT fails: AWS SDK throws `S3ServiceError` carrying the B2
+ *    error class; same retry handling.
+ *  - Source advertises or streams more than `maxBytes`: rejected
+ *    before / during upload; never silently chunk.
+ *
+ * Returned `bytes` is the actual streamed byte count so callers
+ * always log the real upload size regardless of `Content-Length`.
+ */
+export async function uploadFromUrl(
+  params: UploadFromUrlParams
+): Promise<UploadFromUrlResult> {
+  const maxBytes = params.maxBytes ?? 5 * 1024 * 1024 * 1024;
+  const response = await fetch(params.sourceUrl, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(
+      `Source fetch failed: ${response.status} ${response.statusText}`
+    );
+  }
+  if (response.body === null) {
+    throw new Error("Source response had no body");
+  }
+
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader !== null) {
+    const announced = Number.parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(announced) && announced > maxBytes) {
+      throw new Error(
+        `Source advertises ${announced} bytes; exceeds maxBytes=${maxBytes}`
+      );
+    }
+  }
+
+  const { stream: countedStream, totalBytes } = wrapWithByteLimit(
+    response.body,
+    maxBytes
+  );
+
+  const client = getB2Client();
+  const command = new PutObjectCommand({
+    Bucket: B2_BUCKET_NAME,
+    Key: params.key,
+    Body: countedStream as unknown as ReadableStream,
+    ContentType: params.contentType,
+  });
+
+  const result = await client.send(command);
+  return {
+    etag: result.ETag ?? "",
+    versionId: result.VersionId ?? "",
+    bytes: totalBytes(),
+  };
+}
+
+/**
+ * Wraps a `ReadableStream<Uint8Array>` in a counting `TransformStream`
+ * that tracks cumulative bytes and throws once `maxBytes` is exceeded.
+ *
+ * Without this, a chunked response (no Content-Length) can stream an
+ * arbitrarily large body into a single `PutObjectCommand`, only failing
+ * once the AWS SDK rejects the request after the entire body has been
+ * read. This wrapper makes the size limit a true cutoff that the SDK
+ * surfaces as a thrown error instead of a silent, repeated B2 PUT
+ * failure.
+ */
+function wrapWithByteLimit(
+  source: ReadableStream<Uint8Array>,
+  maxBytes: number
+): {
+  stream: ReadableStream<Uint8Array>;
+  totalBytes: () => number;
+} {
+  let total = 0;
+  let exceeded = false;
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      if (exceeded) {
+        return;
+      }
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        exceeded = true;
+        controller.error(
+          new Error(
+            `Source exceeded maxBytes=${maxBytes} during streaming (saw at least ${total} bytes)`
+          )
+        );
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+  const stream = source.pipeThrough(transform);
+  return { stream, totalBytes: () => total };
+}

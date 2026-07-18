@@ -1163,13 +1163,27 @@ export const attachRecordingFromDailyWebhook = internalMutation({
     // than letting the patch land on the wrong row.
     const session = matches[0];
 
-    // Idempotency: if a recording is already attached, keep the original.
-    if (session.recordingUrl !== undefined) {
+    // Idempotency: if the transfer has already reached a terminal
+    // state (`ready` or `failed`), do NOT re-trigger. The webhook
+    // can re-fire from Daily on transient retry; the Trigger.dev
+    // idempotency key plus this guard together prevent double
+    // uploads. A row stuck in `pending`/`uploading` after the
+    // previous attempt dropped (Trigger task killed, Convex outage)
+    // is intentionally NOT treated as already-handled so the
+    // webhook handler re-triggers the transfer — a fresh run with
+    // a new idempotency key derived from the latest `recordingId`
+    // + attempt counter is safe.
+    if (session.recordingTransferStatus === "ready") {
+      return { sessionId: session._id, alreadyAttached: true };
+    }
+    if (session.recordingTransferStatus === "failed") {
       return { sessionId: session._id, alreadyAttached: true };
     }
 
     const patch: Partial<Doc<"sessions">> = {
-      recordingUrl: args.recordingS3Key,
+      recordingTransferStatus: "pending",
+      recordingTransferUpdatedAt: Date.now(),
+      recordingDailyS3Key: args.recordingS3Key,
     };
     if (session.callEndedAt === undefined) {
       patch.callEndedAt = Date.now();
@@ -1182,6 +1196,150 @@ export const attachRecordingFromDailyWebhook = internalMutation({
     }
     await ctx.db.patch(session._id, patch);
     return { sessionId: session._id, alreadyAttached: false };
+  },
+});
+
+/**
+ * Sets `sessions.recordingUrl` to the B2 key produced by the
+ * transfer task and marks the transfer `ready`. Called by
+ * `src/trigger/recording-transfer.ts` via the Convex HTTP endpoint
+ * `/recording-transfer/attach-from-b2` once the PutObjectCommand
+ * to Backblaze B2 succeeds.
+ *
+ * Idempotent on `recordingTransferStatus === "ready"` so an
+ * accidental duplicate callback (Trigger retry + Convex mutation
+ * succeeded twice) cannot overwrite a real B2 key with another
+ * real B2 key. We do NOT gate on `recordingUrl` because the row
+ * is allowed to be in a transient state (e.g., a stale transfer
+ * completing after a manual retry has already succeeded) and we
+ * want the latest B2 key to win in that race.
+ *
+ * `b2Key` is the canonical S3-style key the storage package
+ * presigns against (`recordings/{sessionId}/{epoch}.mp4`). The
+ * /api/video/recording/[sessionId] route reads `recordingUrl` and
+ * passes it to `getStreamUrl` / `getDownloadUrlWithContentDisposition`
+ * unchanged.
+ *
+ * Security: this is `internalMutation` and is only reachable
+ * through the HTTP endpoint, which validates
+ * `TRIGGER_CONVEX_CALLBACK_SECRET` (see `convex/http.ts`). The
+ * endpoint also clamps `b2Key` to the `recordings/` prefix so an
+ * attacker who somehow obtained the callback secret could not
+ * write an arbitrary B2 key for any session.
+ */
+export const attachRecordingFromB2Upload = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    b2Key: v.string(),
+    durationSeconds: v.optional(v.number()),
+    recordingId: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions">; updated: boolean }> => {
+    if (!args.b2Key.startsWith("recordings/")) {
+      throw new Error("b2Key must start with 'recordings/'");
+    }
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    if (session.deletedAt !== undefined) {
+      throw new Error("Session not found");
+    }
+    if (session.recordingTransferStatus === "ready") {
+      return { sessionId: session._id, updated: false };
+    }
+    const patch: Partial<Doc<"sessions">> = {
+      recordingUrl: args.b2Key,
+      recordingTransferStatus: "ready",
+      recordingTransferUpdatedAt: Date.now(),
+      recordingTransferError: undefined,
+    };
+    if (args.durationSeconds !== undefined) {
+      patch.recordingDurationSeconds = args.durationSeconds;
+    }
+    if (args.recordingId !== undefined) {
+      patch.recordingId = args.recordingId;
+    }
+    await ctx.db.patch(session._id, patch);
+    return { sessionId: session._id, updated: true };
+  },
+});
+
+/**
+ * Marks a transfer as mid-attempt — called by the Trigger.dev task
+ * between retries so the UI pill flips from "Pending" to "Processing
+ * (attempt N/5)" and operators can see progress vs. a stuck row.
+ *
+ * Increments `recordingTransferAttempts` so the drift monitor
+ * (`convex/audit/recordingTransferAudit.ts`) can surface rows
+ * with an attempt counter that matches the task's configured
+ * `maxAttempts` and no terminal status.
+ *
+ * This is an internal mutation: it is reachable only via the
+ * `/recording-transfer/mark-retrying` HTTP endpoint (which
+ * verifies `X-Trigger-Callback-Secret` + `CONVEX_HTTP_KEY`).
+ * No public mutation exists — Greptile review flagged a prior
+ * `markRecordingTransferRetryingPublic` wrapper as an auth
+ * bypass; the Next.js retry route now POSTs to the HTTP endpoint
+ * directly using `TRIGGER_CONVEX_CALLBACK_SECRET` instead.
+ */
+export const markRecordingTransferRetrying = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    attemptNumber: v.number(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions"> }> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    await ctx.db.patch(session._id, {
+      recordingTransferStatus: "uploading",
+      recordingTransferAttempts: args.attemptNumber,
+      recordingTransferUpdatedAt: Date.now(),
+    });
+    return { sessionId: session._id };
+  },
+});
+
+/**
+ * Marks a transfer as permanently failed. Called from the
+ * Trigger.dev task's `catchError` hook after `maxAttempts` is
+ * exhausted, or from the manual retry endpoint when a Daily
+ * 404 (`getDailyRecordingAccessLink` returned `null`) means the
+ * source recording has been purged and we cannot re-fetch it.
+ *
+ * Stores the error message verbatim in `recordingTransferError`
+ * so the UI can render a "Recording unavailable, retry?" affordance
+ * with a sensible tooltip explaining the most common cause.
+ */
+export const markRecordingTransferFailed = internalMutation({
+  args: {
+    sessionId: v.id("sessions"),
+    errorMessage: v.string(),
+    attempts: v.number(),
+  },
+  handler: async (
+    ctx,
+    args
+  ): Promise<{ sessionId: Id<"sessions"> }> => {
+    const session = await ctx.db.get(args.sessionId);
+    if (!session) {
+      throw new Error("Session not found");
+    }
+    await ctx.db.patch(session._id, {
+      recordingTransferStatus: "failed",
+      recordingTransferUpdatedAt: Date.now(),
+      recordingTransferError: args.errorMessage,
+      recordingTransferAttempts: args.attempts,
+    });
+    return { sessionId: session._id };
   },
 });
 
@@ -1486,6 +1644,36 @@ export type CallRecording = {
   recordingDurationSeconds: number | null;
   participantName: string | null;
   isAdhoc: boolean;
+  // PR video-recording-to-b2: surfaces the Daily → B2 transfer
+  // pipeline state to the UI so it can render a "Processing" /
+  // "Failed" pill. `null` means the row predates the transfer
+  // pipeline (legacy PR #4c-1 with a raw Daily s3_key still in
+  // `recordingUrl`); treat it as `ready` for display purposes so
+  // pre-fix recordings keep showing Play/Download — broken-but-
+  // honest matches the existing UX, and the audit migration can
+  // clean these up in NARROW.
+  recordingTransferStatus: "pending" | "uploading" | "ready" | "failed" | null;
+  recordingTransferAttempts: number | null;
+  // Sanitized bucket describing the last failure, mapped from the
+  // raw `recordingTransferError` server-side. The raw message is
+  // intentionally NOT returned to the client (it can contain
+  // presigned URLs, B2 endpoint diagnostics, etc.); the UI
+  // translates the code to a user-facing string via
+  // `summarizeTransferError` in `apps/platform/components/workspace/calls-section.tsx`.
+  recordingTransferErrorCode:
+    | "daily_purged"
+    | "storage"
+    | "network"
+    | "unknown"
+    | null;
+  // Server-derived permission to surface the manual "Retry transfer"
+  // button. True only when (a) the transfer has terminally failed,
+  // AND (b) the caller is the instructor on the session. The
+  // workspace owner (student side) does NOT get the retry control
+  // because the underlying retry endpoint is instructor-only — the
+  // UI previously rendered the button for everyone, leaking the
+  // affordance to viewers who would get a 403 on click.
+  canRetryRecording: boolean;
 };
 
 export const getCallRecordingsForWorkspace = query({
@@ -1557,11 +1745,18 @@ export const getCallRecordingsForWorkspace = query({
       null;
 
     const recordings: CallRecording[] = candidateSessions
-      .filter(
-        (s) =>
-          s.deletedAt === undefined &&
-          s.recordingUrl !== undefined
-      )
+      .filter((s) => {
+        if (s.deletedAt !== undefined) return false;
+        // Include the row if EITHER the legacy gate (recordingUrl set)
+        // OR the new transfer-pipeline gate (any non-null transfer
+        // status, including `pending`/`uploading`/`failed`). This is
+        // what makes "Processing" and "Failed" pills visible in the
+        // UI before `recordingUrl` is populated.
+        return (
+          s.recordingUrl !== undefined ||
+          s.recordingTransferStatus !== undefined
+        );
+      })
       .map((s) => ({
         sessionId: s._id,
         callStartedAt: s.callStartedAt ?? null,
@@ -1569,6 +1764,14 @@ export const getCallRecordingsForWorkspace = query({
         recordingDurationSeconds: s.recordingDurationSeconds ?? null,
         participantName: ownerFullName,
         isAdhoc: s.isAdhoc ?? false,
+        recordingTransferStatus: s.recordingTransferStatus ?? null,
+        recordingTransferAttempts: s.recordingTransferAttempts ?? null,
+        recordingTransferErrorCode:
+          s.recordingTransferStatus === "failed"
+            ? classifyTransferError(s.recordingTransferError)
+            : null,
+        canRetryRecording:
+          isInstructor && s.recordingTransferStatus === "failed",
       }))
       // Sort by callStartedAt desc — nulls last so ad-hoc calls
       // with no start timestamp sink to the bottom.
@@ -1583,6 +1786,49 @@ export const getCallRecordingsForWorkspace = query({
     return recordings;
   },
 });
+
+/**
+ * Maps the raw `recordingTransferError` (server-side diagnostic
+ * text, never returned to the client) to one of four sanitized
+ * buckets that the UI uses to render a friendly explanation.
+ *
+ * The "not found" branch deliberately requires BOTH "daily" and
+ * "not found" — without "daily", generic "B2 bucket not found"
+ * messages would be misclassified as a Daily purge, telling the
+ * user "retry won't help" when the real cause is a missing B2
+ * bucket (which retry CAN recover once ops re-create the bucket).
+ */
+function classifyTransferError(
+  raw: string | undefined
+): CallRecording["recordingTransferErrorCode"] {
+  if (raw === undefined || raw.length === 0) {
+    return "unknown";
+  }
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("auto-purged") ||
+    (lower.includes("daily") && lower.includes("not found"))
+  ) {
+    return "daily_purged";
+  }
+  if (
+    lower.includes("b2") ||
+    lower.includes("credentials") ||
+    lower.includes("bucket") ||
+    lower.includes("storage")
+  ) {
+    return "storage";
+  }
+  if (
+    lower.includes("timeout") ||
+    lower.includes("econnreset") ||
+    lower.includes("network") ||
+    lower.includes("fetch")
+  ) {
+    return "network";
+  }
+  return "unknown";
+}
 export type ActiveSessionForWorkspace = {
   sessionId: Id<"sessions">;
   roomName: string;

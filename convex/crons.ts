@@ -13,6 +13,9 @@ import { internal } from "./_generated/api";
  * - audit-video-room-name-drift: Runs every 6 hours, calls the PR #7 audit
  *   query and `console.error`s if any duplicate `videoRoomName` group
  *   appears. See `convex/audit/videoRoomNameAudit.ts`.
+ * - audit-recording-transfer-drift: Runs hourly, surfaces Daily → B2
+ *   recording transfers stuck in pending/uploading (>10 min) or failed
+ *   (>24h). See `convex/audit/recordingTransferAudit.ts`.
  */
 const crons = cronJobs();
 
@@ -55,6 +58,13 @@ crons.interval(
   "audit-video-room-name-drift",
   { hours: 6 },
   internal.audit.videoRoomNameAudit.auditVideoRoomNameDriftMonitor,
+  {}
+);
+
+crons.interval(
+  "audit-recording-transfer-drift",
+  { hours: 1 },
+  internal.audit.recordingTransferAudit.auditRecordingTransferDriftMonitor,
   {}
 );
 
