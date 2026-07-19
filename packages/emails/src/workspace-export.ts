@@ -1,5 +1,3 @@
-import { getBaseUrl } from "./send";
-
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -70,7 +68,7 @@ export function buildWorkspaceExportReadyEmail(args: {
         </p>
         <p style="margin:12px 0 0 0;color:#6B7280;font-size:12px">
           If the button does not work, copy/paste this link:<br/>
-          <div>${escapeHtml(args.downloadUrl)}</div>
+          <span>${escapeHtml(args.downloadUrl)}</span>
         </p>
       </div>
     </div>
