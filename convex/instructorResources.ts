@@ -2,7 +2,12 @@ import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { assertParticipantForSession, assertSessionBelongsToWorkspace } from "./workspaces";
+import {
+  assertParticipantForSession,
+  assertSessionBelongsToWorkspace,
+  WORKSPACE_FILE_CAPS,
+  countWorkspaceFilesByRole,
+} from "./workspaces";
 
 const MAX_WORKSPACE_FILE_BYTES = 50 * 1024 * 1024;
 const WORKSPACE_IMAGE_CAPS = {
@@ -11,18 +16,8 @@ const WORKSPACE_IMAGE_CAPS = {
   admin: 9999,
 } as const;
 
-// File-attachment caps mirror the per-role caps enforced by
-// `createWorkspaceFileMessage` (`workspaces.ts:1487`). Keeping them
-// in sync here means `shareResourceToChat` and the chat uploader
-// draw from the same source of truth — share a non-image resource
-// and the user's quota is consumed in exactly the same way as if
-// they had uploaded the file directly to the chat.
-const WORKSPACE_FILE_CAPS = {
-  student: 25,
-  instructor: 50,
-} as const;
-
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
+type WorkspaceRoleNonNull = Exclude<WorkspaceRole, null>;
 
 async function isAdmin(ctx: any, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -98,7 +93,12 @@ export async function assertResourceBelongsToInstructor(
   resource: Doc<"instructorResources">;
   workspace: Doc<"workspaces">;
   identity: { subject: string };
-  role: WorkspaceRole;
+  // Greptile R2 (PR #5): the helper throws if `role !== "instructor" && role !== "admin"`
+  // so the static return type is non-null. Annotating as `WorkspaceRoleNonNull` instead of
+  // `WorkspaceRole` propagates that narrowing to callers and lets them pass `role` directly
+  // into `v.union(...)` `senderRole` fields on `workspaceMessages` without a runtime
+  // null-check.
+  role: WorkspaceRoleNonNull;
 }> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
@@ -356,12 +356,12 @@ export const shareResourceToChat = mutation({
     }
 
     if (role !== "admin") {
-      const currentCount = await countActiveWorkspaceFilesByRole(
+      const currentCount = await countWorkspaceFilesByRole(
         ctx,
         args.workspaceId,
-        role as "instructor" | "student"
+        role
       );
-      const cap = WORKSPACE_FILE_CAPS[role as "instructor" | "student"];
+      const cap = WORKSPACE_FILE_CAPS[role];
       if (currentCount >= cap) {
         throw new Error(`File limit reached (${cap} ${role} files allowed per workspace).`);
       }
@@ -377,30 +377,6 @@ export const shareResourceToChat = mutation({
     });
   },
 });
-
-/**
- * Counts non-deleted `workspaceMessages` rows of `type: "file"` posted
- * by the given sender role in the workspace. Used by
- * `shareResourceToChat` to enforce `WORKSPACE_FILE_CAPS` against the
- * same source of truth as `createWorkspaceFileMessage`
- * (`workspaces.ts:1487`). Mirrors `countWorkspaceFilesByRole`
- * (`workspaces.ts:94`) but kept local so we don't widen that file's
- * export surface from a single-resource PR.
- */
-async function countActiveWorkspaceFilesByRole(
-  ctx: MutationCtx,
-  workspaceId: Id<"workspaces">,
-  role: "instructor" | "student"
-): Promise<number> {
-  const messages = await ctx.db
-    .query("workspaceMessages")
-    .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-
-  return messages.filter(
-    (m) => m.type === "file" && m.senderRole === role
-  ).length;
-}
 
 /** Embeds an instructor image resource in a workspace note. Also creates a workspaceImage record and updates the note's imageUrl. Requires instructor or admin role. */
 export const embedResourceInNote = mutation({

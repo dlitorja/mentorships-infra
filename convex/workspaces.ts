@@ -10,7 +10,7 @@ const WORKSPACE_IMAGE_CAPS = {
   admin: 9999,
 } as const;
 
-const WORKSPACE_FILE_CAPS = {
+export const WORKSPACE_FILE_CAPS = {
   student: 25,
   instructor: 50,
 } as const;
@@ -91,7 +91,7 @@ async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces"
   return images.length;
 }
 
-async function countWorkspaceFilesByRole(
+export async function countWorkspaceFilesByRole(
   ctx: any,
   workspaceId: Id<"workspaces">,
   role: "instructor" | "student"
