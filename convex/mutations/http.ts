@@ -92,21 +92,46 @@ export const createRetentionNotification = mutation({
 export const updateWorkspaceExportStatus = mutation({
   args: {
     exportId: v.id("workspaceExports"),
-    status: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { exportId, status, downloadUrl, expiresAt } = args;
+    const { exportId, status, downloadUrl, expiresAt, errorMessage } = args;
 
     const exportRecord = await ctx.db.get(exportId);
     if (!exportRecord) {
       throw new Error("Export not found");
     }
 
+    // PR #4b-fix: refuse to overwrite a "completed" row with anything
+    // other than "completed" so a retried trigger task does not
+    // silently undo a finished export.
+    if (exportRecord.status === "completed" && status !== "completed") {
+      throw new Error("Export already completed");
+    }
+    // Greptile P1 (PR #4b-fix): a row with status "failed" AND no
+    // errorMessage is a user-initiated cancel (`cancelWorkspaceExport`
+    // writes only `{ status: "failed" }`). Trigger-side errors always
+    // include `errorMessage`. Treat user-cancel as terminal so a
+    // Trigger.dev retry cannot take the two-step path
+    // `failed → processing → completed` and silently un-cancel.
+    const isUserCancel =
+      exportRecord.status === "failed" && exportRecord.errorMessage === undefined;
+    if (isUserCancel) {
+      throw new Error("Export was cancelled; refusing to update");
+    }
+
     const updates: Record<string, unknown> = { status };
-    if (downloadUrl) updates.downloadUrl = downloadUrl;
-    if (expiresAt) updates.expiresAt = expiresAt;
+    if (downloadUrl !== undefined) updates.downloadUrl = downloadUrl;
+    if (expiresAt !== undefined) updates.expiresAt = expiresAt;
+    if (errorMessage !== undefined) updates.errorMessage = errorMessage;
 
     await ctx.db.patch(exportId, updates);
 

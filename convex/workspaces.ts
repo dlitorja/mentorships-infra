@@ -1573,8 +1573,27 @@ export const createWorkspaceExport = mutation({
       throw new Error("Not authorized to export this workspace");
     }
 
+    // PR #4b-fix: derive userId from the auth identity, never from
+    // the client. Convex auth guideline #182. The arg is kept for
+    // backwards compatibility with existing callers (it is ignored
+    // if it disagrees with the auth identity) but new callers should
+    // omit it. Matches the no-arg pattern in
+    // `createWorkspaceMessage`/`createWorkspaceFileMessage`.
+    if (args.userId !== user.subject) {
+      // Note: do NOT throw — that would break existing callers who
+      // legitimately pass a Clerk userId from a useQuery. Instead,
+      // store the auth subject and let the audit log flag the
+      // mismatch.
+      console.warn(
+        "createWorkspaceExport: client-supplied userId disagrees with auth subject",
+        { client: args.userId, auth: user.subject, workspaceId: args.workspaceId }
+      );
+    }
+
     const exportId = await ctx.db.insert("workspaceExports", {
-      ...args,
+      workspaceId: args.workspaceId,
+      userId: user.subject,
+      format: args.format,
       status: "pending",
     });
 
@@ -1586,7 +1605,19 @@ export const createWorkspaceExport = mutation({
 
     const taskName = taskMap[args.format];
 
-    if (triggerSecretKey && taskName) {
+    if (!triggerSecretKey) {
+      // PR #4b-fix: do not silently leave the row in "pending" when
+      // the trigger credentials are missing. Surface a clear failure
+      // so the UI shows "Export could not start" instead of
+      // polling forever.
+      await ctx.db.patch(exportId, {
+        status: "failed",
+        errorMessage: "Trigger.dev credentials are not configured on the Convex backend.",
+      });
+      throw new Error("Trigger.dev credentials are not configured");
+    }
+
+    if (taskName) {
       try {
         const response = await fetch(`https://api.trigger.dev/api/v1/tasks/${taskName}/trigger`, {
           method: "POST",
@@ -1603,11 +1634,17 @@ export const createWorkspaceExport = mutation({
         });
 
         if (!response.ok) {
-          await ctx.db.patch(exportId, { status: "failed" });
+          await ctx.db.patch(exportId, {
+            status: "failed",
+            errorMessage: `Trigger.dev request failed: ${response.status}`,
+          });
           throw new Error(`Trigger.dev request failed: ${response.status}`);
         }
       } catch (error) {
-        await ctx.db.patch(exportId, { status: "failed" });
+        await ctx.db.patch(exportId, {
+          status: "failed",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
         console.error("Failed to trigger export task:", error);
         throw error;
       }
@@ -1617,22 +1654,18 @@ export const createWorkspaceExport = mutation({
   },
 });
 
-/** Updates an export's status, download URL, or expiration time. */
-export const updateWorkspaceExport = mutation({
-  args: {
-    id: v.id("workspaceExports"),
-    status: v.optional(v.union(v.literal("pending"), v.literal("processing"), v.literal("completed"), v.literal("failed"))),
-    downloadUrl: v.optional(v.string()),
-    expiresAt: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const { id, ...updates } = args;
-    await ctx.db.patch(id, updates);
-    return await ctx.db.get(id);
-  },
-});
-
-/** Cancels a stuck workspace export by marking it as failed. Requires auth. */
+/**
+ * PR #4b-fix: gate `cancelWorkspaceExport` to the owner or a workspace
+ * participant. Previously any authenticated user could cancel any
+ * other user's export by passing an id scraped from the wire. Now:
+ * - The export's `userId` must match the caller's `identity.subject`,
+ *   OR
+ * - The caller has a workspace role on the export's workspace
+ *   (instructor or student paired with the workspace's instructor).
+ *
+ * Both paths are indexed lookups so the cost is constant. Mirrors
+ * the auth pattern in `assertParticipantForSession`.
+ */
 export const cancelWorkspaceExport = mutation({
   args: { id: v.id("workspaceExports") },
   handler: async (ctx, args) => {
@@ -1643,6 +1676,16 @@ export const cancelWorkspaceExport = mutation({
     const exportDoc = await ctx.db.get(args.id);
     if (!exportDoc) {
       throw new Error("Export not found");
+    }
+    if (exportDoc.userId !== user.subject) {
+      const workspace = await ctx.db.get(exportDoc.workspaceId);
+      if (!workspace) {
+        throw new Error("Export's workspace not found");
+      }
+      const role = await getWorkspaceRole(ctx, workspace, user.subject);
+      if (!role) {
+        throw new Error("Not authorized to cancel this export");
+      }
     }
     await ctx.db.patch(args.id, { status: "failed" });
   },
