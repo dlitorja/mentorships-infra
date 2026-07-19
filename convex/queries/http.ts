@@ -124,21 +124,24 @@ export const getWorkspaceExportData = query({
       images.map(async (img) => {
         let imageUrl = img.imageUrl;
         let contentType: string | undefined;
-        let fileName: string | undefined;
         if (img.storageId) {
           const [url, metadata] = await Promise.all([
             ctx.storage.getUrl(img.storageId as Id<"_storage">),
             ctx.db.system.get("_storage", img.storageId as Id<"_storage">),
           ]);
           if (url) imageUrl = url;
+          // Convex `_storage` rows expose `contentType` but not a
+          // `name` field — the original filename is stored on the
+          // `instructorResources` row, not on the system storage
+          // metadata. The export trigger falls back to
+          // `image-${index}.${ext}` when no filename is available,
+          // which is the same naming used before this PR.
           contentType = metadata?.contentType ?? undefined;
-          fileName = metadata?.name ?? undefined;
         }
         return {
           imageUrl,
           storageId: img.storageId,
           contentType,
-          fileName,
           createdBy: img.createdBy,
           createdAt: img._creationTime,
         };
