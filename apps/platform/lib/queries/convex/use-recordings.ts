@@ -27,6 +27,22 @@ export function useUnacknowledgedRecordingRetentionNotifications() {
 }
 
 /**
+ * R12: returns the exact React Query cache key for the
+ * unacknowledged notifications query. Other hooks in this
+ * file use this to invalidate after a mutation so the
+ * banner re-fetches — CodeRabbit #1: hardcoded query keys
+ * do not match the internal key structure that
+ * `@convex-dev/react-query` generates, so the banner would
+ * remain visible after dismissal.
+ */
+function unacknowledgedRecordingRetentionNotificationsQueryKey() {
+  return convexQuery(
+    api.recordingRetention.getUnacknowledgedRecordingRetentionNotifications,
+    {}
+  ).queryKey;
+}
+
+/**
  * R12: mutation hook for acknowledging a recording-retention
  * warning. Marks the notification row as seen so the banner
  * stops surfacing it. Invalidate the unacknowledged list so
@@ -41,10 +57,7 @@ export function useAcknowledgeRecordingRetentionNotification() {
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: [
-        "recordingRetentionNotifications",
-        "unacknowledged",
-      ],
+      queryKey: unacknowledgedRecordingRetentionNotificationsQueryKey(),
     });
   }, [queryClient]);
 
@@ -72,10 +85,7 @@ export function useAcknowledgeAllRecordingRetentionNotifications() {
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: [
-        "recordingRetentionNotifications",
-        "unacknowledged",
-      ],
+      queryKey: unacknowledgedRecordingRetentionNotificationsQueryKey(),
     });
   }, [queryClient]);
 

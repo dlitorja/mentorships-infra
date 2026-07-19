@@ -8,6 +8,7 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import RecordingPlayerModal from "./recording-player-modal";
 
 type CallRecording = FunctionReturnType<
@@ -396,33 +397,17 @@ function summarizeTransferError(
 }
 
 /**
- * R12: turns a `recordingExpiresAt` ms epoch into a human
- * countdown string for the per-row "auto-deletes in N days"
- * caption. We keep this client-side (not in Convex) because
- * the row already receives the timestamp from
- * `getCallRecordingsForWorkspace` — re-fetching to compute
- * the label would be wasteful and would not auto-refresh as
- * the user keeps the page open.
+ * R12: retention countdown formatters live in
+ * `@/lib/recording-retention` (CodeRabbit #2: extracted so
+ * a copy-paste drift surfaces as a typecheck/test failure
+ * instead of a UI bug). The pair
+ * `summarizeRetention` + `getRetentionUrgency` powers the
+ * per-row "auto-deletes in N days" caption. We keep this
+ * client-side (not in Convex) because the row already receives
+ * the timestamp from `getCallRecordingsForWorkspace` —
+ * re-fetching to compute the label would be wasteful and
+ * would not auto-refresh as the user keeps the page open.
  */
-function summarizeRetention(expiresAt: number): string {
-  const now = Date.now();
-  const remainingMs = expiresAt - now;
-  if (remainingMs <= 0) return "Auto-deletion pending";
-  const dayMs = 24 * 60 * 60 * 1000;
-  const days = Math.floor(remainingMs / dayMs);
-  if (days <= 0) {
-    const hours = Math.max(1, Math.floor(remainingMs / (60 * 60 * 1000)));
-    return `Auto-deletes in ${hours} hour${hours === 1 ? "" : "s"}`;
-  }
-  if (days === 1) return "Auto-deletes tomorrow";
-  return `Auto-deletes in ${days} days`;
-}
-
-function getRetentionUrgency(expiresAt: number): "urgent" | "normal" {
-  const dayMs = 24 * 60 * 60 * 1000;
-  const days = Math.floor((expiresAt - Date.now()) / dayMs);
-  return days <= 7 ? "urgent" : "normal";
-}
 
 function formatDuration(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {

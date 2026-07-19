@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Id } from "@/convex/_generated/dataModel";
+import { formatRetentionCountdown, isRetentionUrgent } from "@/lib/recording-retention";
 
 /**
  * PR #4c-1: modal video player for a single past call recording.
@@ -335,34 +336,13 @@ function formatRelativeExpiry(expiresAt: number): string {
 }
 
 /**
- * R12: render the scheduled-deletion deadline in the modal
- * header so users watching a long recording are reminded to
- * download before retention runs. Mirrors the per-row
- * caption in `calls-section.tsx`.
+ * R12: retention countdown formatters live in
+ * `@/lib/recording-retention` (CodeRabbit #2: extracted so
+ * a copy-paste drift surfaces as a typecheck/test failure
+ * instead of a UI bug). `formatRetentionCountdown` renders
+ * the modal-header scheduled-deletion deadline so users
+ * watching a long recording are reminded to download before
+ * retention runs.
  */
-function formatRetentionCountdown(expiresAt: number): string {
-  const dayMs = 24 * 60 * 60 * 1000;
-  const remainingMs = expiresAt - Date.now();
-  if (remainingMs <= 0) {
-    return "This recording will be deleted on the next cleanup run.";
-  }
-  const days = Math.floor(remainingMs / dayMs);
-  const date = new Date(expiresAt).toLocaleDateString();
-  if (days <= 0) {
-    const hours = Math.max(1, Math.floor(remainingMs / (60 * 60 * 1000)));
-    return `This recording will be permanently deleted on ${date} (in ${hours} hour${
-      hours === 1 ? "" : "s"
-    }).`;
-  }
-  if (days === 1) {
-    return `This recording will be permanently deleted tomorrow (${date}).`;
-  }
-  return `This recording will be permanently deleted in ${days} days (${date}).`;
-}
-
-function isRetentionUrgent(expiresAt: number): boolean {
-  const dayMs = 24 * 60 * 60 * 1000;
-  return Math.floor((expiresAt - Date.now()) / dayMs) <= 7;
-}
 
 export { SIGNED_URL_TTL_SECONDS };
