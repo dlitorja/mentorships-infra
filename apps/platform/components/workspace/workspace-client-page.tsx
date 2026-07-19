@@ -5,6 +5,7 @@ import { MessageSquare } from "lucide-react";
 import { Id } from "../../../../convex/_generated/dataModel";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Loader2, Info, X } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
@@ -182,6 +183,23 @@ function WorkspaceInner({
   const activeSessionId: Id<"sessions"> | null =
     session?.sessionId ?? null;
   const isInCall = useIsInCall();
+  // PR #4b-fix: confirm a workspace switch while a call is active.
+  // `<VideoCallProvider>` is keyed by `selectedWorkspaceId`, so a
+  // workspace change would otherwise unmount the Daily call
+  // mid-session and silently end it for the remote participant.
+  // The dialog intercepts the click when `isInCall` is true and
+  // asks the user to confirm. Cancel closes the dialog without
+  // switching; Continue proceeds to `onSelectWorkspace` (which
+  // triggers the unmount + `endCall` via the hook's cleanup path).
+  const [pendingSwitchTo, setPendingSwitchTo] = useState<Id<"workspaces"> | null>(null);
+  const requestSwitch = (id: Id<"workspaces">) => {
+    if (id === selectedWorkspaceId) return;
+    if (isInCall) {
+      setPendingSwitchTo(id);
+      return;
+    }
+    onSelectWorkspace(id);
+  };
   // Chat tab gets the viewport-locked inner-scroll layout: the page
   // container, sidebar card, workspace card, and `<TabsContent>` all
   // switch to fixed-height flex chains so the existing
@@ -205,7 +223,7 @@ function WorkspaceInner({
                   {workspaces.map((workspace: UserWorkspace) => (
                     <button
                       key={workspace._id}
-                      onClick={() => onSelectWorkspace(workspace._id)}
+                      onClick={() => requestSwitch(workspace._id)}
                       className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
                         selectedWorkspaceId === workspace._id
                           ? "bg-primary text-primary-foreground"
@@ -237,6 +255,50 @@ function WorkspaceInner({
             </CardContent>
           </Card>
         </div>
+
+        {/* PR #4b-fix: leave-call confirmation when switching
+         * workspaces mid-call. Mounted inside the workspace shell so
+         * it can read `useIsInCall()` reactively. Outside the sidebar
+         * `<Card>` to avoid nested-Dialog focus traps on small
+         * viewports. */}
+        {pendingSwitchTo && (
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="leave-call-title"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          >
+            <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
+              <h2 id="leave-call-title" className="text-lg font-semibold mb-2">
+                Leave this call to switch workspaces?
+              </h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                You are currently in a video call. Switching workspaces will end
+                the call for both you and the other participant.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPendingSwitchTo(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    const target = pendingSwitchTo;
+                    setPendingSwitchTo(null);
+                    if (target) onSelectWorkspace(target);
+                  }}
+                >
+                  Leave call and switch
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
