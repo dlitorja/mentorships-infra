@@ -6,6 +6,14 @@ import { Id } from "../../../../convex/_generated/dataModel";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Loader2, Info, X } from "lucide-react";
 import WorkspaceChat from "@/components/workspace/chat";
 import WorkspaceNotes from "@/components/workspace/notes";
@@ -192,7 +200,16 @@ function WorkspaceInner({
   // switching; Continue proceeds to `onSelectWorkspace` (which
   // triggers the unmount + `endCall` via the hook's cleanup path).
   const [pendingSwitchTo, setPendingSwitchTo] = useState<Id<"workspaces"> | null>(null);
-  const requestSwitch = (id: Id<"workspaces">) => {
+  // PR #3 follow-up: dismiss the confirmation automatically if the
+  // call ends while the dialog is open (remote hangup, network drop).
+  // Without this, the dialog would be stuck on a stale "Leave this
+  // call to switch workspaces?" message after the call is already over.
+  useEffect(() => {
+    if (!isInCall) {
+      setPendingSwitchTo(null);
+    }
+  }, [isInCall]);
+  const requestSwitch = (id: Id<"workspaces">): void => {
     if (id === selectedWorkspaceId) return;
     if (isInCall) {
       setPendingSwitchTo(id);
@@ -256,49 +273,50 @@ function WorkspaceInner({
           </Card>
         </div>
 
-        {/* PR #4b-fix: leave-call confirmation when switching
-         * workspaces mid-call. Mounted inside the workspace shell so
-         * it can read `useIsInCall()` reactively. Outside the sidebar
-         * `<Card>` to avoid nested-Dialog focus traps on small
-         * viewports. */}
-        {pendingSwitchTo && (
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="leave-call-title"
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          >
-            <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
-              <h2 id="leave-call-title" className="text-lg font-semibold mb-2">
-                Leave this call to switch workspaces?
-              </h2>
-              <p className="text-sm text-muted-foreground mb-4">
+        {/* PR #3 follow-up: leave-call confirmation when switching
+         * workspaces mid-call. Uses the standard Radix `<Dialog>`
+         * so we get focus trap, Escape-to-dismiss, and initial
+         * focus for free (CodeRabbit review). Controlled by
+         * `pendingSwitchTo`; Escape and the overlay both close
+         * without switching. `onOpenChange(false)` is what Radix
+         * calls on Escape, on overlay click, and on the
+         * `DialogClose` button. */}
+        <Dialog
+          open={pendingSwitchTo !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingSwitchTo(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Leave this call to switch workspaces?</DialogTitle>
+              <DialogDescription>
                 You are currently in a video call. Switching workspaces will end
                 the call for both you and the other participant.
-              </p>
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setPendingSwitchTo(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={() => {
-                    const target = pendingSwitchTo;
-                    setPendingSwitchTo(null);
-                    if (target) onSelectWorkspace(target);
-                  }}
-                >
-                  Leave call and switch
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPendingSwitchTo(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  const target = pendingSwitchTo;
+                  setPendingSwitchTo(null);
+                  if (target) onSelectWorkspace(target);
+                }}
+              >
+                Leave call and switch
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="flex-1 min-w-0">
           {selectedWorkspace ? (
