@@ -108,10 +108,18 @@ export const getRecordingsForRetentionNotification = internalQuery({
     ctx,
     args
   ): Promise<RecordingRetentionWindow[]> => {
+    // Greptile P1 (NEW): bound to FUTURE expiries. The cleanup
+    // query uses `q.lt(...)` (already-expired rows); the
+    // warnings query must use `q.gt(...)` to find rows
+    // expiring within 30/7/1 days from now. Without this
+    // bound the per-row `daysUntilDeletion` is always
+    // negative and never matches the warning thresholds,
+    // so the warning job finds zero upcoming recordings
+    // and never sends any pre-deletion email.
     const candidates = await ctx.db
       .query("sessions")
       .withIndex("by_recordingExpiresAt", (q) =>
-        q.lt("recordingExpiresAt", args.now)
+        q.gt("recordingExpiresAt", args.now)
       )
       .take(500);
 
@@ -273,6 +281,40 @@ export const acknowledgeRecordingRetentionNotification = mutation({
     }
     await ctx.db.patch(args.id, { acknowledgedAt: Date.now() });
     return await ctx.db.get(args.id);
+  },
+});
+
+/**
+ * Public mutation: bulk-ack ALL unacknowledged retention
+ * notifications for the authenticated user. Powers the
+ * "Dismiss" button on the recording-retention banner so a
+ * single click dismisses every pending warning at once.
+ *
+ * Greptile P2 (NEW): the previous single-id mutation only
+ * dismissed one row, which caused the banner to flicker —
+ * it would re-render after the mutation and immediately
+ * resurface the next row.
+ *
+ * Auth: scoped to the caller's `identity.subject` — cannot
+ * ack notifications belonging to another user.
+ */
+export const acknowledgeAllRecordingRetentionNotifications = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const rows = await ctx.db
+      .query("recordingRetentionNotifications")
+      .withIndex("by_recipientUserId", (q) =>
+        q.eq("recipientUserId", identity.subject)
+      )
+      .filter((q) => q.eq(q.field("acknowledgedAt"), undefined))
+      .collect();
+    const now = Date.now();
+    for (const row of rows) {
+      await ctx.db.patch(row._id, { acknowledgedAt: now });
+    }
+    return { acknowledged: rows.length };
   },
 });
 

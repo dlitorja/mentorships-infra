@@ -55,3 +55,34 @@ export function useAcknowledgeRecordingRetentionNotification() {
     onSuccess: invalidate,
   });
 }
+
+/**
+ * R12: bulk-ack hook — dismisses every unacknowledged
+ * notification belonging to the current user in a single
+ * round-trip. The banner uses this so the "Dismiss" button
+ * hides the banner permanently instead of cycling through
+ * one notification per click (Greptile P2).
+ */
+export function useAcknowledgeAllRecordingRetentionNotifications() {
+  const queryClient = useQueryClient();
+
+  const mutationFn = useConvexMutation(
+    api.recordingRetention.acknowledgeAllRecordingRetentionNotifications
+  );
+
+  const invalidate = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: [
+        "recordingRetentionNotifications",
+        "unacknowledged",
+      ],
+    });
+  }, [queryClient]);
+
+  return useMutation({
+    mutationFn: async () => {
+      await mutationFn({});
+    },
+    onSuccess: invalidate,
+  });
+}

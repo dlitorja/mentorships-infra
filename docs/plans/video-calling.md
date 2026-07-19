@@ -767,7 +767,7 @@ Call recordings uploaded to B2 are auto-deleted after **90 days** (configurable 
 Key implementation files (R12):
 
 - `convex/schema.ts` — added `recordingDeletedAt` field, `"purged"` enum value, `by_recordingExpiresAt` index, `recordingRetentionNotifications` table
-- `convex/recordingRetention.ts` — queries (`getRecordingsNeedingCleanup`, `getRecordingsForRetentionNotification`), mutations (`createRecordingRetentionNotification`, `acknowledgeRecordingRetentionNotification`, `markRecordingDeleted`)
+- `convex/recordingRetention.ts` — queries (`getRecordingsNeedingCleanup`, `getRecordingsForRetentionNotification`), mutations (`createRecordingRetentionNotification`, `acknowledgeRecordingRetentionNotification`, `acknowledgeAllRecordingRetentionNotifications`, `markRecordingDeleted`)
 - `convex/migrations/backfillRecordingExpiry.ts` — idempotent one-shot backfill (`_creationTime + 90d` for legacy rows with `recordingUrl` set)
 - `convex/http.ts` — `/recording-retention/{needing-cleanup, for-notification, mark-deleted, notify}` HTTP routes (Convex HTTP key auth, no callback secret needed — these are *our* schedules, not caller-supplied)
 - `convex/audit/recordingRetentionAudit.ts` — drift monitor (`>24h overdue AND status !== "purged"`)

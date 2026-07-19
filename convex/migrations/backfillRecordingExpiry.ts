@@ -30,23 +30,25 @@ const BATCH_SIZE = 100;
  * itself with a cursor until the query returns empty — see
  * Convex guideline "mutations are transactions with limits on
  * the number of documents read and written".
+ *
+ * Greptile P1 (fix): switched from `.take(BATCH_SIZE)` +
+ * `_creationTime` cursor to Convex's native `.paginate()`
+ * with `paginationOpts`. The previous implementation re-read
+ * the same first 100 rows on every invocation because `.take`
+ * ignores any client-side cursor and `s._creationTime < start`
+ * skipped everything — the migration would have stalled after
+ * batch 1 leaving rows 101+ un-stamped.
  */
 export const backfillRecordingExpiryStep = internalMutation({
-  args: { cursor: v.optional(v.number()) },
+  args: { paginationOpts: v.any() },
   handler: async (ctx, args) => {
-    const start = args.cursor ?? 0;
-    const candidates = await ctx.db
+    const result = await ctx.db
       .query("sessions")
       .order("asc")
-      .take(BATCH_SIZE);
+      .paginate(args.paginationOpts);
 
     let updated = 0;
-    let lastId: number | null = null;
-    let nextCursor: number | null = null;
-
-    for (const s of candidates) {
-      lastId = s._creationTime;
-      if (s._creationTime < start) continue;
+    for (const s of result.page) {
       if (s.recordingExpiresAt !== undefined) continue;
       if (s.recordingUrl === undefined) continue;
       if (s.deletedAt !== undefined) continue;
@@ -57,17 +59,32 @@ export const backfillRecordingExpiryStep = internalMutation({
       updated++;
     }
 
-    // If we processed the full batch, schedule the next batch.
-    if (candidates.length === BATCH_SIZE && lastId !== null) {
-      nextCursor = lastId + 1;
+    // If the page was full and Convex says there's more, schedule
+    // the next batch with the returned `continueCursor`. Convex
+    // pages are bounded by `numItems` so we read up to
+    // BATCH_SIZE rows per invocation and re-invoke with the next
+    // cursor. We bail if the page was smaller than `numItems`
+    // (drain complete) or if `isDone` is true (Convex has no
+    // more rows to return).
+    if (!result.isDone && result.page.length >= BATCH_SIZE) {
       await ctx.scheduler.runAfter(
         0,
         internal.migrations.backfillRecordingExpiry.backfillRecordingExpiryStep,
-        { cursor: nextCursor }
+        {
+          paginationOpts: {
+            numItems: BATCH_SIZE,
+            cursor: result.continueCursor,
+          },
+        }
       );
     }
 
-    return { updated, processed: candidates.length, nextCursor };
+    return {
+      updated,
+      processed: result.page.length,
+      isDone: result.isDone,
+      continueCursor: result.continueCursor,
+    };
   },
 });
 
@@ -106,7 +123,7 @@ export const runBackfill = internalAction({
     }
     await ctx.runMutation(
       internal.migrations.backfillRecordingExpiry.backfillRecordingExpiryStep,
-      { cursor: 0 }
+      { paginationOpts: { numItems: BATCH_SIZE, cursor: null } }
     );
     return { started: true, remaining };
   },

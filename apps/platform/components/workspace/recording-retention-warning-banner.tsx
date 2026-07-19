@@ -3,7 +3,7 @@
 import { AlertCircle, AlertTriangle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  useAcknowledgeRecordingRetentionNotification,
+  useAcknowledgeAllRecordingRetentionNotifications,
   useUnacknowledgedRecordingRetentionNotifications,
 } from "@/lib/queries/convex/use-recordings";
 
@@ -20,6 +20,13 @@ import {
  * `daysUntilDeletion`) drives the severity, and the message
  * surfaces the count so multi-recording cases don't bury the
  * warning under a single countdown.
+ *
+ * Greptile P2 (fix): "Dismiss" now calls the bulk mutation
+ * `acknowledgeAllRecordingRetentionNotifications` instead of
+ * acking a single row at a time. The previous loop cycled
+ * through one notification per click and the banner would
+ * re-render to show the next pending row immediately,
+ * making "Dismiss" feel broken.
  */
 
 function getSeverity(days: number) {
@@ -31,8 +38,8 @@ function getSeverity(days: number) {
 export function RecordingRetentionWarningBanner() {
   const { data: notifications } =
     useUnacknowledgedRecordingRetentionNotifications();
-  const acknowledge =
-    useAcknowledgeRecordingRetentionNotification();
+  const acknowledgeAll =
+    useAcknowledgeAllRecordingRetentionNotifications();
 
   const list = notifications ?? [];
   if (list.length === 0) return null;
@@ -45,16 +52,6 @@ export function RecordingRetentionWarningBanner() {
     Number.POSITIVE_INFINITY
   );
   const { className, icon: Icon } = getSeverity(worstDays);
-
-  // Ack the lot in one click so the banner stays out of the
-  // way. We ack the smallest-days notification first so
-  // re-renders don't immediately re-show the banner.
-  const handleDismiss = () => {
-    const next = list.reduce((a, b) =>
-      a.daysUntilDeletion <= b.daysUntilDeletion ? a : b
-    );
-    acknowledge.mutate({ id: next._id });
-  };
 
   const headline =
     list.length === 1
@@ -82,8 +79,8 @@ export function RecordingRetentionWarningBanner() {
           variant="outline"
           size="sm"
           className="shrink-0"
-          onClick={handleDismiss}
-          disabled={acknowledge.isPending}
+          onClick={() => acknowledgeAll.mutate()}
+          disabled={acknowledgeAll.isPending}
         >
           Dismiss
         </Button>
