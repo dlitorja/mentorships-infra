@@ -11,6 +11,17 @@ const WORKSPACE_IMAGE_CAPS = {
   admin: 9999,
 } as const;
 
+// File-attachment caps mirror the per-role caps enforced by
+// `createWorkspaceFileMessage` (`workspaces.ts:1487`). Keeping them
+// in sync here means `shareResourceToChat` and the chat uploader
+// draw from the same source of truth — share a non-image resource
+// and the user's quota is consumed in exactly the same way as if
+// they had uploaded the file directly to the chat.
+const WORKSPACE_FILE_CAPS = {
+  student: 25,
+  instructor: 50,
+} as const;
+
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
 
 async function isAdmin(ctx: any, userId: string): Promise<boolean> {
@@ -279,11 +290,25 @@ export const deleteInstructorResource = mutation({
   },
 });
 
-/** Shares an instructor image resource to the workspace chat. Also creates a workspaceImage record so it appears in the Images tab. Requires instructor or admin role. */
+/**
+ * Shares an instructor resource to the workspace chat. For image
+ * resources, also creates a `workspaceImages` row (so it appears in
+ * the Images tab) and bumps `instructorImageCount`. For file
+ * resources, enforces `WORKSPACE_FILE_CAPS` and writes a `type: "file"`
+ * `workspaceMessages` row in the same shape as
+ * `createWorkspaceFileMessage` (`workspaces.ts:1487`) so the chat
+ * renderer can pick it up uniformly.
+ *
+ * Optional `sessionId` is forwarded onto the chat message so a share
+ * during an active call gets the in-call tagging parity of the
+ * other chat-creating mutations. Mirrors `createWorkspaceFileMessage`.
+ * Requires instructor or admin role.
+ */
 export const shareResourceToChat = mutation({
   args: {
     resourceId: v.id("instructorResources"),
     workspaceId: v.id("workspaces"),
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const { resource, workspace, identity, role } = await assertResourceBelongsToInstructor(ctx, {
@@ -291,43 +316,91 @@ export const shareResourceToChat = mutation({
       expectedWorkspaceId: args.workspaceId,
     });
 
-    if (resource.type !== "image") {
-      throw new Error("Only image resources can be shared to chat");
+    await assertSessionBelongsToWorkspace(ctx, args);
+
+    const fileUrl = await ctx.storage.getUrl(resource.storageId);
+    if (!fileUrl) {
+      throw new Error("Failed to get resource URL");
     }
 
-    const imageUrl = await ctx.storage.getUrl(resource.storageId);
-    if (!imageUrl) {
-      throw new Error("Failed to get image URL");
+    if (resource.type === "image") {
+      const isAdminRole = role === "admin";
+      const currentCount = isAdminRole
+        ? await countActiveWorkspaceImages(ctx, args.workspaceId)
+        : (workspace.instructorImageCount ?? 0);
+      const cap = isAdminRole ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
+      if (currentCount >= cap) {
+        throw new Error(`Image limit reached (${cap} images allowed)`);
+      }
+
+      await ctx.db.insert("workspaceImages", {
+        workspaceId: args.workspaceId,
+        imageUrl: fileUrl,
+        storageId: resource.storageId,
+        createdBy: identity.subject,
+      });
+
+      await ctx.db.patch(args.workspaceId, {
+        instructorImageCount: (workspace.instructorImageCount ?? 0) + 1,
+      });
+
+      await ctx.db.insert("workspaceMessages", {
+        workspaceId: args.workspaceId,
+        userId: identity.subject,
+        content: `${encodeURIComponent(resource.fileName)}|${fileUrl}`,
+        type: "image",
+        senderRole: role,
+        sessionId: args.sessionId,
+      });
+      return;
     }
 
-    const isAdminRole = role === "admin";
-    const currentCount = isAdminRole
-      ? await countActiveWorkspaceImages(ctx, args.workspaceId)
-      : (workspace.instructorImageCount ?? 0);
-    const cap = isAdminRole ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
-    if (currentCount >= cap) {
-      throw new Error(`Image limit reached (${cap} images allowed)`);
+    if (role !== "admin") {
+      const currentCount = await countActiveWorkspaceFilesByRole(
+        ctx,
+        args.workspaceId,
+        role as "instructor" | "student"
+      );
+      const cap = WORKSPACE_FILE_CAPS[role as "instructor" | "student"];
+      if (currentCount >= cap) {
+        throw new Error(`File limit reached (${cap} ${role} files allowed per workspace).`);
+      }
     }
-
-    await ctx.db.insert("workspaceImages", {
-      workspaceId: args.workspaceId,
-      imageUrl,
-      storageId: resource.storageId,
-      createdBy: identity.subject,
-    });
-
-    await ctx.db.patch(args.workspaceId, {
-      instructorImageCount: (workspace.instructorImageCount ?? 0) + 1,
-    });
 
     await ctx.db.insert("workspaceMessages", {
       workspaceId: args.workspaceId,
       userId: identity.subject,
-      content: `${encodeURIComponent(resource.fileName)}|${imageUrl}`,
-      type: "image",
+      content: `${encodeURIComponent(resource.fileName)}|${fileUrl}`,
+      type: "file",
+      senderRole: role,
+      sessionId: args.sessionId,
     });
   },
 });
+
+/**
+ * Counts non-deleted `workspaceMessages` rows of `type: "file"` posted
+ * by the given sender role in the workspace. Used by
+ * `shareResourceToChat` to enforce `WORKSPACE_FILE_CAPS` against the
+ * same source of truth as `createWorkspaceFileMessage`
+ * (`workspaces.ts:1487`). Mirrors `countWorkspaceFilesByRole`
+ * (`workspaces.ts:94`) but kept local so we don't widen that file's
+ * export surface from a single-resource PR.
+ */
+async function countActiveWorkspaceFilesByRole(
+  ctx: MutationCtx,
+  workspaceId: Id<"workspaces">,
+  role: "instructor" | "student"
+): Promise<number> {
+  const messages = await ctx.db
+    .query("workspaceMessages")
+    .withIndex("by_workspaceId", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+
+  return messages.filter(
+    (m) => m.type === "file" && m.senderRole === role
+  ).length;
+}
 
 /** Embeds an instructor image resource in a workspace note. Also creates a workspaceImage record and updates the note's imageUrl. Requires instructor or admin role. */
 export const embedResourceInNote = mutation({

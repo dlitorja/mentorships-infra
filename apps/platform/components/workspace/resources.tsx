@@ -121,7 +121,14 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role, a
 
   const handleShareToChat = async (id: Id<'instructorResources'>) => {
     try {
-      await shareToChat.mutateAsync({ resourceId: id, workspaceId });
+      await shareToChat.mutateAsync({
+        resourceId: id,
+        workspaceId,
+        // Forward active session so the chat message gets the
+        // in-call tagging parity of `createWorkspaceFileMessage`
+        // and `createWorkspaceImageAndMessage`.
+        sessionId: activeSessionId ?? undefined,
+      });
       toast.success('Shared to chat');
     } catch (error: any) {
       toast.error(error.message || 'Failed to share to chat');
@@ -283,29 +290,27 @@ export default function WorkspaceResources({ workspaceId, currentUserId, role, a
               )}
 
               <div className="absolute top-1 right-1 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="h-6 w-6"
+                  title={resource.type === 'image' ? 'Share to chat' : 'Share file to chat'}
+                  onClick={() => handleShareToChat(resource._id)}
+                  disabled={shareToChat.isPending}
+                >
+                  <Share2 className="h-3 w-3" />
+                </Button>
                 {resource.type === 'image' && (
-                  <>
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      className="h-6 w-6"
-                      title="Share to chat"
-                      onClick={() => handleShareToChat(resource._id)}
-                      disabled={shareToChat.isPending}
-                    >
-                      <Share2 className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="secondary"
-                      className="h-6 w-6"
-                      title="Embed in note"
-                      onClick={() => setEmbedNoteId(resource._id)}
-                      disabled={embedInNote.isPending}
-                    >
-                      <ImageIcon className="h-3 w-3" />
-                    </Button>
-                  </>
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    className="h-6 w-6"
+                    title="Embed in note"
+                    onClick={() => setEmbedNoteId(resource._id)}
+                    disabled={embedInNote.isPending}
+                  >
+                    <ImageIcon className="h-3 w-3" />
+                  </Button>
                 )}
                 {/* PR #5: Tag/Untag toggle. Render only while a call
                  * is active. Mutually exclusive: Tag shows when the
