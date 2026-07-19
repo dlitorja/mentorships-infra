@@ -112,13 +112,20 @@ export const updateWorkspaceExportStatus = mutation({
 
     // PR #4b-fix: refuse to overwrite a "completed" row with anything
     // other than "completed" so a retried trigger task does not
-    // silently undo a finished export. Also refuse to mark a row
-    // "completed" if the user already cancelled it ("failed").
+    // silently undo a finished export.
     if (exportRecord.status === "completed" && status !== "completed") {
       throw new Error("Export already completed");
     }
-    if (exportRecord.status === "failed" && status === "completed") {
-      throw new Error("Export was cancelled; refusing to mark completed");
+    // Greptile P1 (PR #4b-fix): a row with status "failed" AND no
+    // errorMessage is a user-initiated cancel (`cancelWorkspaceExport`
+    // writes only `{ status: "failed" }`). Trigger-side errors always
+    // include `errorMessage`. Treat user-cancel as terminal so a
+    // Trigger.dev retry cannot take the two-step path
+    // `failed → processing → completed` and silently un-cancel.
+    const isUserCancel =
+      exportRecord.status === "failed" && exportRecord.errorMessage === undefined;
+    if (isUserCancel) {
+      throw new Error("Export was cancelled; refusing to update");
     }
 
     const updates: Record<string, unknown> = { status };

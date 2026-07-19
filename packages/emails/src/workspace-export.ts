@@ -64,13 +64,13 @@ export function buildWorkspaceExportReadyEmail(args: {
         <div style="color:#374151;line-height:1.6;margin-bottom:12px">
           Click the button below to download the ZIP file.
         </div>
-        <a href="${args.downloadUrl}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">Download export</a>
+        <a href="${escapeHtml(args.downloadUrl)}" style="display:inline-block;padding:12px 16px;background:#111827;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">Download export</a>
         <p style="margin:16px 0 0 0;color:#6B7280;font-size:12px">
           This download link expires on ${escapeHtml(expiryLabel)}. After that, re-run the export from the workspace's Images tab.
         </p>
         <p style="margin:12px 0 0 0;color:#6B7280;font-size:12px">
           If the button does not work, copy/paste this link:<br/>
-          <div>${args.downloadUrl}</div>
+          <div>${escapeHtml(args.downloadUrl)}</div>
         </p>
       </div>
     </div>

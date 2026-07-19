@@ -13,7 +13,6 @@ const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY;
 const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";
 const B2_REGION = process.env.B2_REGION || "us-west-002";
 const B2_ENDPOINT = process.env.B2_ENDPOINT || `https://s3.${B2_REGION}.backblazeb2.com`;
-const B2_DOWNLOAD_HOST = process.env.B2_DOWNLOAD_HOST || "download.backblazeb2.com";
 
 const EXPORT_URL_EXPIRY_DAYS = 7;
 
@@ -187,6 +186,10 @@ async function fetchImageBytes(img: {
 }
 
 function extensionForContentType(contentType: string): string {
+  // Strip parameters before lookup (e.g. `image/png; charset=utf-8` →
+  // `image/png`). Without this, every B2-stored image whose
+  // Content-Type carries a charset would fall back to `.bin`.
+  const mediaType = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   const map: Record<string, string> = {
     "image/png": "png",
     "image/jpeg": "jpg",
@@ -197,7 +200,7 @@ function extensionForContentType(contentType: string): string {
     "image/heic": "heic",
     "image/avif": "avif",
   };
-  return map[contentType.toLowerCase()] || "bin";
+  return map[mediaType] || "bin";
 }
 
 function generateMarkdown(notes: Array<{ title: string; content: string; updatedAt: number }>): string {
@@ -281,6 +284,30 @@ export const processWorkspaceExport = task({
 
       const chunks: Buffer[] = [];
 
+      // Greptile P1 (PR #4b-fix): pre-fetch every image outside the
+      // `new Promise` executor. The executor callback is synchronous
+      // so awaiting inside it (the previous implementation) made
+      // TypeScript flag TS1308 *and* would have called
+      // `archive.finalize()` before any image fetch completed,
+      // silently producing the empty-image archive the PR was meant
+      // to fix. Pre-fetching first means the Promise body is purely
+      // synchronous — append, finalize, resolve on `archive.end`.
+      const imageEntries: Array<{ name: string; bytes: Buffer }> = [];
+      for (const img of exportData.images) {
+        const fetched = await fetchImageBytes(img);
+        if (!fetched) continue;
+        const baseName = img.fileName || img.storageId || `image-${imageEntries.length + 1}`;
+        const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+        imageEntries.push({
+          name: `images/${safeName}.${fetched.extension}`,
+          bytes: fetched.bytes,
+        });
+      }
+      logger.info("Archived images", {
+        imageCount: imageEntries.length,
+        totalImages: exportData.images.length,
+      });
+
       await new Promise<void>((resolve, reject) => {
         const archive = archiver("zip", { zlib: { level: 9 } });
 
@@ -293,24 +320,11 @@ export const processWorkspaceExport = task({
           archive.append(markdown, { name: "notes.md" });
         }
 
-        // PR #4b-fix: archive every image regardless of whether the
-        // URL is inlined (`data:`) or a Convex storage URL. The
-        // previous code only handled the `data:` case and silently
-        // skipped every storage-backed image.
-        let imageCount = 0;
-        for (const img of exportData.images) {
-          const fetched = await fetchImageBytes(img);
-          if (!fetched) continue;
-          const baseName = img.fileName || img.storageId || `image-${imageCount + 1}`;
-          const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-          archive.append(fetched.bytes, {
-            name: `images/${safeName}.${fetched.extension}`,
-          });
-          imageCount++;
+        for (const entry of imageEntries) {
+          archive.append(entry.bytes, { name: entry.name });
         }
-        logger.info("Archived images", { imageCount, totalImages: exportData.images.length });
 
-        if (exportData.notes.length === 0 && imageCount === 0) {
+        if (exportData.notes.length === 0 && imageEntries.length === 0) {
           archive.append("# No content to export", { name: "README.txt" });
         }
 
