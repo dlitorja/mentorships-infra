@@ -423,7 +423,14 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
             </div>
           ) : latestExport?.status === 'failed' && latestExport._id === lastExportAttemptId ? (
             <>
-              <p className="text-sm text-destructive">Export failed</p>
+              <div className="flex flex-col items-end gap-1">
+                <p className="text-sm text-destructive">Export failed</p>
+                {latestExport.errorMessage && (
+                  <p className="text-xs text-muted-foreground max-w-xs truncate" title={latestExport.errorMessage}>
+                    {latestExport.errorMessage}
+                  </p>
+                )}
+              </div>
               <Button variant="outline" onClick={handleExport} disabled={createExport.isPending}>
                 {createExport.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Retry image export

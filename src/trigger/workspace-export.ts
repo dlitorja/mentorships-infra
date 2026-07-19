@@ -1,14 +1,17 @@
 import { task, logger } from "@trigger.dev/sdk";
 import archiver from "archiver";
 import PDFDocument from "pdfkit";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { sendEmail } from "../../packages/emails/src/send";
+import { buildWorkspaceExportReadyEmail } from "../../packages/emails/src/workspace-export";
 
 const CONVEX_DEPLOYMENT_URL = process.env.NEXT_PUBLIC_CONVEX_URL || process.env.CONVEX_DEPLOYMENT_URL;
 const CONVEX_HTTP_KEY = process.env.CONVEX_HTTP_KEY;
 const B2_KEY_ID = process.env.B2_KEY_ID;
 const B2_APPLICATION_KEY = process.env.B2_APPLICATION_KEY;
 const B2_BUCKET_NAME = process.env.B2_BUCKET_NAME || "instructor-uploads";
-const B2_REGION = process.env.B2_REGION || "us-east-005";
+const B2_REGION = process.env.B2_REGION || "us-west-002";
 const B2_ENDPOINT = process.env.B2_ENDPOINT || `https://s3.${B2_REGION}.backblazeb2.com`;
 const B2_DOWNLOAD_HOST = process.env.B2_DOWNLOAD_HOST || "download.backblazeb2.com";
 
@@ -54,14 +57,39 @@ async function getExportData(workspaceId: string) {
   return callConvexHttp("/workspace/export/data", { workspaceId }) as Promise<{
     workspaceName: string;
     notes: Array<{ title: string; content: string; updatedAt: number }>;
-    images: Array<{ imageUrl: string; storageId?: string; createdBy: string; createdAt: number }>;
+    images: Array<{
+      imageUrl: string;
+      storageId?: string;
+      contentType?: string;
+      fileName?: string;
+      createdBy: string;
+      createdAt: number;
+    }>;
   }>;
 }
 
+async function getExportOwner(exportId: string) {
+  return callConvexHttp("/workspace/export/get", { exportId }) as Promise<{
+    userId: string;
+    workspaceId: string;
+    workspaceName: string;
+    status: "pending" | "processing" | "completed" | "failed";
+  } | null>;
+}
+
+/**
+ * Updates an export row's status. Reads the row first when status
+ * is "completed" or "failed" to avoid overwriting a row the user
+ * has cancelled (`cancelWorkspaceExport` writes "failed") or a
+ * row that a previous retry of this task already marked
+ * "completed". Without this guard a retry would silently undo a
+ * user-initiated cancel.
+ */
 async function updateExportStatus(
   exportId: string,
   status: "processing" | "completed" | "failed",
-  downloadUrl?: string
+  downloadUrl?: string,
+  errorMessage?: string
 ) {
   const expiresAt = status === "completed"
     ? Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000
@@ -72,10 +100,16 @@ async function updateExportStatus(
     status,
     downloadUrl,
     expiresAt,
+    errorMessage,
   });
 }
 
-async function uploadZipToB2(zipBuffer: Buffer, workspaceId: string, workspaceName: string): Promise<string> {
+async function uploadZipToB2(
+  zipBuffer: Buffer,
+  workspaceId: string,
+  workspaceName: string,
+  filename: string
+): Promise<string> {
   const client = getB2Client();
   const timestamp = Date.now();
   const safeName = workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
@@ -87,16 +121,88 @@ async function uploadZipToB2(zipBuffer: Buffer, workspaceId: string, workspaceNa
       Key: key,
       Body: zipBuffer,
       ContentType: "application/zip",
-      ContentDisposition: `attachment; filename="${safeName}-export.zip"`,
+      ContentDisposition: `attachment; filename="${filename}"`,
     })
   );
 
-  return `https://${B2_DOWNLOAD_HOST}/file/${B2_BUCKET_NAME}/${key}`;
+  // Use a signed URL — the static `download.backblazeb2.com` URL
+  // works only for buckets with public ACL, which the
+  // instructor-uploads bucket does not have. Mirrors `bulk-download.ts`.
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }),
+    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+  );
+}
+
+/**
+ * Fetches image bytes for an export entry. Two cases:
+ *
+ *   1. `imageUrl` starts with `data:` — a legacy image where the
+ *      bytes were inlined into the row. Decode the base64 payload
+ *      directly.
+ *   2. `imageUrl` is a Convex storage URL — the modern path. Fetch
+ *      the URL over HTTP and stream the bytes. This is the path
+ *      the original code was missing: the inner `imageUrl.startsWith("data:")`
+ *      branch skipped every storage-backed image, so the ZIP ended
+ *      up with only `notes.md`.
+ *
+ * Returns null when the bytes cannot be retrieved (deleted
+ * storage, network error). The caller logs and continues so one
+ * bad image does not fail the entire export.
+ */
+async function fetchImageBytes(img: {
+  imageUrl: string;
+  storageId?: string;
+}): Promise<{ bytes: Buffer; contentType: string; extension: string } | null> {
+  if (img.imageUrl.startsWith("data:")) {
+    const match = /^data:([^;]+);base64,(.*)$/.exec(img.imageUrl);
+    if (!match) return null;
+    const contentType = match[1] || "application/octet-stream";
+    const bytes = Buffer.from(match[2], "base64");
+    return { bytes, contentType, extension: extensionForContentType(contentType) };
+  }
+
+  try {
+    const response = await fetch(img.imageUrl);
+    if (!response.ok) return null;
+    const arrayBuffer = await response.arrayBuffer();
+    const contentType = response.headers.get("content-type") || "application/octet-stream";
+    return {
+      bytes: Buffer.from(arrayBuffer),
+      contentType,
+      extension: extensionForContentType(contentType),
+    };
+  } catch (error) {
+    logger.warn("Failed to fetch image bytes for export", {
+      storageId: img.storageId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function extensionForContentType(contentType: string): string {
+  const map: Record<string, string> = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/svg+xml": "svg",
+    "image/heic": "heic",
+    "image/avif": "avif",
+  };
+  return map[contentType.toLowerCase()] || "bin";
 }
 
 function generateMarkdown(notes: Array<{ title: string; content: string; updatedAt: number }>): string {
   const lines = ["# Workspace Notes Export\n"];
-  
+
   for (const note of notes) {
     const date = new Date(note.updatedAt).toLocaleDateString();
     lines.push(`## ${note.title}\n`);
@@ -104,13 +210,62 @@ function generateMarkdown(notes: Array<{ title: string; content: string; updated
     lines.push(`${note.content}\n`);
     lines.push("---\n");
   }
-  
+
   return lines.join("\n");
+}
+
+async function notifyExportReady(
+  exportId: string,
+  downloadUrl: string,
+  expiresAt: number | undefined
+) {
+  const owner = await getExportOwner(exportId);
+  if (!owner) {
+    logger.warn("Export owner not found for email notification", { exportId });
+    return;
+  }
+
+  const emailResult = await callConvexHttp("/users/email", {
+    clerkId: owner.userId,
+  }) as { email: string | null };
+
+  if (!emailResult.email) {
+    logger.warn("Export recipient email not found", { exportId, userId: owner.userId });
+    return;
+  }
+
+  const built = buildWorkspaceExportReadyEmail({
+    workspaceName: owner.workspaceName,
+    downloadUrl,
+    expiresAt: expiresAt ?? Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+  });
+
+  const result = await sendEmail({
+    to: emailResult.email,
+    subject: built.subject,
+    text: built.text,
+    html: built.html,
+    headers: built.headers,
+  });
+
+  if (!result.ok && "skipped" in result && result.skipped) {
+    logger.warn("Export ready email skipped (provider not configured)", { exportId });
+    return;
+  }
+  if (!result.ok) {
+    const errorMessage = "error" in result ? result.error : "unknown error";
+    logger.error("Export ready email failed", { exportId, error: errorMessage });
+    return;
+  }
+  logger.info("Export ready email sent", { exportId, resendId: result.id });
 }
 
 export const processWorkspaceExport = task({
   id: "process-workspace-export",
   maxDuration: 600,
+  retry: {
+    maxAttempts: 3,
+  },
   run: async (payload: { workspaceId: string; exportId: string }) => {
     const { workspaceId, exportId } = payload;
     logger.info("Starting workspace export", { workspaceId, exportId });
@@ -125,7 +280,7 @@ export const processWorkspaceExport = task({
       });
 
       const chunks: Buffer[] = [];
-      
+
       await new Promise<void>((resolve, reject) => {
         const archive = archiver("zip", { zlib: { level: 9 } });
 
@@ -138,17 +293,24 @@ export const processWorkspaceExport = task({
           archive.append(markdown, { name: "notes.md" });
         }
 
+        // PR #4b-fix: archive every image regardless of whether the
+        // URL is inlined (`data:`) or a Convex storage URL. The
+        // previous code only handled the `data:` case and silently
+        // skipped every storage-backed image.
+        let imageCount = 0;
         for (const img of exportData.images) {
-          if (img.imageUrl && img.imageUrl.startsWith("data:")) {
-            const base64Data = img.imageUrl.split(",")[1];
-            if (base64Data) {
-              const buffer = Buffer.from(base64Data, "base64");
-              archive.append(buffer, { name: `images/${img.storageId || 'image'}.png` });
-            }
-          }
+          const fetched = await fetchImageBytes(img);
+          if (!fetched) continue;
+          const baseName = img.fileName || img.storageId || `image-${imageCount + 1}`;
+          const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+          archive.append(fetched.bytes, {
+            name: `images/${safeName}.${fetched.extension}`,
+          });
+          imageCount++;
         }
+        logger.info("Archived images", { imageCount, totalImages: exportData.images.length });
 
-        if (exportData.notes.length === 0 && exportData.images.length === 0) {
+        if (exportData.notes.length === 0 && imageCount === 0) {
           archive.append("# No content to export", { name: "README.txt" });
         }
 
@@ -158,8 +320,24 @@ export const processWorkspaceExport = task({
       const zipBuffer = Buffer.concat(chunks);
       logger.info(`ZIP created, size: ${zipBuffer.length} bytes`);
 
-      const downloadUrl = await uploadZipToB2(zipBuffer, workspaceId, exportData.workspaceName);
+      const safeName = exportData.workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
+      const downloadUrl = await uploadZipToB2(
+        zipBuffer,
+        workspaceId,
+        exportData.workspaceName,
+        `${safeName}-export.zip`
+      );
+      const expiresAt = Date.now() + EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
       await updateExportStatus(exportId, "completed", downloadUrl);
+
+      // PR #4b-fix: notify the requesting user. Best-effort — a
+      // Resend failure must NOT roll back the completed export.
+      await notifyExportReady(exportId, downloadUrl, expiresAt).catch((error) =>
+        logger.warn("Export ready notification failed (non-fatal)", {
+          exportId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
 
       logger.info("Export completed", { downloadUrl, size: zipBuffer.length });
 
@@ -168,14 +346,19 @@ export const processWorkspaceExport = task({
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Export failed", { error: errorMessage });
 
-      await updateExportStatus(exportId, "failed");
+      await updateExportStatus(exportId, "failed", undefined, errorMessage);
 
       return { success: false, error: errorMessage };
     }
   },
 });
 
-async function uploadPdfToB2(pdfBuffer: Buffer, workspaceId: string, workspaceName: string): Promise<string> {
+async function uploadPdfToB2(
+  pdfBuffer: Buffer,
+  workspaceId: string,
+  workspaceName: string,
+  filename: string
+): Promise<string> {
   const client = getB2Client();
   const timestamp = Date.now();
   const safeName = workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
@@ -187,14 +370,27 @@ async function uploadPdfToB2(pdfBuffer: Buffer, workspaceId: string, workspaceNa
       Key: key,
       Body: pdfBuffer,
       ContentType: "application/pdf",
-      ContentDisposition: `attachment; filename="${safeName}-export.pdf"`,
+      ContentDisposition: `attachment; filename="${filename}"`,
     })
   );
 
-  return `https://${B2_DOWNLOAD_HOST}/file/${B2_BUCKET_NAME}/${key}`;
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }),
+    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+  );
 }
 
-async function uploadMarkdownToB2(markdownBuffer: Buffer, workspaceId: string, workspaceName: string): Promise<string> {
+async function uploadMarkdownToB2(
+  markdownBuffer: Buffer,
+  workspaceId: string,
+  workspaceName: string,
+  filename: string
+): Promise<string> {
   const client = getB2Client();
   const timestamp = Date.now();
   const safeName = workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
@@ -206,16 +402,27 @@ async function uploadMarkdownToB2(markdownBuffer: Buffer, workspaceId: string, w
       Key: key,
       Body: markdownBuffer,
       ContentType: "text/markdown",
-      ContentDisposition: `attachment; filename="${safeName}-export.md"`,
+      ContentDisposition: `attachment; filename="${filename}"`,
     })
   );
 
-  return `https://${B2_DOWNLOAD_HOST}/file/${B2_BUCKET_NAME}/${key}`;
+  return getSignedUrl(
+    client,
+    new GetObjectCommand({
+      Bucket: B2_BUCKET_NAME,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+    }),
+    { expiresIn: EXPORT_URL_EXPIRY_DAYS * 24 * 60 * 60 }
+  );
 }
 
 export const processWorkspacePdfExport = task({
   id: "process-workspace-pdf-export",
   maxDuration: 600,
+  retry: {
+    maxAttempts: 3,
+  },
   run: async (payload: { workspaceId: string; exportId: string }) => {
     const { workspaceId, exportId } = payload;
     logger.info("Starting PDF workspace export", { workspaceId, exportId });
@@ -264,7 +471,13 @@ export const processWorkspacePdfExport = task({
         doc.end();
       });
 
-      const downloadUrl = await uploadPdfToB2(pdfBuffer, workspaceId, exportData.workspaceName);
+      const safeName = exportData.workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
+      const downloadUrl = await uploadPdfToB2(
+        pdfBuffer,
+        workspaceId,
+        exportData.workspaceName,
+        `${safeName}-export.pdf`
+      );
       await updateExportStatus(exportId, "completed", downloadUrl);
 
       return { success: true, downloadUrl };
@@ -272,7 +485,7 @@ export const processWorkspacePdfExport = task({
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("PDF export failed", { error: errorMessage });
 
-      await updateExportStatus(exportId, "failed");
+      await updateExportStatus(exportId, "failed", undefined, errorMessage);
 
       return { success: false, error: errorMessage };
     }
@@ -282,6 +495,9 @@ export const processWorkspacePdfExport = task({
 export const processWorkspaceMarkdownExport = task({
   id: "process-workspace-markdown-export",
   maxDuration: 600,
+  retry: {
+    maxAttempts: 3,
+  },
   run: async (payload: { workspaceId: string; exportId: string }) => {
     const { workspaceId, exportId } = payload;
     logger.info("Starting markdown workspace export", { workspaceId, exportId });
@@ -294,7 +510,13 @@ export const processWorkspaceMarkdownExport = task({
       const markdown = generateMarkdown(exportData.notes);
       const markdownBuffer = Buffer.from(markdown, "utf-8");
 
-      const downloadUrl = await uploadMarkdownToB2(markdownBuffer, workspaceId, exportData.workspaceName);
+      const safeName = exportData.workspaceName.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 50);
+      const downloadUrl = await uploadMarkdownToB2(
+        markdownBuffer,
+        workspaceId,
+        exportData.workspaceName,
+        `${safeName}-export.md`
+      );
       await updateExportStatus(exportId, "completed", downloadUrl);
 
       return { success: true, downloadUrl };
@@ -302,7 +524,7 @@ export const processWorkspaceMarkdownExport = task({
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error("Markdown export failed", { error: errorMessage });
 
-      await updateExportStatus(exportId, "failed");
+      await updateExportStatus(exportId, "failed", undefined, errorMessage);
 
       return { success: false, error: errorMessage };
     }

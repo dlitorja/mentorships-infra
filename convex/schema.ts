@@ -443,6 +443,7 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("processing"), v.literal("completed"), v.literal("failed")),
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_status", ["status"]),

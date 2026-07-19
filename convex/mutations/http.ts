@@ -92,21 +92,39 @@ export const createRetentionNotification = mutation({
 export const updateWorkspaceExportStatus = mutation({
   args: {
     exportId: v.id("workspaceExports"),
-    status: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
     downloadUrl: v.optional(v.string()),
     expiresAt: v.optional(v.number()),
+    errorMessage: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { exportId, status, downloadUrl, expiresAt } = args;
+    const { exportId, status, downloadUrl, expiresAt, errorMessage } = args;
 
     const exportRecord = await ctx.db.get(exportId);
     if (!exportRecord) {
       throw new Error("Export not found");
     }
 
+    // PR #4b-fix: refuse to overwrite a "completed" row with anything
+    // other than "completed" so a retried trigger task does not
+    // silently undo a finished export. Also refuse to mark a row
+    // "completed" if the user already cancelled it ("failed").
+    if (exportRecord.status === "completed" && status !== "completed") {
+      throw new Error("Export already completed");
+    }
+    if (exportRecord.status === "failed" && status === "completed") {
+      throw new Error("Export was cancelled; refusing to mark completed");
+    }
+
     const updates: Record<string, unknown> = { status };
-    if (downloadUrl) updates.downloadUrl = downloadUrl;
-    if (expiresAt) updates.expiresAt = expiresAt;
+    if (downloadUrl !== undefined) updates.downloadUrl = downloadUrl;
+    if (expiresAt !== undefined) updates.expiresAt = expiresAt;
+    if (errorMessage !== undefined) updates.errorMessage = errorMessage;
 
     await ctx.db.patch(exportId, updates);
 

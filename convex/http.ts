@@ -7,6 +7,7 @@ import {
   getWorkspacesForNotification,
   getUserEmail,
   getWorkspaceExportData,
+  getWorkspaceExport,
 } from "./queries/http";
 import {
   deleteAllWorkspaceContent,
@@ -137,7 +138,7 @@ export const httpGetWorkspaceExportData = httpAction(async (ctx, request) => {
 export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  const { exportId, status, downloadUrl, expiresAt } = await request.json();
+  const { exportId, status, downloadUrl, expiresAt, errorMessage } = await request.json();
 
   try {
     const result = await ctx.runMutation(updateWorkspaceExportStatus as any, {
@@ -145,8 +146,43 @@ export const httpUpdateWorkspaceExportStatus = httpAction(async (ctx, request) =
       status,
       downloadUrl,
       expiresAt,
+      errorMessage,
     });
     return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    const status = message.includes("not found") ? 404 : 500;
+    return new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+/**
+ * PR #4b-fix: returns the owner + workspace of an export so the
+ * trigger task can email the requesting user on completion. Mirrors
+ * the pattern of `httpGetWorkspaceExportData` — single-record
+ * lookup gated by CONVEX_HTTP_KEY.
+ */
+export const httpGetWorkspaceExport = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const { exportId } = await request.json();
+
+  try {
+    const exportDoc = await ctx.runQuery(getWorkspaceExport as any, {
+      exportId: exportId as any,
+    });
+    if (!exportDoc) {
+      return new Response(JSON.stringify({ error: "Export not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify(exportDoc), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error) {
@@ -399,6 +435,12 @@ http.route({
   path: "/workspace/export/update-status",
   method: "POST",
   handler: httpUpdateWorkspaceExportStatus,
+});
+
+http.route({
+  path: "/workspace/export/get",
+  method: "POST",
+  handler: httpGetWorkspaceExport,
 });
 
 http.route({

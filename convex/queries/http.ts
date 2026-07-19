@@ -123,15 +123,22 @@ export const getWorkspaceExportData = query({
     const imagesWithUrls = await Promise.all(
       images.map(async (img) => {
         let imageUrl = img.imageUrl;
+        let contentType: string | undefined;
+        let fileName: string | undefined;
         if (img.storageId) {
-          const url = await ctx.storage.getUrl(img.storageId as Id<"_storage">);
-          if (url) {
-            imageUrl = url;
-          }
+          const [url, metadata] = await Promise.all([
+            ctx.storage.getUrl(img.storageId as Id<"_storage">),
+            ctx.db.system.get("_storage", img.storageId as Id<"_storage">),
+          ]);
+          if (url) imageUrl = url;
+          contentType = metadata?.contentType ?? undefined;
+          fileName = metadata?.name ?? undefined;
         }
         return {
           imageUrl,
           storageId: img.storageId,
+          contentType,
+          fileName,
           createdBy: img.createdBy,
           createdAt: img._creationTime,
         };
@@ -146,6 +153,30 @@ export const getWorkspaceExportData = query({
         updatedAt: n.updatedAt,
       })),
       images: imagesWithUrls,
+    };
+  },
+});
+
+/**
+ * PR #4b-fix: returns the owner + workspace of an export so the
+ * trigger task can email the requesting user on completion. Gated
+ * by CONVEX_HTTP_KEY at the HTTP layer; the query itself is a
+ * single-row lookup with no PII filtering needed because only
+ * server-side callers (the trigger task) can reach it.
+ */
+export const getWorkspaceExport = query({
+  args: { exportId: v.id("workspaceExports") },
+  handler: async (ctx, args) => {
+    const exportDoc = await ctx.db.get(args.exportId);
+    if (!exportDoc) {
+      return null;
+    }
+    const workspace = await ctx.db.get(exportDoc.workspaceId);
+    return {
+      userId: exportDoc.userId,
+      workspaceId: exportDoc.workspaceId,
+      workspaceName: workspace?.name || "Workspace",
+      status: exportDoc.status,
     };
   },
 });
