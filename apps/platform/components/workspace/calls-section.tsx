@@ -8,6 +8,7 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
 import RecordingPlayerModal from "./recording-player-modal";
 
 type CallRecording = FunctionReturnType<
@@ -166,6 +167,7 @@ export default function CallsSection({
           }}
           callStartedAt={openRecording.callStartedAt}
           participantName={openRecording.participantName}
+          recordingExpiresAt={openRecording.recordingExpiresAt}
         />
       ) : null}
     </section>
@@ -202,6 +204,13 @@ function RecordingRow({
   const isReady = status === "ready" || status === null;
   const isPending = status === "pending" || status === "uploading";
   const isFailed = status === "failed";
+  // R12: once the retention cleanup Trigger
+  // (`src/trigger/recording-retention.ts`) has deleted the B2
+  // object and flipped status to "purged", the row stays in
+  // the list with a "Deleted on [date]" pill so the user can
+  // see *why* the recording is gone (rather than silently
+  // disappearing from history).
+  const isPurged = status === "purged";
 
   const downloadHref = `/api/video/recording/${recording.sessionId}?kind=download`;
 
@@ -264,6 +273,17 @@ function RecordingRow({
               Recording unavailable
             </span>
           ) : null}
+          {isPurged ? (
+            <span
+              className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
+              aria-label="Recording was auto-deleted by retention"
+            >
+              Deleted{" "}
+              {recording.recordingDeletedAt !== null
+                ? `on ${new Date(recording.recordingDeletedAt).toLocaleDateString()}`
+                : ""}
+            </span>
+          ) : null}
         </div>
         <div className="text-xs text-muted-foreground truncate">
           {subtitleParts.join(" · ")}
@@ -271,6 +291,18 @@ function RecordingRow({
         {isFailed && recording.recordingTransferErrorCode ? (
           <p className="text-xs text-muted-foreground mt-1 max-w-md">
             {summarizeTransferError(recording.recordingTransferErrorCode)}
+          </p>
+        ) : null}
+        {isReady && recording.recordingExpiresAt !== null ? (
+          <p
+            className={`text-xs mt-1 ${
+              getRetentionUrgency(recording.recordingExpiresAt) === "urgent"
+                ? "text-destructive"
+                : "text-muted-foreground"
+            }`}
+            aria-label="Recording retention countdown"
+          >
+            {summarizeRetention(recording.recordingExpiresAt)}
           </p>
         ) : null}
       </div>
@@ -363,6 +395,19 @@ function summarizeTransferError(
       return "Something went wrong saving the recording. Click retry; if it keeps failing, contact support.";
   }
 }
+
+/**
+ * R12: retention countdown formatters live in
+ * `@/lib/recording-retention` (CodeRabbit #2: extracted so
+ * a copy-paste drift surfaces as a typecheck/test failure
+ * instead of a UI bug). The pair
+ * `summarizeRetention` + `getRetentionUrgency` powers the
+ * per-row "auto-deletes in N days" caption. We keep this
+ * client-side (not in Convex) because the row already receives
+ * the timestamp from `getCallRecordingsForWorkspace` —
+ * re-fetching to compute the label would be wasteful and
+ * would not auto-refresh as the user keeps the page open.
+ */
 
 function formatDuration(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {

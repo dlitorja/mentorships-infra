@@ -1011,4 +1011,163 @@ http.route({
   handler: httpMarkRecordingTransferFailed,
 });
 
+/**
+ * R12: recording-retention HTTP endpoints invoked by the
+ * Trigger.dev schedules `cleanup-expired-call-recordings` and
+ * `send-recording-retention-warnings` (see
+ * `src/trigger/recording-retention.ts` and
+ * `src/trigger/recording-retention-warnings.ts`). They follow
+ * the same auth model as the workspace-retention routes
+ * (`/workspace/retention/*`): `CONVEX_HTTP_KEY` only, because
+ * the Trigger SDK schedules we run are *our* schedules (not
+ * caller-supplied), so the second-key defence-in-depth from
+ * `verifyCallbackSecret` is unnecessary.
+ *
+ * Cleanup is orchestrated in Trigger (so it can call
+ * `@mentorships/storage:deleteFromB2`) and calls back here to
+ * patch the session to the `purged` terminal state and write
+ * a `deleted` retention notification row per recipient. This
+ * split keeps Convex free of workspace-package imports while
+ * still letting us atomically flip state in a single
+ * transaction.
+ */
+
+const httpGetRecordingsNeedingCleanup = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const recordings = await ctx.runQuery(
+    internal.recordingRetention.getRecordingsNeedingCleanup,
+    { now: Date.now() }
+  );
+
+  return new Response(JSON.stringify({ recordings }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpGetRecordingsForRetentionNotification = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  const notifications = await ctx.runQuery(
+    internal.recordingRetention.getRecordingsForRetentionNotification,
+    { now: Date.now() }
+  );
+
+  return new Response(JSON.stringify({ notifications }), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpMarkRecordingDeleted = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let sessionId: string | undefined;
+  try {
+    const body = await request.json();
+    sessionId = body.sessionId;
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!sessionId || typeof sessionId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing sessionId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await ctx.runMutation(
+    internal.recordingRetention.markRecordingDeleted,
+    { sessionId: sessionId as any }
+  );
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+const httpCreateRecordingRetentionNotification = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: {
+    sessionId?: string;
+    workspaceId?: string;
+    recipientUserId?: string;
+    recipientRole?: "instructor" | "student";
+    notificationType?: "expiry_warning" | "deleted";
+    recordingExpiresAt?: number;
+    daysUntilDeletion?: number;
+  } = {};
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const required: Array<keyof typeof body> = [
+    "sessionId",
+    "workspaceId",
+    "recipientUserId",
+    "recipientRole",
+    "notificationType",
+    "recordingExpiresAt",
+    "daysUntilDeletion",
+  ];
+  for (const field of required) {
+    if (body[field] === undefined) {
+      return new Response(
+        JSON.stringify({ error: `Missing required field: ${field}` }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  const result = await ctx.runMutation(
+    internal.recordingRetention.createRecordingRetentionNotification,
+    {
+      sessionId: body.sessionId as any,
+      workspaceId: body.workspaceId as any,
+      recipientUserId: body.recipientUserId!,
+      recipientRole: body.recipientRole!,
+      notificationType: body.notificationType!,
+      recordingExpiresAt: body.recordingExpiresAt!,
+      daysUntilDeletion: body.daysUntilDeletion!,
+    }
+  );
+
+  return new Response(JSON.stringify(result), {
+    headers: { "Content-Type": "application/json" },
+  });
+});
+
+http.route({
+  path: "/recording-retention/needing-cleanup",
+  method: "GET",
+  handler: httpGetRecordingsNeedingCleanup,
+});
+
+http.route({
+  path: "/recording-retention/for-notification",
+  method: "GET",
+  handler: httpGetRecordingsForRetentionNotification,
+});
+
+http.route({
+  path: "/recording-retention/mark-deleted",
+  method: "POST",
+  handler: httpMarkRecordingDeleted,
+});
+
+http.route({
+  path: "/recording-retention/notify",
+  method: "POST",
+  handler: httpCreateRecordingRetentionNotification,
+});
+
 export default http;

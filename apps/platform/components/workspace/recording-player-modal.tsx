@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Id } from "@/convex/_generated/dataModel";
+import { formatRetentionCountdown, isRetentionUrgent } from "@/lib/recording-retention";
 
 /**
  * PR #4c-1: modal video player for a single past call recording.
@@ -53,6 +54,10 @@ interface RecordingPlayerModalProps {
   onOpenChange: (next: boolean) => void;
   callStartedAt: number | null;
   participantName: string | null;
+  // R12: scheduled deletion time (ms epoch). Surfaces a
+  // countdown line in the modal header so the user is reminded
+  // to download before the retention cleanup runs.
+  recordingExpiresAt: number | null;
 }
 
 export default function RecordingPlayerModal({
@@ -61,6 +66,7 @@ export default function RecordingPlayerModal({
   onOpenChange,
   callStartedAt,
   participantName,
+  recordingExpiresAt,
 }: RecordingPlayerModalProps) {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number>(0);
@@ -230,6 +236,10 @@ export default function RecordingPlayerModal({
   const titleLine = participantName
     ? `Recording with ${participantName}`
     : "Recording";
+  const retentionLabel =
+    recordingExpiresAt !== null
+      ? formatRetentionCountdown(recordingExpiresAt)
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -245,6 +255,17 @@ export default function RecordingPlayerModal({
               </>
             ) : null}
           </DialogDescription>
+          {retentionLabel !== null ? (
+            <p
+              className={
+                isRetentionUrgent(recordingExpiresAt!)
+                  ? "text-xs text-destructive"
+                  : "text-xs text-muted-foreground"
+              }
+            >
+              {retentionLabel}
+            </p>
+          ) : null}
         </div>
 
         <div className="relative w-full aspect-video bg-black rounded-md overflow-hidden">
@@ -313,5 +334,15 @@ function formatRelativeExpiry(expiresAt: number): string {
   const minutes = Math.max(1, Math.round(remainingMs / 60_000));
   return `in ${minutes} min`;
 }
+
+/**
+ * R12: retention countdown formatters live in
+ * `@/lib/recording-retention` (CodeRabbit #2: extracted so
+ * a copy-paste drift surfaces as a typecheck/test failure
+ * instead of a UI bug). `formatRetentionCountdown` renders
+ * the modal-header scheduled-deletion deadline so users
+ * watching a long recording are reminded to download before
+ * retention runs.
+ */
 
 export { SIGNED_URL_TTL_SECONDS };

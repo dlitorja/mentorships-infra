@@ -1251,11 +1251,29 @@ export const attachRecordingFromB2Upload = internalMutation({
     if (session.recordingTransferStatus === "ready") {
       return { sessionId: session._id, updated: false };
     }
+    // R12: stamp the retention deadline. Read the env value at
+    // mutation-evaluation time (not module load) so deploys can
+    // tune retention without a code change. Default to 90 days
+    // (`DEFAULT_RECORDING_RETENTION_DAYS` in
+    // `convex/recordingRetention.ts`). We DO NOT overwrite an
+    // existing `recordingExpiresAt` — if a previous attach left
+    // one (shouldn't happen because the early-return above
+    // short-circuits when status is `ready`, but defence in
+    // depth), keep it so cleanup timing stays deterministic.
+    const retentionDays =
+      Number(process.env.RECORDING_RETENTION_DAYS) > 0
+        ? Number(process.env.RECORDING_RETENTION_DAYS)
+        : undefined;
+    const recordingExpiresAt =
+      session.recordingExpiresAt ??
+      Date.now() +
+        (retentionDays ?? 90) * 24 * 60 * 60 * 1000;
     const patch: Partial<Doc<"sessions">> = {
       recordingUrl: args.b2Key,
       recordingTransferStatus: "ready",
       recordingTransferUpdatedAt: Date.now(),
       recordingTransferError: undefined,
+      recordingExpiresAt,
     };
     if (args.durationSeconds !== undefined) {
       patch.recordingDurationSeconds = args.durationSeconds;
@@ -1652,7 +1670,7 @@ export type CallRecording = {
   // pre-fix recordings keep showing Play/Download — broken-but-
   // honest matches the existing UX, and the audit migration can
   // clean these up in NARROW.
-  recordingTransferStatus: "pending" | "uploading" | "ready" | "failed" | null;
+  recordingTransferStatus: "pending" | "uploading" | "ready" | "failed" | "purged" | null;
   recordingTransferAttempts: number | null;
   // Sanitized bucket describing the last failure, mapped from the
   // raw `recordingTransferError` server-side. The raw message is
@@ -1674,6 +1692,20 @@ export type CallRecording = {
   // UI previously rendered the button for everyone, leaking the
   // affordance to viewers who would get a 403 on click.
   canRetryRecording: boolean;
+  // R12: scheduled deletion time (ms epoch). Stamped by
+  // `attachRecordingFromB2Upload` at `now + retentionDays` and
+  // backfilled for legacy rows by
+  // `convex/migrations/backfillRecordingExpiry.ts`. Safe to
+  // expose: it's the same data the user already sees in the
+  // warning banner / modal countdown.
+  recordingExpiresAt: number | null;
+  // R12: actual deletion time (ms epoch). Set ONLY when the
+  // retention-cleanup Trigger deletes the B2 object and flips
+  // `recordingTransferStatus = "purged"`. Distinct from
+  // `recordingExpiresAt` (the planned time) so the UI can show
+  // "Auto-deleted on May 14" with a planned-vs-actual diff
+  // if the cleanup ran late.
+  recordingDeletedAt: number | null;
 };
 
 export const getCallRecordingsForWorkspace = query({
@@ -1749,9 +1781,11 @@ export const getCallRecordingsForWorkspace = query({
         if (s.deletedAt !== undefined) return false;
         // Include the row if EITHER the legacy gate (recordingUrl set)
         // OR the new transfer-pipeline gate (any non-null transfer
-        // status, including `pending`/`uploading`/`failed`). This is
-        // what makes "Processing" and "Failed" pills visible in the
-        // UI before `recordingUrl` is populated.
+        // status, including `pending`/`uploading`/`failed`/`purged`).
+        // `purged` is included so the UI can render a "Deleted on
+        // [date]" pill instead of silently dropping the row — the
+        // audit trail matters when the user reports "where did my
+        // recording go?"
         return (
           s.recordingUrl !== undefined ||
           s.recordingTransferStatus !== undefined
@@ -1772,6 +1806,12 @@ export const getCallRecordingsForWorkspace = query({
             : null,
         canRetryRecording:
           isInstructor && s.recordingTransferStatus === "failed",
+        // R12: surface the retention deadline so the UI can render
+        // a per-row countdown. `null` for legacy rows that haven't
+        // been backfilled yet (the migration script fills these
+        // in once, idempotently).
+        recordingExpiresAt: s.recordingExpiresAt ?? null,
+        recordingDeletedAt: s.recordingDeletedAt ?? null,
       }))
       // Sort by callStartedAt desc — nulls last so ad-hoc calls
       // with no start timestamp sink to the bottom.

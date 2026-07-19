@@ -119,7 +119,15 @@ export default defineSchema({
       v.literal("pending"),
       v.literal("uploading"),
       v.literal("ready"),
-      v.literal("failed")
+      v.literal("failed"),
+      // R12: terminal status after the retention-cleanup Trigger
+      // deletes the B2 object and clears `recordingUrl`. Distinct
+      // from `failed` (transfer failure, retryable) so the UI pill
+      // can render "Deleted on [date]" rather than the retry
+      // affordance. Idempotent: re-running cleanup against an
+      // already-purged row is a no-op (see
+      // `convex/recordingRetention.markRecordingDeleted`).
+      v.literal("purged")
     )),
     // Capture Daily's raw s3_key from the webhook payload for
     // diagnostics — never read by the UI, only logged + shown on
@@ -133,6 +141,15 @@ export default defineSchema({
     // for >10 min or "failed" for >24 h based on the actual transition
     // age, not the immutable session creation time.
     recordingTransferUpdatedAt: v.optional(v.number()),
+    // R12: ms epoch at which the retention-cleanup Trigger
+    // (`src/trigger/recording-retention.ts`) deleted the B2 object
+    // and set `recordingTransferStatus = "purged"`. Distinct from
+    // `recordingExpiresAt` (the planned deletion time, stamped at
+    // upload) so the UI can show "Auto-deleted on May 14, 2026
+    // (was scheduled for May 14, 2026)" rather than a confusing
+    // delta from a now-stale expiry. Optional — set only on the
+    // cleanup transition.
+    recordingDeletedAt: v.optional(v.number()),
     googleCalendarEventId: v.optional(v.string()),
     notes: v.optional(v.string()),
     cancelReason: v.optional(v.string()),
@@ -155,7 +172,19 @@ export default defineSchema({
     // `by_instructorId_status_scheduledAt` would silently drop
     // recordings for any student whose sessions weren't among
     // the instructor's 50 most recent overall.
-    .index("by_instructorId_studentId", ["instructorId", "studentId"]),
+    .index("by_instructorId_studentId", ["instructorId", "studentId"])
+    // R12: indexed read for the daily retention-cleanup query
+    // (`convex/recordingRetention.getRecordingsNeedingCleanup`).
+    // The cleanup predicate is `recordingExpiresAt < now &&
+    // recordingUrl !== undefined && recordingTransferStatus ===
+    // "ready"`, so a direct `.lt("recordingExpiresAt", now)` on
+    // this index is bounded to rows that are eligible for
+    // deletion — most sessions have no `recordingUrl` at all
+    // and never enter the candidate set. Convex allows `q.lt`
+    // against an indexed number column even when some rows
+    // have `undefined` (those rows sort to the end and are
+    // filtered out client-side).
+    .index("by_recordingExpiresAt", ["recordingExpiresAt"]),
 
   seatReservations: defineTable({
     instructorId: v.id("instructors"),
@@ -456,6 +485,30 @@ export default defineSchema({
   }).index("by_workspaceId", ["workspaceId"])
     .index("by_userId", ["userId"])
     .index("by_workspaceId_userId", ["workspaceId", "userId"]),
+
+  // R12: per-recipient retention warnings for call recordings
+  // (mirror of `workspaceRetentionNotifications`). The Trigger
+  // warnings job (`src/trigger/recording-retention-warnings.ts`)
+  // writes one row per recipient at each 30/7/1-day window; the
+  // in-app banner queries unacknowledged rows. `daysUntilDeletion`
+  // + `recordingExpiresAt` are stored so dedupe is deterministic
+  // (skip if a row already exists with the same
+  // (sessionId, recipientUserId, daysUntilDeletion)).
+  recordingRetentionNotifications: defineTable({
+    sessionId: v.id("sessions"),
+    workspaceId: v.id("workspaces"),
+    recipientUserId: v.string(),
+    recipientRole: v.union(v.literal("instructor"), v.literal("student")),
+    notificationType: v.union(v.literal("expiry_warning"), v.literal("deleted")),
+    sentAt: v.number(),
+    acknowledgedAt: v.optional(v.number()),
+    recordingExpiresAt: v.number(),
+    daysUntilDeletion: v.number(),
+  }).index("by_sessionId", ["sessionId"])
+    .index("by_workspaceId", ["workspaceId"])
+    .index("by_recipientUserId", ["recipientUserId"])
+    .index("by_workspaceId_sessionId", ["workspaceId", "sessionId"])
+    .index("by_sessionId_recipientUserId_daysUntilDeletion", ["sessionId", "recipientUserId", "daysUntilDeletion"]),
 
   workspaceAuditLogs: defineTable({
     workspaceId: v.id("workspaces"),
