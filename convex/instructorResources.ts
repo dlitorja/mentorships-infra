@@ -2,7 +2,12 @@ import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { assertParticipantForSession, assertSessionBelongsToWorkspace } from "./workspaces";
+import {
+  assertParticipantForSession,
+  assertSessionBelongsToWorkspace,
+  WORKSPACE_FILE_CAPS,
+  countWorkspaceFilesByRole,
+} from "./workspaces";
 
 const MAX_WORKSPACE_FILE_BYTES = 50 * 1024 * 1024;
 const WORKSPACE_IMAGE_CAPS = {
@@ -12,6 +17,7 @@ const WORKSPACE_IMAGE_CAPS = {
 } as const;
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
+type WorkspaceRoleNonNull = Exclude<WorkspaceRole, null>;
 
 async function isAdmin(ctx: any, userId: string): Promise<boolean> {
   const user = await ctx.db
@@ -87,7 +93,12 @@ export async function assertResourceBelongsToInstructor(
   resource: Doc<"instructorResources">;
   workspace: Doc<"workspaces">;
   identity: { subject: string };
-  role: WorkspaceRole;
+  // Greptile R2 (PR #5): the helper throws if `role !== "instructor" && role !== "admin"`
+  // so the static return type is non-null. Annotating as `WorkspaceRoleNonNull` instead of
+  // `WorkspaceRole` propagates that narrowing to callers and lets them pass `role` directly
+  // into `v.union(...)` `senderRole` fields on `workspaceMessages` without a runtime
+  // null-check.
+  role: WorkspaceRoleNonNull;
 }> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
@@ -279,11 +290,25 @@ export const deleteInstructorResource = mutation({
   },
 });
 
-/** Shares an instructor image resource to the workspace chat. Also creates a workspaceImage record so it appears in the Images tab. Requires instructor or admin role. */
+/**
+ * Shares an instructor resource to the workspace chat. For image
+ * resources, also creates a `workspaceImages` row (so it appears in
+ * the Images tab) and bumps `instructorImageCount`. For file
+ * resources, enforces `WORKSPACE_FILE_CAPS` and writes a `type: "file"`
+ * `workspaceMessages` row in the same shape as
+ * `createWorkspaceFileMessage` (`workspaces.ts:1487`) so the chat
+ * renderer can pick it up uniformly.
+ *
+ * Optional `sessionId` is forwarded onto the chat message so a share
+ * during an active call gets the in-call tagging parity of the
+ * other chat-creating mutations. Mirrors `createWorkspaceFileMessage`.
+ * Requires instructor or admin role.
+ */
 export const shareResourceToChat = mutation({
   args: {
     resourceId: v.id("instructorResources"),
     workspaceId: v.id("workspaces"),
+    sessionId: v.optional(v.id("sessions")),
   },
   handler: async (ctx, args) => {
     const { resource, workspace, identity, role } = await assertResourceBelongsToInstructor(ctx, {
@@ -291,40 +316,64 @@ export const shareResourceToChat = mutation({
       expectedWorkspaceId: args.workspaceId,
     });
 
-    if (resource.type !== "image") {
-      throw new Error("Only image resources can be shared to chat");
+    await assertSessionBelongsToWorkspace(ctx, args);
+
+    const fileUrl = await ctx.storage.getUrl(resource.storageId);
+    if (!fileUrl) {
+      throw new Error("Failed to get resource URL");
     }
 
-    const imageUrl = await ctx.storage.getUrl(resource.storageId);
-    if (!imageUrl) {
-      throw new Error("Failed to get image URL");
+    if (resource.type === "image") {
+      const isAdminRole = role === "admin";
+      const currentCount = isAdminRole
+        ? await countActiveWorkspaceImages(ctx, args.workspaceId)
+        : (workspace.instructorImageCount ?? 0);
+      const cap = isAdminRole ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
+      if (currentCount >= cap) {
+        throw new Error(`Image limit reached (${cap} images allowed)`);
+      }
+
+      await ctx.db.insert("workspaceImages", {
+        workspaceId: args.workspaceId,
+        imageUrl: fileUrl,
+        storageId: resource.storageId,
+        createdBy: identity.subject,
+      });
+
+      await ctx.db.patch(args.workspaceId, {
+        instructorImageCount: (workspace.instructorImageCount ?? 0) + 1,
+      });
+
+      await ctx.db.insert("workspaceMessages", {
+        workspaceId: args.workspaceId,
+        userId: identity.subject,
+        content: `${encodeURIComponent(resource.fileName)}|${fileUrl}`,
+        type: "image",
+        senderRole: role,
+        sessionId: args.sessionId,
+      });
+      return;
     }
 
-    const isAdminRole = role === "admin";
-    const currentCount = isAdminRole
-      ? await countActiveWorkspaceImages(ctx, args.workspaceId)
-      : (workspace.instructorImageCount ?? 0);
-    const cap = isAdminRole ? WORKSPACE_IMAGE_CAPS.admin : WORKSPACE_IMAGE_CAPS.instructor;
-    if (currentCount >= cap) {
-      throw new Error(`Image limit reached (${cap} images allowed)`);
+    if (role !== "admin") {
+      const currentCount = await countWorkspaceFilesByRole(
+        ctx,
+        args.workspaceId,
+        role
+      );
+      const cap = WORKSPACE_FILE_CAPS[role];
+      if (currentCount >= cap) {
+        throw new Error(`File limit reached (${cap} ${role} files allowed per workspace).`);
+      }
     }
-
-    await ctx.db.insert("workspaceImages", {
-      workspaceId: args.workspaceId,
-      imageUrl,
-      storageId: resource.storageId,
-      createdBy: identity.subject,
-    });
-
-    await ctx.db.patch(args.workspaceId, {
-      instructorImageCount: (workspace.instructorImageCount ?? 0) + 1,
-    });
 
     await ctx.db.insert("workspaceMessages", {
       workspaceId: args.workspaceId,
       userId: identity.subject,
-      content: `${encodeURIComponent(resource.fileName)}|${imageUrl}`,
-      type: "image",
+      content: `${encodeURIComponent(resource.fileName)}|${fileUrl}`,
+      type: "file",
+      senderRole: role,
+      sessionId: args.sessionId,
     });
   },
 });
