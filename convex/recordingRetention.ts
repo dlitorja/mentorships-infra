@@ -252,10 +252,25 @@ export const createRecordingRetentionNotification = internalMutation({
 /**
  * Public mutation: ack a retention warning banner. Sets
  * `acknowledgedAt` so the banner stops surfacing it.
+ *
+ * Auth: the caller MUST be the notification's recipient.
+ * Without this check (Greptile P1 — security review) an
+ * authenticated user could dismiss any other recipient's
+ * notification by guessing the document id, which would
+ * hide legitimate warnings from the intended recipient.
  */
 export const acknowledgeRecordingRetentionNotification = mutation({
   args: { id: v.id("recordingRetentionNotifications") },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    const existing = await ctx.db.get(args.id);
+    if (!existing) throw new Error("Notification not found");
+    if (existing.recipientUserId !== identity.subject) {
+      throw new Error(
+        "Forbidden: cannot acknowledge another user's notification"
+      );
+    }
     await ctx.db.patch(args.id, { acknowledgedAt: Date.now() });
     return await ctx.db.get(args.id);
   },

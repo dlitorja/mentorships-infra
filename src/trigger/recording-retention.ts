@@ -59,6 +59,9 @@ async function callConvex(
  *   1. GET `/recording-retention/needing-cleanup` → array of
  *      sessions whose `recordingExpiresAt` is in the past
  *      AND `recordingUrl` is set AND status is `ready`.
+ *      The HTTP query is bounded at 200 rows; we re-fetch
+ *      until empty (drain pattern, MAX_ITERATIONS=50 →
+ *      ≈ 10,000 rows per run).
  *   2. For each: call `deleteFromB2(recordingUrl)` (the B2
  *      API call is idempotent — a missing object returns 404
  *      silently).
@@ -84,43 +87,63 @@ export const cleanupExpiredCallRecordings = schedules.task({
       lastTimestamp: payload.lastTimestamp,
     });
 
-    const candidates = (await callConvex(
-      "/recording-retention/needing-cleanup"
-    )) as { recordings: CleanupCandidate[] };
-
-    const items = candidates.recordings ?? [];
-    logger.info(`Found ${items.length} expired recordings to delete`);
-
+    // Greptile P2: drain the queue. Convex query HTTP responses
+    // are bounded (200 rows by default), so a single fetch could
+    // miss up to N − 200 rows when the backlog is large. We loop
+    // until the API returns an empty page or we hit our
+    // `maxIterations` safety cap (≈ 200 × 50 = 10,000 rows).
+    const MAX_ITERATIONS = 50;
     const results = {
-      candidates: items.length,
+      candidates: 0,
       deleted: 0,
       failed: 0,
       errors: [] as string[],
     };
 
-    for (const candidate of items) {
-      const sessionId = candidate._id;
-      const recordingUrl = candidate.recordingUrl;
-      try {
-        await deleteFromB2(recordingUrl);
-        await callConvex("/recording-retention/mark-deleted", {
-          method: "POST",
-          body: JSON.stringify({ sessionId }),
-        });
-        results.deleted++;
-        logger.info("Deleted call recording", {
-          sessionId,
-          recordingUrl,
-        });
-      } catch (error) {
-        results.failed++;
-        const message = error instanceof Error ? error.message : String(error);
-        results.errors.push(`${sessionId}: ${message}`);
-        logger.error("Failed to delete call recording", {
-          sessionId,
-          recordingUrl,
-          error: message,
-        });
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      const page = (await callConvex(
+        "/recording-retention/needing-cleanup"
+      )) as { recordings: CleanupCandidate[] };
+
+      const items = page.recordings ?? [];
+      if (items.length === 0) {
+        logger.info(
+          `Drain complete after ${iteration} iteration(s) — no more candidates`,
+          { deleted: results.deleted, failed: results.failed }
+        );
+        break;
+      }
+
+      results.candidates += items.length;
+      logger.info(
+        `Iteration ${iteration}: processing ${items.length} expired recordings`
+      );
+
+      for (const candidate of items) {
+        const sessionId = candidate._id;
+        const recordingUrl = candidate.recordingUrl;
+        try {
+          await deleteFromB2(recordingUrl);
+          await callConvex("/recording-retention/mark-deleted", {
+            method: "POST",
+            body: JSON.stringify({ sessionId }),
+          });
+          results.deleted++;
+          logger.info("Deleted call recording", {
+            sessionId,
+            recordingUrl,
+          });
+        } catch (error) {
+          results.failed++;
+          const message =
+            error instanceof Error ? error.message : String(error);
+          results.errors.push(`${sessionId}: ${message}`);
+          logger.error("Failed to delete call recording", {
+            sessionId,
+            recordingUrl,
+            error: message,
+          });
+        }
       }
     }
 

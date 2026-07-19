@@ -59,18 +59,22 @@ async function callConvex(
  *   1. GET `/recording-retention/for-notification` → array of
  *      sessions approaching their `recordingExpiresAt` within
  *      the warning windows, with their resolved recipients.
- *   2. For each (window, recipient): POST `/users/email` to
- *      resolve the Clerk user → email address.
- *   3. Send a Resend email with a Download CTA.
- *   4. POST `/recording-retention/notify` to dedupe-write a
- *      `recordingRetentionNotifications` row, which is what
- *      the in-app banner reads from.
+ *      The HTTP query is bounded at 500 rows; we re-fetch
+ *      until empty (drain pattern, MAX_ITERATIONS=20).
+ *   2. For each (window, recipient): POST `/recording-retention/notify`
+ *      FIRST to dedupe-write the `recordingRetentionNotifications`
+ *      row. If the mutation returns `{ skipped: true }`, we
+ *      skip the email (a row already exists for this
+ *      (session, recipient, threshold) tuple from a prior run).
+ *   3. POST `/users/email` to resolve Clerk user → email.
+ *   4. Send the Resend email with a Download CTA.
+ *
+ * Order is intentional (Greptile P1): notify BEFORE email so a
+ * transient email failure on retry doesn't double-send.
  *
  * Dedupe: the Convex `createRecordingRetentionNotification`
  * mutation is idempotent on
- * (sessionId, recipientUserId, daysUntilDeletion), so a
- * second daily tick that finds the same window+recipient is
- * a no-op.
+ * (sessionId, recipientUserId, daysUntilDeletion).
  */
 async function sendRecordingDeletionWarningEmail(
   to: string,
@@ -110,72 +114,115 @@ export const sendRecordingRetentionWarnings = schedules.task({
       timestamp: payload.timestamp,
     });
 
-    const windows = (await callConvex(
-      "/recording-retention/for-notification"
-    )) as { notifications: NotificationWindow[] };
-
-    const items = windows.notifications ?? [];
-    logger.info(`Found ${items.length} recording windows needing notification`);
-
+    // Greptile P2 (cleanup mirror): drain the queue. The HTTP
+    // query is bounded at 500 rows; if the warnings backlog
+    // exceeds that we re-fetch until empty (or hit the safety
+    // cap below).
+    const MAX_ITERATIONS = 20;
     const results = {
-      windows: items.length,
+      windows: 0,
       emailsSent: 0,
       emailsFailed: 0,
       skippedNoEmail: 0,
     };
 
-    for (const window of items) {
-      for (const recipient of window.recipients) {
-        try {
-          const userResponse = (await callConvex("/users/email", {
-            method: "POST",
-            body: JSON.stringify({ clerkId: recipient.userId }),
-          })) as UserEmailResponse;
+    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      const page = (await callConvex(
+        "/recording-retention/for-notification"
+      )) as { notifications: NotificationWindow[] };
 
-          if (!userResponse.email) {
-            results.skippedNoEmail++;
-            logger.warn(`No email found for user ${recipient.userId}`, {
-              sessionId: window.sessionId,
-            });
-            continue;
-          }
+      const items = page.notifications ?? [];
+      if (items.length === 0) {
+        logger.info(
+          `Drain complete after ${iteration} iteration(s) — no more notification windows`,
+          { emailsSent: results.emailsSent, emailsFailed: results.emailsFailed }
+        );
+        break;
+      }
 
-          await sendRecordingDeletionWarningEmail(
-            userResponse.email,
-            window.daysUntilDeletion,
-            "Mentorship Workspace",
-            window.sessionId
-          );
+      results.windows += items.length;
+      logger.info(
+        `Iteration ${iteration}: processing ${items.length} recording windows`
+      );
 
-          await callConvex("/recording-retention/notify", {
-            method: "POST",
-            body: JSON.stringify({
-              sessionId: window.sessionId,
-              workspaceId: window.workspaceId,
-              recipientUserId: recipient.userId,
-              recipientRole: recipient.role,
-              notificationType: "expiry_warning",
-              recordingExpiresAt: window.recordingExpiresAt,
-              daysUntilDeletion: window.daysUntilDeletion,
-            }),
-          });
+      for (const window of items) {
+        for (const recipient of window.recipients) {
+          try {
+            const userResponse = (await callConvex("/users/email", {
+              method: "POST",
+              body: JSON.stringify({ clerkId: recipient.userId }),
+            })) as UserEmailResponse;
 
-          results.emailsSent++;
-          logger.info(
-            `Sent recording retention warning to ${userResponse.email} (${window.daysUntilDeletion} days)`,
-            {
-              sessionId: window.sessionId,
-              recipientUserId: recipient.userId,
+            if (!userResponse.email) {
+              results.skippedNoEmail++;
+              logger.warn(`No email found for user ${recipient.userId}`, {
+                sessionId: window.sessionId,
+              });
+              continue;
             }
-          );
-        } catch (error) {
-          results.emailsFailed++;
-          const message = error instanceof Error ? error.message : String(error);
-          logger.error("Failed to send recording retention warning", {
-            sessionId: window.sessionId,
-            recipientUserId: recipient.userId,
-            error: message,
-          });
+
+            // Greptile P1: call /recording-retention/notify FIRST
+            // so the dedupe row is written before the email goes
+            // out. If the email succeeds and notify fails on the
+            // next call, the mutation's `skipped: true` return
+            // tells us a row already exists for this
+            // (session, recipient, threshold) and we skip the
+            // email entirely. This is the inverse of the
+            // previous order (email → notify) which could
+            // double-send if the notify request failed transiently.
+            const dedupeResult = (await callConvex(
+              "/recording-retention/notify",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  sessionId: window.sessionId,
+                  workspaceId: window.workspaceId,
+                  recipientUserId: recipient.userId,
+                  recipientRole: recipient.role,
+                  notificationType: "expiry_warning",
+                  recordingExpiresAt: window.recordingExpiresAt,
+                  daysUntilDeletion: window.daysUntilDeletion,
+                }),
+              }
+            )) as { skipped: boolean; id: string };
+
+            if (dedupeResult.skipped) {
+              logger.info(
+                `Skipped email — dedupe row already exists for ${recipient.userId} @ ${window.daysUntilDeletion} days`,
+                {
+                  sessionId: window.sessionId,
+                  recipientUserId: recipient.userId,
+                  notificationId: dedupeResult.id,
+                }
+              );
+              continue;
+            }
+
+            await sendRecordingDeletionWarningEmail(
+              userResponse.email,
+              window.daysUntilDeletion,
+              "Mentorship Workspace",
+              window.sessionId
+            );
+
+            results.emailsSent++;
+            logger.info(
+              `Sent recording retention warning to ${userResponse.email} (${window.daysUntilDeletion} days)`,
+              {
+                sessionId: window.sessionId,
+                recipientUserId: recipient.userId,
+              }
+            );
+          } catch (error) {
+            results.emailsFailed++;
+            const message =
+              error instanceof Error ? error.message : String(error);
+            logger.error("Failed to send recording retention warning", {
+              sessionId: window.sessionId,
+              recipientUserId: recipient.userId,
+              error: message,
+            });
+          }
         }
       }
     }
