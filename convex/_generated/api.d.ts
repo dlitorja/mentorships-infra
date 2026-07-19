@@ -11,6 +11,7 @@
 import type * as admin from "../admin.js";
 import type * as adminOnboarding from "../adminOnboarding.js";
 import type * as adminWorkspaces from "../adminWorkspaces.js";
+import type * as audit_recordingRetentionAudit from "../audit/recordingRetentionAudit.js";
 import type * as audit_recordingTransferAudit from "../audit/recordingTransferAudit.js";
 import type * as audit_videoRoomNameAudit from "../audit/videoRoomNameAudit.js";
 import type * as bookings from "../bookings.js";
@@ -29,6 +30,7 @@ import type * as instructors from "../instructors.js";
 import type * as legacyMappings from "../legacyMappings.js";
 import type * as migrationQueries from "../migrationQueries.js";
 import type * as migrations from "../migrations.js";
+import type * as migrations_backfillRecordingExpiry from "../migrations/backfillRecordingExpiry.js";
 import type * as monthlyStorageCosts from "../monthlyStorageCosts.js";
 import type * as mutations_http from "../mutations/http.js";
 import type * as notifications from "../notifications.js";
@@ -36,6 +38,7 @@ import type * as orders from "../orders.js";
 import type * as payments from "../payments.js";
 import type * as products from "../products.js";
 import type * as queries_http from "../queries/http.js";
+import type * as recordingRetention from "../recordingRetention.js";
 import type * as seatReservations from "../seatReservations.js";
 import type * as seed from "../seed.js";
 import type * as sessionPacks from "../sessionPacks.js";
@@ -61,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   adminOnboarding: typeof adminOnboarding;
   adminWorkspaces: typeof adminWorkspaces;
+  "audit/recordingRetentionAudit": typeof audit_recordingRetentionAudit;
   "audit/recordingTransferAudit": typeof audit_recordingTransferAudit;
   "audit/videoRoomNameAudit": typeof audit_videoRoomNameAudit;
   bookings: typeof bookings;
@@ -79,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   legacyMappings: typeof legacyMappings;
   migrationQueries: typeof migrationQueries;
   migrations: typeof migrations;
+  "migrations/backfillRecordingExpiry": typeof migrations_backfillRecordingExpiry;
   monthlyStorageCosts: typeof monthlyStorageCosts;
   "mutations/http": typeof mutations_http;
   notifications: typeof notifications;
@@ -86,6 +91,7 @@ declare const fullApi: ApiFromModules<{
   payments: typeof payments;
   products: typeof products;
   "queries/http": typeof queries_http;
+  recordingRetention: typeof recordingRetention;
   seatReservations: typeof seatReservations;
   seed: typeof seed;
   sessionPacks: typeof sessionPacks;

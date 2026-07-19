@@ -12,6 +12,7 @@ import WorkspaceImages from "@/components/workspace/images";
 import WorkspaceLinks from "@/components/workspace/links";
 import WorkspaceResources from "@/components/workspace/resources";
 import { RetentionWarningBanner } from "@/components/workspace/retention-warning-banner";
+import { RecordingRetentionWarningBanner } from "@/components/workspace/recording-retention-warning-banner";
 import { SessionCountControls } from "@/components/workspace/session-count-controls";
 import { WorkspaceTabsList } from "@/components/workspace/workspace-tabs-list";
 import { VideoCallProvider } from "@/components/video/video-call-provider";
@@ -285,6 +286,13 @@ function WorkspaceInner({
                     endedAt={selectedWorkspace.endedAt}
                   />
                 )}
+                {/* R12: call-recording retention warnings. Mounted
+                 * below the workspace banner because recordings
+                 * are a sub-resource of the workspace. Mounted
+                 * unconditionally (no `selectedWorkspace.endedAt`
+                 * gate) because recordings expire on their own
+                 * schedule, not when the workspace ends. */}
+                <RecordingRetentionWarningBanner />
                 {/* During an active call `<CallOverlay />` owns the
                  * `<Tabs>` subtree (mounted via portal). Rendering
                  * `<WorkspaceTabs />` here too would double-mount

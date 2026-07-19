@@ -4,7 +4,7 @@ import { internal } from "../_generated/api";
 
 type StuckRow = {
   sessionId: Id<"sessions">;
-  transferStatus: "pending" | "uploading" | "ready" | "failed";
+  transferStatus: "pending" | "uploading" | "ready" | "failed" | "purged";
   attempts: number | null;
   lastUpdated: number;
   dailyS3Key: string | null;

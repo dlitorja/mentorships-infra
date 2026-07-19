@@ -734,6 +734,55 @@ Failure modes:
 - B2 PUT fails — Trigger retries 5× with backoff; between attempts the UI flips to "Processing (attempt N/5)". After final failure the row is marked `failed` and the instructor sees a retry button.
 - Convex callback fails — Transfer task body is already past the upload at that point; the B2 copy is the source of truth. UI shows `ready` once `attachRecordingFromB2Upload` actually lands, otherwise `failed` after retries.
 
+### Recording Retention (R12)
+
+Call recordings uploaded to B2 are auto-deleted after **90 days** (configurable via `RECORDING_RETENTION_DAYS`). The deadline is stamped at upload time by `attachRecordingFromB2Upload` into `sessions.recordingExpiresAt`; legacy rows are backfilled by `convex/migrations/backfillRecordingExpiry.ts` to `_creationTime + 90d` on first run. The cleanup + warning flow:
+
+```
+[Upload complete]
+    │  sessions.recordingExpiresAt = now + retentionDays
+    │  sessions.recordingTransferStatus = "ready"
+    ▼
+[Hourly audit cron]   audit-recording-retention-drift
+    │  Flags rows past expiry that are still status="ready"
+    │  (the Trigger cleanup should have caught them)
+    ▼
+[Daily at 5 AM UTC]   cleanup-expired-call-recordings (Trigger schedule)
+    │  GET /recording-retention/needing-cleanup
+    │  for each: deleteFromB2(recordingUrl) + POST /recording-retention/mark-deleted
+    │  → sessions.recordingTransferStatus = "purged"
+    │  → sessions.recordingDeletedAt = now
+    │  → sessions.recordingUrl = undefined
+    ▼
+[Daily at 10 AM UTC]  send-recording-retention-warnings (Trigger schedule)
+    │  GET /recording-retention/for-notification (30/7/1-day windows)
+    │  POST /recording-retention/notify per (session, recipient, threshold)
+    │  Resend email + dedupe-write recordingRetentionNotifications row
+    ▼
+[UI]                  Per-row "auto-deletes in N days" caption in calls-section.tsx
+    │  Modal countdown line in recording-player-modal.tsx
+    │  RecordingRetentionWarningBanner at workspace top
+```
+
+Key implementation files (R12):
+
+- `convex/schema.ts` — added `recordingDeletedAt` field, `"purged"` enum value, `by_recordingExpiresAt` index, `recordingRetentionNotifications` table
+- `convex/recordingRetention.ts` — queries (`getRecordingsNeedingCleanup`, `getRecordingsForRetentionNotification`), mutations (`createRecordingRetentionNotification`, `acknowledgeRecordingRetentionNotification`, `markRecordingDeleted`)
+- `convex/migrations/backfillRecordingExpiry.ts` — idempotent one-shot backfill (`_creationTime + 90d` for legacy rows with `recordingUrl` set)
+- `convex/http.ts` — `/recording-retention/{needing-cleanup, for-notification, mark-deleted, notify}` HTTP routes (Convex HTTP key auth, no callback secret needed — these are *our* schedules, not caller-supplied)
+- `convex/audit/recordingRetentionAudit.ts` — drift monitor (`>24h overdue AND status !== "purged"`)
+- `convex/crons.ts` — `audit-recording-retention-drift` hourly
+- `src/trigger/recording-retention.ts` — `cleanup-expired-call-recordings` (cron `0 5 * * *`)
+- `src/trigger/recording-retention-warnings.ts` — `send-recording-retention-warnings` (cron `0 10 * * *`)
+- `apps/platform/components/workspace/calls-section.tsx` — per-row countdown + "Deleted on [date]" pill for `purged` rows
+- `apps/platform/components/workspace/recording-player-modal.tsx` — modal header countdown
+- `apps/platform/components/workspace/recording-retention-warning-banner.tsx` — in-app banner mounted in `workspace-client-page.tsx`
+- `apps/platform/lib/queries/convex/use-recordings.ts` — TanStack Query hooks
+
+Warning thresholds (30/7/1) are tighter than the workspace retention (90/30/7) because recordings are sub-resources of a workspace — the email is more actionable when it says "download before May 14" rather than "90 days from now."
+
+Idempotency: `deleteFromB2` is idempotent (B2 returns 404 silently for missing keys); `markRecordingDeleted` early-returns when status is already `"purged"`. The notification dedupe key `(sessionId, recipientUserId, daysUntilDeletion)` prevents spam when the cron runs daily against the same window.
+
 ## Implementation Phases
 
 ### Phase 1: Setup — ✅ Shipped in PR #1

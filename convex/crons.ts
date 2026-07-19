@@ -16,6 +16,10 @@ import { internal } from "./_generated/api";
  * - audit-recording-transfer-drift: Runs hourly, surfaces Daily → B2
  *   recording transfers stuck in pending/uploading (>10 min) or failed
  *   (>24h). See `convex/audit/recordingTransferAudit.ts`.
+ * - audit-recording-retention-drift: Runs hourly, surfaces B2 call
+ *   recordings whose `recordingExpiresAt` has passed but were not
+ *   marked `purged` by the cleanup schedule. See
+ *   `convex/audit/recordingRetentionAudit.ts`.
  */
 const crons = cronJobs();
 
@@ -65,6 +69,13 @@ crons.interval(
   "audit-recording-transfer-drift",
   { hours: 1 },
   internal.audit.recordingTransferAudit.auditRecordingTransferDriftMonitor,
+  {}
+);
+
+crons.interval(
+  "audit-recording-retention-drift",
+  { hours: 1 },
+  internal.audit.recordingRetentionAudit.auditRecordingRetentionDriftMonitor,
   {}
 );
 

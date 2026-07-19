@@ -53,6 +53,10 @@ interface RecordingPlayerModalProps {
   onOpenChange: (next: boolean) => void;
   callStartedAt: number | null;
   participantName: string | null;
+  // R12: scheduled deletion time (ms epoch). Surfaces a
+  // countdown line in the modal header so the user is reminded
+  // to download before the retention cleanup runs.
+  recordingExpiresAt: number | null;
 }
 
 export default function RecordingPlayerModal({
@@ -61,6 +65,7 @@ export default function RecordingPlayerModal({
   onOpenChange,
   callStartedAt,
   participantName,
+  recordingExpiresAt,
 }: RecordingPlayerModalProps) {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number>(0);
@@ -230,6 +235,10 @@ export default function RecordingPlayerModal({
   const titleLine = participantName
     ? `Recording with ${participantName}`
     : "Recording";
+  const retentionLabel =
+    recordingExpiresAt !== null
+      ? formatRetentionCountdown(recordingExpiresAt)
+      : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -245,6 +254,17 @@ export default function RecordingPlayerModal({
               </>
             ) : null}
           </DialogDescription>
+          {retentionLabel !== null ? (
+            <p
+              className={
+                isRetentionUrgent(recordingExpiresAt!)
+                  ? "text-xs text-destructive"
+                  : "text-xs text-muted-foreground"
+              }
+            >
+              {retentionLabel}
+            </p>
+          ) : null}
         </div>
 
         <div className="relative w-full aspect-video bg-black rounded-md overflow-hidden">
@@ -312,6 +332,37 @@ function formatRelativeExpiry(expiresAt: number): string {
   if (remainingMs <= 0) return "now";
   const minutes = Math.max(1, Math.round(remainingMs / 60_000));
   return `in ${minutes} min`;
+}
+
+/**
+ * R12: render the scheduled-deletion deadline in the modal
+ * header so users watching a long recording are reminded to
+ * download before retention runs. Mirrors the per-row
+ * caption in `calls-section.tsx`.
+ */
+function formatRetentionCountdown(expiresAt: number): string {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const remainingMs = expiresAt - Date.now();
+  if (remainingMs <= 0) {
+    return "This recording will be deleted on the next cleanup run.";
+  }
+  const days = Math.floor(remainingMs / dayMs);
+  const date = new Date(expiresAt).toLocaleDateString();
+  if (days <= 0) {
+    const hours = Math.max(1, Math.floor(remainingMs / (60 * 60 * 1000)));
+    return `This recording will be permanently deleted on ${date} (in ${hours} hour${
+      hours === 1 ? "" : "s"
+    }).`;
+  }
+  if (days === 1) {
+    return `This recording will be permanently deleted tomorrow (${date}).`;
+  }
+  return `This recording will be permanently deleted in ${days} days (${date}).`;
+}
+
+function isRetentionUrgent(expiresAt: number): boolean {
+  const dayMs = 24 * 60 * 60 * 1000;
+  return Math.floor((expiresAt - Date.now()) / dayMs) <= 7;
 }
 
 export { SIGNED_URL_TTL_SECONDS };
