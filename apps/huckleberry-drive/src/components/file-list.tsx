@@ -12,9 +12,11 @@ import {
   RotateCcw,
   Play,
   X,
+  Share2,
 } from "lucide-react";
 import { deleteFile, getDownloadUrl, restoreFile, hardDeleteFile, getStreamUrl } from "@/lib/api";
 import type { FileItem } from "@/lib/api";
+import { ShareDialog } from "@/components/share-dialog";
 
 type UserRole = "student" | "instructor" | "admin" | "video_editor";
 
@@ -49,6 +51,7 @@ export function FileList({
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
   const [playingVideoContentType, setPlayingVideoContentType] = useState<string>("video/mp4");
+  const [shareDialogFile, setShareDialogFile] = useState<{ id: string; originalName: string } | null>(null);
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -382,6 +385,16 @@ return userRole === "admin";
                                 <Download className="w-4 h-4" />
                               )}
                             </button>
+                            {(file.status === "completed" || file.status === "archived") && (
+                              <button
+                                onClick={() => setShareDialogFile({ id: file.id, originalName: file.originalName })}
+                                className="p-2 rounded-lg hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 transition-colors"
+                                title="Share"
+                                aria-label="Share file"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </>
                         )}
                         {file.status === "deleted" && canRestoreThisFile && (
@@ -452,6 +465,14 @@ return userRole === "admin";
             />
           </div>
         </div>
+      )}
+      {shareDialogFile && (
+        <ShareDialog
+          uploadId={shareDialogFile.id}
+          originalName={shareDialogFile.originalName}
+          open={true}
+          onClose={() => setShareDialogFile(null)}
+        />
       )}
     </div>
   );

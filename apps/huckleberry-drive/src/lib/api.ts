@@ -387,3 +387,60 @@ export async function cleanupOrphanedFiles(keys: string[]): Promise<{
     body: JSON.stringify({ keys }),
   });
 }
+
+export type ShareExpiryDays = 7 | 30 | 365 | 3650 | "never";
+
+export interface HdShareLink {
+  id: string;
+  token: string;
+  uploadId: string;
+  uploadOriginalName: string | null;
+  uploadContentType: string | null;
+  uploadSize: number | null;
+  createdAt: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  label: string | null;
+  isActive: boolean;
+  accessCount: number;
+}
+
+export interface HdShareLinkListResponse {
+  items: HdShareLink[];
+}
+
+export async function listMyShares(): Promise<HdShareLinkListResponse> {
+  return fetchApi<HdShareLinkListResponse>("/api/shares");
+}
+
+export async function createShare(
+  uploadId: string,
+  options?: { label?: string; expiresInDays?: ShareExpiryDays }
+): Promise<{ shareId: string; token: string; url: string; expiresAt: number | null }> {
+  return fetchApi("/api/shares", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      uploadId,
+      label: options?.label,
+      expiresInDays: options?.expiresInDays ?? 30,
+    }),
+  });
+}
+
+export async function revokeShare(token: string): Promise<{ success: boolean }> {
+  return fetchApi(`/api/shares/${encodeURIComponent(token)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function extendShare(
+  token: string,
+  expiresInDays: ShareExpiryDays
+): Promise<{ success: boolean; shareId: string; expiresAt: number | null }> {
+  return fetchApi(`/api/shares/${encodeURIComponent(token)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresInDays }),
+  });
+}
