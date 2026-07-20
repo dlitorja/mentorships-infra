@@ -7,6 +7,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
+import { pluralizeRemaining } from "@/lib/utils/pluralize";
 import type { FunctionReturnType } from "convex/server";
 
 type StudentSessionRows = FunctionReturnType<typeof api.seatReservations.getInstructorStudentsWithRemainingSessions>;
@@ -123,7 +124,7 @@ export default async function InstructorDashboardPage() {
                     <div className="flex shrink-0 items-center gap-2">
                       {row.hasSessionPack ? (
                         <Badge variant={getSessionBadgeVariant(row.remainingSessions)}>
-                          {row.remainingSessions} / {row.totalSessions} sessions left
+                          {row.remainingSessions} {pluralizeRemaining(row.remainingSessions)}
                         </Badge>
                       ) : (
                         <Badge variant="outline">No active pack</Badge>

@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Loader2, Minus, Plus, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Pencil, Save, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useSessionPack } from "@/lib/queries/convex/use-session-packs";
 import { cn } from "@/lib/utils";
+import { pluralizeRemaining } from "@/lib/utils/pluralize";
 import type { Id } from "@/convex/_generated/dataModel";
 
 type SessionCountControlsProps = {
@@ -23,146 +25,116 @@ type SessionPackPatchResponse = {
   };
 };
 
-type AdjustmentAction = "increment" | "decrement";
-type PendingAction = AdjustmentAction | "restore";
-type SessionCountSnapshot = {
-  remainingSessions: number;
-  totalSessions: number;
-};
+const pluralize = pluralizeRemaining;
 
 export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
-  const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const pendingRef = useRef(false);
-  const latestCountRef = useRef<SessionCountSnapshot>({ remainingSessions: 0, totalSessions: 0 });
-  // Snapshot of { totalSessions, remainingSessions } used by the
-  // Reset button to undo instructor-local adjustments since the last
-  // server-confirmed state.
-  //
-  // Updated on every subscription push that is NOT the echo of our
-  // own PATCH. External activity — another instructor consuming a
-  // credit, the expiry job decrementing, a refund — is automatically
-  // rolled into the snapshot, so Reset only undoes changes made on
-  // THIS page.
-  //
-  // Recaptured wholesale when the instructor switches to a different
-  // session pack.
-  //
-  // Stored in state (not a ref) so the snapshot write schedules a
-  // re-render. The Reset button's aria-label/title and disabled
-  // state read this directly, so a ref-only write would leave the
-  // UI stale on the first capture (see PR review for context).
-  const [pageLoadSnapshot, setPageLoadSnapshot] =
-    useState<SessionCountSnapshot | null>(null);
-  const capturedForPackIdRef = useRef<string | null>(null);
-  const [optimisticCount, setOptimisticCount] = useState<SessionCountSnapshot | null>(null);
-  // Tracks the last subscription value we observed so we can tell
-  // "new value arrived" (external update or own PATCH echo) apart
-  // from "same value re-pushed" (no-op). Updated synchronously by
-  // the subscription effect below.
-  const lastSubscriptionValueRef = useRef<SessionCountSnapshot | null>(null);
+  const { data: sessionPack, isLoading } = useSessionPack(sessionPackId);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftRemaining, setDraftRemaining] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  // Optimistic override for the visible remaining count. Set
+  // immediately after a successful PATCH so the pill reflects the
+  // new value without waiting for the Convex subscription round-trip,
+  // and cleared once the subscription pushes the matching value back
+  // (so the UI doesn't fight the source of truth).
+  const [optimisticRemaining, setOptimisticRemaining] = useState<
+    number | null
+  >(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Effect 1: capture / clear snapshot when the session pack id
-  // changes. Triggered only by `_id`, so it doesn't re-run when
-  // Convex pushes new counts for the same pack.
+  // Seed the draft from the displayed remaining (which factors in
+  // the optimistic override) when entering edit mode, and re-seed
+  // if the displayed value changes mid-edit — e.g. Convex confirms
+  // an optimistic write or another tab updates the row. Tracks only
+  // the numeric remaining value + optimistic override + isEditing
+  // so an unrelated Convex field change (status, expiresAt) doesn't
+  // silently discard the user's in-progress draft.
+  const remainingRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!sessionPack) {
-      capturedForPackIdRef.current = null;
-      setPageLoadSnapshot(null);
-      setOptimisticCount(null);
-      lastSubscriptionValueRef.current = null;
-      return;
-    }
-    if (capturedForPackIdRef.current !== sessionPack._id) {
-      capturedForPackIdRef.current = sessionPack._id;
-      setPageLoadSnapshot({
-        totalSessions: sessionPack.totalSessions,
-        remainingSessions: sessionPack.remainingSessions,
-      });
-      setOptimisticCount(null);
-      lastSubscriptionValueRef.current = {
-        remainingSessions: sessionPack.remainingSessions,
-        totalSessions: sessionPack.totalSessions,
-      };
-    }
-  }, [sessionPack?._id]);
-
-  // Effect 2: classify each subscription push for the current pack.
-  // Runs only when the count values change, so a no-op re-render or
-  // the snapshot/echo-clear state writes don't trigger a second pass.
-  useEffect(() => {
+    if (!isEditing) return;
     if (!sessionPack) return;
-    const incoming: SessionCountSnapshot = {
-      remainingSessions: sessionPack.remainingSessions,
-      totalSessions: sessionPack.totalSessions,
-    };
-    const prev = lastSubscriptionValueRef.current;
-    lastSubscriptionValueRef.current = incoming;
-    if (!prev) return;
-    if (
-      prev.remainingSessions === incoming.remainingSessions &&
-      prev.totalSessions === incoming.totalSessions
-    ) {
-      // Same value re-pushed — nothing to do.
-      return;
-    }
-    // Echo of our own PATCH: clear the optimistic override and leave
-    // the snapshot pinned to pre-PATCH state so the user can still
-    // Reset to undo their local action.
-    if (
-      optimisticCount !== null &&
-      optimisticCount.remainingSessions === incoming.remainingSessions &&
-      optimisticCount.totalSessions === incoming.totalSessions
-    ) {
-      setOptimisticCount(null);
-      return;
-    }
-    // External update: roll the snapshot forward so Reset never
-    // overwrites activity from another instructor / tab / system job.
-    setPageLoadSnapshot(incoming);
-  }, [sessionPack?.remainingSessions, sessionPack?.totalSessions]);
+    const displayed = optimisticRemaining ?? sessionPack.remainingSessions;
+    if (remainingRef.current === displayed) return;
+    remainingRef.current = displayed;
+    setDraftRemaining((current) =>
+      current === String(displayed) ? current : String(displayed)
+    );
+  }, [
+    isEditing,
+    optimisticRemaining,
+    sessionPack?.remainingSessions,
+  ]);
 
-  const remainingSessions = optimisticCount?.remainingSessions ?? sessionPack?.remainingSessions ?? 0;
-  const totalSessions = optimisticCount?.totalSessions ?? sessionPack?.totalSessions ?? 0;
-
-  useLayoutEffect(() => {
-    latestCountRef.current = { remainingSessions, totalSessions };
-  }, [remainingSessions, totalSessions]);
-
-  const syncFromServer = useCallback(async () => {
-    const result = await refetch();
-    if (result.data) {
-      const serverCount = {
-        remainingSessions: result.data.remainingSessions,
-        totalSessions: result.data.totalSessions,
-      };
-      setOptimisticCount(serverCount);
-      latestCountRef.current = serverCount;
-    } else {
-      setOptimisticCount(null);
-    }
-  }, [refetch]);
-
-  const restoreSessions = useCallback(async (target: SessionCountSnapshot, expected: SessionCountSnapshot) => {
-    if (pendingRef.current) return;
-
-    pendingRef.current = true;
-    setPendingAction("restore");
-    setOptimisticCount(target);
-    latestCountRef.current = target;
-
-    try {
-      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "restore",
-          remainingSessions: target.remainingSessions,
-          totalSessions: target.totalSessions,
-          expectedRemainingSessions: expected.remainingSessions,
-          expectedTotalSessions: expected.totalSessions,
-        }),
+  // Focus the integer input when entering edit mode.
+  useEffect(() => {
+    if (isEditing) {
+      // Defer so the input has mounted.
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
       });
+    }
+  }, [isEditing]);
+
+  // Once the Convex subscription reports a remaining value that
+  // matches our optimistic write, drop the override so the UI
+  // tracks the server as the source of truth again. Otherwise an
+  // out-of-band update (e.g. expiry job) would be masked.
+  useEffect(() => {
+    if (
+      optimisticRemaining !== null &&
+      sessionPack &&
+      sessionPack.remainingSessions === optimisticRemaining
+    ) {
+      setOptimisticRemaining(null);
+    }
+  }, [optimisticRemaining, sessionPack?.remainingSessions, sessionPack]);
+
+  const remainingSessions =
+    optimisticRemaining ?? sessionPack?.remainingSessions ?? 0;
+  const totalSessions = sessionPack?.totalSessions ?? 0;
+
+  const handleStartEdit = useCallback(() => {
+    if (!sessionPack) return;
+    // Seed from the displayed value so a freshly-saved optimistic
+    // override isn't immediately overwritten when the user re-enters
+    // edit mode before Convex confirms.
+    const displayed = optimisticRemaining ?? sessionPack.remainingSessions;
+    setDraftRemaining(String(displayed));
+    setIsEditing(true);
+  }, [optimisticRemaining, sessionPack]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setDraftRemaining("");
+  }, []);
+
+  const saveRemaining = useCallback(async () => {
+    if (!sessionPack) return;
+    if (isSaving) return;
+    // Strip non-integer characters, then parse.
+    const cleaned = draftRemaining.replace(/[^0-9]/g, "");
+    if (cleaned === "") return;
+    const next = parseInt(cleaned, 10);
+    if (!Number.isFinite(next) || next < 0) return;
+    // Match the Save button's over-cap guard so the Enter keyboard
+    // path can't silently clamp an over-cap draft to the pack total
+    // (which would surprise the user — they typed "10", the server
+    // saved "4"). The disabled-button state already blocks over-cap
+    // saves via the click handler; Enter must do the same.
+    if (next > totalSessions) return;
+    const clamped = next;
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(
+        `/api/instructor/session-packs/${sessionPackId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "set", amount: clamped }),
+        }
+      );
       let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
       try {
         json = (await response.json()) as typeof json;
@@ -171,165 +143,52 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       }
 
       if (!response.ok || !json.sessionPack) {
-        throw new Error(json.error || "Failed to restore sessions");
+        throw new Error(json.error || "Failed to update session count");
       }
 
-      const restoredCount = {
-        remainingSessions: json.sessionPack.remainingSessions,
-        totalSessions: json.sessionPack.totalSessions,
-      };
-      setOptimisticCount(restoredCount);
-      latestCountRef.current = restoredCount;
-      void refetch();
-      toast.success("Session change undone.");
+      // The `set` API action uses `convex/sessionPacks.setRemainingSessions`,
+      // which patches only `remainingSessions` (not `totalSessions`).
+      // Apply the server-returned value as an optimistic override so
+      // the pill updates instantly; the subscription sync effect above
+      // will clear the override once Convex pushes the matching value.
+      setOptimisticRemaining(json.sessionPack.remainingSessions);
+      toast.success(
+        `Updated to ${json.sessionPack.remainingSessions} ${pluralize(json.sessionPack.remainingSessions)}.`
+      );
+      setIsEditing(false);
+      setDraftRemaining("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to restore sessions");
-      await syncFromServer();
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update session count"
+      );
     } finally {
-      pendingRef.current = false;
-      setPendingAction(null);
+      setIsSaving(false);
     }
-  }, [refetch, sessionPackId, syncFromServer]);
+  }, [draftRemaining, isSaving, sessionPack, sessionPackId, totalSessions]);
 
-  /**
-   * Reset the pack to the { totalSessions, remainingSessions } it had
-   * when this component first rendered it. Reuses the same `restore`
-   * API action the existing undo flow uses, with the page-load
-   * snapshot as the target and the live count as the optimistic
-   * concurrency check. Returns early (no-op) if there's no snapshot
-   * yet (pack still loading) or if the current state already matches
-   * the snapshot.
-   */
-  const resetSessions = useCallback(async () => {
-    if (pendingRef.current) return;
-    const snapshot = pageLoadSnapshot;
-    if (!snapshot) return;
-    const expected = latestCountRef.current;
-    if (
-      expected.totalSessions === snapshot.totalSessions &&
-      expected.remainingSessions === snapshot.remainingSessions
-    ) {
-      return;
-    }
-
-    const confirmed =
-      typeof window !== "undefined"
-        ? window.confirm(
-            `Reset session count to ${snapshot.remainingSessions} / ${snapshot.totalSessions}? This undoes any manual adjustments since you opened this page.`,
-          )
-        : true;
-    if (!confirmed) return;
-
-    pendingRef.current = true;
-    setPendingAction("restore");
-    setOptimisticCount({
-      totalSessions: snapshot.totalSessions,
-      remainingSessions: snapshot.remainingSessions,
-    });
-    latestCountRef.current = {
-      totalSessions: snapshot.totalSessions,
-      remainingSessions: snapshot.remainingSessions,
-    };
-
-    try {
-      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "restore",
-          totalSessions: snapshot.totalSessions,
-          remainingSessions: snapshot.remainingSessions,
-          expectedTotalSessions: expected.totalSessions,
-          expectedRemainingSessions: expected.remainingSessions,
-        }),
-      });
-      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
-      try {
-        json = (await response.json()) as typeof json;
-      } catch {
-        // Non-JSON body, e.g. an HTML proxy error.
+  const handleInputKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void saveRemaining();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        handleCancelEdit();
       }
+    },
+    [handleCancelEdit, saveRemaining]
+  );
 
-      if (!response.ok || !json.sessionPack) {
-        throw new Error(json.error || "Failed to reset sessions");
-      }
-
-      const restoredCount = {
-        remainingSessions: json.sessionPack.remainingSessions,
-        totalSessions: json.sessionPack.totalSessions,
-      };
-      setOptimisticCount(restoredCount);
-      latestCountRef.current = restoredCount;
-      void refetch();
-      toast.success(`Reset to ${restoredCount.remainingSessions} / ${restoredCount.totalSessions} sessions left.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to reset sessions");
-      await syncFromServer();
-    } finally {
-      pendingRef.current = false;
-      setPendingAction(null);
-    }
-  }, [pageLoadSnapshot, refetch, sessionPackId, syncFromServer]);
-
-  const adjustSessions = useCallback(async (action: AdjustmentAction, showUndo = true) => {
-    if (pendingRef.current) return;
-
-    const currentCount = latestCountRef.current;
-    if (action === "decrement" && currentCount.remainingSessions <= 0) return;
-
-    const previousCount = { ...currentCount };
-    const nextCount = {
-      remainingSessions: action === "increment" ? currentCount.remainingSessions + 1 : currentCount.remainingSessions - 1,
-      totalSessions: action === "increment" ? currentCount.totalSessions + 1 : currentCount.totalSessions,
-    };
-
-    pendingRef.current = true;
-    setPendingAction(action);
-    setOptimisticCount(nextCount);
-    latestCountRef.current = nextCount;
-
-    try {
-      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, amount: 1 }),
-      });
-      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
-      try {
-        json = (await response.json()) as typeof json;
-      } catch {
-        // Non-JSON body, e.g. an HTML proxy error.
-      }
-
-      if (!response.ok || !json.sessionPack) {
-        throw new Error(json.error || "Failed to update sessions");
-      }
-
-      const updatedCount = {
-        remainingSessions: json.sessionPack.remainingSessions,
-        totalSessions: json.sessionPack.totalSessions,
-      };
-      setOptimisticCount(updatedCount);
-      latestCountRef.current = updatedCount;
-      void refetch();
-
-      const message = action === "increment" ? "Added 1 session" : "Removed 1 session";
-      toast.success(`${message}. ${json.sessionPack.remainingSessions} left.`, {
-        action: showUndo
-          ? {
-              label: "Undo",
-              onClick: () => void restoreSessions(previousCount, updatedCount),
-            }
-          : undefined,
-      });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update sessions");
-      await syncFromServer();
-    } finally {
-      pendingRef.current = false;
-      setPendingAction(null);
-    }
-  }, [refetch, restoreSessions, sessionPackId, syncFromServer]);
+  // Filter non-integer characters as the user types. Lets the
+  // user paste strings like "5 sessions" and end up with "5".
+  const handleInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = event.target.value;
+      const cleaned = raw.replace(/[^0-9]/g, "");
+      setDraftRemaining(cleaned);
+    },
+    []
+  );
 
   if (isLoading) {
     return (
@@ -342,18 +201,9 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
 
   if (!sessionPack) return null;
 
-  const isPending = pendingAction !== null;
-  const snapshot = pageLoadSnapshot;
-  // Reset is a no-op when:
-  //   - any action is already in flight,
-  //   - the snapshot hasn't been captured yet (pack still loading),
-  //   - the current count already matches the page-load snapshot
-  //     (e.g. the user opened the page after a previous reset).
-  const resetDisabled =
-    isPending ||
-    snapshot === null ||
-    (totalSessions === snapshot.totalSessions &&
-      remainingSessions === snapshot.remainingSessions);
+  const isOverCap =
+    draftRemaining !== "" &&
+    parseInt(draftRemaining, 10) > totalSessions;
 
   return (
     <div
@@ -362,56 +212,79 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         remainingSessions === 0 && "border-destructive/50",
         remainingSessions === 1 && "border-yellow-500/50"
       )}
-      aria-label={`${remainingSessions} sessions remaining`}
+      aria-label={`${remainingSessions} ${pluralize(remainingSessions)}`}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 rounded-none"
-        disabled={isPending || remainingSessions <= 0}
-        aria-label="Mark one session as completed (decrement remaining)"
-        title="Mark one session as completed (decrements remaining)"
-        onClick={() => void adjustSessions("decrement")}
-      >
-        {pendingAction === "decrement" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Minus className="h-4 w-4" />}
-      </Button>
-      <div className="border-x px-3 py-1.5 font-medium">
-        {remainingSessions} / {totalSessions} sessions left
-      </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 rounded-none"
-        disabled={isPending}
-        aria-label="Add a session credit to this student's pack"
-        title="Add a session credit to this student's pack (increases total and remaining)"
-        onClick={() => void adjustSessions("increment")}
-      >
-        {pendingAction === "increment" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-      </Button>
-      <div className="w-px h-6 bg-border" />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 rounded-none"
-        disabled={resetDisabled}
-        aria-label={
-          snapshot
-            ? `Reset session count to ${snapshot.remainingSessions} / ${snapshot.totalSessions}`
-            : "Reset session count (loading…)"
-        }
-        title={
-          snapshot
-            ? `Reset to ${snapshot.remainingSessions} / ${snapshot.totalSessions} (undoes manual adjustments since page open)`
-            : "Reset session count"
-        }
-        onClick={() => void resetSessions()}
-      >
-        {pendingAction === "restore" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-      </Button>
+      {isEditing ? (
+        <>
+          <div className="border-r px-3 py-1.5 font-medium text-muted-foreground">
+            {totalSessions} total
+          </div>
+          <Input
+            ref={inputRef}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={draftRemaining}
+            onChange={handleInputChange}
+            onKeyDown={handleInputKeyDown}
+            disabled={isSaving}
+            aria-label="New session remaining count"
+            aria-invalid={isOverCap}
+            className={cn(
+              "h-8 w-20 rounded-none border-0 px-3 text-sm font-medium focus-visible:ring-0 focus-visible:ring-offset-0",
+              isOverCap && "text-destructive"
+            )}
+            maxLength={String(totalSessions).length + 1}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-none"
+            disabled={isSaving || draftRemaining === "" || isOverCap}
+            onClick={() => void saveRemaining()}
+            aria-label="Save session remaining count"
+            title="Save"
+          >
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+          </Button>
+          <div className="w-px h-6 bg-border" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-none"
+            disabled={isSaving}
+            onClick={handleCancelEdit}
+            aria-label="Cancel"
+            title="Cancel"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </>
+      ) : (
+        <>
+          <div className="px-3 py-1.5 font-medium">
+            {remainingSessions} {pluralize(remainingSessions)}
+          </div>
+          <div className="w-px h-6 bg-border" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-none"
+            aria-label="Edit session remaining count"
+            title="Edit session remaining count"
+            onClick={handleStartEdit}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+        </>
+      )}
     </div>
   );
 }
