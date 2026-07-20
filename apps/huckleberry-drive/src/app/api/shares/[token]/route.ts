@@ -3,9 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { DEFAULT_SHARE_EXPIRES_IN_DAYS } from "@/lib/shares";
-
-const VALID_EXPIRES_IN_DAYS = new Set([7, 30, 365, 3650]);
+import { normalizeExpiresInDays } from "@/lib/shares";
 
 interface Params {
   params: Promise<{ token: string }>;
@@ -56,24 +54,10 @@ export async function PATCH(request: NextRequest, { params }: Params): Promise<N
     const body = await request.json();
     const { expiresInDays } = body;
 
-    let normalizedExpiresAt: number | undefined;
-    if (expiresInDays === undefined || expiresInDays === null) {
-      normalizedExpiresAt = Date.now() + DEFAULT_SHARE_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000;
-    } else if (expiresInDays === "never") {
-      normalizedExpiresAt = undefined;
-    } else if (typeof expiresInDays === "number") {
-      if (!Number.isInteger(expiresInDays) || !VALID_EXPIRES_IN_DAYS.has(expiresInDays)) {
-        return NextResponse.json(
-          { error: "expiresInDays must be 7, 30, 365, 3650, or the string \"never\"" },
-          { status: 400 }
-        );
-      }
-      normalizedExpiresAt = Date.now() + expiresInDays * 24 * 60 * 60 * 1000;
-    } else {
-      return NextResponse.json(
-        { error: "expiresInDays must be a number or \"never\"" },
-        { status: 400 }
-      );
+    const { expiresAt: normalizedExpiresAt, error: expiryError } =
+      normalizeExpiresInDays(expiresInDays);
+    if (expiryError) {
+      return NextResponse.json({ error: expiryError }, { status: 400 });
     }
 
     const result = await fetchMutation(

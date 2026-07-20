@@ -385,14 +385,16 @@ return userRole === "admin";
                                 <Download className="w-4 h-4" />
                               )}
                             </button>
-                            <button
-                              onClick={() => setShareDialogFile({ id: file.id, originalName: file.originalName })}
-                              className="p-2 rounded-lg hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 transition-colors"
-                              title="Share"
-                              aria-label="Share file"
-                            >
-                              <Share2 className="w-4 h-4" />
-                            </button>
+                            {(file.status === "completed" || file.status === "archived") && (
+                              <button
+                                onClick={() => setShareDialogFile({ id: file.id, originalName: file.originalName })}
+                                className="p-2 rounded-lg hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 transition-colors"
+                                title="Share"
+                                aria-label="Share file"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </>
                         )}
                         {file.status === "deleted" && canRestoreThisFile && (

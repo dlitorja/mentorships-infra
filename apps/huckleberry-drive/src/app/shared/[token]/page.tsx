@@ -1,4 +1,6 @@
 import React from "react";
+import { after } from "next/server";
+import { headers } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -8,7 +10,8 @@ interface PageProps {
   params: Promise<{ token: string }>;
 }
 
-function formatBytes(bytes: number): string {
+function formatBytes(bytes: number | null | undefined): string {
+  if (!bytes) return "Unknown";
   if (bytes === 0) return "0 B";
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
@@ -139,25 +142,42 @@ export default async function SharedFilePage({ params }: PageProps): Promise<Rea
   }
 
   const { share, upload } = result;
+  const contentType = upload.contentType ?? "";
+  const size = upload.size ?? 0;
+  const isVideo = contentType.startsWith("video/");
 
   let streamUrl: string | null = null;
   try {
-    streamUrl = await getStreamUrl(upload.filename, upload.contentType, 3600);
+    streamUrl = await getStreamUrl(
+      upload.filename,
+      contentType || "application/octet-stream",
+      3600
+    );
   } catch (error) {
     console.error("Failed to generate stream URL:", error);
   }
 
-  await fetchMutation(
-    api.hdShareLinks.logShareAccess,
-    {
-      shareId: share.id,
-      action: "view",
-      ip: undefined,
-      userAgent: undefined,
-    },
-    { token: convexToken }
-  ).catch((error) => {
-    console.error("Failed to log share view:", error);
+  after(async () => {
+    try {
+      const requestHeaders = await headers();
+      const ip =
+        requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+        requestHeaders.get("x-real-ip") ??
+        undefined;
+      const userAgent = requestHeaders.get("user-agent") ?? undefined;
+      await fetchMutation(
+        api.hdShareLinks.logShareAccess,
+        {
+          shareId: share.id,
+          action: "view",
+          ip,
+          userAgent,
+        },
+        { token: convexToken }
+      );
+    } catch (logError) {
+      console.error("Failed to log share view:", logError);
+    }
   });
 
   return (
@@ -166,8 +186,8 @@ export default async function SharedFilePage({ params }: PageProps): Promise<Rea
         <div className="p-6 border-b border-slate-700">
           <h1 className="text-2xl font-bold text-slate-100 truncate">{upload.originalName}</h1>
           <div className="mt-2 flex flex-wrap gap-4 text-sm text-slate-400">
-            <span>{formatBytes(upload.size)}</span>
-            <span>{upload.contentType}</span>
+            <span>{formatBytes(size)}</span>
+            {contentType && <span>{contentType}</span>}
             {share.expiresAt && (
               <span className="text-amber-400">
                 Link expires {formatDate(share.expiresAt)}
@@ -183,7 +203,7 @@ export default async function SharedFilePage({ params }: PageProps): Promise<Rea
         </div>
 
         <div className="bg-black">
-          {streamUrl && upload.contentType.startsWith("video/") ? (
+          {streamUrl && isVideo ? (
             <video src={streamUrl} controls preload="metadata" className="w-full" />
           ) : streamUrl ? (
             <div className="p-8 text-center text-slate-400">

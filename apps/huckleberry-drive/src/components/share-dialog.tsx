@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useEffect } from "react";
 import { Copy, Check, Loader2, X } from "lucide-react";
+import { createShare, type ShareExpiryDays } from "@/lib/api";
 
 interface ShareDialogProps {
   uploadId: string;
@@ -34,23 +35,12 @@ export function ShareDialog({ uploadId, originalName, open, onClose }: ShareDial
     setIsCreating(true);
     setError(null);
     try {
-      const res = await fetch("/api/shares", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uploadId,
-          label: label.trim() || undefined,
-          expiresInDays: expiry === "never" ? "never" : expiry,
-        }),
+      const trimmedLabel = label.trim();
+      const result = await createShare(uploadId, {
+        label: trimmedLabel || undefined,
+        expiresInDays: (expiry === "never" ? "never" : expiry) as ShareExpiryDays,
       });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: "Failed to create share" }));
-        throw new Error(body.error || `HTTP ${res.status}`);
-      }
-
-      const data = await res.json();
-      setShareUrl(data.url);
+      setShareUrl(result.url);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create share");
     } finally {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { requireVideoEditorRole, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { requireVideoEditor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery, fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { getDownloadUrlWithContentDisposition } from "@mentorships/storage/src/downloads";
@@ -9,14 +9,9 @@ interface Params {
   params: Promise<{ token: string }>;
 }
 
-interface UploadInfo {
-  filename: string;
-  originalName: string;
-}
-
 export async function POST(request: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
-    await requireVideoEditorRole();
+    await requireVideoEditor();
     const { getToken } = await auth();
     const convexToken = await getToken({ template: "convex" }) ?? undefined;
     const { token } = await params;
@@ -43,7 +38,7 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Ne
       return NextResponse.json({ error: "Share expired" }, { status: 410 });
     }
 
-    const upload = result.upload as UploadInfo;
+    const { upload } = result;
     if (!upload.filename) {
       return NextResponse.json({ error: "File location unknown" }, { status: 400 });
     }
@@ -54,16 +49,20 @@ export async function POST(request: NextRequest, { params }: Params): Promise<Ne
       undefined;
     const userAgent = request.headers.get("user-agent") ?? undefined;
 
-    await fetchMutation(
-      api.hdShareLinks.logShareAccess,
-      {
-        shareId: result.share.id,
-        action: "download",
-        ip,
-        userAgent,
-      },
-      { token: convexToken }
-    );
+    try {
+      await fetchMutation(
+        api.hdShareLinks.logShareAccess,
+        {
+          shareId: result.share.id,
+          action: "download",
+          ip,
+          userAgent,
+        },
+        { token: convexToken }
+      );
+    } catch (logError) {
+      console.error("Failed to log share download:", logError);
+    }
 
     const downloadUrl = await getDownloadUrlWithContentDisposition(
       upload.filename,

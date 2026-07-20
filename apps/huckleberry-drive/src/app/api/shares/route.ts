@@ -3,15 +3,11 @@ import { auth } from "@clerk/nextjs/server";
 import { canAccessFile, requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { generateShareToken, buildShareUrl, DEFAULT_SHARE_EXPIRES_IN_DAYS } from "@/lib/shares";
-
-const VALID_EXPIRES_IN_DAYS = new Set([7, 30, 365, 3650]);
-
-interface Upload {
-  _id: string;
-  instructorId: string;
-  status: string;
-}
+import {
+  buildShareUrl,
+  generateShareToken,
+  normalizeExpiresInDays,
+} from "@/lib/shares";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -30,27 +26,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "label must be a string up to 200 chars" }, { status: 400 });
     }
 
-    let normalizedExpiresAt: number | undefined;
-    if (expiresInDays === "never" || expiresInDays === null || expiresInDays === undefined) {
-      if (expiresInDays !== "never") {
-        normalizedExpiresAt = Date.now() + DEFAULT_SHARE_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000;
-      }
-    } else if (typeof expiresInDays === "number") {
-      if (!Number.isInteger(expiresInDays) || !VALID_EXPIRES_IN_DAYS.has(expiresInDays)) {
-        return NextResponse.json(
-          { error: "expiresInDays must be 7, 30, 365, 3650, or the string \"never\"" },
-          { status: 400 }
-        );
-      }
-      normalizedExpiresAt = Date.now() + expiresInDays * 24 * 60 * 60 * 1000;
-    } else {
-      return NextResponse.json(
-        { error: "expiresInDays must be a number or \"never\"" },
-        { status: 400 }
-      );
+    const { expiresAt: normalizedExpiresAt, error: expiryError } =
+      normalizeExpiresInDays(expiresInDays);
+    if (expiryError) {
+      return NextResponse.json({ error: expiryError }, { status: 400 });
     }
 
-    const upload = await fetchQuery(api.instructorUploads.getUploadById, { id: uploadId }, { token: convexToken }) as Upload | null;
+    const upload = await fetchQuery(
+      api.instructorUploads.getUploadById,
+      { id: uploadId },
+      { token: convexToken }
+    );
     if (!upload) {
       return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
