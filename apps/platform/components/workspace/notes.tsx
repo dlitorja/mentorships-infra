@@ -22,12 +22,13 @@ import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle, Paperclip, File, Pin, Tag, XCircle } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, MessageCircle, Paperclip, File, Pin, Tag, XCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import { useConvexAction } from '@convex-dev/react-query';
 import CallsSection from './calls-section';
+import { NotesImageLightbox } from './notes-lightbox';
 
 interface Note {
   _id: Id<'workspaceNotes'>;
@@ -97,6 +98,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const [newComment, setNewComment] = useState('');
   const newCommentRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [commentAttachment, setCommentAttachment] = useState<File | null>(null);
   const [commentAttachmentPreview, setCommentAttachmentPreview] = useState<string | null>(null);
   const [isUploadingCommentAttachment, setIsUploadingCommentAttachment] = useState(false);
@@ -196,6 +200,31 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     autosavesRef.current.delete(noteId);
   }
 
+  /**
+   * Refs for stable editor integration handlers. The TipTap
+   * `useEditor` config captures `handleEditorPaste` once at editor
+   * creation; using a ref indirection means we can keep the editor
+   * mount stable while still reading the latest closures (which
+   * capture current state setters and the upload handler) on every
+   * call.
+   */
+  const handleDottedLineDropRef = useRef<(file: File) => Promise<void>>(
+    async () => {}
+  );
+  const handleEditorPasteRef = useRef<(event: ClipboardEvent) => void>(() => {});
+  const handleEditorPaste = useCallback((event: ClipboardEvent) => {
+    handleEditorPasteRef.current(event);
+  }, []);
+  const handleEditorImageClickRef = useRef<
+    (event: React.MouseEvent<HTMLDivElement>) => void
+  >(() => {});
+  const handleEditorImageClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      handleEditorImageClickRef.current(event);
+    },
+    []
+  );
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -210,10 +239,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
           class: 'note-image',
         },
         resize: {
-          enabled: true,
-          minWidth: 50,
-          minHeight: 50,
-          alwaysPreserveAspectRatio: true,
+          enabled: false,
         },
       }),
     ],
@@ -221,6 +247,14 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     editorProps: {
       attributes: {
         class: 'prose prose-sm sm:prose-base max-w-none dark:prose-invert focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 min-h-[200px] p-4',
+      },
+      handlePaste: (_view, event) => {
+        handleEditorPaste(event);
+        // Returning false tells TipTap to run its default paste
+        // handler — we only intervene when we actually consumed an
+        // image file (handleEditorPaste calls preventDefault in that
+        // branch). Non-image pastes fall through to default behavior.
+        return false;
       },
     },
     onUpdate: ({ editor }) => {
@@ -277,6 +311,61 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       setTimeout(() => headerTitleInputRef.current?.focus(), 0);
     }
   }, [editingNoteId]);
+
+  // Keep the paste / click handlers in refs so the editor's
+  // editorProps.handlePaste callback (registered once at editor
+  // creation) always reads the latest closures, which capture
+  // current state setters and the current `selectedNoteId`.
+  useEffect(() => {
+    // These closures intentionally read everything from refs/state
+    // setters, which are stable, so an empty dep array is correct:
+    // we only want to allocate these once at mount.
+    handleEditorPasteRef.current = (event: ClipboardEvent) => {
+      const currentEditor = editorRef.current;
+      if (!currentEditor) return;
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item?.kind === 'file' && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          event.preventDefault();
+          // Read the latest handler from the ref so the closure
+          // (registered once at editor mount) always invokes the
+          // current `handleDottedLineDrop` useCallback — captures
+          // workspaceId, embedImageInNote, generateUploadUrl. See
+          // PR review for context.
+          void handleDottedLineDropRef.current?.(file);
+          return;
+        }
+      }
+    };
+    handleEditorImageClickRef.current = (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (!(target instanceof HTMLImageElement)) return;
+      if (!target.classList.contains('note-image')) return;
+
+      const currentEditor = editorRef.current;
+      if (!currentEditor) return;
+      const editorRoot = currentEditor.view.dom as HTMLElement;
+      const imgs = Array.from(editorRoot.querySelectorAll('img.note-image')) as HTMLImageElement[];
+      const urls = imgs.map((img) => img.src);
+      const clickedIndex = imgs.indexOf(target);
+      if (clickedIndex < 0 || urls.length === 0) return;
+
+      setLightboxImages(urls);
+      setLightboxIndex(clickedIndex);
+      setLightboxOpen(true);
+      // Drop the TipTap selection so the gold ProseMirror-selectednode
+      // outline doesn't linger on the image after the lightbox closes.
+      // Runs in a microtask so the Dialog mounts first; otherwise the
+      // blur could happen before Radix renders the focus trap.
+      queueMicrotask(() => {
+        currentEditor.commands.blur();
+      });
+    };
+  }, []);
 
   const handleCreateNote = async () => {
     if (!newTitle.trim() || !workspaceId) return;
@@ -454,7 +543,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      toast.error('Only image files are supported');
+      toast.error('Only image files are supported here. Attach other files as a comment below.');
       return;
     }
 
@@ -462,8 +551,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     e.target.value = '';
   };
 
-  const handleDottedLineDrop = async (file: File) => {
-    const noteIdForUpload = selectedNoteId;
+  const handleDottedLineDrop = useCallback(async (file: File) => {
+    const noteIdForUpload = selectedNoteIdRef.current;
     const currentEditor = editorRef.current;
     if (!noteIdForUpload || !currentEditor) return;
 
@@ -503,7 +592,14 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       console.error('Failed to embed image:', error);
       toast.error('Failed to embed image', { id: toastId });
     }
-  };
+  }, [embedImageInNote, generateUploadUrl, workspaceId]);
+
+  // Mirror handleDottedLineDrop into the ref so the paste handler
+  // (registered once at editor mount) can always invoke the latest
+  // closure that captures the current workspaceId, mutation hook
+  // identities, and upload URL action. Runs on every render so the
+  // ref tracks useCallback's identity changes.
+  handleDottedLineDropRef.current = handleDottedLineDrop;
 
   const handleDeleteComment = async (commentId: Id<'workspaceNoteComments'>) => {
     try {
@@ -882,30 +978,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                   >
                     <ListOrdered className="h-4 w-4" />
                   </Button>
-                  <div className="w-px h-6 bg-border mx-1" />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={clsx('h-8 w-8 p-0', editor.isActive('codeBlock') && 'bg-muted')}
-                    onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                    title="Code Block"
-                  >
-                    <Code className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={clsx('h-8 w-8 p-0', editor.isActive('blockquote') && 'bg-muted')}
-                    onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                    title="Blockquote"
-                  >
-                    <Quote className="h-4 w-4" />
-                  </Button>
                 </div>
               )}
-              <div 
+              <div
                   className={clsx(
                     "flex-1 flex flex-col transition-colors min-h-0",
                     isDragOver && "bg-primary/5 ring-2 ring-primary ring-inset"
@@ -919,12 +994,14 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                     onChange={handleDottedLineFileSelect}
                   />
                   <div className={clsx(
-                    "m-3 border-2 border-dashed rounded-lg transition-colors flex items-center justify-center cursor-pointer",
-                    isDragOver ? "border-primary bg-primary/10" : "border-muted-foreground/25 bg-muted/20"
+                    "m-3 border-2 border-dashed rounded-lg transition-colors flex flex-col items-center justify-center cursor-pointer gap-2",
+                    isDragOver
+                      ? "border-primary bg-primary/15 ring-2 ring-primary/30"
+                      : "border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50"
                   )}
                   role="button"
                   tabIndex={0}
-                  style={{ minHeight: '120px' }}
+                  style={{ minHeight: '200px' }}
                   onClick={handleDottedLineClick}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -956,24 +1033,24 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
 
                     const file = files[0];
                     if (!file.type.startsWith('image/')) {
-                      toast.error('Only image files are supported');
+                      toast.error('Only image files are supported here. Attach other files as a comment below.');
                       return;
                     }
 
-                    void handleDottedLineDrop(file);
+void handleDottedLineDropRef.current(file);
                   }}
                   >
-                    <div className="text-center">
-                      <ImageIcon className={clsx("h-8 w-8 mx-auto mb-2", isDragOver ? "text-primary" : "text-muted-foreground")} />
-                      <p className="text-sm font-medium">
-                        {isDragOver ? "Drop image here" : "Drag and drop an image"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Drop an image here or click to browse
-                      </p>
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-1">
+                      <ImageIcon className={clsx("h-6 w-6", isDragOver ? "text-primary" : "text-primary/70")} />
                     </div>
+                    <p className={clsx("text-sm font-semibold", isDragOver ? "text-primary" : "text-foreground")}>
+                      Drop image here
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      or click to browse — paste an image directly into the note
+                    </p>
                   </div>
-                  <div className="flex-1 overflow-y-auto px-3">
+                  <div className="flex-1 overflow-y-auto px-3" onClick={handleEditorImageClick}>
                     <EditorContent editor={editor} />
                   </div>
                 <div className="border-t shrink-0 bg-muted/30">
@@ -1097,6 +1174,13 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
           </Card>
         )}
       </div>
+
+      <NotesImageLightbox
+        images={lightboxImages}
+        initialIndex={lightboxIndex}
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+      />
     </div>
   );
 }

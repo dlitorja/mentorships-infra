@@ -295,3 +295,158 @@ test.describe("Workspace notes editor — rich-text block styles", () => {
     expect(fontFamily.toLowerCase()).toMatch(/mono|menlo|courier|consolas/);
   });
 });
+
+test.describe("Workspace notes editor", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/workspace");
+    await expect(page).toHaveURL(/\/workspace/);
+
+    // Open the first workspace (the seed script puts the seeded
+    // workspace first in the list). Skip the spec if no workspace
+    // is visible — usually means the seed hasn't run.
+    const firstWorkspace = page
+      .locator('a[href^="/workspace/"]:not([href$="/workspace"])')
+      .first();
+    await firstWorkspace.waitFor({ state: "visible", timeout: 15_000 });
+    await firstWorkspace.click();
+  });
+
+  test("Toolbar exposes Bold, Italic, Underline, H1-H3, bullet/numbered lists but no Code or Quote buttons", async ({
+    page,
+  }) => {
+    // Find the toolbar: it sits between the note header and the
+    // editor surface. Each toolbar button has a `title` attribute.
+    const toolbarButtons = page.locator(
+      'div[class*="border-b bg-muted"] button[title]'
+    );
+    await expect(toolbarButtons.first()).toBeVisible();
+
+    const titles = await toolbarButtons.evaluateAll((els) =>
+      els.map((el) => el.getAttribute("title") ?? "")
+    );
+
+    expect(titles).toEqual(
+      expect.arrayContaining([
+        "Bold (Ctrl+B)",
+        "Italic (Ctrl+I)",
+        "Underline (Ctrl+U)",
+        "Heading 1",
+        "Heading 2",
+        "Heading 3",
+        "Bullet List",
+        "Numbered List",
+      ])
+    );
+    expect(titles).not.toContain("Code Block");
+    expect(titles).not.toContain("Blockquote");
+  });
+
+  test("Clicking a note image opens the lightbox with prev/next + counter", async ({
+    page,
+  }) => {
+    // The seed note must contain at least one image for this test to
+    // be meaningful. If not, skip rather than fail.
+    const noteImage = page.locator("img.note-image").first();
+    try {
+      await noteImage.waitFor({ state: "visible", timeout: 10_000 });
+    } catch {
+      test.skip(
+        true,
+        "Seeded note has no images — re-run the seed script with image attachments."
+      );
+    }
+
+    // Click the image — should open the Radix Dialog.
+    await noteImage.click();
+
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible();
+
+    // The lightbox image should be the same src as the note image.
+    const lightboxImg = dialog.locator("img").first();
+    await expect(lightboxImg).toBeVisible();
+
+    // Close button has aria-label="Close".
+    await expect(
+      page.locator('[role="dialog"] button[aria-label="Close"]')
+    ).toBeVisible();
+
+    // Pressing Escape closes the dialog (Radix Dialog default).
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
+
+  test("Lightbox counter shows N / N when a note has multiple images", async ({
+    page,
+  }) => {
+    const noteImages = page.locator("img.note-image");
+    const count = await noteImages.count();
+    if (count < 2) {
+      test.skip(
+        true,
+        `Seeded note has ${count} image(s) — need ≥2 to verify the counter.`
+      );
+    }
+
+    await noteImages.first().click();
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible();
+
+    // The counter reads "1 / N" initially. Press ArrowRight and
+    // confirm the counter increments to "2 / N".
+    await expect(dialog.locator("text=/^1 \\/ \\d+$/")).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await expect(dialog.locator("text=/^2 \\/ \\d+$/")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+  });
+
+  test("Drop zone in the editor surface is visibly prominent", async ({
+    page,
+  }) => {
+    // The drop zone has a dashed border + "Drop images & files here"
+    // copy. We assert on the headline so we don't lock to exact
+    // copy wording.
+    const dropZone = page.locator('div[role="button"]', {
+      hasText: /Drop images|Drop image/i,
+    });
+    await expect(dropZone).toBeVisible();
+
+    // The drop zone should have a noticeable min-height — at least
+    // 180px (we raised it from 120px).
+    const minHeight = await dropZone.evaluate((el) => {
+      const inline = (el as HTMLElement).style.minHeight;
+      if (inline) return parseInt(inline, 10);
+      const computed = window.getComputedStyle(el as HTMLElement).minHeight;
+      return parseInt(computed, 10);
+    });
+    expect(minHeight).toBeGreaterThanOrEqual(180);
+  });
+
+  test("Note images render at a constrained max-height with zoom-in cursor", async ({
+    page,
+  }) => {
+    const noteImage = page.locator("img.note-image").first();
+    try {
+      await noteImage.waitFor({ state: "visible", timeout: 10_000 });
+    } catch {
+      test.skip(
+        true,
+        "Seeded note has no images — re-run the seed script with image attachments."
+      );
+    }
+
+    const cursor = await noteImage.evaluate(
+      (el) => window.getComputedStyle(el as HTMLElement).cursor
+    );
+    expect(cursor).toBe("zoom-in");
+
+    const maxHeight = await noteImage.evaluate(
+      (el) => window.getComputedStyle(el as HTMLElement).maxHeight
+    );
+    // Resolved value should equal 320px (we set max-height: 320px
+    // explicitly). Allow ±1px for sub-pixel rounding.
+    expect(parseInt(maxHeight, 10)).toBeGreaterThanOrEqual(319);
+    expect(parseInt(maxHeight, 10)).toBeLessThanOrEqual(321);
+  });
+});

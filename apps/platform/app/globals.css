@@ -72,6 +72,18 @@
   /* Let explicit width/height attributes control size, no auto height */
 }
 
+/* Note images: fixed thumbnail size, no resize, cursor signals
+ * click-to-lightbox. Keeps large screenshots and reference photos
+ * from consuming the full note width while preserving aspect ratio. */
+.ProseMirror img.note-image {
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  border-radius: 0.375rem;
+  cursor: zoom-in;
+  margin: 0.5rem 0;
+}
+
 .ProseMirror img.ProseMirror-selectednode {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
