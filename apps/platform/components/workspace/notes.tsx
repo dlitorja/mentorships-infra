@@ -220,7 +220,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     content: selectedNote?.content || '',
     editorProps: {
       attributes: {
-        class: 'prose prose-sm sm:prose-base max-w-none focus:outline-none min-h-[200px] p-4',
+        class: 'prose prose-sm sm:prose-base max-w-none dark:prose-invert focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 min-h-[200px] p-4',
       },
     },
     onUpdate: ({ editor }) => {
