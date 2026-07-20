@@ -719,6 +719,28 @@ export default defineSchema({
     .index("by_email", ["email"])
     .index("by_invitedByUserId", ["invitedByUserId"]),
 
+  hdShareLinks: defineTable({
+    uploadId: v.id("instructorUploads"),
+    token: v.string(),
+    createdByUserId: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    label: v.optional(v.string()),
+  }).index("by_token", ["token"])
+    .index("by_uploadId", ["uploadId"])
+    .index("by_createdByUserId_createdAt", ["createdByUserId", "createdAt"]),
+
+  hdShareAccess: defineTable({
+    shareId: v.id("hdShareLinks"),
+    viewerUserId: v.string(),
+    action: v.union(v.literal("view"), v.literal("download")),
+    ip: v.optional(v.string()),
+    userAgent: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_shareId_createdAt", ["shareId", "createdAt"])
+    .index("by_viewerUserId_createdAt", ["viewerUserId", "createdAt"]),
+
   // PR #4c-2: in-app + email notification rows for ad-hoc call
   // invitations. One row is created when an instructor starts an
   // ad-hoc call and the student is the recipient. Deduped on

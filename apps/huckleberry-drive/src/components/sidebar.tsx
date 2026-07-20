@@ -13,6 +13,7 @@ import {
   FolderOpen,
   Mail,
   Users,
+  Share2,
 } from "lucide-react";
 
 type UserRole = "student" | "instructor" | "admin" | "video_editor";
@@ -33,6 +34,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: <Home className="w-5 h-5" /> },
   { href: "/uploads", label: "Uploads", icon: <Upload className="w-5 h-5" /> },
+  { href: "/dashboard/shares", label: "Shares", icon: <Share2 className="w-5 h-5" /> },
 ];
 
 const adminNavItems: NavItem[] = [

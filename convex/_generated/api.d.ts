@@ -22,6 +22,7 @@ import type * as crons from "../crons.js";
 import type * as dailyRecordingActions from "../dailyRecordingActions.js";
 import type * as discordActionQueue from "../discordActionQueue.js";
 import type * as hdInvitations from "../hdInvitations.js";
+import type * as hdShareLinks from "../hdShareLinks.js";
 import type * as http from "../http.js";
 import type * as inCallNotifications from "../inCallNotifications.js";
 import type * as instructorResources from "../instructorResources.js";
@@ -75,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   dailyRecordingActions: typeof dailyRecordingActions;
   discordActionQueue: typeof discordActionQueue;
   hdInvitations: typeof hdInvitations;
+  hdShareLinks: typeof hdShareLinks;
   http: typeof http;
   inCallNotifications: typeof inCallNotifications;
   instructorResources: typeof instructorResources;

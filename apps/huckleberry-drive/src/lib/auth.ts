@@ -114,3 +114,12 @@ export async function getCurrentUser(): Promise<User | null> {
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
   return dbUser as User | null;
 }
+
+export async function requireVideoEditorRole(): Promise<User> {
+  const user = await getCurrentUser();
+  if (!user) throw new UnauthorizedError("Must be logged in");
+  if (user.role !== "video_editor") {
+    throw new ForbiddenError("This page is only available to video editors");
+  }
+  return user;
+}
