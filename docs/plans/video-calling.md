@@ -223,6 +223,7 @@ Key behaviors:
 - **PR #616 (docs-only, GitHub #616) — shipped 2026-07-09.** `docs(plans): PR #610 delivery + reconciliation — flip stale todo, refresh status line`. Reconciles the plan doc with PR #5 R1 nits (now PR #610); flips the stale `resources-student-subpanel` todo to `done`; adds the PR #610 Delivery section.
 - **PR #617 (chat-tab silent-failure + Convex auth race fix) — shipped 2026-07-09.** Three independent root causes observed after PR #4b landed. (1) `@convex-dev/react-query` `subscribeInner` leaks sentinel-shaped ids through `enabled: false` on first render — fixed by switching `useLiveSessionNote` / `useNoteComments` to the library's `"skip"` arg pattern. (2) `convex/inCallNotifications.ts` reads (`getUnreadForUser` / `getUnreadForWorkspace`) threw via `requireIdentity` on first render before Clerk populated the auth token — switched to `getIdentity` (returns `null` on no auth) and early-return `[]` / `null`, matching the silent-empty contract that `getWorkspaceMessages` already uses; mutations still throw via `requireIdentityForMutation`. (3) `apps/platform/app/layout.tsx` had `<QueryProvider><ConvexClientProvider>`; `ConvexProviderWithClerk` `setAuth()` only runs post-render, so the first paint's `useConvexAuth().isAuthenticated` was false and `convexQueryClient.connect()` in `QueryProvider`'s `useEffect` ran AFTER the first render commit — missing `subscribeInner` "added" events. Swapped to `<ConvexClientProvider><QueryProvider>`. Gated the auth-driven invalidation logic on `useConvex()` so the build-time `skipClerk` branch doesn't crash on `useConvexAuth()` outside a `ConvexProvider`; the invalidator now lives in a dedicated `<AuthDrivenInvalidator>` child that only mounts when a `ConvexProvider` is above us. Adds Playwright regression spec `tests/e2e/chat-submit.spec.ts`. No Clerk props, env vars, or wiring modified — only the layout order of the two providers (user-approved).
 - **PR #11 (Phase 11 — vertical-stack desktop layout) — shipped.** See [PR #11 Delivery](#pr-11-delivery--vertical-stack-desktop-layout). Replaces the pre-#4c-4 desktop horizontal split (`chat | video`, 60/40 default) with a vertical stack (`video on top, active tab on bottom`, 60/40 default — 60% video / 40% tab content). The video panel stays visible across all workspace tabs (Chat / Notes / Images / Links / Resources) during a call, so users can navigate between tabs without ending the call. Persisted ratio moves to a new `localStorage` key (`video-call-split-ratio:v2`) so users who tuned the pre-Phase-11 horizontal split start at the new default rather than silently flipping the semantic. Phone (< 600px full-screen + drawer) and tablet (600–899px floating PiP) branches unchanged.
+- **PR #657 (leave-call confirmation) — shipped.** See [PR #657 Delivery](#pr-657-delivery--leave-call-confirmation). Closes the silent-mid-call-hangup hole caused by `<VideoCallProvider>` being keyed by `selectedWorkspaceId` — clicking a different workspace in the sidebar while a Daily call is active used to unmount the provider and silently end the call for both parties. Adds a `pendingSwitchTo` state + `requestSwitch(id)` guard that intercepts picker clicks while `useIsInCall()` is true and shows a Radix `<Dialog>` confirmation; on confirm, `onSelectWorkspace` triggers the existing unmount path (`daily.leave()` + `endCall`). Uses Radix `<Dialog>` (focus trap, Escape-to-dismiss, initial focus) instead of a custom `<div role="alertdialog">` — addresses CodeRabbit accessibility findings. Adds a `useEffect` that clears `pendingSwitchTo` when `isInCall` flips to false so the dialog does not stay open after a remote hangup / network drop.
 
 **Phasing** (each is one PR, independently reviewable, must pass Greptile no-new-P1 + all 4 Vercel preview apps `READY` before the next PR opens):
 
@@ -1272,6 +1273,44 @@ Replaces the pre-#4c-4 desktop horizontal split (`chat | video`, 60/40 default) 
 - **Tab content at 40% height** — the default 60/40 split gives the Notes editor / Images grid / Resources list 40% of the available vertical space. If dogfooding shows that's too cramped, raise `DEFAULT_VERTICAL_SPLIT_RATIO` to `65` or `70`. The user can also drag the divider down to taste.
 - **Phone / tablet branches unchanged.** PR #4c-4 layouts (`< 600px` full-screen + drawer, `600–899px` floating PiP) preserved verbatim — only the desktop branch swapped.
 - **Naming.** No `mentor`/`mentee` words. New helper `<TabContent>` is descriptive of its role; new component name `<TabContentWithVideo>` mirrors the pre-Phase-11 `<ChatTabWithVideo>` minus the chat-specific scope.
+
+
+## PR #657 Delivery — Leave-Call Confirmation
+
+**Branch:** `pr-3-video-leave-confirm` (squashed into `2b11108b`)
+**Status:** MERGED as `2b11108b` on `main` (2026-07-19). All CI checks green at merge; merge_state CLEAN.
+
+### What shipped
+
+Closes the silent-mid-call-hangup hole in `apps/platform/components/workspace/workspace-client-page.tsx`. The sidebar workspace picker called `onSelectWorkspace` directly, which changed `selectedWorkspaceId` and re-keyed `<VideoCallProvider>` — that unmounted the provider, the cleanup effect in `useVideoCall` ran `daily.leave()` + `endCall`, and the other participant was dropped without warning.
+
+- **`requestSwitch(id)` guard** (`workspace-client-page.tsx:212-221`). The sidebar button now calls `requestSwitch(workspace._id)` instead of `onSelectWorkspace(workspace._id)` directly. If `useIsInCall()` is `false`, behaviour is unchanged. If `true`, `requestSwitch` sets `pendingSwitchTo` and bails — no `onSelectWorkspace`, no unmount, no silent hangup.
+- **Radix `<Dialog>` confirmation** (`workspace-client-page.tsx:284-322`). The dialog is controlled by `pendingSwitchTo !== null`. Title: "Leave this call to switch workspaces?" Description warns both participants end the call. Two actions: `Cancel` clears `pendingSwitchTo`; `Leave call and switch` clears `pendingSwitchTo` then calls `onSelectWorkspace(target)` — the existing unmount path handles the cleanup. Uses Radix primitives (`Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogDescription`, `DialogFooter`) instead of the prior custom `<div role="alertdialog">` so focus trap, Escape-to-dismiss, and initial focus come for free (CodeRabbit accessibility review).
+- **Auto-dismiss on call end** (`workspace-client-page.tsx:207-213`). A `useEffect([isInCall])` clears `pendingSwitchTo` whenever the call ends (remote hangup, network drop, `<CallOverlay />` end-call button). Without this, the dialog would stay open with a stale "Leave this call to switch workspaces?" message after the call was already over.
+- **Explicit `: void` return type** on `requestSwitch`. Trivial; matches the project's coding guideline.
+
+### Greptile + CodeRabbit
+
+- **Greptile R0** flagged P0 (missing `recording-retention-warning-banner.tsx` import — branch was forked off `2aa50df3` before PR #654 landed) and three P2 dialog issues (no focus trap, no Escape, hardcoded `id`).
+  - **P0 fix:** rebased `pr-3-video-leave-confirm` onto `main` (`12fc3261`) so PR #654's `80cc8d1a` is in the branch tree. Rebase was conflict-free (the only modified file, `workspace-client-page.tsx`, was untouched by #654/#655/#656).
+  - **P2 fixes:** addressed in the same follow-up commit that swapped the custom markup for the Radix `<Dialog>` (focus trap + Escape are Radix primitives; the hardcoded `id="leave-call-title"` is gone because `DialogTitle` uses Radix-generated ids).
+- **CodeRabbit** independently flagged the same P0 + P2 concerns. After the rebase + Radix swap, CodeRabbit posted `APPROVED` on the follow-up commit `7b274645` at 22:53:05Z.
+
+### Verification
+
+- `pnpm typecheck` — clean.
+- `pnpm lint` — 0 new warnings/errors from the changed file.
+- CI: 9/9 jobs passed at merge (`convex-codegen`, `Detect Changes`, `typecheck-convex`, `Lint & Type Check`, `typecheck-apps`, `Unit Tests`, `build-apps`, `E2E Tests`, `Build`).
+- Vercel previews: `mentorships-infra-web`, `mentorships-infra-platform`, `mentorships-infra` all `DEPLOYED`; `mentorships-infra-huckleberry-drive` `SKIPPED` (no platform-only files changed).
+
+### Risks + naming
+
+- **No schema migration.** Pure UI; `widen–migrate–narrow` does not apply.
+- **No Clerk changes.** Untouched per AGENTS.md Clerk policy.
+- **No new endpoints, no new Convex queries/mutations.**
+- **No new dependencies.** Uses the project's existing Radix-based `<Dialog>` from `apps/platform/components/ui/dialog.tsx`.
+- **Radix `<Dialog>` portals to `document.body`** — does not nest inside the existing `<CallOverlay />` markup (which also renders overlay surfaces during a call), so focus traps do not collide. The original PR description flagged the small-viewport risk and the Radix swap is what mitigates it.
+- **Naming.** No `mentor`/`mentee` words.
 
 
 ## File Changes
