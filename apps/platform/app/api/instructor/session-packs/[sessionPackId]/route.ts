@@ -8,14 +8,36 @@ import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi, getConvexAuthToken } from "@/lib/auth-helpers";
 
 const sessionPackIdSchema = z.string().min(1, "Session pack ID is required");
-const sessionPackErrorSchema = z.object({
-  code: z.literal("SESSION_PACK_UNDO_CONFLICT"),
-  message: z.string(),
-});
+const sessionPackErrorSchema = z.union([
+  z.object({
+    code: z.literal("SESSION_PACK_UNDO_CONFLICT"),
+    message: z.string(),
+  }),
+  z.object({
+    code: z.literal("SESSION_PACK_INVALID_VALUE"),
+    message: z.string(),
+  }),
+]);
 const updateSessionCountSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("increment"), amount: z.number().int().min(1).default(1) }),
   z.object({ action: z.literal("decrement"), amount: z.number().int().min(1).default(1) }),
   z.object({ action: z.literal("set"), amount: z.number().int().min(0) }),
+  z
+    .object({
+      action: z.literal("setBoth"),
+      totalSessions: z.number().int().min(0),
+      remainingSessions: z.number().int().min(0),
+      expectedTotalSessions: z.number().int().min(0),
+      expectedRemainingSessions: z.number().int().min(0),
+    })
+    .refine((data) => data.remainingSessions <= data.totalSessions, {
+      message: "remainingSessions must be less than or equal to totalSessions",
+      path: ["remainingSessions"],
+    })
+    .refine((data) => data.expectedRemainingSessions <= data.expectedTotalSessions, {
+      message: "expectedRemainingSessions must be less than or equal to expectedTotalSessions",
+      path: ["expectedRemainingSessions"],
+    }),
   z
     .object({
       action: z.literal("restore"),
@@ -134,6 +156,14 @@ export async function PATCH(
         id: sessionPackId,
         amount: validationResult.data.amount,
       });
+    } else if (action === "setBoth") {
+      updatedPack = await convex.mutation(api.sessionPacks.setSessionPackTotals, {
+        id: sessionPackId,
+        totalSessions: validationResult.data.totalSessions,
+        remainingSessions: validationResult.data.remainingSessions,
+        expectedTotalSessions: validationResult.data.expectedTotalSessions,
+        expectedRemainingSessions: validationResult.data.expectedRemainingSessions,
+      });
     } else if (action === "restore") {
       updatedPack = await convex.mutation(api.sessionPacks.restoreSessionCounts, {
         id: sessionPackId,
@@ -191,6 +221,9 @@ export async function PATCH(
     const sessionPackError = getSessionPackError(error);
     if (sessionPackError?.code === "SESSION_PACK_UNDO_CONFLICT") {
       return NextResponse.json({ error: sessionPackError.message }, { status: 409 });
+    }
+    if (sessionPackError?.code === "SESSION_PACK_INVALID_VALUE") {
+      return NextResponse.json({ error: sessionPackError.message }, { status: 400 });
     }
 
     console.error("Error updating session count:", error);

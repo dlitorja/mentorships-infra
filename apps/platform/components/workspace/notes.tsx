@@ -22,11 +22,12 @@ import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle, Paperclip, File, Pin, Tag, XCircle } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, MessageCircle, Paperclip, File, Pin, Tag, XCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import { useConvexAction } from '@convex-dev/react-query';
+import { ChatImageLightbox } from './chat-lightbox';
 import CallsSection from './calls-section';
 
 interface Note {
@@ -58,6 +59,29 @@ interface AutosaveEntry {
 }
 
 type TitleEditSurface = 'list' | 'header' | null;
+
+/**
+ * Walk the editor's doc and collect `src` attributes for every
+ * image node, in document order. Used by `onUpdate`, `onCreate`,
+ * and the note-switch effect so the lightbox image list stays in
+ * sync with whichever note is currently selected. Hoisted out of
+ * the component so it has a stable identity — keeping it inline
+ * would force every effect that references it to re-run on every
+ * render (eslint react-hooks/exhaustive-deps) without changing
+ * behavior.
+ */
+function collectNoteImageUrls(
+  editorInstance: NonNullable<ReturnType<typeof useEditor>>
+): string[] {
+  const urls: string[] = [];
+  editorInstance.state.doc.descendants((node) => {
+    const src = node.attrs.src;
+    if (node.type.name === "image" && typeof src === "string" && src.length > 0) {
+      urls.push(src);
+    }
+  });
+  return urls;
+}
 
 /**
  * Rich text note-taking component for a workspace.
@@ -107,6 +131,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const titleEditGuardRef = useRef(false);
   const editingNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const editingTitleSurfaceRef = useRef<TitleEditSurface>(null);
+  // Lightbox state for clicks on embedded note images. Clicking an
+  // <img class="note-image"> opens the shared ChatImageLightbox (also
+  // used by the Chat and Images tabs) so navigation, Esc-to-close,
+  // and the dark backdrop all work identically across surfaces.
+  const [noteImageLightboxOpen, setNoteImageLightboxOpen] = useState(false);
+  const [noteImageLightboxIndex, setNoteImageLightboxIndex] = useState(0);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const { data: liveSessionNote } = useLiveSessionNote(activeSessionId);
@@ -196,6 +226,38 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     autosavesRef.current.delete(noteId);
   }
 
+  // Snapshot of all embedded image URLs in the current note doc, in
+  // document order. Recomputed on every editor change so the
+  // lightbox's prev/next nav stays accurate as the user inserts /
+  // deletes images. ProseMirror walk is preferred over an HTML regex
+  // because it survives attribute re-ordering, source-set usage, etc.
+  //
+  // Also recomputed whenever `selectedNoteId` changes (via the
+  // `setContent` effect below) because `setContent(..., { emitUpdate:
+  // false })` does NOT trigger `onUpdate` — without the explicit
+  // rescan on note switch, switching notes would leave the lightbox
+  // pointing at the previous note's image list.
+  const [noteImageUrls, setNoteImageUrls] = useState<string[]>([]);
+
+  /**
+   * Push `urls` into `noteImageUrls` only when the contents actually
+   * differ from the previous value. Keeps the array reference stable
+   * across keystroke-level `onUpdate` callbacks that don't touch any
+   * image, which avoids re-rendering consumers (notably
+   * `ChatImageLightbox`) on every character typed in the editor.
+   */
+  const setNoteImageUrlsIfChanged = (urls: string[]): void => {
+    setNoteImageUrls((prev) => {
+      if (
+        prev.length === urls.length &&
+        prev.every((src, i) => src === urls[i])
+      ) {
+        return prev;
+      }
+      return urls;
+    });
+  };
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -207,13 +269,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         inline: false,
         allowBase64: false,
         HTMLAttributes: {
-          class: 'note-image',
-        },
-        resize: {
-          enabled: true,
-          minWidth: 50,
-          minHeight: 50,
-          alwaysPreserveAspectRatio: true,
+          class: 'note-image cursor-zoom-in',
+          // Lazy-load every embedded note image so a long note with
+          // many large references doesn't pull them all in on mount
+          // (CodeRabbit follow-up: avoid eager-loading screenshots).
+          loading: 'lazy',
         },
       }),
     ],
@@ -228,8 +288,62 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (noteId) {
         scheduleAutosave(noteId, editor.getHTML());
       }
+      setNoteImageUrlsIfChanged(collectNoteImageUrls(editor));
+    },
+    onCreate: ({ editor }) => {
+      setNoteImageUrlsIfChanged(collectNoteImageUrls(editor));
     },
   });
+
+  /**
+   * Open the note-image lightbox at the index of `target` within the
+   * current `noteImageUrls` list. Returns false if `target` isn't a
+   * recognized note image (e.g. a comment avatar). Both the click
+   * and keyboard handlers delegate to this so the lightbox-opening
+   * path stays in one place.
+   */
+  const openLightboxForImage = (target: HTMLImageElement): boolean => {
+    if (!target.classList.contains('note-image')) return false;
+    const src = target.getAttribute('src');
+    if (!src) return false;
+    const index = noteImageUrls.indexOf(src);
+    if (index === -1) return false;
+    setNoteImageLightboxIndex(index);
+    setNoteImageLightboxOpen(true);
+    return true;
+  };
+
+  /**
+   * Click handler attached to the editor wrapper. Intercepts clicks on
+   * `<img class="note-image">` so we can open the lightbox instead of
+   * letting the browser default behaviour (open the image URL in a
+   * new tab) win. We deliberately do NOT preventDefault unless the
+   * click target is a note image, so text editing interactions remain
+   * untouched.
+   */
+  const handleNoteEditorClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement)) return;
+    openLightboxForImage(target);
+  };
+
+  /**
+   * Keyboard handler attached to the editor wrapper. Mirrors the
+   * click handler so a focused note image can be opened with Enter
+   * or Space — the image is already focusable because
+   * `Image.configure` sets `tabIndex` to 0 (TipTap default for
+   * `inline: false` images). We stop the event from bubbling into
+   * ProseMirror so the editor doesn't treat the keypress as a
+   * command.
+   */
+  const handleNoteEditorKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement)) return;
+    if (!openLightboxForImage(target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   useEffect(() => {
     editorRef.current = editor;
@@ -242,10 +356,15 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (loadedNoteIdRef.current !== selectedNote._id) {
         editor.commands.setContent(selectedNote.content || '', { emitUpdate: false });
         loadedNoteIdRef.current = selectedNote._id;
+        // `setContent` is called with `emitUpdate: false` so
+        // `onUpdate` doesn't fire — rescan image URLs explicitly so
+        // the lightbox list reflects the newly-selected note.
+        setNoteImageUrlsIfChanged(collectNoteImageUrls(editor));
       }
     } else if (!selectedNoteId) {
       editor.commands.setContent('', { emitUpdate: false });
       loadedNoteIdRef.current = null;
+      setNoteImageUrlsIfChanged([]);
     }
   }, [editor, selectedNote, selectedNoteId]);
 
@@ -462,7 +581,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     e.target.value = '';
   };
 
-  const handleDottedLineDrop = async (file: File) => {
+  const handleDottedLineDrop = async (file: File): Promise<void> => {
     const noteIdForUpload = selectedNoteId;
     const currentEditor = editorRef.current;
     if (!noteIdForUpload || !currentEditor) return;
@@ -882,27 +1001,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                   >
                     <ListOrdered className="h-4 w-4" />
                   </Button>
-                  <div className="w-px h-6 bg-border mx-1" />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={clsx('h-8 w-8 p-0', editor.isActive('codeBlock') && 'bg-muted')}
-                    onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                    title="Code Block"
-                  >
-                    <Code className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={clsx('h-8 w-8 p-0', editor.isActive('blockquote') && 'bg-muted')}
-                    onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                    title="Blockquote"
-                  >
-                    <Quote className="h-4 w-4" />
-                  </Button>
                 </div>
               )}
               <div 
@@ -974,7 +1072,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto px-3">
-                    <EditorContent editor={editor} />
+                    <EditorContent editor={editor} onClick={handleNoteEditorClick} onKeyDown={handleNoteEditorKeyDown} />
                   </div>
                 <div className="border-t shrink-0 bg-muted/30">
                   <div className="px-3 py-2 flex items-center justify-between">
@@ -1086,6 +1184,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                 </div>
               </div>
             </CardContent>
+            <ChatImageLightbox
+              images={noteImageUrls}
+              initialIndex={noteImageLightboxIndex}
+              open={noteImageLightboxOpen}
+              onOpenChange={setNoteImageLightboxOpen}
+            />
           </Card>
         ) : (
           <Card className="h-full flex items-center justify-center">

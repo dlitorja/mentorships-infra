@@ -12,16 +12,6 @@ import type { FunctionReturnType } from "convex/server";
 type StudentSessionRows = FunctionReturnType<typeof api.seatReservations.getInstructorStudentsWithRemainingSessions>;
 type StudentSessionRow = StudentSessionRows[number];
 
-function formatDate(date: Date | string | null | number): string {
-  if (!date) return "N/A";
-  const d = typeof date === "number" ? new Date(date) : typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function getDisplayName(row: StudentSessionRow): string {
   const fullName = [row.studentFirstName, row.studentLastName].filter(Boolean).join(" ");
   return fullName || row.studentEmail || row.userId;
@@ -115,15 +105,12 @@ export default async function InstructorDashboardPage() {
                       {row.studentEmail && getDisplayName(row) !== row.studentEmail && (
                         <p className="truncate text-sm text-muted-foreground">{row.studentEmail}</p>
                       )}
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {row.expiresAt ? `Pack expires ${formatDate(row.expiresAt)}` : "No expiration date"}
-                      </p>
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
                       {row.hasSessionPack ? (
                         <Badge variant={getSessionBadgeVariant(row.remainingSessions)}>
-                          {row.remainingSessions} / {row.totalSessions} sessions left
+                          {row.remainingSessions} {row.remainingSessions === 1 ? "session" : "sessions"} remaining
                         </Badge>
                       ) : (
                         <Badge variant="outline">No active pack</Badge>
