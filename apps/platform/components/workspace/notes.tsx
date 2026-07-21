@@ -211,9 +211,15 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const handleDottedLineDropRef = useRef<(file: File) => Promise<void>>(
     async () => {}
   );
-  const handleEditorPasteRef = useRef<(event: ClipboardEvent) => void>(() => {});
+  // Returns true when an image was consumed (so TipTap must NOT run
+  // its default paste handler — see PR review). ProseMirror ignores
+  // `event.defaultPrevented` for its internal paste handling and
+  // relies entirely on the boolean return value of `handlePaste`.
+  const handleEditorPasteRef = useRef<(event: ClipboardEvent) => boolean>(
+    () => false
+  );
   const handleEditorPaste = useCallback((event: ClipboardEvent) => {
-    handleEditorPasteRef.current(event);
+    return handleEditorPasteRef.current(event);
   }, []);
   const handleEditorImageClickRef = useRef<
     (event: React.MouseEvent<HTMLDivElement>) => void
@@ -249,12 +255,11 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         class: 'prose prose-sm sm:prose-base max-w-none dark:prose-invert focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 min-h-[200px] p-4',
       },
       handlePaste: (_view, event) => {
-        handleEditorPaste(event);
-        // Returning false tells TipTap to run its default paste
-        // handler — we only intervene when we actually consumed an
-        // image file (handleEditorPaste calls preventDefault in that
-        // branch). Non-image pastes fall through to default behavior.
-        return false;
+        // Delegate the consume decision to the closure registered
+        // in the ref. Returning `true` tells ProseMirror we handled
+        // the event (skip default paste), `false` lets it fall
+        // through (non-image pastes go to the default handler).
+        return handleEditorPaste(event);
       },
     },
     onUpdate: ({ editor }) => {
@@ -322,9 +327,9 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     // we only want to allocate these once at mount.
     handleEditorPasteRef.current = (event: ClipboardEvent) => {
       const currentEditor = editorRef.current;
-      if (!currentEditor) return;
+      if (!currentEditor) return false;
       const items = event.clipboardData?.items;
-      if (!items) return;
+      if (!items) return false;
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         if (item?.kind === 'file' && item.type.startsWith('image/')) {
@@ -337,9 +342,15 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
           // workspaceId, embedImageInNote, generateUploadUrl. See
           // PR review for context.
           void handleDottedLineDropRef.current?.(file);
-          return;
+          // Tell ProseMirror we consumed the paste so it does NOT
+          // also insert the image from the clipboard payload (which
+          // would result in duplicate image insertions).
+          return true;
         }
       }
+      // No image file found — let ProseMirror handle the paste
+      // (e.g. plain text or HTML paste flows).
+      return false;
     };
     handleEditorImageClickRef.current = (event: React.MouseEvent<HTMLDivElement>) => {
       const target = event.target;
