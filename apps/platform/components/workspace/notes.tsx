@@ -75,8 +75,9 @@ function collectNoteImageUrls(
 ): string[] {
   const urls: string[] = [];
   editorInstance.state.doc.descendants((node) => {
-    if (node.type.name === "image" && node.attrs.src) {
-      urls.push(node.attrs.src as string);
+    const src = node.attrs.src;
+    if (node.type.name === "image" && typeof src === "string" && src.length > 0) {
+      urls.push(src);
     }
   });
   return urls;
@@ -238,6 +239,25 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   // pointing at the previous note's image list.
   const [noteImageUrls, setNoteImageUrls] = useState<string[]>([]);
 
+  /**
+   * Push `urls` into `noteImageUrls` only when the contents actually
+   * differ from the previous value. Keeps the array reference stable
+   * across keystroke-level `onUpdate` callbacks that don't touch any
+   * image, which avoids re-rendering consumers (notably
+   * `ChatImageLightbox`) on every character typed in the editor.
+   */
+  const setNoteImageUrlsIfChanged = (urls: string[]): void => {
+    setNoteImageUrls((prev) => {
+      if (
+        prev.length === urls.length &&
+        prev.every((src, i) => src === urls[i])
+      ) {
+        return prev;
+      }
+      return urls;
+    });
+  };
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -250,6 +270,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         allowBase64: false,
         HTMLAttributes: {
           class: 'note-image cursor-zoom-in',
+          // Lazy-load every embedded note image so a long note with
+          // many large references doesn't pull them all in on mount
+          // (CodeRabbit follow-up: avoid eager-loading screenshots).
+          loading: 'lazy',
         },
       }),
     ],
@@ -264,12 +288,30 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (noteId) {
         scheduleAutosave(noteId, editor.getHTML());
       }
-      setNoteImageUrls(collectNoteImageUrls(editor));
+      setNoteImageUrlsIfChanged(collectNoteImageUrls(editor));
     },
     onCreate: ({ editor }) => {
-      setNoteImageUrls(collectNoteImageUrls(editor));
+      setNoteImageUrlsIfChanged(collectNoteImageUrls(editor));
     },
   });
+
+  /**
+   * Open the note-image lightbox at the index of `target` within the
+   * current `noteImageUrls` list. Returns false if `target` isn't a
+   * recognized note image (e.g. a comment avatar). Both the click
+   * and keyboard handlers delegate to this so the lightbox-opening
+   * path stays in one place.
+   */
+  const openLightboxForImage = (target: HTMLImageElement): boolean => {
+    if (!target.classList.contains('note-image')) return false;
+    const src = target.getAttribute('src');
+    if (!src) return false;
+    const index = noteImageUrls.indexOf(src);
+    if (index === -1) return false;
+    setNoteImageLightboxIndex(index);
+    setNoteImageLightboxOpen(true);
+    return true;
+  };
 
   /**
    * Click handler attached to the editor wrapper. Intercepts clicks on
@@ -280,16 +322,27 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
    * untouched.
    */
   const handleNoteEditorClick = (event: React.MouseEvent<HTMLDivElement>): void => {
-    const target = event.target as HTMLElement | null;
-    if (!target || target.tagName !== 'IMG') return;
+    const target = event.target;
     if (!(target instanceof HTMLImageElement)) return;
-    if (!target.classList.contains('note-image')) return;
-    const src = target.getAttribute('src');
-    if (!src) return;
-    const index = noteImageUrls.indexOf(src);
-    if (index === -1) return;
-    setNoteImageLightboxIndex(index);
-    setNoteImageLightboxOpen(true);
+    openLightboxForImage(target);
+  };
+
+  /**
+   * Keyboard handler attached to the editor wrapper. Mirrors the
+   * click handler so a focused note image can be opened with Enter
+   * or Space — the image is already focusable because
+   * `Image.configure` sets `tabIndex` to 0 (TipTap default for
+   * `inline: false` images). We stop the event from bubbling into
+   * ProseMirror so the editor doesn't treat the keypress as a
+   * command.
+   */
+  const handleNoteEditorKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement)) return;
+    if (!openLightboxForImage(target)) return;
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   useEffect(() => {
@@ -306,12 +359,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         // `setContent` is called with `emitUpdate: false` so
         // `onUpdate` doesn't fire — rescan image URLs explicitly so
         // the lightbox list reflects the newly-selected note.
-        setNoteImageUrls(collectNoteImageUrls(editor));
+        setNoteImageUrlsIfChanged(collectNoteImageUrls(editor));
       }
     } else if (!selectedNoteId) {
       editor.commands.setContent('', { emitUpdate: false });
       loadedNoteIdRef.current = null;
-      setNoteImageUrls([]);
+      setNoteImageUrlsIfChanged([]);
     }
   }, [editor, selectedNote, selectedNoteId]);
 
@@ -1019,7 +1072,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto px-3">
-                    <EditorContent editor={editor} onClick={handleNoteEditorClick} />
+                    <EditorContent editor={editor} onClick={handleNoteEditorClick} onKeyDown={handleNoteEditorKeyDown} />
                   </div>
                 <div className="border-t shrink-0 bg-muted/30">
                   <div className="px-3 py-2 flex items-center justify-between">

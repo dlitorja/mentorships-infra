@@ -94,8 +94,13 @@ export function CallStatusPill({
   } = useVideoCallContext();
   // Used to gate the student-only "Waiting for instructor" branch.
   // We compare Clerk user id against `session.studentId` (mirrors
-  // `convex/sessions.CurrentOrUpcomingSession.studentId`).
-  const { user } = useUser();
+  // `convex/sessions.CurrentOrUpcomingSession.studentId`). Both
+  // fields must be present before the role-specific affordance can
+  // render — without `isLoaded`, the pill would briefly render the
+  // instructor Join button for a student (or vice-versa) before
+  // Clerk resolves the identity on mount. We early-return a muted
+  // placeholder until both are ready.
+  const { user, isLoaded } = useUser();
 
   // Tick once per second so the countdown chip ("Opens in 4m 30s")
   // updates without requiring a parent re-render. The interval is
@@ -174,6 +179,25 @@ export function CallStatusPill({
 
   if (!session) {
     return null;
+  }
+
+  // While Clerk is still resolving the current user, we can't tell
+  // whether to render the instructor Join button or the student
+  // Waiting pill. Render a non-actionable muted placeholder so the
+  // role-specific branch can't flash the wrong affordance on mount.
+  if (!isLoaded || user === null) {
+    return (
+      <div
+        className={cn(
+          "inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground",
+          className
+        )}
+        aria-label="Loading call status"
+      >
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading call status
+      </div>
+    );
   }
 
   const isInCall =
@@ -265,10 +289,12 @@ export function CallStatusPill({
   // `session.startedAt === null` is set by the convex query for any
   // session that hasn't had `startCall` run yet (regardless of join
   // window), so this branch only triggers when joinable AND un-started.
+  // `isLoaded` and `user !== null` are guaranteed by the early-return
+  // above, so we can read `user.id` directly without an `undefined`
+  // check.
   if (
     session.status === "joinable" &&
     session.startedAt === null &&
-    user?.id !== undefined &&
     user.id === session.studentId
   ) {
     return (

@@ -521,7 +521,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
           }
           title={
             snapshot
-              ? `Reset to ${formatRemainingLabel(snapshot.remainingSessions)} (restores the last value saved on the server)`
+              ? `Reset to ${formatRemainingLabel(snapshot.remainingSessions)} (restores the count from before your changes on this page)`
               : "Reset session count"
           }
           onClick={() => setResetConfirmOpen(true)}
@@ -631,7 +631,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
             <DialogTitle>Reset session count?</DialogTitle>
             <DialogDescription>
               {snapshot
-                ? `Reset session count to ${formatRemainingLabel(snapshot.remainingSessions)}? This restores the count to the last value saved on the server.`
+                ? `Reset session count to ${formatRemainingLabel(snapshot.remainingSessions)}? This restores the count from before your changes on this page.`
                 : "Loading…"}
             </DialogDescription>
           </DialogHeader>
