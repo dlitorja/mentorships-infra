@@ -22,11 +22,12 @@ import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, Code, Quote, MessageCircle, Paperclip, File, Pin, Tag, XCircle } from 'lucide-react';
+import { Loader2, Plus, Trash2, Edit2, Save, X, FileText, ImageIcon, Bold, Italic, Underline as UnderlineIcon, List, ListOrdered, MessageCircle, Paperclip, File, Pin, Tag, XCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { api } from '@/convex/_generated/api';
 import { useConvexAction } from '@convex-dev/react-query';
+import { ChatImageLightbox } from './chat-lightbox';
 import CallsSection from './calls-section';
 
 interface Note {
@@ -107,6 +108,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const titleEditGuardRef = useRef(false);
   const editingNoteIdRef = useRef<Id<'workspaceNotes'> | null>(null);
   const editingTitleSurfaceRef = useRef<TitleEditSurface>(null);
+  // Lightbox state for clicks on embedded note images. Clicking an
+  // <img class="note-image"> opens the shared ChatImageLightbox (also
+  // used by the Chat and Images tabs) so navigation, Esc-to-close,
+  // and the dark backdrop all work identically across surfaces.
+  const [noteImageLightboxOpen, setNoteImageLightboxOpen] = useState(false);
+  const [noteImageLightboxIndex, setNoteImageLightboxIndex] = useState(0);
 
   const { data: notes, isLoading, refetch } = useWorkspaceNotes(workspaceId);
   const { data: liveSessionNote } = useLiveSessionNote(activeSessionId);
@@ -196,6 +203,13 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     autosavesRef.current.delete(noteId);
   }
 
+  // Snapshot of all embedded image URLs in the current note doc, in
+  // document order. Recomputed on every editor change so the
+  // lightbox's prev/next nav stays accurate as the user inserts /
+  // deletes images. ProseMirror walk is preferred over an HTML regex
+  // because it survives attribute re-ordering, source-set usage, etc.
+  const [noteImageUrls, setNoteImageUrls] = useState<string[]>([]);
+
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -207,13 +221,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
         inline: false,
         allowBase64: false,
         HTMLAttributes: {
-          class: 'note-image',
-        },
-        resize: {
-          enabled: true,
-          minWidth: 50,
-          minHeight: 50,
-          alwaysPreserveAspectRatio: true,
+          class: 'note-image cursor-zoom-in',
         },
       }),
     ],
@@ -228,8 +236,45 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (noteId) {
         scheduleAutosave(noteId, editor.getHTML());
       }
+      const urls: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === 'image' && node.attrs.src) {
+          urls.push(node.attrs.src as string);
+        }
+      });
+      setNoteImageUrls(urls);
+    },
+    onCreate: ({ editor }) => {
+      const urls: string[] = [];
+      editor.state.doc.descendants((node) => {
+        if (node.type.name === 'image' && node.attrs.src) {
+          urls.push(node.attrs.src as string);
+        }
+      });
+      setNoteImageUrls(urls);
     },
   });
+
+  /**
+   * Click handler attached to the editor wrapper. Intercepts clicks on
+   * `<img class="note-image">` so we can open the lightbox instead of
+   * letting the browser default behaviour (open the image URL in a
+   * new tab) win. We deliberately do NOT preventDefault unless the
+   * click target is a note image, so text editing interactions remain
+   * untouched.
+   */
+  const handleNoteEditorClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    const target = event.target as HTMLElement | null;
+    if (!target || target.tagName !== 'IMG') return;
+    if (!(target instanceof HTMLImageElement)) return;
+    if (!target.classList.contains('note-image')) return;
+    const src = target.getAttribute('src');
+    if (!src) return;
+    const index = noteImageUrls.indexOf(src);
+    if (index === -1) return;
+    setNoteImageLightboxIndex(index);
+    setNoteImageLightboxOpen(true);
+  };
 
   useEffect(() => {
     editorRef.current = editor;
@@ -882,27 +927,6 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                   >
                     <ListOrdered className="h-4 w-4" />
                   </Button>
-                  <div className="w-px h-6 bg-border mx-1" />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={clsx('h-8 w-8 p-0', editor.isActive('codeBlock') && 'bg-muted')}
-                    onClick={() => editor.chain().focus().toggleCodeBlock().run()}
-                    title="Code Block"
-                  >
-                    <Code className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className={clsx('h-8 w-8 p-0', editor.isActive('blockquote') && 'bg-muted')}
-                    onClick={() => editor.chain().focus().toggleBlockquote().run()}
-                    title="Blockquote"
-                  >
-                    <Quote className="h-4 w-4" />
-                  </Button>
                 </div>
               )}
               <div 
@@ -974,7 +998,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto px-3">
-                    <EditorContent editor={editor} />
+                    <EditorContent editor={editor} onClick={handleNoteEditorClick} />
                   </div>
                 <div className="border-t shrink-0 bg-muted/30">
                   <div className="px-3 py-2 flex items-center justify-between">
@@ -1086,6 +1110,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
                 </div>
               </div>
             </CardContent>
+            <ChatImageLightbox
+              images={noteImageUrls}
+              initialIndex={noteImageLightboxIndex}
+              open={noteImageLightboxOpen}
+              onOpenChange={setNoteImageLightboxOpen}
+            />
           </Card>
         ) : (
           <Card className="h-full flex items-center justify-center">

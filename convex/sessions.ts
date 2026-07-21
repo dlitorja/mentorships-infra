@@ -1987,6 +1987,14 @@ export type CurrentOrUpcomingSession = {
   videoRoomName: string | null;
   videoRoomUrl: string | null;
   participantName: string;
+  /**
+   * Clerk user id of the student on this session. Surfaces on the
+   * client so the workspace UI can gate role-specific affordances
+   * (e.g. only the student side hides the Join Call button when the
+   * call is joinable but no one has marked it started yet — the
+   * instructor keeps their "Start Call" / "Join Call" affordance).
+   */
+  studentId: string;
   windowOpensAt: number;
   windowClosesAt: number;
   /**
@@ -2115,6 +2123,7 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
         videoRoomName: active.videoRoomName ?? null,
         videoRoomUrl: active.videoRoomUrl ?? null,
         participantName,
+        studentId: active.studentId,
         windowOpensAt: active.scheduledAt - JOIN_WINDOW_BEFORE_MS,
         windowClosesAt: active.callStartedAt + JOIN_WINDOW_AFTER_MS,
         recordingConsent: active.recordingConsent ?? null,
@@ -2170,6 +2179,7 @@ export const getCurrentOrUpcomingSessionForWorkspace = query({
       videoRoomName: null,
       videoRoomUrl: null,
       participantName,
+      studentId: upcoming.studentId,
       windowOpensAt,
       windowClosesAt,
       recordingConsent: upcoming.recordingConsent ?? null,

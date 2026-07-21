@@ -17,6 +17,14 @@ export type CurrentOrUpcomingSession = {
   videoRoomName: string | null;
   videoRoomUrl: string | null;
   participantName: string;
+  /**
+   * Clerk user id of the student on this session. Mirrors
+   * `convex/sessions.CurrentOrUpcomingSession.studentId`. Used by
+   * the workspace UI to gate role-specific affordances (e.g. only
+   * the student hides the Join Call button when no one has marked
+   * the call as started yet).
+   */
+  studentId: string;
   windowOpensAt: number;
   windowClosesAt: number;
   /**

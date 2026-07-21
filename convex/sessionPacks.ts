@@ -530,6 +530,87 @@ export const restoreSessionCounts = mutation({
   },
 });
 
+/**
+ * Atomically sets BOTH the total and remaining session counts for a
+ * session pack. Used by the instructor "Edit session count" dialog
+ * (apps/platform/components/workspace/session-count-controls.tsx)
+ * when an instructor types the exact values they want, replacing the
+ * +/- quick-adjust buttons.
+ *
+ * Mirrors the optimistic-concurrency pattern from
+ * `restoreSessionCounts`: refuses to apply if the `expected*` fields
+ * don't match the current server values, surfacing
+ * `SESSION_PACK_UNDO_CONFLICT` so the UI can prompt the user to
+ * reload before retrying.
+ *
+ * Validation:
+ *   - both fields must be non-negative integers
+ *   - `remainingSessions <= totalSessions`
+ *   - if either validation fails, throws ConvexError with a code the
+ *     API route can translate into a 400.
+ *
+ * Authorization matches `restoreSessionCounts` and `setRemainingSessions`:
+ * admin or the pack's owning instructor (via `assertCanModifySessionPack`).
+ */
+export const setSessionPackTotals = mutation({
+  args: {
+    id: v.id("sessionPacks"),
+    totalSessions: v.number(),
+    remainingSessions: v.number(),
+    expectedTotalSessions: v.number(),
+    expectedRemainingSessions: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+    const pack = await assertCanModifySessionPack(ctx, args.id, user.subject);
+
+    if (
+      pack.totalSessions !== args.expectedTotalSessions ||
+      pack.remainingSessions !== args.expectedRemainingSessions
+    ) {
+      throw new ConvexError({
+        code: "SESSION_PACK_UNDO_CONFLICT",
+        message: "Session pack changed before edit could be applied",
+      });
+    }
+
+    if (!Number.isInteger(args.totalSessions) || !Number.isInteger(args.remainingSessions)) {
+      throw new ConvexError({
+        code: "SESSION_PACK_INVALID_VALUE",
+        message: "Total and remaining must be integers",
+      });
+    }
+    if (args.totalSessions < 0 || args.remainingSessions < 0) {
+      throw new ConvexError({
+        code: "SESSION_PACK_INVALID_VALUE",
+        message: "Total and remaining must be non-negative",
+      });
+    }
+    if (args.remainingSessions > args.totalSessions) {
+      throw new ConvexError({
+        code: "SESSION_PACK_INVALID_VALUE",
+        message: "Remaining cannot exceed total",
+      });
+    }
+
+    const totalSessions = args.totalSessions;
+    const remainingSessions = args.remainingSessions;
+    const status = remainingSessions === 0
+      ? pack.status === "active" || pack.status === "depleted" ? "depleted" : pack.status
+      : pack.status === "depleted" ? "active" : pack.status;
+    await ctx.db.patch(args.id, {
+      totalSessions,
+      remainingSessions,
+      status,
+    });
+
+    return await ctx.db.get(args.id);
+  },
+});
+
 export const migrateSessionPack = mutation({
   args: {
     id: v.string(),

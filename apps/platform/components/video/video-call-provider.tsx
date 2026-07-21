@@ -44,6 +44,7 @@ function deriveCurrentOrUpcomingSession(raw: Doc<"sessions">): {
   videoRoomName: string | null;
   videoRoomUrl: string | null;
   participantName: string;
+  studentId: string;
   windowOpensAt: number;
   windowClosesAt: number;
   recordingConsent: boolean | null;
@@ -61,6 +62,7 @@ function deriveCurrentOrUpcomingSession(raw: Doc<"sessions">): {
       videoRoomName: raw.videoRoomName,
       videoRoomUrl: raw.videoRoomUrl ?? null,
       participantName: "",
+      studentId: raw.studentId,
       windowOpensAt,
       windowClosesAt: raw.callStartedAt + JOIN_WINDOW_AFTER_MS,
       recordingConsent: raw.recordingConsent ?? null,
@@ -79,6 +81,7 @@ function deriveCurrentOrUpcomingSession(raw: Doc<"sessions">): {
     videoRoomName: null,
     videoRoomUrl: null,
     participantName: "",
+    studentId: raw.studentId,
     windowOpensAt,
     windowClosesAt,
     recordingConsent: raw.recordingConsent ?? null,

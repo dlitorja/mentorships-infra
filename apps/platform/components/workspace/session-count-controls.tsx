@@ -1,10 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Loader2, Minus, Plus, RotateCcw } from "lucide-react";
+import { Loader2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useSessionPack } from "@/lib/queries/convex/use-session-packs";
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -23,12 +33,15 @@ type SessionPackPatchResponse = {
   };
 };
 
-type AdjustmentAction = "increment" | "decrement";
-type PendingAction = AdjustmentAction | "restore";
+type PendingAction = "edit" | "restore";
 type SessionCountSnapshot = {
   remainingSessions: number;
   totalSessions: number;
 };
+
+function formatRemainingLabel(remaining: number): string {
+  return `${remaining} ${remaining === 1 ? "session" : "sessions"} remaining`;
+}
 
 export function SessionCountControls({ sessionPackId }: SessionCountControlsProps) {
   const { data: sessionPack, isLoading, refetch } = useSessionPack(sessionPackId);
@@ -61,6 +74,18 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   // from "same value re-pushed" (no-op). Updated synchronously by
   // the subscription effect below.
   const lastSubscriptionValueRef = useRef<SessionCountSnapshot | null>(null);
+
+  // Edit dialog state. Inputs are stored as strings so we can
+  // enforce strict digit-only sanitization on every keystroke before
+  // the value ever reaches state. Parse happens at submit time.
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editTotalInput, setEditTotalInput] = useState("");
+  const [editRemainingInput, setEditRemainingInput] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+
+  // Reset confirmation dialog state.
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
 
   // Effect 1: capture / clear snapshot when the session pack id
   // changes. Triggered only by `_id`, so it doesn't re-run when
@@ -143,6 +168,137 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     }
   }, [refetch]);
 
+  /**
+   * Strip every non-digit character from a freeform input string.
+   * Used by the Edit dialog so the typed value can only ever be a
+   * non-negative integer — blocks `-`, `.`, `e`, `+`, letters,
+   * whitespace, and any other non-digit before they ever reach
+   * React state.
+   */
+  const sanitizeDigits = useCallback((value: string): string => {
+    return value.replace(/[^0-9]/g, "");
+  }, []);
+
+  /**
+   * Open the Edit dialog and seed its inputs with the current
+   * values. We read from `latestCountRef` (not the live render
+   * values) so the dialog stays consistent if a subscription push
+   * fires between the click and the dialog mounting.
+   */
+  const openEditDialog = useCallback(() => {
+    const current = latestCountRef.current;
+    setEditTotalInput(String(current.totalSessions));
+    setEditRemainingInput(String(current.remainingSessions));
+    setEditError(null);
+    setEditDialogOpen(true);
+  }, []);
+
+  /**
+   * Submit the Edit dialog. Validates strictly on submit
+   * (parseInt with radix 10), rejects remaining > total, and
+   * surfaces a friendly inline error inside the dialog instead of
+   * a toast. The PATCH goes through the new `setBoth` API action
+   * which atomically updates both fields with optimistic-concurrency
+   * check.
+   */
+  const submitEdit = useCallback(async () => {
+    if (pendingRef.current) return;
+    if (isEditSubmitting) return;
+
+    const total = parseInt(editTotalInput, 10);
+    const remaining = parseInt(editRemainingInput, 10);
+
+    if (editTotalInput.trim() === "" || Number.isNaN(total)) {
+      setEditError("Total must be a whole number.");
+      return;
+    }
+    if (editRemainingInput.trim() === "" || Number.isNaN(remaining)) {
+      setEditError("Remaining must be a whole number.");
+      return;
+    }
+    if (total < 0) {
+      setEditError("Total cannot be negative.");
+      return;
+    }
+    if (remaining < 0) {
+      setEditError("Remaining cannot be negative.");
+      return;
+    }
+    if (remaining > total) {
+      setEditError("Remaining cannot exceed total.");
+      return;
+    }
+
+    setEditError(null);
+    setIsEditSubmitting(true);
+
+    const expected = latestCountRef.current;
+    const target: SessionCountSnapshot = {
+      totalSessions: total,
+      remainingSessions: remaining,
+    };
+
+    pendingRef.current = true;
+    setPendingAction("edit");
+    setOptimisticCount(target);
+    latestCountRef.current = target;
+
+    try {
+      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setBoth",
+          totalSessions: target.totalSessions,
+          remainingSessions: target.remainingSessions,
+          expectedTotalSessions: expected.totalSessions,
+          expectedRemainingSessions: expected.remainingSessions,
+        }),
+      });
+      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
+      try {
+        json = (await response.json()) as typeof json;
+      } catch {
+        // Non-JSON body, e.g. an HTML proxy error.
+      }
+
+      if (response.status === 409) {
+        toast.error("This session pack changed — refresh to see the latest and try again.", {
+          action: {
+            label: "Reload",
+            onClick: () => {
+              void refetch();
+            },
+          },
+        });
+        await syncFromServer();
+        setEditDialogOpen(false);
+        return;
+      }
+
+      if (!response.ok || !json.sessionPack) {
+        throw new Error(json.error || "Failed to update session count");
+      }
+
+      const updatedCount = {
+        remainingSessions: json.sessionPack.remainingSessions,
+        totalSessions: json.sessionPack.totalSessions,
+      };
+      setOptimisticCount(updatedCount);
+      latestCountRef.current = updatedCount;
+      void refetch();
+      toast.success(`Updated to ${formatRemainingLabel(updatedCount.remainingSessions)}.`);
+      setEditDialogOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update session count");
+      await syncFromServer();
+    } finally {
+      pendingRef.current = false;
+      setPendingAction(null);
+      setIsEditSubmitting(false);
+    }
+  }, [editRemainingInput, editTotalInput, isEditSubmitting, refetch, sessionPackId, syncFromServer]);
+
   const restoreSessions = useCallback(async (target: SessionCountSnapshot, expected: SessionCountSnapshot) => {
     if (pendingRef.current) return;
 
@@ -199,6 +355,11 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
    * concurrency check. Returns early (no-op) if there's no snapshot
    * yet (pack still loading) or if the current state already matches
    * the snapshot.
+   *
+   * Confirmation flow: opens a Radix Dialog instead of the
+   * (blockable, iframe-unfriendly) `window.confirm`. The Dialog
+   * itself owns the "open" state, so callers toggle it via
+   * `setResetConfirmOpen`.
    */
   const resetSessions = useCallback(async () => {
     if (pendingRef.current) return;
@@ -211,14 +372,6 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     ) {
       return;
     }
-
-    const confirmed =
-      typeof window !== "undefined"
-        ? window.confirm(
-            `Reset session count to ${snapshot.remainingSessions} / ${snapshot.totalSessions}? This undoes any manual adjustments since you opened this page.`,
-          )
-        : true;
-    if (!confirmed) return;
 
     pendingRef.current = true;
     setPendingAction("restore");
@@ -250,6 +403,19 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         // Non-JSON body, e.g. an HTML proxy error.
       }
 
+      if (response.status === 409) {
+        toast.error("This session pack changed — refresh to see the latest and try again.", {
+          action: {
+            label: "Reload",
+            onClick: () => {
+              void refetch();
+            },
+          },
+        });
+        await syncFromServer();
+        return;
+      }
+
       if (!response.ok || !json.sessionPack) {
         throw new Error(json.error || "Failed to reset sessions");
       }
@@ -261,7 +427,7 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       setOptimisticCount(restoredCount);
       latestCountRef.current = restoredCount;
       void refetch();
-      toast.success(`Reset to ${restoredCount.remainingSessions} / ${restoredCount.totalSessions} sessions left.`);
+      toast.success(`Reset to ${formatRemainingLabel(restoredCount.remainingSessions)}.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to reset sessions");
       await syncFromServer();
@@ -270,66 +436,6 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       setPendingAction(null);
     }
   }, [pageLoadSnapshot, refetch, sessionPackId, syncFromServer]);
-
-  const adjustSessions = useCallback(async (action: AdjustmentAction, showUndo = true) => {
-    if (pendingRef.current) return;
-
-    const currentCount = latestCountRef.current;
-    if (action === "decrement" && currentCount.remainingSessions <= 0) return;
-
-    const previousCount = { ...currentCount };
-    const nextCount = {
-      remainingSessions: action === "increment" ? currentCount.remainingSessions + 1 : currentCount.remainingSessions - 1,
-      totalSessions: action === "increment" ? currentCount.totalSessions + 1 : currentCount.totalSessions,
-    };
-
-    pendingRef.current = true;
-    setPendingAction(action);
-    setOptimisticCount(nextCount);
-    latestCountRef.current = nextCount;
-
-    try {
-      const response = await fetch(`/api/instructor/session-packs/${sessionPackId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, amount: 1 }),
-      });
-      let json: Partial<SessionPackPatchResponse> & { error?: string } = {};
-      try {
-        json = (await response.json()) as typeof json;
-      } catch {
-        // Non-JSON body, e.g. an HTML proxy error.
-      }
-
-      if (!response.ok || !json.sessionPack) {
-        throw new Error(json.error || "Failed to update sessions");
-      }
-
-      const updatedCount = {
-        remainingSessions: json.sessionPack.remainingSessions,
-        totalSessions: json.sessionPack.totalSessions,
-      };
-      setOptimisticCount(updatedCount);
-      latestCountRef.current = updatedCount;
-      void refetch();
-
-      const message = action === "increment" ? "Added 1 session" : "Removed 1 session";
-      toast.success(`${message}. ${json.sessionPack.remainingSessions} left.`, {
-        action: showUndo
-          ? {
-              label: "Undo",
-              onClick: () => void restoreSessions(previousCount, updatedCount),
-            }
-          : undefined,
-      });
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update sessions");
-      await syncFromServer();
-    } finally {
-      pendingRef.current = false;
-      setPendingAction(null);
-    }
-  }, [refetch, restoreSessions, sessionPackId, syncFromServer]);
 
   if (isLoading) {
     return (
@@ -356,62 +462,174 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
       remainingSessions === snapshot.remainingSessions);
 
   return (
-    <div
-      className={cn(
-        "inline-flex items-center overflow-hidden rounded-full border bg-background text-sm shadow-sm",
-        remainingSessions === 0 && "border-destructive/50",
-        remainingSessions === 1 && "border-yellow-500/50"
-      )}
-      aria-label={`${remainingSessions} sessions remaining`}
-    >
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 rounded-none"
-        disabled={isPending || remainingSessions <= 0}
-        aria-label="Mark one session as completed (decrement remaining)"
-        title="Mark one session as completed (decrements remaining)"
-        onClick={() => void adjustSessions("decrement")}
+    <>
+      <div
+        className={cn(
+          "inline-flex items-center overflow-hidden rounded-full border bg-background text-sm shadow-sm",
+          remainingSessions === 0 && "border-destructive/50",
+          remainingSessions === 1 && "border-yellow-500/50"
+        )}
+        aria-label={formatRemainingLabel(remainingSessions)}
       >
-        {pendingAction === "decrement" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Minus className="h-4 w-4" />}
-      </Button>
-      <div className="border-x px-3 py-1.5 font-medium">
-        {remainingSessions} / {totalSessions} sessions left
+        <div className="px-3 py-1.5 font-medium">
+          {formatRemainingLabel(remainingSessions)}
+        </div>
+        <div className="w-px h-6 bg-border" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-none"
+          disabled={isPending}
+          aria-label="Edit session count"
+          title="Edit session count"
+          onClick={openEditDialog}
+        >
+          {pendingAction === "edit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 rounded-none"
+          disabled={resetDisabled}
+          aria-label={
+            snapshot
+              ? `Reset session count to ${formatRemainingLabel(snapshot.remainingSessions)}`
+              : "Reset session count (loading…)"
+          }
+          title={
+            snapshot
+              ? `Reset to ${formatRemainingLabel(snapshot.remainingSessions)} (restores the last value saved on the server)`
+              : "Reset session count"
+          }
+          onClick={() => setResetConfirmOpen(true)}
+        >
+          {pendingAction === "restore" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+        </Button>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 rounded-none"
-        disabled={isPending}
-        aria-label="Add a session credit to this student's pack"
-        title="Add a session credit to this student's pack (increases total and remaining)"
-        onClick={() => void adjustSessions("increment")}
+
+      <Dialog
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          if (isEditSubmitting) return;
+          setEditDialogOpen(open);
+          if (!open) setEditError(null);
+        }}
       >
-        {pendingAction === "increment" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-      </Button>
-      <div className="w-px h-6 bg-border" />
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8 rounded-none"
-        disabled={resetDisabled}
-        aria-label={
-          snapshot
-            ? `Reset session count to ${snapshot.remainingSessions} / ${snapshot.totalSessions}`
-            : "Reset session count (loading…)"
-        }
-        title={
-          snapshot
-            ? `Reset to ${snapshot.remainingSessions} / ${snapshot.totalSessions} (undoes manual adjustments since page open)`
-            : "Reset session count"
-        }
-        onClick={() => void resetSessions()}
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit session count</DialogTitle>
+            <DialogDescription>
+              Set the total and remaining sessions for this student&apos;s pack. Both values must be whole numbers, and remaining cannot exceed total.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitEdit();
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="session-pack-total">Total sessions</Label>
+              <Input
+                id="session-pack-total"
+                name="totalSessions"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="off"
+                value={editTotalInput}
+                onChange={(e) => setEditTotalInput(sanitizeDigits(e.target.value))}
+                disabled={isEditSubmitting}
+                aria-invalid={editError !== null && Number.isNaN(parseInt(editTotalInput, 10))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="session-pack-remaining">Remaining sessions</Label>
+              <Input
+                id="session-pack-remaining"
+                name="remainingSessions"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="off"
+                value={editRemainingInput}
+                onChange={(e) => setEditRemainingInput(sanitizeDigits(e.target.value))}
+                disabled={isEditSubmitting}
+                aria-invalid={
+                  editError !== null &&
+                  (Number.isNaN(parseInt(editRemainingInput, 10)) ||
+                    parseInt(editRemainingInput, 10) >
+                      (parseInt(editTotalInput, 10) || Number.MAX_SAFE_INTEGER))
+                }
+              />
+            </div>
+            {editError && (
+              <p className="text-sm text-destructive" role="alert">
+                {editError}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setEditDialogOpen(false);
+                  setEditError(null);
+                }}
+                disabled={isEditSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isEditSubmitting}>
+                {isEditSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={resetConfirmOpen}
+        onOpenChange={(open) => {
+          if (isPending) return;
+          setResetConfirmOpen(open);
+        }}
       >
-        {pendingAction === "restore" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-      </Button>
-    </div>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset session count?</DialogTitle>
+            <DialogDescription>
+              {snapshot
+                ? `Reset session count to ${formatRemainingLabel(snapshot.remainingSessions)}? This restores the count to the last value saved on the server.`
+                : "Loading…"}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setResetConfirmOpen(false)}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                setResetConfirmOpen(false);
+                void resetSessions();
+              }}
+              disabled={isPending || !snapshot}
+            >
+              Reset
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

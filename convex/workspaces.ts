@@ -1116,6 +1116,11 @@ export const getWorkspaceImages = query({
       })
     );
 
+    // Newest first so the Images tab shows the most recent uploads
+    // without needing a client-side sort. `_creationTime` is a system
+    // field populated by Convex at insert time, so this is monotonic.
+    imagesWithUrls.sort((a, b) => b._creationTime - a._creationTime);
+
     if (role === "instructor") {
       return imagesWithUrls;
     }

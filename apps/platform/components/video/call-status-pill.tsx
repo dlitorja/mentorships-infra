@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
 import {
   Phone,
   PhoneOff,
@@ -91,6 +92,10 @@ export function CallStatusPill({
     join,
     leave,
   } = useVideoCallContext();
+  // Used to gate the student-only "Waiting for instructor" branch.
+  // We compare Clerk user id against `session.studentId` (mirrors
+  // `convex/sessions.CurrentOrUpcomingSession.studentId`).
+  const { user } = useUser();
 
   // Tick once per second so the countdown chip ("Opens in 4m 30s")
   // updates without requiring a parent re-render. The interval is
@@ -248,6 +253,37 @@ export function CallStatusPill({
           <Video className="h-4 w-4" />
           Open call
         </Button>
+        {consentModal}
+      </>
+    );
+  }
+
+  // Student-only "Waiting" pill: a call is joinable in the platform's
+  // join window but no one has marked it as started yet. The student
+  // side hides the Join Call button here (they can't start the call);
+  // the instructor keeps their existing Join/Start affordance below.
+  // `session.startedAt === null` is set by the convex query for any
+  // session that hasn't had `startCall` run yet (regardless of join
+  // window), so this branch only triggers when joinable AND un-started.
+  if (
+    session.status === "joinable" &&
+    session.startedAt === null &&
+    user?.id !== undefined &&
+    user.id === session.studentId
+  ) {
+    return (
+      <>
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm text-muted-foreground",
+            className
+          )}
+        >
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>
+            Waiting for {session.participantName || "instructor"} to start the call
+          </span>
+        </div>
         {consentModal}
       </>
     );
