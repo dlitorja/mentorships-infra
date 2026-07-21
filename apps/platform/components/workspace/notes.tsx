@@ -61,6 +61,28 @@ interface AutosaveEntry {
 type TitleEditSurface = 'list' | 'header' | null;
 
 /**
+ * Walk the editor's doc and collect `src` attributes for every
+ * image node, in document order. Used by `onUpdate`, `onCreate`,
+ * and the note-switch effect so the lightbox image list stays in
+ * sync with whichever note is currently selected. Hoisted out of
+ * the component so it has a stable identity — keeping it inline
+ * would force every effect that references it to re-run on every
+ * render (eslint react-hooks/exhaustive-deps) without changing
+ * behavior.
+ */
+function collectNoteImageUrls(
+  editorInstance: NonNullable<ReturnType<typeof useEditor>>
+): string[] {
+  const urls: string[] = [];
+  editorInstance.state.doc.descendants((node) => {
+    if (node.type.name === "image" && node.attrs.src) {
+      urls.push(node.attrs.src as string);
+    }
+  });
+  return urls;
+}
+
+/**
  * Rich text note-taking component for a workspace.
  * Uses TipTap editor with auto-save on content changes.
  * Supports creating, editing titles, and deleting notes.
@@ -208,6 +230,12 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   // lightbox's prev/next nav stays accurate as the user inserts /
   // deletes images. ProseMirror walk is preferred over an HTML regex
   // because it survives attribute re-ordering, source-set usage, etc.
+  //
+  // Also recomputed whenever `selectedNoteId` changes (via the
+  // `setContent` effect below) because `setContent(..., { emitUpdate:
+  // false })` does NOT trigger `onUpdate` — without the explicit
+  // rescan on note switch, switching notes would leave the lightbox
+  // pointing at the previous note's image list.
   const [noteImageUrls, setNoteImageUrls] = useState<string[]>([]);
 
   const editor = useEditor({
@@ -236,22 +264,10 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (noteId) {
         scheduleAutosave(noteId, editor.getHTML());
       }
-      const urls: string[] = [];
-      editor.state.doc.descendants((node) => {
-        if (node.type.name === 'image' && node.attrs.src) {
-          urls.push(node.attrs.src as string);
-        }
-      });
-      setNoteImageUrls(urls);
+      setNoteImageUrls(collectNoteImageUrls(editor));
     },
     onCreate: ({ editor }) => {
-      const urls: string[] = [];
-      editor.state.doc.descendants((node) => {
-        if (node.type.name === 'image' && node.attrs.src) {
-          urls.push(node.attrs.src as string);
-        }
-      });
-      setNoteImageUrls(urls);
+      setNoteImageUrls(collectNoteImageUrls(editor));
     },
   });
 
@@ -287,10 +303,15 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       if (loadedNoteIdRef.current !== selectedNote._id) {
         editor.commands.setContent(selectedNote.content || '', { emitUpdate: false });
         loadedNoteIdRef.current = selectedNote._id;
+        // `setContent` is called with `emitUpdate: false` so
+        // `onUpdate` doesn't fire — rescan image URLs explicitly so
+        // the lightbox list reflects the newly-selected note.
+        setNoteImageUrls(collectNoteImageUrls(editor));
       }
     } else if (!selectedNoteId) {
       editor.commands.setContent('', { emitUpdate: false });
       loadedNoteIdRef.current = null;
+      setNoteImageUrls([]);
     }
   }, [editor, selectedNote, selectedNoteId]);
 
@@ -507,7 +528,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     e.target.value = '';
   };
 
-  const handleDottedLineDrop = async (file: File) => {
+  const handleDottedLineDrop = async (file: File): Promise<void> => {
     const noteIdForUpload = selectedNoteId;
     const currentEditor = editorRef.current;
     if (!noteIdForUpload || !currentEditor) return;

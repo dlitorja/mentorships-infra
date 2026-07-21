@@ -83,6 +83,14 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
   const [editRemainingInput, setEditRemainingInput] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+  // Snapshot of { total, remaining } taken the moment the Edit
+  // dialog opens. Used as the optimistic-concurrency `expected`
+  // value on submit so a subscription push that arrives while the
+  // dialog is open cannot become the new baseline — that would let
+  // a stale form overwrite activity from another instructor / tab /
+  // system job and silently restore a consumed credit. See the
+  // Greptile sequence-diagram finding on PR #663.
+  const expectedAtEditOpenRef = useRef<SessionCountSnapshot | null>(null);
 
   // Reset confirmation dialog state.
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
@@ -183,10 +191,15 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
    * Open the Edit dialog and seed its inputs with the current
    * values. We read from `latestCountRef` (not the live render
    * values) so the dialog stays consistent if a subscription push
-   * fires between the click and the dialog mounting.
+   * fires between the click and the dialog mounting. Also snapshots
+   * the current count into `expectedAtEditOpenRef` so the
+   * optimistic-concurrency `expected` value on submit stays pinned
+   * to what the user saw, not to whatever value the subscription
+   * pushes while the dialog is open.
    */
   const openEditDialog = useCallback(() => {
     const current = latestCountRef.current;
+    expectedAtEditOpenRef.current = { ...current };
     setEditTotalInput(String(current.totalSessions));
     setEditRemainingInput(String(current.remainingSessions));
     setEditError(null);
@@ -232,7 +245,15 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
     setEditError(null);
     setIsEditSubmitting(true);
 
-    const expected = latestCountRef.current;
+    // Use the snapshot taken when the dialog opened, not the live
+    // ref. Otherwise a subscription push that arrives while the
+    // dialog is open can become the new `expected` baseline and let
+    // a stale form overwrite activity from another instructor / tab
+    // / system job. If the dialog was opened before this snapshot
+    // existed (shouldn't happen — `openEditDialog` always writes
+    // the snapshot — but defends against future refactors), fall
+    // back to the live ref so we don't accidentally pass stale data.
+    const expected = expectedAtEditOpenRef.current ?? latestCountRef.current;
     const target: SessionCountSnapshot = {
       totalSessions: total,
       remainingSessions: remaining,
@@ -514,7 +535,14 @@ export function SessionCountControls({ sessionPackId }: SessionCountControlsProp
         onOpenChange={(open) => {
           if (isEditSubmitting) return;
           setEditDialogOpen(open);
-          if (!open) setEditError(null);
+          if (!open) {
+            setEditError(null);
+            // Clear the open-time snapshot so the next open re-snapshots
+            // from the current `latestCountRef`. Without this, a stale
+            // snapshot from a previous open could leak into the next
+            // submit's `expected` baseline.
+            expectedAtEditOpenRef.current = null;
+          }
         }}
       >
         <DialogContent className="sm:max-w-md">

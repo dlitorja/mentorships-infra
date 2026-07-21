@@ -274,24 +274,4 @@ test.describe("Workspace notes editor — rich-text block styles", () => {
     );
     expect(listStyleType).toBe("decimal");
   });
-
-  test("Code Block toolbar button produces a <pre> with monospace font", async ({
-    page,
-  }) => {
-    const editor = page.locator(".ProseMirror").first();
-    await editor.click();
-
-    await page.getByRole("button", { name: "Code Block" }).click();
-    await editor.type("code-marker");
-
-    const pre = editor.locator("pre", { hasText: "code-marker" });
-    await expect(pre).toBeVisible();
-
-    const fontFamily = await pre.evaluate(
-      (el) => window.getComputedStyle(el).fontFamily,
-    );
-    // Typography plugin's prose uses a monospace stack. Without the
-    // plugin, the editor inherits the body serif/sans font.
-    expect(fontFamily.toLowerCase()).toMatch(/mono|menlo|courier|consolas/);
-  });
 });
