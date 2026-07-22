@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Loader2, Search, X, Trash2, Download, Play } from "lucide-react";
+import { Loader2, Search, X, Trash2, Download, Play, Share2 } from "lucide-react";
 import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
+import { ShareDialog } from "@/components/share-dialog";
 
 export default function AdminFilesPage(): React.ReactElement {
   const [files, setFiles] = useState<FileItem[] | null>(null);
@@ -32,6 +33,7 @@ export default function AdminFilesPage(): React.ReactElement {
   const [playingIds, setPlayingIds] = useState<Set<string>>(new Set());
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
+  const [shareDialogFile, setShareDialogFile] = useState<{ id: string; originalName: string } | null>(null);
 const latestPlayRequestRef = useRef<string | null>(null);
 
   const isDownloading = (fileId: string) => downloadingIds.has(fileId);
@@ -458,6 +460,16 @@ setSelectedFileIds(new Set());
                                     <Download className="w-4 h-4" />
                                   )}
                                 </button>
+                                {(file.status === "completed" || file.status === "archived") && (
+                                  <button
+                                    onClick={() => setShareDialogFile({ id: file.id, originalName: file.originalName })}
+                                    className="p-2 rounded-lg hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 transition-colors"
+                                    title="Share"
+                                    aria-label="Share file"
+                                  >
+                                    <Share2 className="w-4 h-4" />
+                                  </button>
+                                )}
                                 {confirmSoftDeleteId === file.id ? (
                                   <>
                                     <button
@@ -602,6 +614,15 @@ setSelectedFileIds(new Set());
             />
           </div>
         </div>
+      )}
+
+      {shareDialogFile && (
+        <ShareDialog
+          uploadId={shareDialogFile.id}
+          originalName={shareDialogFile.originalName}
+          open={true}
+          onClose={() => setShareDialogFile(null)}
+        />
       )}
     </div>
   );
