@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Search, X, Trash2, Download, Play } from "lucide-react";
 import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
+import { ShareFileButton } from "@/components/share-file-button";
 
 export default function AdminFilesPage(): React.ReactElement {
   const [files, setFiles] = useState<FileItem[] | null>(null);
@@ -458,6 +459,9 @@ setSelectedFileIds(new Set());
                                     <Download className="w-4 h-4" />
                                   )}
                                 </button>
+                                {(file.status === "completed" || file.status === "archived") && (
+                                  <ShareFileButton fileId={file.id} originalName={file.originalName} />
+                                )}
                                 {confirmSoftDeleteId === file.id ? (
                                   <>
                                     <button
