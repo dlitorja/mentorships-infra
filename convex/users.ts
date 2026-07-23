@@ -2,6 +2,7 @@ import { query, mutation, internalQuery, internalMutation, action } from "./_gen
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
+import { writeAuditLog } from "./auditLog";
 
 /** Returns a user matching the given email address. */
 export const getUserByEmail = query({
@@ -331,6 +332,8 @@ export const setUserRoleTrusted = internalMutation({
   args: {
     userId: v.string(),
     role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
+    actorId: v.optional(v.string()),
+    actorRole: v.optional(v.union(v.literal("admin"), v.literal("support"), v.literal("instructor"), v.literal("student"), v.literal("system"))),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -339,7 +342,17 @@ export const setUserRoleTrusted = internalMutation({
       .first();
 
     if (existing) {
+      const previousRole = existing.role;
       await ctx.db.patch(existing._id, { role: args.role, userId: args.userId });
+      await writeAuditLog(ctx, {
+        actorId: args.actorId ?? "system",
+        actorRole: args.actorRole ?? "system",
+        action: "set_user_role",
+        targetType: "user",
+        targetId: args.userId,
+        details: `Role changed from ${previousRole ?? "unset"} to ${args.role}`,
+        metadata: { previousRole, newRole: args.role },
+      });
       return await ctx.db.get(existing._id);
     }
 
@@ -353,6 +366,15 @@ export const setUserRoleTrusted = internalMutation({
     } as Partial<Doc<"users">> as any);
     const inserted = await ctx.db.get(id);
     if (!inserted) throw new Error("Failed to set role");
+    await writeAuditLog(ctx, {
+      actorId: args.actorId ?? "system",
+      actorRole: args.actorRole ?? "system",
+      action: "set_user_role",
+      targetType: "user",
+      targetId: args.userId,
+      details: `User created with role ${args.role}`,
+      metadata: { previousRole: null, newRole: args.role },
+    });
     return inserted;
   },
 });
@@ -409,21 +431,34 @@ export const setUserClerkId = internalMutation({
   args: {
     userId: v.string(),
     clerkId: v.string(),
+    actorId: v.optional(v.string()),
+    actorRole: v.optional(v.union(v.literal("admin"), v.literal("support"), v.literal("instructor"), v.literal("student"), v.literal("system"))),
   },
   handler: async (ctx, args) => {
     const user = await ctx.db
       .query("users")
       .withIndex("by_userId", (q) => q.eq("userId", args.userId))
       .first();
-    
+
     if (!user) {
       throw new Error(`User with userId ${args.userId} not found`);
     }
-    
+
+    const previousClerkId = user.clerkId;
     await ctx.db.patch(user._id, {
       clerkId: args.clerkId,
     });
-    
+
+    await writeAuditLog(ctx, {
+      actorId: args.actorId ?? "system",
+      actorRole: args.actorRole ?? "system",
+      action: "set_user_clerk_id",
+      targetType: "user",
+      targetId: args.userId,
+      details: `clerkId changed from ${previousClerkId} to ${args.clerkId}`,
+      metadata: { previousClerkId, newClerkId: args.clerkId },
+    });
+
     return await ctx.db.get(user._id);
   },
 });
