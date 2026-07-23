@@ -2599,6 +2599,12 @@ export const createInstructorForClerkUser = action({
       return { success: false, reason: "Invalid secret" };
     }
 
+    const callerIdentity = await ctx.auth.getUserIdentity();
+    const actorId = callerIdentity?.subject ?? "system";
+    const actorRole: "admin" | "instructor" | "system" = callerIdentity
+      ? "instructor"
+      : "system";
+
     const existing = await ctx.runQuery(
       internal.instructors.getInstructorByUserIdInternal,
       { userId: args.userId }
@@ -2609,8 +2615,18 @@ export const createInstructorForClerkUser = action({
       await ctx.runMutation(internal.users.setUserRoleTrusted, {
         userId: args.userId,
         role: "instructor",
+        actorId,
+        actorRole,
       });
       console.log("createInstructorForClerkUser: Updated user role to instructor", args.userId);
+      await ctx.runMutation(internal.auditLog.recordAuditLog, {
+        actorId,
+        actorRole,
+        action: "create_instructor_for_clerk_user",
+        targetType: "instructor",
+        targetId: existing._id,
+        details: `Instructor already existed for user ${args.userId}; role synced to instructor`,
+      });
       return { success: true, instructorId: existing._id, reason: "Already exists" };
     }
 
@@ -2627,6 +2643,17 @@ export const createInstructorForClerkUser = action({
     await ctx.runMutation(internal.users.setUserRoleTrusted, {
       userId: args.userId,
       role: "instructor",
+      actorId,
+      actorRole,
+    });
+    await ctx.runMutation(internal.auditLog.recordAuditLog, {
+      actorId,
+      actorRole,
+      action: "create_instructor_for_clerk_user",
+      targetType: "instructor",
+      targetId: instructorId,
+      details: `Created instructor profile for user ${args.userId}`,
+      metadata: { userId: args.userId, email: args.email, name: args.name },
     });
     console.log("createInstructorForClerkUser: Set user role to instructor", args.userId);
 
@@ -2657,6 +2684,16 @@ export const deactivateInstructorByUserId = action({
 
     await ctx.runMutation(internal.instructors.deactivateInstructorInternal, {
       instructorId: instructor._id,
+    });
+
+    await ctx.runMutation(internal.auditLog.recordAuditLog, {
+      actorId: "system",
+      actorRole: "system",
+      action: "deactivate_instructor_by_user_id",
+      targetType: "instructor",
+      targetId: instructor._id,
+      details: `Deactivated instructor for user ${args.userId}`,
+      metadata: { userId: args.userId },
     });
 
     console.log("deactivateInstructorByUserId: Deactivated instructor", args.userId, instructor._id);
