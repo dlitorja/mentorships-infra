@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { fetchAction } from "convex/nextjs";
-import { api } from "@/convex/_generated/api";
 import { isForbiddenError, isUnauthorizedError } from "@/lib/errors";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 export const runtime = "nodejs";
 
@@ -11,8 +10,9 @@ export const runtime = "nodejs";
  * Server-verified update of the clerkId field for multi-Clerk-app support.
  * This allows setting the clerkId (for apps like huckleberry-drive) without
  * changing the userId field that apps/platform depends on.
- * 
- * Requires Clerk admin via requireRoleForApi("admin") and HMAC using CONVEX_SERVER_SHARED_SECRET.
+ *
+ * Requires Clerk admin via requireRoleForApi("admin"). Authenticates
+ * the server-to-Convex call with the CONVEX_HTTP_KEY bearer (R14).
  */
 export async function POST(request: Request) {
   try {
@@ -23,30 +23,18 @@ export async function POST(request: Request) {
     const token = await clerkAuth.getToken({ template: "convex" });
     if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-    if (!secret) {
-      return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
-    }
-
     const userId = clerkAuth.userId;
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Get the clerkId to set from request body
     const body = await request.json();
     const { clerkId } = body;
     if (!clerkId) {
       return NextResponse.json({ error: "clerkId is required" }, { status: 400 });
     }
 
-    const ts = Date.now();
-    const msg = `${userId}:clerkId:${clerkId}:${ts}`;
-    const { createHmac } = await import("node:crypto");
-    const sig = createHmac("sha256", secret).update(msg).digest("hex");
-
-    const updated = await fetchAction(
-      api.users_actions.serverVerifiedSetUserClerkId,
-      { userId, clerkId, ts, sig },
-      { token, url: process.env.NEXT_PUBLIC_CONVEX_URL }
+    const updated = await convexServerCall<{ _id: string; clerkId: string }>(
+      "/users/set-clerk-id",
+      { userId, clerkId }
     );
 
     return NextResponse.json({ success: true, user: { id: updated._id, clerkId: updated.clerkId } });
