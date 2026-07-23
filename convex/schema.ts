@@ -554,7 +554,7 @@ export default defineSchema({
     .index("by_actorRole", ["actorRole"])
     .index("by_action", ["action"])
     .index("by_targetType", ["targetType"])
-    .index("by_targetType_targetId", ["targetType", "targetId"])
+    .index("by_targetType_targetId_timestamp", ["targetType", "targetId", "timestamp"])
     .index("by_timestamp", ["timestamp"]),
 
   marketingWaitlist: defineTable({

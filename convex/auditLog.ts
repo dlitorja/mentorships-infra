@@ -1,7 +1,7 @@
 import { internalMutation, query } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 
 /**
  * Audit log table for admin (and other actor) actions.
@@ -114,20 +114,23 @@ export const recordAuditLog = internalMutation({
 /**
  * Admin-facing paginated read of audit logs.
  *
- * Filters (all optional, exact match):
+ * Filters (all optional, exact match). The query is single-filter:
+ * exactly zero or one of the listed filters must be set, plus the
+ * compound `targetType + targetId` pair (which counts as one filter).
+ * Combining multiple non-compound filters is rejected so callers
+ * don't silently get partial results.
+ *
  *   - `actorId`   — who did it
  *   - `actorRole` — admin / support / instructor / student / system
  *   - `action`    — action name (e.g. "admin_onboard_student")
- *   - `targetType` — table-ish identifier ("user", "instructor",
- *                    "adminOnboarding", "hdInvitation", ...)
- *   - `targetId`  — id within that targetType; only meaningful with
- *                    `targetType`
+ *   - `targetType` + `targetId` — exact-lookup pair, paginated by
+ *                    `timestamp` desc via the 3-column compound index
  *
  * Ordering:
- *   - Newest-first by `_creationTime` (Convex system field) for the
- *     no-filter / single-filter paths; for `targetType + targetId`
- *     (exact lookup) the rows are sorted by `timestamp` desc after
- *     the indexed read.
+ *   - Newest-first. The single-field indexes paginate in `_creationTime`
+ *     desc; the compound `by_targetType_targetId_timestamp` index
+ *     paginates in `timestamp` desc within the (targetType, targetId)
+ *     pair.
  *
  * Limits:
  *   - `numItems` capped at 200 to stay within transaction read limits.
@@ -161,56 +164,65 @@ export const listAuditLogs = query({
       throw new Error("Admin or support role required");
     }
 
+    // Reject combinations that would silently drop filters. The
+    // `targetType + targetId` pair counts as a single filter.
+    const hasActorId = args.actorId !== undefined;
+    const hasActorRole = args.actorRole !== undefined;
+    const hasAction = args.action !== undefined;
+    const hasTargetType = args.targetType !== undefined;
+    const hasTargetId = args.targetId !== undefined;
+    const filterCount =
+      Number(hasActorId) +
+      Number(hasActorRole) +
+      Number(hasAction) +
+      (hasTargetType || hasTargetId ? 1 : 0);
+    if (filterCount > 1) {
+      throw new Error(
+        "listAuditLogs supports a single filter per query (targetType+targetId is one filter). Split into multiple queries."
+      );
+    }
+    if (hasTargetId && !hasTargetType) {
+      throw new Error("listAuditLogs: targetId requires targetType");
+    }
+
     const numItems = Math.min(
       (args.paginationOpts as { numItems?: number }).numItems ?? 50,
       200
     );
     const cursor = (args.paginationOpts as { cursor?: string | null }).cursor ?? null;
-
     const paginationOpts = { numItems, cursor };
 
-    // Index selection: most-restrictive filter wins so each path is
-    // bounded by an index. Single-field `by_actorId` / `by_action` /
-    // `by_actorRole` indexes already include `_creationTime` ordering;
-    // for `by_targetType_targetId` (compound) we collect + sort by
-    // timestamp because Convex compound indexes don't order by
-    // `_creationTime` natively.
-    if (args.actorId !== undefined) {
+    if (hasActorId) {
       return await ctx.db
         .query("auditLogs")
         .withIndex("by_actorId", (q) => q.eq("actorId", args.actorId!))
         .order("desc")
         .paginate(paginationOpts);
     }
-    if (args.targetType !== undefined && args.targetId !== undefined) {
-      const rows = await ctx.db
+    if (hasTargetType && hasTargetId) {
+      return await ctx.db
         .query("auditLogs")
-        .withIndex("by_targetType_targetId", (q) =>
+        .withIndex("by_targetType_targetId_timestamp", (q) =>
           q.eq("targetType", args.targetType!).eq("targetId", args.targetId!)
         )
-        .collect();
-      rows.sort((a: Doc<"auditLogs">, b: Doc<"auditLogs">) => b.timestamp - a.timestamp);
-      return {
-        page: rows.slice(0, numItems),
-        continueCursor: rows.length > numItems ? cursor : null,
-        isDone: rows.length <= numItems,
-      };
+        .order("desc")
+        .paginate(paginationOpts);
     }
-if (args.targetType !== undefined) {
+    if (hasTargetType) {
       return await ctx.db
         .query("auditLogs")
         .withIndex("by_targetType", (q) => q.eq("targetType", args.targetType!))
         .order("desc")
         .paginate(paginationOpts);
     }
-    if (args.action !== undefined) {
+    if (hasAction) {
       return await ctx.db
         .query("auditLogs")
         .withIndex("by_action", (q) => q.eq("action", args.action!))
         .order("desc")
         .paginate(paginationOpts);
     }
-    if (args.actorRole !== undefined) {
+    if (hasActorRole) {
       return await ctx.db
         .query("auditLogs")
         .withIndex("by_actorRole", (q) => q.eq("actorRole", args.actorRole!))
