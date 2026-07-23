@@ -1,9 +1,8 @@
 "use client";
 
+import type { ReactElement } from "react";
 import { Download, X, Loader2 } from "lucide-react";
-import {
-  BULK_DOWNLOAD_MAX_FILES,
-} from "@/lib/api";
+import { BULK_DOWNLOAD_MAX_FILES } from "@/lib/api";
 import type { BulkDownloadStatus } from "@/lib/api";
 
 interface BulkDownloadBarProps {
@@ -22,7 +21,7 @@ export function BulkDownloadBar({
   isInFlight,
   onSubmit,
   onClearSelection,
-}: BulkDownloadBarProps): React.ReactElement | null {
+}: BulkDownloadBarProps): ReactElement | null {
   if (selectedIds.size === 0 && !status) return null;
 
   const count = selectedIds.size;
@@ -42,6 +41,9 @@ export function BulkDownloadBar({
     buttonLabel = `Download ${count} as ZIP`;
     disabled = true;
     title = `Maximum ${BULK_DOWNLOAD_MAX_FILES} files per ZIP`;
+  } else if (showCompletedLabel) {
+    buttonLabel = "Downloaded";
+    disabled = true;
   } else if (count === 0) {
     return null;
   } else {

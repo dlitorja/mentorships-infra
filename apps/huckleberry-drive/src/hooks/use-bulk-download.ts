@@ -135,10 +135,12 @@ export function useBulkDownload(): UseBulkDownloadResult {
         setTimeout(() => {
           if (!cancelled) void poll();
         }, POLL_INTERVAL_MS);
-      } catch (err) {
+      } catch {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Status check failed");
         setIsSubmitting(false);
+        setTimeout(() => {
+          if (!cancelled) void poll();
+        }, POLL_INTERVAL_MS);
       }
     };
 

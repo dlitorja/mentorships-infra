@@ -391,7 +391,14 @@ function BulkDownloadListSection({
   const [prevFiles, setPrevFiles] = useState(files);
   if (prevFiles !== files) {
     setPrevFiles(files);
-    setSelectedIds(new Set());
+    setSelectedIds((prev) => {
+      const validIds = new Set(files.map((f) => f.id));
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (validIds.has(id)) next.add(id);
+      }
+      return next;
+    });
   }
   const bulk = useBulkDownload();
 
@@ -422,7 +429,10 @@ function BulkDownloadListSection({
         status={bulk.status}
         isSubmitting={bulk.isSubmitting}
         isInFlight={bulk.isInFlight}
-        onSubmit={() => bulk.submit(Array.from(selectedIds))}
+        onSubmit={() => {
+          bulk.submit(Array.from(selectedIds));
+          setSelectedIds(new Set());
+        }}
         onClearSelection={() => setSelectedIds(new Set())}
       />
     </>

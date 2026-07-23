@@ -1,6 +1,7 @@
 "use client";
 
-import { Loader2, X, CheckCircle2, AlertCircle } from "lucide-react";
+import type { ReactElement } from "react";
+import { Loader2, X, CheckCircle2, AlertCircle, Download } from "lucide-react";
 import type { BulkDownloadStatus } from "@/lib/api";
 
 interface BulkDownloadProgressProps {
@@ -21,7 +22,7 @@ function formatMessage(
   if (status.status === "processing") {
     return `Bundling ${fileCount || status.fileCount} file${(fileCount || status.fileCount) === 1 ? "" : "s"}…`;
   }
-  if (status.status === "completed") return "ZIP ready — downloading…";
+  if (status.status === "completed") return "ZIP ready";
   return "";
 }
 
@@ -30,7 +31,7 @@ export function BulkDownloadProgress({
   error,
   isSubmitting,
   onDismiss,
-}: BulkDownloadProgressProps): React.ReactElement | null {
+}: BulkDownloadProgressProps): ReactElement | null {
   const showProgress =
     isSubmitting || (status !== null && status.status !== "completed");
 
@@ -52,10 +53,12 @@ export function BulkDownloadProgress({
     );
   }
 
-  if (!showProgress) return null;
-
   const isCompleted = status?.status === "completed";
   const isFailed = status?.status === "failed";
+  const hasDownloadUrl = isCompleted && Boolean(status?.downloadUrl);
+
+  if (!showProgress && !isCompleted && !isFailed) return null;
+
   const message = isFailed
     ? (error ?? "Download failed")
     : formatMessage(status, isSubmitting, 0);
@@ -73,21 +76,34 @@ export function BulkDownloadProgress({
       role="status"
       aria-live="polite"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <Icon
           className={`w-4 h-4 flex-shrink-0 ${!isCompleted && !isFailed ? "animate-spin" : ""}`}
         />
-        <span>{message}</span>
+        <span className="truncate">{message}</span>
       </div>
-      {(isCompleted || isFailed) && (
-        <button
-          onClick={onDismiss}
-          className="text-slate-400 hover:text-white"
-          aria-label="Dismiss"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      )}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {hasDownloadUrl && (
+          <a
+            href={status?.downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
+          >
+            <Download className="w-3 h-3" />
+            Download ZIP
+          </a>
+        )}
+        {(isCompleted || isFailed || error) && (
+          <button
+            onClick={onDismiss}
+            className="text-slate-400 hover:text-white"
+            aria-label="Dismiss"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
