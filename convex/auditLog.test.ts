@@ -114,3 +114,113 @@ test("auditLogs.listAuditLogs: unauthenticated caller returns empty", async () =
   expect(result.page).toHaveLength(0);
   expect(result.isDone).toBe(true);
 });
+
+test("auditLogs.listAuditLogs: rejects combined filters instead of silently dropping", async () => {
+  const t = convexTest(schema, modules);
+
+  const adminUserId = "user_admin_combined";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "admin3@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminUserId });
+
+  await expect(
+    adminClient.query(api.auditLog.listAuditLogs, {
+      paginationOpts: { numItems: 50 },
+      actorId: "user_a",
+      action: "some_action",
+    })
+  ).rejects.toThrow(/supports a single filter/i);
+
+  await expect(
+    adminClient.query(api.auditLog.listAuditLogs, {
+      paginationOpts: { numItems: 50 },
+      targetType: "user",
+      targetId: "user_a",
+    })
+  ).resolves.toBeDefined();
+
+  await expect(
+    adminClient.query(api.auditLog.listAuditLogs, {
+      paginationOpts: { numItems: 50 },
+      targetId: "user_a",
+    })
+  ).rejects.toThrow(/targetId requires targetType/);
+});
+
+test("auditLogs.listAuditLogs: multi-page compound-target pagination advances", async () => {
+  const t = convexTest(schema, modules);
+
+  const adminUserId = "user_admin_pagination";
+  await t.run(async (ctx) => {
+    await ctx.db.insert("users", {
+      userId: adminUserId,
+      email: "admin2@example.com",
+      clerkId: adminUserId,
+      role: "admin",
+    });
+  });
+
+  const adminClient = t.withIdentity({ subject: adminUserId });
+
+  const TARGET = "pagination_target_1";
+  await t.run(async (ctx) => {
+    const baseTime = 1_700_000_000_000;
+    for (let i = 0; i < 75; i++) {
+      await ctx.db.insert("auditLogs", {
+        actorId: "system",
+        actorRole: "system",
+        action: `test_action_${i}`,
+        targetType: "testTarget",
+        targetId: TARGET,
+        details: `row ${i}`,
+        timestamp: baseTime + i,
+      });
+    }
+  });
+
+  const page1 = await adminClient.query(api.auditLog.listAuditLogs, {
+    paginationOpts: { numItems: 30 },
+    targetType: "testTarget",
+    targetId: TARGET,
+  });
+  expect(page1.page).toHaveLength(30);
+  expect(page1.isDone).toBe(false);
+  expect(page1.continueCursor).not.toBeNull();
+  expect(page1.page[0]?.action).toBe("test_action_74");
+  expect(page1.page[29]?.action).toBe("test_action_45");
+
+  const page2 = await adminClient.query(api.auditLog.listAuditLogs, {
+    paginationOpts: { numItems: 30, cursor: page1.continueCursor },
+    targetType: "testTarget",
+    targetId: TARGET,
+  });
+  expect(page2.page).toHaveLength(30);
+  expect(page2.isDone).toBe(false);
+  expect(page2.continueCursor).not.toBeNull();
+  expect(page2.page[0]?.action).toBe("test_action_44");
+  expect(page2.page[29]?.action).toBe("test_action_15");
+
+  const page3 = await adminClient.query(api.auditLog.listAuditLogs, {
+    paginationOpts: { numItems: 30, cursor: page2.continueCursor },
+    targetType: "testTarget",
+    targetId: TARGET,
+  });
+  expect(page3.page).toHaveLength(15);
+  expect(page3.isDone).toBe(true);
+  expect(page3.page[0]?.action).toBe("test_action_14");
+  expect(page3.page[14]?.action).toBe("test_action_0");
+
+  const allActions = [
+    ...page1.page.map((r) => r.action),
+    ...page2.page.map((r) => r.action),
+    ...page3.page.map((r) => r.action),
+  ];
+  expect(new Set(allActions).size).toBe(75);
+});
