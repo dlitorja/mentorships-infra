@@ -3,14 +3,7 @@ import { reportInfo, reportError } from "@/lib/observability";
 import { z } from "zod";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
-
-function getConvexHttpKey(): string {
-  const key = process.env.CONVEX_HTTP_KEY;
-  if (!key) {
-    throw new Error("CONVEX_HTTP_KEY is not set");
-  }
-  return key;
-}
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -18,14 +11,6 @@ function getConvexUrl(): string {
     throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
   }
   return url;
-}
-
-function getConvexSecret(): string {
-  const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-  if (!secret) {
-    throw new Error("CONVEX_SERVER_SHARED_SECRET is not set");
-  }
-  return secret;
 }
 
 function getConvexClient() {
@@ -91,7 +76,6 @@ export const migrateGuestSessionPacks = inngest.createFunction(
   { event: "migration/migrate-guest-session-packs" },
   async ({ step }) => {
     const convex = getConvexClient();
-    const secret = getConvexSecret();
 
     const guestSessionPacks = await step.run("find-guest-session-packs", async () => {
       try {
@@ -161,10 +145,9 @@ export const migrateGuestSessionPacks = inngest.createFunction(
           }
 
           try {
-            await convex.action(api.sessionPacks.linkSessionPacksByEmailAction, {
+            await convexServerCall("/internal/link-session-packs", {
               clerkUserId,
               email,
-              secret,
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -172,10 +155,9 @@ export const migrateGuestSessionPacks = inngest.createFunction(
           }
 
           try {
-            await convex.action(api.seatReservations.linkSeatReservationsByEmailAction, {
+            await convexServerCall("/internal/link-seat-reservations", {
               clerkUserId,
               email,
-              secret,
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
