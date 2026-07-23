@@ -4,6 +4,9 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useUser } from "@clerk/nextjs";
 import { FileList } from "@/components/file-list";
 import { StorageUsage } from "@/components/storage-usage";
+import { BulkDownloadBar } from "@/components/bulk-download-bar";
+import { BulkDownloadProgress } from "@/components/bulk-download-progress";
+import { useBulkDownload } from "@/hooks/use-bulk-download";
 import { listFilesWithParams, getStorageUsage } from "@/lib/api";
 import type { FileItem, StorageUsage as StorageUsageType, FileListResponse, UserRole } from "@/lib/api";
 import { Loader2, Search } from "lucide-react";
@@ -233,6 +236,18 @@ const handleLoadMoreUploadedByMe = useCallback(() => {
     );
   }
 
+  const renderBulkList = (
+    listFiles: FileItem[],
+    onChange: () => void
+  ): React.ReactElement => (
+    <BulkDownloadListSection
+      files={listFiles}
+      userRole={userRole}
+      userId={userId}
+      onFilesChange={onChange}
+    />
+  );
+
   const renderInstructorView = () => (
     <>
       <div className="flex items-center gap-4 mb-4">
@@ -249,12 +264,7 @@ const handleLoadMoreUploadedByMe = useCallback(() => {
         </div>
       </div>
 
-      <FileList
-        files={files}
-        onFilesChange={handleFilesChange}
-        userRole={userRole || undefined}
-        userId={userId || undefined}
-      />
+      {renderBulkList(files, handleFilesChange)}
 
       {hasMore && (
         <div className="flex justify-center mt-4">
@@ -285,12 +295,7 @@ const handleLoadMoreUploadedByMe = useCallback(() => {
           <p className="text-sm text-slate-400 mb-4">
             Viewing files for {instructorIds.length} assigned instructor{instructorIds.length > 1 ? "s" : ""}
           </p>
-          <FileList
-            files={files}
-            onFilesChange={handleFilesChange}
-            userRole={userRole || undefined}
-            userId={userId || undefined}
-          />
+          {renderBulkList(files, handleFilesChange)}
           {hasMore && (
             <div className="flex justify-center mt-4">
               <button
@@ -325,12 +330,7 @@ const handleLoadMoreUploadedByMe = useCallback(() => {
 aria-label="Search files I uploaded"
           />
         </div>
-        <FileList
-          files={uploadedByMeFiles}
-          onFilesChange={handleFilesChange}
-          userRole={userRole || undefined}
-          userId={userId || undefined}
-        />
+        {renderBulkList(uploadedByMeFiles, handleFilesChange)}
 {uploadedByMeHasMore && (
           <div className="flex justify-center mt-4">
             <button
@@ -371,5 +371,60 @@ aria-label="Search files I uploaded"
 
       {userRole === "video_editor" ? renderVideoEditorView() : renderInstructorView()}
     </div>
+  );
+}
+
+interface BulkDownloadListSectionProps {
+  files: FileItem[];
+  userRole: UserRole | null;
+  userId: string | null;
+  onFilesChange: () => void;
+}
+
+function BulkDownloadListSection({
+  files,
+  userRole,
+  userId,
+  onFilesChange,
+}: BulkDownloadListSectionProps): React.ReactElement {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [prevFiles, setPrevFiles] = useState(files);
+  if (prevFiles !== files) {
+    setPrevFiles(files);
+    setSelectedIds(new Set());
+  }
+  const bulk = useBulkDownload();
+
+  const handleFilesChange = useCallback(() => {
+    setSelectedIds(new Set());
+    onFilesChange();
+  }, [onFilesChange]);
+
+  return (
+    <>
+      <BulkDownloadProgress
+        status={bulk.status}
+        error={bulk.error}
+        isSubmitting={bulk.isSubmitting}
+        onDismiss={bulk.reset}
+      />
+      <FileList
+        files={files}
+        onFilesChange={handleFilesChange}
+        userRole={userRole || undefined}
+        userId={userId || undefined}
+        enableSelection={userRole !== null}
+        selectedIds={selectedIds}
+        onSelectionChange={setSelectedIds}
+      />
+      <BulkDownloadBar
+        selectedIds={selectedIds}
+        status={bulk.status}
+        isSubmitting={bulk.isSubmitting}
+        isInFlight={bulk.isInFlight}
+        onSubmit={() => bulk.submit(Array.from(selectedIds))}
+        onClearSelection={() => setSelectedIds(new Set())}
+      />
+    </>
   );
 }
