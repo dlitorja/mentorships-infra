@@ -139,12 +139,11 @@ export const listMyShareLinks = query({
     const items = await Promise.all(
       shares.map(async (share) => {
         const upload = await ctx.db.get(share.uploadId);
-        let accessCount = 0;
-        const accessRows = await ctx.db
+        const accessCount = await ctx.db
           .query("hdShareAccess")
           .withIndex("by_shareId_createdAt", (q) => q.eq("shareId", share._id))
-          .take(500);
-        accessCount = accessRows.length;
+          .collect()
+          .then((rows) => rows.length);
 
         return {
           id: share._id,
@@ -176,9 +175,6 @@ export const resolveShareByToken = query({
     if (!user) {
       return { kind: "unauthenticated" as const };
     }
-    if (user.role !== "video_editor") {
-      return { kind: "forbidden" as const };
-    }
 
     const share = await ctx.db
       .query("hdShareLinks")
@@ -187,6 +183,18 @@ export const resolveShareByToken = query({
 
     if (!share) {
       return { kind: "not_found" as const };
+    }
+
+    // PR1: creator-preview bypass. The share creator (or any admin)
+    // can preview their own share without requiring the recipient role.
+    // Previously only `video_editor` could resolve; an instructor who
+    // sent a link to themselves for QA, or an admin auditing a share,
+    // would hit `forbidden`.
+    const isCreator = share.createdByUserId === user.userId;
+    const isAdmin = user.role === "admin";
+    const isVideoEditor = user.role === "video_editor";
+    if (!isCreator && !isAdmin && !isVideoEditor) {
+      return { kind: "forbidden" as const };
     }
 
     if (share.revokedAt !== undefined) {

@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { initiateUpload, completeUpload, abortUpload } from "@/lib/api";
+import { STORAGE_LIMIT_BYTES } from "@/lib/limits";
 
 const ACCEPTED_VIDEO_TYPES = {
   "video/mp4": [".mp4"],
@@ -22,8 +23,15 @@ const ACCEPTED_VIDEO_TYPES = {
   "video/mpeg": [".mpeg", ".mpg"],
 };
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024 * 1024; // 50GB
+const MAX_FILE_SIZE = STORAGE_LIMIT_BYTES;
 const MAX_CONCURRENT_UPLOADS = 2;
+// PR1: B2 S3 multipart PUTs always return an ETag header. If the
+// server is misconfigured (e.g. behind a proxy stripping it) we must
+// fail-fast and surface a clear error instead of fabricating a fake
+// ETag that B2 will reject at `completeMultipartUpload`. Retry the
+// part up to this many times before declaring the upload failed.
+const PART_RETRY_ATTEMPTS = 3;
+const PART_RETRY_BASE_DELAY_MS = 500;
 
 interface UploadingFile {
   id: string;
@@ -84,6 +92,44 @@ export function UploadZone({
         const abortController = new AbortController();
         abortControllersRef.current.set(uploadingFile.id, abortController);
 
+        const uploadPart = async (partNumber: number, chunk: Blob): Promise<string> => {
+          const presignedUrl = initiateResult.presignedUrls[partNumber - 1];
+          if (!presignedUrl) {
+            throw new Error(`Missing presigned URL for part ${partNumber}`);
+          }
+
+          for (let attempt = 1; attempt <= PART_RETRY_ATTEMPTS; attempt++) {
+            if (abortController.signal.aborted) {
+              throw new Error("Upload cancelled");
+            }
+
+            const response = await fetch(presignedUrl, {
+              method: "PUT",
+              body: chunk,
+              signal: abortController.signal,
+            });
+
+            if (!response.ok) {
+              if (attempt === PART_RETRY_ATTEMPTS) {
+                throw new Error(
+                  `Failed to upload part ${partNumber} (HTTP ${response.status}) after ${PART_RETRY_ATTEMPTS} attempts`
+                );
+              }
+              await new Promise((r) => setTimeout(r, PART_RETRY_BASE_DELAY_MS * attempt));
+              continue;
+            }
+
+            const etag = response.headers.get("ETag");
+            if (!etag) {
+              throw new Error(
+                `Part ${partNumber} succeeded but the response is missing the required ETag header — likely a proxy/CORS issue`
+              );
+            }
+            return etag;
+          }
+          throw new Error(`Unreachable: retry loop exited for part ${partNumber}`);
+        };
+
         for (let i = 0; i < totalParts; i++) {
           if (abortController.signal.aborted) {
             throw new Error("Upload cancelled");
@@ -94,23 +140,8 @@ export function UploadZone({
           const end = Math.min(start + initiateResult.partSize, file.size);
           const chunk = file.slice(start, end);
 
-          const presignedUrl = initiateResult.presignedUrls[i];
-          if (!presignedUrl) {
-            throw new Error(`Missing presigned URL for part ${partNumber}`);
-          }
-
-          const response = await fetch(presignedUrl, {
-            method: "PUT",
-            body: chunk,
-            signal: abortController.signal,
-          });
-
-          if (!response.ok) {
-            throw new Error(`Failed to upload part ${partNumber}`);
-          }
-
-          const etag = response.headers.get("ETag") || null;
-          parts.push({ partNumber, etag: etag || `fallback-${partNumber}` });
+          const etag = await uploadPart(partNumber, chunk);
+          parts.push({ partNumber, etag });
 
           const progress = Math.round(((i + 1) / totalParts) * 100);
           setUploadingFiles((prev) =>

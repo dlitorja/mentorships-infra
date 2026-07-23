@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { UploadZone } from "@/components/upload-zone";
 import { VideoEditorInstructorSelect } from "@/components/video-editor-instructor-select";
 
@@ -20,6 +21,7 @@ export function UploadsClient({
   instructors,
 }: UploadsClientProps): React.ReactElement {
   const [selectedInstructorId, setSelectedInstructorId] = useState<string | null>(null);
+  const router = useRouter();
 
   return (
     <div className="space-y-8 max-w-3xl">
@@ -49,7 +51,11 @@ export function UploadsClient({
       ) : (
         <UploadZone
           onUploadComplete={() => {
-            // Refresh file list or show success message
+            // PR1: previously the callback was a no-op, leaving users
+            // staring at the upload zone wondering if their file
+            // landed. Navigate to the dashboard with a flag the
+            // dashboard can pick up to surface a success toast.
+            router.push("/dashboard?uploaded=1");
           }}
           instructorId={userRole === "video_editor" ? selectedInstructorId ?? undefined : undefined}
         />

@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-
-const STORAGE_LIMIT_BYTES = 50 * 1024 * 1024 * 1024;
+import { STORAGE_LIMIT_BYTES } from "@/lib/limits";
 
 interface Upload {
   _id: string;

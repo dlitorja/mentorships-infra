@@ -19,6 +19,30 @@ export default function DashboardPage(): React.ReactElement {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // PR1: reconcile Clerk publicMetadata with the latest server state.
+  // Without this, an admin changing a user's role in Clerk or assigning
+  // video-editor instructors isn't reflected until the page is hard
+  // refreshed. We re-fetch Clerk user on window focus and once every
+  // 60 seconds (matches Clerk's own cache TTL behavior).
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    const onFocus = () => {
+      user.reload().catch((err) => {
+        console.warn("Failed to reload Clerk user:", err);
+      });
+    };
+    const interval = setInterval(() => {
+      user.reload().catch((err) => {
+        console.warn("Failed to reload Clerk user:", err);
+      });
+    }, 60_000);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(interval);
+    };
+  }, [isLoaded, user]);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [cursor, setCursor] = useState<number | null>(null);

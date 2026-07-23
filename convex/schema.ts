@@ -648,7 +648,15 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_status_createdAt", ["status", "createdAt"])
     .index("by_legacyId", ["legacyId"])
-    .index("by_uploadedById", ["uploadedById"]),
+    .index("by_uploadedById", ["uploadedById"])
+    // PR1: indexed ordered listings for instructor + video-editor
+    // dashboard queries (`getAllUploads`, `getVideoEditorUploads`).
+    .index("by_instructorId_createdAt", ["instructorId", "createdAt"])
+    .index("by_uploadedById_createdAt", ["uploadedById", "createdAt"])
+    // PR1: per-filename lookup for `findOrphanedFiles` so the admin
+    // orphan-cleanup page does one indexed read per B2 key instead
+    // of a full table `.collect()`.
+    .index("by_filename", ["filename"]),
 
   studentOnboardingSubmissions: defineTable({
     userId: v.string(),
@@ -717,7 +725,13 @@ export default defineSchema({
   }).index("by_status", ["status"])
     .index("by_role", ["role"])
     .index("by_email", ["email"])
-    .index("by_invitedByUserId", ["invitedByUserId"]),
+    .index("by_invitedByUserId", ["invitedByUserId"])
+    // PR1: indexed listings for the admin invitation list page.
+    // Used by hdInvitations.listHdInvitations to filter + paginate
+    // without an unbounded `collect()` scan.
+    .index("by_status_createdAt", ["status", "createdAt"])
+    .index("by_role_createdAt", ["role", "createdAt"])
+    .index("by_email_createdAt", ["email", "createdAt"]),
 
   hdShareLinks: defineTable({
     uploadId: v.id("instructorUploads"),

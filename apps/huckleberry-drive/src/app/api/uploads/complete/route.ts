@@ -82,9 +82,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw error;
     }
 
-    await fetchMutation(api.instructorUploads.completeUpload, { 
-      id: fileId, 
-      b2FileId: result.versionId || result.etag.replace(/"/g, ""),
+    await fetchMutation(api.instructorUploads.completeUpload, {
+      id: fileId,
+      // PR1: guard against B2 returning neither a versionId nor an
+      // etag. Previously `result.etag.replace(...)` would crash the
+      // mutation when etag was undefined; falling back to the key
+      // gives a usable (if non-unique) identifier for storage
+      // accounting. The soft-delete path can still match by legacyId.
+      b2FileId: result.versionId ?? result.etag?.replace(/"/g, "") ?? `b2-key:${key}`,
     }, { token: convexToken });
 
     return NextResponse.json({
@@ -98,10 +103,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error("Upload complete error:", error);
 
     if (error instanceof Error) {
-      const err = error as any;
+      const err = error as Error & { code?: string };
       return NextResponse.json({
         error: error.message,
-        code: err.code
+        code: err.code,
       }, { status: 400 });
     }
 

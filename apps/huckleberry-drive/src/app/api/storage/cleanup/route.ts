@@ -16,9 +16,12 @@ const ExpiredDeletionSchema = z.object({
   s3Key: z.string().optional(),
 });
 
-const CleanupActionResultSchema = z.object({
-  success: z.boolean(),
-  error: z.string().optional(),
+const BatchResultSchema = z.object({
+  results: z.array(z.object({
+    uploadId: z.string(),
+    success: z.boolean(),
+    error: z.string().optional(),
+  })),
 });
 
 interface CleanupResult {
@@ -52,21 +55,24 @@ export async function POST(
     }
 
     const cleanupId = `cleanup-${Date.now()}`;
+
+    // PR1: previously this looped `fetchAction(cleanupExpiredSoftDelete, ...)`
+    // serially — N Next → Convex round-trips, each running 1 cleanup.
+    // Now a single `cleanupExpiredSoftDeletesBatch` action processes all
+    // IDs in parallel within one Convex invocation.
+    const rawBatchResult = await fetchAction(
+      api.instructorUploads.cleanupExpiredSoftDeletesBatch,
+      { uploadIds: expiredDeletions.map((d) => d.id) }
+    );
+    const batchResult = BatchResultSchema.parse(rawBatchResult);
+
     const errors: string[] = [];
-
-    for (const deletion of expiredDeletions) {
-      try {
-        const rawResult = await fetchAction(
-          api.instructorUploads.cleanupExpiredSoftDelete,
-          { uploadId: deletion.id }
-        );
-        const result = CleanupActionResultSchema.parse(rawResult);
-
-        if (!result.success && result.error) {
-          errors.push(`${deletion.id}: ${result.error}`);
-        }
-      } catch (err) {
-        errors.push(`${deletion.id}: ${err instanceof Error ? err.message : "Unknown error"}`);
+    let cleanedUp = 0;
+    for (const result of batchResult.results) {
+      if (result.success) {
+        cleanedUp++;
+      } else if (result.error) {
+        errors.push(`${result.uploadId}: ${result.error}`);
       }
     }
 
@@ -76,7 +82,7 @@ export async function POST(
       success: status !== "failed",
       cleanupId,
       totalToCleanup: expiredDeletions.length,
-      cleanedUp: expiredDeletions.length - errors.length,
+      cleanedUp,
       failed: errors.length,
       status,
       errors: errors.length > 0 ? errors : undefined,
