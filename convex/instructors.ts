@@ -2614,24 +2614,22 @@ export const backfillInstructorUserId = mutation({
   },
 });
 
-export const createInstructorForClerkUser = action({
+/**
+ * Internal action backing `createInstructorForClerkUser`. Contains the
+ * full lookup/create/sync logic. Public action and HTTP endpoint both
+ * delegate to this; auth is enforced by the caller.
+ */
+export const createInstructorForClerkUserInternal = internalAction({
   args: {
     userId: v.string(),
     email: v.optional(v.string()),
     name: v.optional(v.string()),
-    secret: v.string(),
+    actorId: v.optional(v.string()),
+    actorRole: v.optional(v.union(v.literal("admin"), v.literal("support"), v.literal("instructor"), v.literal("student"), v.literal("system"))),
   },
   handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
-    if (args.secret !== process.env.CONVEX_SERVER_SHARED_SECRET) {
-      console.error("createInstructorForClerkUser: Invalid secret");
-      return { success: false, reason: "Invalid secret" };
-    }
-
-    const callerIdentity = await ctx.auth.getUserIdentity();
-    const actorId = callerIdentity?.subject ?? "system";
-    const actorRole: "admin" | "instructor" | "system" = callerIdentity
-      ? "instructor"
-      : "system";
+    const actorId = args.actorId ?? "system";
+    const actorRole = args.actorRole ?? "system";
 
     const existing = await ctx.runQuery(
       internal.instructors.getInstructorByUserIdInternal,
@@ -2685,17 +2683,54 @@ export const createInstructorForClerkUser = action({
   },
 });
 
-export const deactivateInstructorByUserId = action({
+/**
+ * @deprecated Back-compat wrapper. Kept so existing callers passing
+ * `secret` still work. New callers should use the HTTP endpoint
+ * `/instructors/create-for-clerk-user` (bearer-auth via
+ * `CONVEX_HTTP_KEY`) which delegates to
+ * `createInstructorForClerkUserInternal`.
+ */
+export const createInstructorForClerkUser = action({
   args: {
     userId: v.string(),
+    email: v.optional(v.string()),
+    name: v.optional(v.string()),
     secret: v.string(),
   },
   handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
     if (args.secret !== process.env.CONVEX_SERVER_SHARED_SECRET) {
-      console.error("deactivateInstructorByUserId: Invalid secret");
+      console.error("createInstructorForClerkUser: Invalid secret");
       return { success: false, reason: "Invalid secret" };
     }
 
+    const callerIdentity = await ctx.auth.getUserIdentity();
+    const actorId = callerIdentity?.subject ?? "system";
+    const actorRole: "admin" | "instructor" | "system" = callerIdentity
+      ? "instructor"
+      : "system";
+
+    return await ctx.runAction(internal.instructors.createInstructorForClerkUserInternal, {
+      userId: args.userId,
+      email: args.email,
+      name: args.name,
+      actorId,
+      actorRole,
+    });
+  },
+});
+
+/**
+ * Internal action backing `deactivateInstructorByUserId`. Public action
+ * and HTTP endpoint both delegate to this; auth is enforced by the
+ * caller.
+ */
+export const deactivateInstructorByUserIdInternal = internalAction({
+  args: {
+    userId: v.string(),
+    actorId: v.optional(v.string()),
+    actorRole: v.optional(v.union(v.literal("admin"), v.literal("support"), v.literal("instructor"), v.literal("student"), v.literal("system"))),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
     const instructor = await ctx.runQuery(
       internal.instructors.getInstructorByUserIdInternal,
       { userId: args.userId }
@@ -2708,8 +2743,8 @@ export const deactivateInstructorByUserId = action({
 
     await ctx.runMutation(internal.instructors.deactivateInstructorInternal, {
       instructorId: instructor._id,
-      actorId: "system",
-      actorRole: "system",
+      actorId: args.actorId ?? "system",
+      actorRole: args.actorRole ?? "system",
       audit: {
         action: "deactivate_instructor_by_user_id",
         targetType: "instructor",
@@ -2722,6 +2757,27 @@ export const deactivateInstructorByUserId = action({
     console.log("deactivateInstructorByUserId: Deactivated instructor", args.userId, instructor._id);
 
     return { success: true, instructorId: instructor._id };
+  },
+});
+
+/**
+ * @deprecated Back-compat wrapper. New callers should use the HTTP
+ * endpoint `/instructors/deactivate-by-user-id`.
+ */
+export const deactivateInstructorByUserId = action({
+  args: {
+    userId: v.string(),
+    secret: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
+    if (args.secret !== process.env.CONVEX_SERVER_SHARED_SECRET) {
+      console.error("deactivateInstructorByUserId: Invalid secret");
+      return { success: false, reason: "Invalid secret" };
+    }
+
+    return await ctx.runAction(internal.instructors.deactivateInstructorByUserIdInternal, {
+      userId: args.userId,
+    });
   },
 });
 
