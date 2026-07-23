@@ -13,9 +13,12 @@
  *
  * Env vars:
  *   - URL: prefers `CONVEX_URL` (Convex's server-only env for HTTP
- *     actions, typically the `.convex.site` URL); falls back to
- *     `NEXT_PUBLIC_CONVEX_URL` which is what the rest of
- *     `apps/platform/lib/convex.ts` reads. Whichever is set wins.
+ *     actions, typically the `.convex.site` host). Falls back to
+ *     `NEXT_PUBLIC_CONVEX_URL` — which the rest of
+ *     `apps/platform/lib/convex.ts` reads and which typically points
+ *     at `.convex.cloud` (queries/mutations). When falling back, the
+ *     `.convex.cloud` host is rewritten to `.convex.site` so HTTP
+ *     actions are actually reachable.
  *   - Auth: `CONVEX_HTTP_KEY`.
  *
  * Caller responsibility:
@@ -38,12 +41,31 @@ export class ConvexServerCallError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/**
+ * Resolve the URL we POST server-to-server calls to. Convex exposes
+ * queries/mutations on `<dep>.convex.cloud` and HTTP actions on
+ * `<dep>.convex.site`. We want the latter; if the operator only set
+ * `NEXT_PUBLIC_CONVEX_URL` (the client-facing one), we derive the
+ * HTTP-actions host.
+ */
+function resolveConvexBaseUrl(): string {
+  const explicit = process.env.CONVEX_URL;
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const fallback = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (fallback) {
+    return fallback
+      .replace(/\/+$/, "")
+      .replace(/\.convex\.cloud$/, ".convex.site");
+  }
+  return "";
+}
+
 export async function convexServerCall<T>(
   path: string,
   body: unknown,
   options: { timeoutMs?: number } = {}
 ): Promise<T> {
-  const url = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL;
+  const url = resolveConvexBaseUrl();
   if (!url) {
     throw new ConvexServerCallError(
       "CONVEX_URL (or NEXT_PUBLIC_CONVEX_URL) is not set; cannot reach Convex",

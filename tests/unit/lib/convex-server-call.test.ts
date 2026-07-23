@@ -140,7 +140,7 @@ describe("convexServerCall", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("falls back to NEXT_PUBLIC_CONVEX_URL when CONVEX_URL is not set", async () => {
+  it("falls back to NEXT_PUBLIC_CONVEX_URL and rewrites .convex.cloud to .convex.site", async () => {
     delete process.env.CONVEX_URL;
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://fallback.convex.cloud";
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -148,7 +148,30 @@ describe("convexServerCall", () => {
     );
     await convexServerCall("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
-      "https://fallback.convex.cloud/users/set-role"
+      "https://fallback.convex.site/users/set-role"
+    );
+  });
+
+  it("does not rewrite a NEXT_PUBLIC_CONVEX_URL that already targets .convex.site", async () => {
+    delete process.env.CONVEX_URL;
+    process.env.NEXT_PUBLIC_CONVEX_URL = "https://already-site.convex.site";
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+    );
+    await convexServerCall("/users/set-role", {});
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      "https://already-site.convex.site/users/set-role"
+    );
+  });
+
+  it("strips trailing slashes from the resolved URL", async () => {
+    process.env.CONVEX_URL = "https://example.convex.cloud/";
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+    );
+    await convexServerCall("/users/set-role", {});
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      "https://example.convex.cloud/users/set-role"
     );
   });
 
