@@ -26,6 +26,10 @@ interface FileListProps {
   showUploadedByColumn?: boolean;
   onHardDelete?: (fileId: string) => void;
   instructorNames?: Record<string, string>;
+  enableSelection?: boolean;
+  selectedIds?: Set<string>;
+  onSelectionChange?: (ids: Set<string>) => void;
+  canSelect?: (file: FileItem) => boolean;
 }
 
 const GRACE_PERIOD_DAYS = 60;
@@ -40,6 +44,10 @@ export function FileList({
   showUploadedByColumn = false,
   onHardDelete,
   instructorNames = {},
+  enableSelection = false,
+  selectedIds,
+  onSelectionChange,
+  canSelect,
 }: FileListProps): React.ReactElement {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
@@ -47,7 +55,6 @@ export function FileList({
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
-  const [playingVideoContentType, setPlayingVideoContentType] = useState<string>("video/mp4");
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -83,6 +90,59 @@ export function FileList({
   const canHardDelete = (): boolean => {
 return userRole === "admin";
   };
+
+  const defaultCanSelect = useCallback(
+    (file: FileItem): boolean => {
+      if (!userRole || !userId) return false;
+      if (file.status !== "completed") return false;
+      if (userRole === "admin") return true;
+      if (userRole === "instructor") return file.instructorId === userId;
+      if (userRole === "video_editor") {
+        return file.uploadedById === userId;
+      }
+      return false;
+    },
+    [userRole, userId]
+  );
+
+  const isRowSelectable = (file: FileItem): boolean => {
+    return (canSelect ?? defaultCanSelect)(file);
+  };
+
+  const selectionEnabled = enableSelection && Boolean(onSelectionChange);
+  const currentSelection = selectedIds ?? new Set<string>();
+
+  const toggleRow = (file: FileItem): void => {
+    if (!selectionEnabled || !onSelectionChange) return;
+    if (!isRowSelectable(file)) return;
+    const next = new Set(currentSelection);
+    if (next.has(file.id)) {
+      next.delete(file.id);
+    } else {
+      next.add(file.id);
+    }
+    onSelectionChange(next);
+  };
+
+  const toggleAllRows = (): void => {
+    if (!selectionEnabled || !onSelectionChange) return;
+    const selectableIds = files.filter(isRowSelectable).map((f) => f.id);
+    const allSelected =
+      selectableIds.length > 0 &&
+      selectableIds.every((id) => currentSelection.has(id));
+    const next = new Set(currentSelection);
+    if (allSelected) {
+      for (const id of selectableIds) next.delete(id);
+    } else {
+      for (const id of selectableIds) next.add(id);
+    }
+    onSelectionChange(next);
+  };
+
+  const selectableIds = files.filter(isRowSelectable).map((f) => f.id);
+  const allSelectableSelected =
+    selectableIds.length > 0 &&
+    selectableIds.every((id) => currentSelection.has(id));
 
   const getStatusDisplay = (
     status: string,
@@ -210,7 +270,6 @@ return userRole === "admin";
     try {
       const url = await getStreamUrl(file.id);
       setPlayingVideoUrl(url);
-      setPlayingVideoContentType(file.contentType);
     } catch (error) {
       console.error("Play failed:", error);
     } finally {
@@ -237,6 +296,18 @@ return userRole === "admin";
       <table className="w-full">
         <thead>
           <tr className="border-b border-slate-700 bg-slate-800/50">
+            {selectionEnabled && (
+              <th className="px-4 py-3 w-10">
+                <input
+                  type="checkbox"
+                  checked={allSelectableSelected}
+                  onChange={toggleAllRows}
+                  disabled={selectableIds.length === 0}
+                  aria-label="Select all eligible files"
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500 disabled:opacity-50"
+                />
+              </th>
+            )}
             {showInstructorColumn && (
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 Instructor
@@ -286,6 +357,23 @@ return userRole === "admin";
 
             return (
               <tr key={file.id} className="hover:bg-slate-800/30 transition-colors">
+                {selectionEnabled && (
+                  <td className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={currentSelection.has(file.id)}
+                      onChange={() => toggleRow(file)}
+                      disabled={!isRowSelectable(file)}
+                      title={
+                        isRowSelectable(file)
+                          ? undefined
+                          : "Not eligible for bulk download"
+                      }
+                      aria-label={`Select ${file.originalName}`}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500 disabled:opacity-40"
+                    />
+                  </td>
+                )}
                 {showInstructorColumn && (
                   <td className="px-4 py-3 text-slate-400">
                     {instructorNames[file.instructorId || ""] || file.instructorId || "-"}

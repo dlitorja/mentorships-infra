@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Search, X, Trash2, Download, Play } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl } from "@/lib/api";
+import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl, BULK_DOWNLOAD_MAX_FILES } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 import { ShareFileButton } from "@/components/share-file-button";
+import { BulkDownloadProgress } from "@/components/bulk-download-progress";
+import { useBulkDownload } from "@/hooks/use-bulk-download";
 
 export default function AdminFilesPage(): React.ReactElement {
   const [files, setFiles] = useState<FileItem[] | null>(null);
@@ -27,6 +29,7 @@ export default function AdminFilesPage(): React.ReactElement {
   const [isHardDeleting, setIsHardDeleting] = useState(false);
   const [isSoftDeleting, setIsSoftDeleting] = useState(false);
   const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const bulk = useBulkDownload();
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
   const [confirmSoftDeleteId, setConfirmSoftDeleteId] = useState<string | null>(null);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
@@ -300,12 +303,41 @@ setSelectedFileIds(new Set());
         </div>
       </div>
 
+      <BulkDownloadProgress
+        status={bulk.status}
+        error={bulk.error}
+        isSubmitting={bulk.isSubmitting}
+        onDismiss={bulk.reset}
+      />
+
       {selectedFileIds.size > 0 && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center justify-between">
           <span className="text-slate-200">
             {selectedFileIds.size} file{selectedFileIds.size > 1 ? "s" : ""} selected
           </span>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                bulk.submit(Array.from(selectedFileIds));
+                setSelectedFileIds(new Set());
+              }}
+              disabled={
+                bulk.isInFlight ||
+                selectedFileIds.size === 0 ||
+                selectedFileIds.size > BULK_DOWNLOAD_MAX_FILES
+              }
+              title={
+                bulk.isInFlight
+                  ? "A download is already in progress"
+                  : selectedFileIds.size > BULK_DOWNLOAD_MAX_FILES
+                    ? `Maximum ${BULK_DOWNLOAD_MAX_FILES} files per ZIP`
+                    : undefined
+              }
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="w-4 h-4" />
+              Download ZIP
+            </button>
             {showBulkConfirm ? (
               <>
                 <span className="text-sm text-slate-400">This cannot be undone.</span>
