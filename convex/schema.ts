@@ -535,6 +535,28 @@ export default defineSchema({
     .index("by_timestamp", ["timestamp"])
     .index("by_adminOnboardingId", ["adminOnboardingId"]),
 
+  auditLogs: defineTable({
+    actorId: v.string(),
+    actorRole: v.optional(v.union(
+      v.literal("admin"),
+      v.literal("support"),
+      v.literal("instructor"),
+      v.literal("student"),
+      v.literal("system"),
+    )),
+    action: v.string(),
+    targetType: v.string(),
+    targetId: v.string(),
+    details: v.optional(v.string()),
+    metadata: v.optional(v.record(v.string(), v.any())),
+    timestamp: v.number(),
+  }).index("by_actorId", ["actorId"])
+    .index("by_actorRole", ["actorRole"])
+    .index("by_action", ["action"])
+    .index("by_targetType", ["targetType"])
+    .index("by_targetType_targetId", ["targetType", "targetId"])
+    .index("by_timestamp", ["timestamp"]),
+
   marketingWaitlist: defineTable({
     email: v.string(),
     instructorSlug: v.string(),
