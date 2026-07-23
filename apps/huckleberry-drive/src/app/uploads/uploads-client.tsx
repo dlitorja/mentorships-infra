@@ -50,11 +50,12 @@ export function UploadsClient({
         </div>
       ) : (
         <UploadZone
-          onUploadComplete={() => {
-            // PR1: previously the callback was a no-op, leaving users
-            // staring at the upload zone wondering if their file
-            // landed. Navigate to the dashboard with a flag the
-            // dashboard can pick up to surface a success toast.
+          // PR1 (review): navigate on batch completion (after all
+          // files from the most recent drop have settled) rather than
+          // after the first file completes, otherwise the redirect
+          // hides sibling uploads still in flight. UploadZone allows
+          // two concurrent uploads.
+          onBatchComplete={() => {
             router.push("/dashboard?uploaded=1");
           }}
           instructorId={userRole === "video_editor" ? selectedInstructorId ?? undefined : undefined}

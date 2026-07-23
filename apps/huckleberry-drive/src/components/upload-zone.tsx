@@ -48,11 +48,19 @@ interface UploadingFile {
 
 interface UploadZoneProps {
   onUploadComplete?: () => void;
+  // PR1 (review): fired once when every file in the most recent drop
+  // has settled (success or error). Use this instead of
+  // `onUploadComplete` for navigation/toasts so the user doesn't get
+  // redirected away while sibling uploads are still in flight. The
+  // existing per-file callback is preserved for callers that want
+  // per-file telemetry.
+  onBatchComplete?: () => void;
   instructorId?: string;
 }
 
 export function UploadZone({
   onUploadComplete,
+  onBatchComplete,
   instructorId,
 }: UploadZoneProps): React.ReactElement {
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -60,6 +68,11 @@ export function UploadZone({
     Array<{ file: File; errors: string[] }>
   >([]);
   const activeUploadsRef = useRef(0);
+  // PR1 (review): tracks the number of files from the most recent
+  // drop that are still being processed. Decremented in `uploadFile`'s
+  // finally block; when it reaches zero we know the current batch has
+  // fully settled and can safely fire `onBatchComplete`.
+  const batchPendingRef = useRef(0);
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   const uploadFile = useCallback(
@@ -103,13 +116,43 @@ export function UploadZone({
               throw new Error("Upload cancelled");
             }
 
-            const response = await fetch(presignedUrl, {
-              method: "PUT",
-              body: chunk,
-              signal: abortController.signal,
-            });
+            // PR1 (review): a fetch() rejection (DNS failure, offline,
+            // TLS reset, etc.) used to escape the loop on the first
+            // transient network blip. Catch non-abort rejections here
+            // and retry with the same backoff used for 5xx.
+            let response: Response;
+            try {
+              response = await fetch(presignedUrl, {
+                method: "PUT",
+                body: chunk,
+                signal: abortController.signal,
+              });
+            } catch (error) {
+              if (abortController.signal.aborted) {
+                throw new Error("Upload cancelled");
+              }
+              const networkMessage =
+                error instanceof Error ? error.message : "unknown network error";
+              if (attempt === PART_RETRY_ATTEMPTS) {
+                throw new Error(
+                  `Failed to upload part ${partNumber} after ${PART_RETRY_ATTEMPTS} attempts (network error: ${networkMessage})`
+                );
+              }
+              await new Promise((r) => setTimeout(r, PART_RETRY_BASE_DELAY_MS * attempt));
+              continue;
+            }
 
             if (!response.ok) {
+              // PR1 (review): 4xx responses (expired presigned URL,
+              // bad request, etc.) are deterministic — re-trying just
+              // wastes attempts and adds latency before surfacing the
+              // real error. Fail fast on client errors; only retry on
+              // 5xx or transient failures.
+              if (response.status >= 400 && response.status < 500) {
+                throw new Error(
+                  `Failed to upload part ${partNumber} (HTTP ${response.status}) — client error, not retrying`
+                );
+              }
               if (attempt === PART_RETRY_ATTEMPTS) {
                 throw new Error(
                   `Failed to upload part ${partNumber} (HTTP ${response.status}) after ${PART_RETRY_ATTEMPTS} attempts`
@@ -163,6 +206,14 @@ export function UploadZone({
 
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
+        // PR1 (review): decrement the batch counter and only fire
+        // `onBatchComplete` once every upload in the most recent drop
+        // has settled. The per-file `onUploadComplete` callback fires
+        // immediately so callers can still track individual files.
+        batchPendingRef.current--;
+        if (batchPendingRef.current === 0) {
+          onBatchComplete?.();
+        }
         onUploadComplete?.();
       } catch (error) {
         const message =
@@ -185,9 +236,15 @@ export function UploadZone({
         }
         activeUploadsRef.current--;
         abortControllersRef.current.delete(uploadingFile.id);
+        // PR1 (review): mirror the success path's batch decrement so
+        // paused/cancelled uploads still settle the current batch.
+        batchPendingRef.current--;
+        if (batchPendingRef.current === 0) {
+          onBatchComplete?.();
+        }
       }
     },
-    [onUploadComplete, instructorId]
+    [onUploadComplete, onBatchComplete, instructorId]
   );
 
   const onDrop = useCallback(
@@ -210,6 +267,11 @@ export function UploadZone({
           break;
         }
         activeUploadsRef.current++;
+        // PR1 (review): only count files that were actually started so
+        // the batch counter matches what `uploadFile` will decrement.
+        // Files that didn't fit concurrency stay "pending" in the UI
+        // (pre-existing behaviour) and are not part of this batch.
+        batchPendingRef.current++;
         setUploadingFiles((prev) =>
           prev.map((f) =>
             f.id === uploadingFile.id ? { ...f, status: "uploading" } : f

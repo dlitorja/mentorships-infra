@@ -103,10 +103,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error("Upload complete error:", error);
 
     if (error instanceof Error) {
-      const err = error as Error & { code?: string };
+      // PR1 (review): narrow `code` at runtime instead of asserting
+      // `Error & { code?: string }`. Some upstream errors carry
+      // extra metadata (e.g. S3 `Code`, AWS `Error.Code`) on
+      // non-Error objects; the runtime guard keeps the response
+      // shape stable.
+      let code: string | undefined;
+      const maybeCode = (error as { code?: unknown }).code;
+      if (typeof maybeCode === "string") {
+        code = maybeCode;
+      }
       return NextResponse.json({
         error: error.message,
-        code: err.code,
+        ...(code !== undefined ? { code } : {}),
       }, { status: 400 });
     }
 

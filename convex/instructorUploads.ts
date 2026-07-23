@@ -2,6 +2,7 @@ import { mutation, query, internalMutation, internalQuery, internalAction, actio
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { STORAGE_LIMIT_BYTES } from "./constants";
 
 /**
  * Migrates an instructor upload record from legacy system.
@@ -144,7 +145,9 @@ export const createUpload = mutation({
     // mutation so OCC catches concurrent uploads that race past a
     // route-side check. The route still does a pre-check for a
     // nicer error UX; this is the authoritative enforcement.
-    const STORAGE_LIMIT_BYTES = 50 * 1024 * 1024 * 1024;
+    // PR1 (review): limit value lives in `convex/constants.ts` so
+    // changing it updates both the Next.js pre-check and this
+    // authoritative mutation in lockstep.
     const stats = await ctx.db
       .query("instructorUploads")
       .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
@@ -709,14 +712,21 @@ export const getAllUploads = query({
     // (uploader, status) pairings. Index chosen so we don't `.collect()`
     // a multi-thousand-row table when a single instructor has only a
     // few hundred uploads.
+    // PR1 (review): when both `instructorId` and `status` are supplied,
+    // narrow by instructor first (reads only that instructor's rows)
+    // then post-filter by status in memory. Same routing for the
+    // `uploadedById + status` pair below.
     let allUploads: Doc<"instructorUploads">[];
 
     if (instructorId && status) {
       allUploads = await ctx.db
         .query("instructorUploads")
-        .withIndex("by_status_createdAt", (q) => q.eq("status", status))
+        .withIndex("by_instructorId_createdAt", (q) =>
+          q.eq("instructorId", instructorId)
+        )
+        .order("desc")
         .collect();
-      allUploads = allUploads.filter((u) => u.instructorId === instructorId);
+      allUploads = allUploads.filter((u) => u.status === status);
     } else if (instructorId) {
       allUploads = await ctx.db
         .query("instructorUploads")
@@ -728,9 +738,12 @@ export const getAllUploads = query({
     } else if (uploadedById && status) {
       allUploads = await ctx.db
         .query("instructorUploads")
-        .withIndex("by_status_createdAt", (q) => q.eq("status", status))
+        .withIndex("by_uploadedById_createdAt", (q) =>
+          q.eq("uploadedById", uploadedById)
+        )
+        .order("desc")
         .collect();
-      allUploads = allUploads.filter((u) => u.uploadedById === uploadedById);
+      allUploads = allUploads.filter((u) => u.status === status);
     } else if (uploadedById) {
       allUploads = await ctx.db
         .query("instructorUploads")
