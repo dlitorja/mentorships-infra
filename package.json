@@ -20,6 +20,7 @@
     "test:ui": "playwright test --ui --config apps/web/playwright.config.mts",
     "test:unit": "vitest --config vitest.config.mjs",
     "test:unit:ui": "vitest --ui --config vitest.config.mjs",
+    "test:convex": "vitest --config convex/vitest.config.mjs",
     "db:generate": "cd packages/db && drizzle-kit generate",
     "db:migrate": "cd packages/db && drizzle-kit migrate",
     "db:studio": "cd packages/db && drizzle-kit studio",
@@ -84,6 +85,7 @@
     "zod": "^4.1.13"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "^9.39.1",
     "@next/eslint-plugin-next": "^16.0.8",
@@ -101,6 +103,7 @@
     "@vitejs/plugin-react": "5.1.1",
     "@vitest/ui": "2.1.9",
     "baseline-browser-mapping": "^1.0.0",
+    "convex-test": "^0.0.54",
     "drizzle-kit": "0.31.7",
     "eslint": "9.39.1",
     "eslint-config-next": "16.0.6",

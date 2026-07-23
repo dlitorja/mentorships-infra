@@ -2,6 +2,7 @@ import { query, mutation, internalMutation, internalQuery, action, httpAction, Q
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
+import { writeAuditLog } from "./auditLog";
 
 async function getAdminUser(ctx: QueryCtx | MutationCtx, identitySubject: string): Promise<Doc<"users"> | null> {
   const byUserId = await ctx.db
@@ -158,6 +159,16 @@ export const createHdInvitation = mutation({
       expiresAt,
     });
 
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "create_hd_invitation",
+      targetType: "hdInvitation",
+      targetId: invitationId,
+      details: `Invited ${emailLower} as ${args.role}`,
+      metadata: { email: emailLower, role: args.role, expiresInDays, clerkInvitationId: args.clerkInvitationId ?? null },
+    });
+
     return invitationId;
   },
 });
@@ -186,6 +197,15 @@ export const cancelHdInvitation = mutation({
       updatedAt: Date.now(),
     });
 
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "cancel_hd_invitation",
+      targetType: "hdInvitation",
+      targetId: args.invitationId,
+      details: `Cancelled invitation for ${invitation.email}`,
+    });
+
     return {
       invitationId: args.invitationId,
       clerkInvitationId: invitation.clerkInvitationId ?? null,
@@ -204,9 +224,20 @@ export const updateHdInvitationStatus = mutation({
 
     await requireAdminUser(ctx, identity.subject);
 
+    const previousStatus = (await ctx.db.get(args.invitationId))?.status;
     await ctx.db.patch(args.invitationId, {
       status: args.status,
       updatedAt: Date.now(),
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "update_hd_invitation_status",
+      targetType: "hdInvitation",
+      targetId: args.invitationId,
+      details: `Status changed from ${previousStatus ?? "unknown"} to ${args.status}`,
+      metadata: { previousStatus, newStatus: args.status },
     });
 
     return args.invitationId;
@@ -224,9 +255,20 @@ export const updateHdInvitationClerkId = mutation({
 
     await requireAdminUser(ctx, identity.subject);
 
+    const previousClerkId = (await ctx.db.get(args.invitationId))?.clerkInvitationId ?? null;
     await ctx.db.patch(args.invitationId, {
       clerkInvitationId: args.clerkInvitationId,
       updatedAt: Date.now(),
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "update_hd_invitation_clerk_id",
+      targetType: "hdInvitation",
+      targetId: args.invitationId,
+      details: `clerkInvitationId changed from ${previousClerkId ?? "none"} to ${args.clerkInvitationId}`,
+      metadata: { previousClerkInvitationId: previousClerkId, newClerkInvitationId: args.clerkInvitationId },
     });
 
     return args.invitationId;
@@ -262,6 +304,16 @@ export const resendHdInvitation = mutation({
       clerkInvitationId: args.clerkInvitationId,
       expiresAt,
       updatedAt: Date.now(),
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "resend_hd_invitation",
+      targetType: "hdInvitation",
+      targetId: args.invitationId,
+      details: `Resent invitation for ${invitation.email}`,
+      metadata: { previousClerkInvitationId, newClerkInvitationId: args.clerkInvitationId, expiresAt },
     });
 
     return { invitationId: args.invitationId, newExpiresAt: expiresAt, previousClerkInvitationId };
@@ -333,6 +385,16 @@ export const deleteHdInvitation = mutation({
     if (!invitation) {
       throw new Error("Invitation not found");
     }
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "delete_hd_invitation",
+      targetType: "hdInvitation",
+      targetId: args.invitationId,
+      details: `Deleted invitation for ${invitation.email} (was: ${invitation.status})`,
+      metadata: { email: invitation.email, status: invitation.status },
+    });
 
     await ctx.db.delete(args.invitationId);
 
@@ -420,6 +482,16 @@ export const markInvitationAccepted = internalMutation({
         role: invitation.role,
         firstName: undefined,
         lastName: undefined,
+      });
+
+      await writeAuditLog(ctx, {
+        actorId: "system",
+        actorRole: "system",
+        action: "create_user_from_invitation",
+        targetType: "user",
+        targetId: args.clerkUserId,
+        details: `Created user from invitation ${args.invitationId} (role: ${invitation.role})`,
+        metadata: { email: invitation.email, role: invitation.role, invitationId: args.invitationId },
       });
 
       if (invitation.role === "instructor") {
