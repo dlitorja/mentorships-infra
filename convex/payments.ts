@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { writeAuditLog } from "./auditLog";
 
 /** Fetches a payment by its ID, returning null if unauthenticated. */
 export const getPaymentById = query({
@@ -168,6 +169,22 @@ export const adminProcessRefund = mutation({
 
     await ctx.db.patch(payment.orderId, {
       status: isFullyRefunded ? "refunded" : "paid",
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: "admin",
+      action: "admin_process_refund",
+      targetType: "payment",
+      targetId: args.paymentId,
+      details: `Refunded ${args.refundAmount} of ${originalAmount} (new total refunded: ${newRefundedAmount})`,
+      metadata: {
+        orderId: payment.orderId,
+        originalAmount: payment.amount,
+        refundAmount: args.refundAmount,
+        newRefundedAmount,
+        fullyRefunded: isFullyRefunded,
+      },
     });
 
     return await ctx.db.get(args.paymentId);
