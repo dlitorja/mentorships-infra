@@ -6,6 +6,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { isStaleOnboardingRow } from "../apps/platform/lib/admin-onboarding/stale-onboarding-filter";
 import { mergeEmailsSentPatch } from "../apps/platform/lib/admin-onboarding/emails-sent-merge";
 import { emailsSentPatchForRecipient, type MarkEmailSentRecipient } from "../apps/platform/lib/admin-onboarding/mark-email-sent-recipient";
+import { writeAuditLog } from "./auditLog";
 
 /**
  * State machine: which `(from, to)` transitions are allowed for the
@@ -574,7 +575,7 @@ export const adminOnboardStudent = mutation({
     const gate = await isAdminOrSupport(ctx, identity.subject);
     if (!gate.ok) throw new Error("Forbidden: admin or support role required");
 
-    return await performCommit(ctx, {
+    const result = await performCommit(ctx, {
       email: args.email,
       instructors: args.instructors,
       isSeparateStudentRecord: !!args.isSeparateStudentRecord,
@@ -584,6 +585,24 @@ export const adminOnboardStudent = mutation({
       source: args.source ?? "kajabi",
       clerkInvitationIds: args.clerkInvitationIds,
     });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: gate.role,
+      action: "admin_onboard_student",
+      targetType: "adminOnboarding",
+      targetId: result.onboardingId,
+      details: `Onboarded ${args.email} with ${args.instructors.length} instructor(s)`,
+      metadata: {
+        email: args.email,
+        instructorCount: args.instructors.length,
+        source: args.source ?? "kajabi",
+        isSeparateStudentRecord: !!args.isSeparateStudentRecord,
+        capacityOverrideReason: args.capacityOverrideReason ?? null,
+      },
+    });
+
+    return result;
   },
 });
 
@@ -612,20 +631,32 @@ export const retryAdminOnboarding = mutation({
       );
     }
 
+    const previousStatus = row.status;
     const now = Date.now();
+    const newAttemptCount = row.attemptCount + 1;
     await ctx.db.patch(args.onboardingId, {
       status: "processing",
-      attemptCount: row.attemptCount + 1,
+      attemptCount: newAttemptCount,
       lastAttemptAt: now,
       failureReason: undefined,
       timeline: [
         ...row.timeline,
-        newTimelineEntry("retrying", identity.subject, `attempt ${row.attemptCount + 1}`),
+        newTimelineEntry("retrying", identity.subject, `attempt ${newAttemptCount}`),
         newTimelineEntry("processing_started", identity.subject),
       ],
     });
 
-    return { onboardingId: args.onboardingId, status: "processing" as const, attemptCount: row.attemptCount + 1 };
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: gate.role,
+      action: "retry_admin_onboarding",
+      targetType: "adminOnboarding",
+      targetId: args.onboardingId,
+      details: `Retried onboarding (was: ${previousStatus}, attempt: ${newAttemptCount})`,
+      metadata: { previousStatus, newAttemptCount, email: row.email },
+    });
+
+    return { onboardingId: args.onboardingId, status: "processing" as const, attemptCount: newAttemptCount };
   },
 });
 
@@ -654,6 +685,7 @@ export const cancelAdminOnboarding = mutation({
       );
     }
 
+    const previousStatus = row.status;
     const now = Date.now();
     await ctx.db.patch(args.onboardingId, {
       status: "cancelled",
@@ -663,6 +695,16 @@ export const cancelAdminOnboarding = mutation({
         ...row.timeline,
         newTimelineEntry("cancelled", identity.subject, "Artifacts preserved; no automatic cleanup."),
       ],
+    });
+
+    await writeAuditLog(ctx, {
+      actorId: identity.subject,
+      actorRole: gate.role,
+      action: "cancel_admin_onboarding",
+      targetType: "adminOnboarding",
+      targetId: args.onboardingId,
+      details: `Cancelled onboarding (was: ${previousStatus})`,
+      metadata: { previousStatus, email: row.email },
     });
 
     return { onboardingId: args.onboardingId, status: "cancelled" as const };
