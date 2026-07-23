@@ -116,6 +116,11 @@ export const ROLE_DISPLAY_LABELS: Record<PersistedUserRole, string> = {
   video_editor: "Video Editor",
 };
 
+// Maximum files per bulk-download request. Mirrors the server-side
+// MAX_FILES_PER_REQUEST in apps/huckleberry-drive/src/app/api/files/bulk-download/route.ts
+// and src/trigger/bulk-download.ts. Keep all three in sync.
+export const BULK_DOWNLOAD_MAX_FILES = 20;
+
 export interface ListFilesParams {
   instructorId?: string;
   uploadedById?: string;
