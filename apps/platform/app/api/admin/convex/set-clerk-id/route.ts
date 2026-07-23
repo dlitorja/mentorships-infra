@@ -28,8 +28,11 @@ export async function POST(request: Request) {
 
     const body = await request.json();
     const { clerkId } = body;
-    if (!clerkId) {
-      return NextResponse.json({ error: "clerkId is required" }, { status: 400 });
+    if (typeof clerkId !== "string" || clerkId.trim().length === 0) {
+      return NextResponse.json(
+        { error: "clerkId must be a non-empty string" },
+        { status: 400 }
+      );
     }
 
     const updated = await convexServerCall<{ _id: string; clerkId: string }>(
