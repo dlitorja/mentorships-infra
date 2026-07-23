@@ -55,7 +55,6 @@ export function FileList({
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [confirmHardDeleteId, setConfirmHardDeleteId] = useState<string | null>(null);
   const [playingVideoUrl, setPlayingVideoUrl] = useState<string | null>(null);
-  const [playingVideoContentType, setPlayingVideoContentType] = useState<string>("video/mp4");
 
   const formatBytes = (bytes: number): string => {
     if (bytes === 0) return "0 B";
@@ -271,7 +270,6 @@ return userRole === "admin";
     try {
       const url = await getStreamUrl(file.id);
       setPlayingVideoUrl(url);
-      setPlayingVideoContentType(file.contentType);
     } catch (error) {
       console.error("Play failed:", error);
     } finally {
