@@ -1,6 +1,14 @@
 import { inngest } from "../client";
 import { reportInfo, reportError } from "@/lib/observability";
 import { convexServerCall } from "@/lib/convex-server-call";
+import { z } from "zod";
+
+const instructorResultSchema = z.object({
+  success: z.boolean(),
+  instructorId: z.string().optional(),
+  reason: z.string().optional(),
+});
+type InstructorResult = z.infer<typeof instructorResultSchema>;
 
 type ClerkUserCreatedEventData = {
   userId: string;
@@ -58,15 +66,21 @@ export const handleClerkUserCreated = inngest.createFunction(
       }
 
       try {
-        const result = await convexServerCall<{
-          success: boolean;
-          instructorId?: string;
-          reason?: string;
-        }>("/instructors/create-for-clerk-user", {
-          userId,
-          email: normalizedEmail,
-          name,
-        });
+        const raw = await convexServerCall<unknown>(
+          "/instructors/create-for-clerk-user",
+          {
+            userId,
+            email: normalizedEmail,
+            name,
+          }
+        );
+        const parsed = instructorResultSchema.safeParse(raw);
+        if (!parsed.success) {
+          throw new Error(
+            `Unexpected response shape from /instructors/create-for-clerk-user: ${parsed.error.message}`
+          );
+        }
+        const result: InstructorResult = parsed.data;
 
         if (!result.success) {
           await reportError({
@@ -162,15 +176,21 @@ export const handleClerkUserUpdated = inngest.createFunction(
         }
 
         try {
-          const result = await convexServerCall<{
-            success: boolean;
-            instructorId?: string;
-            reason?: string;
-          }>("/instructors/create-for-clerk-user", {
-            userId,
-            email: normalizedEmail,
-            name,
-          });
+          const raw = await convexServerCall<unknown>(
+            "/instructors/create-for-clerk-user",
+            {
+              userId,
+              email: normalizedEmail,
+              name,
+            }
+          );
+          const parsed = instructorResultSchema.safeParse(raw);
+          if (!parsed.success) {
+            throw new Error(
+              `Unexpected response shape from /instructors/create-for-clerk-user: ${parsed.error.message}`
+            );
+          }
+          const result: InstructorResult = parsed.data;
 
           if (!result.success) {
             await reportError({
@@ -211,11 +231,17 @@ export const handleClerkUserUpdated = inngest.createFunction(
     if (wasInstructor && !isNowInstructor) {
       return await step.run("deactivate-instructor-on-role-removal", async () => {
         try {
-          const result = await convexServerCall<{
-            success: boolean;
-            instructorId?: string;
-            reason?: string;
-          }>("/instructors/deactivate-by-user-id", { userId });
+          const raw = await convexServerCall<unknown>(
+            "/instructors/deactivate-by-user-id",
+            { userId }
+          );
+          const parsed = instructorResultSchema.safeParse(raw);
+          if (!parsed.success) {
+            throw new Error(
+              `Unexpected response shape from /instructors/deactivate-by-user-id: ${parsed.error.message}`
+            );
+          }
+          const result: InstructorResult = parsed.data;
 
           if (!result.success) {
             await reportError({
