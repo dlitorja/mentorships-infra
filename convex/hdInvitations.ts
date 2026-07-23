@@ -38,26 +38,50 @@ export const listHdInvitations = query({
 
     await requireAdminUser(ctx, identity.subject);
 
-    let invitations = await ctx.db.query("hdInvitations").collect();
-
-    if (args.status && args.status !== "all") {
-      invitations = invitations.filter((inv) => inv.status === args.status);
-    }
-
-    if (args.role) {
-      invitations = invitations.filter((inv) => inv.role === args.role);
-    }
-
-    const total = invitations.length;
-
-    invitations.sort((a, b) => b._creationTime - a._creationTime);
-
+    const limit = Math.min(args.limit ?? 50, 200);
     const offset = args.offset ?? 0;
-    const limit = args.limit ?? 50;
-    invitations = invitations.slice(offset, offset + limit);
+
+    // PR1: indexed reads instead of `collect()` + in-memory filter/sort.
+    // Index chosen by which filters are set:
+    //   status + role       → by_status_createdAt + post-filter by role
+    //   status only         → by_status_createdAt
+    //   role only           → by_role_createdAt
+    //   no filter           → collect() (rare admin path)
+    const filteredStatus = args.status !== undefined && args.status !== "all" ? args.status : undefined;
+    const filteredRole = args.role;
+    const hasStatus = filteredStatus !== undefined;
+    const hasRole = filteredRole !== undefined;
+
+    let rows;
+    if (hasStatus && hasRole) {
+      rows = await ctx.db
+        .query("hdInvitations")
+        .withIndex("by_status_createdAt", (q) => q.eq("status", filteredStatus!))
+        .order("desc")
+        .collect();
+      rows = rows.filter((inv) => inv.role === filteredRole);
+    } else if (hasStatus) {
+      rows = await ctx.db
+        .query("hdInvitations")
+        .withIndex("by_status_createdAt", (q) => q.eq("status", filteredStatus!))
+        .order("desc")
+        .collect();
+    } else if (hasRole) {
+      rows = await ctx.db
+        .query("hdInvitations")
+        .withIndex("by_role_createdAt", (q) => q.eq("role", filteredRole!))
+        .order("desc")
+        .collect();
+    } else {
+      rows = await ctx.db.query("hdInvitations").collect();
+      rows.sort((a, b) => b._creationTime - a._creationTime);
+    }
+
+    const total = rows.length;
+    const paginated = rows.slice(offset, offset + limit);
 
     return {
-      items: invitations.map((inv) => ({
+      items: paginated.map((inv) => ({
         id: inv._id,
         email: inv.email,
         role: inv.role,

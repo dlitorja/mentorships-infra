@@ -5,6 +5,7 @@ import { requireInstructor } from "@/lib/auth";
 import { initiateMultipartUpload } from "@mentorships/storage";
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { STORAGE_LIMIT_BYTES, isAllowedContentType } from "@/lib/limits";
 
 interface User {
   userId: string;
@@ -14,19 +15,9 @@ interface User {
 const initiateSchema = z.object({
   filename: z.string().min(1).max(255),
   contentType: z.string().min(1),
-  size: z.number().positive().max(50 * 1024 * 1024 * 1024),
+  size: z.number().positive().max(STORAGE_LIMIT_BYTES),
   instructorId: z.string().trim().min(1).optional(),
 });
-
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024 * 1024;
-const ALLOWED_CONTENT_TYPES = [
-  "video/mp4",
-  "video/quicktime",
-  "video/x-msvideo",
-  "video/webm",
-  "video/x-matroska",
-  "video/mpeg",
-];
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -69,26 +60,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
+    if (!isAllowedContentType(contentType)) {
       return NextResponse.json(
         { error: "Invalid file type. Allowed: video/mp4, video/quicktime, video/x-msvideo, video/webm, video/x-matroska, video/mpeg" },
         { status: 400 }
       );
     }
 
-    if (size > MAX_UPLOAD_SIZE) {
+    if (size > STORAGE_LIMIT_BYTES) {
       return NextResponse.json(
         { error: "File too large. Maximum size is 50GB" },
         { status: 400 }
       );
     }
 
+    // PR1: per-instructor storage accounting is enforced inside the
+    // `createUpload` mutation so OCC catches concurrent uploads that
+    // race past a route-side pre-check. Keep a soft pre-check here
+    // for nicer error messages, but treat the mutation as the
+    // authoritative gate.
     if (dbUser.role !== "admin") {
       const stats = await fetchQuery(api.instructorUploads.getInstructorStorageStats, {
         instructorId: targetInstructorId,
       }) as { usedBytes: number; fileCount: number };
 
-      if (stats.usedBytes + size > MAX_UPLOAD_SIZE) {
+      if (stats.usedBytes + size > STORAGE_LIMIT_BYTES) {
         return NextResponse.json(
           { error: "Storage limit exceeded. Please delete files or contact support." },
           { status: 403 }

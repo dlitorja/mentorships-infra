@@ -2,6 +2,7 @@ import { mutation, query, internalMutation, internalQuery, internalAction, actio
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+import { STORAGE_LIMIT_BYTES } from "./constants";
 
 /**
  * Migrates an instructor upload record from legacy system.
@@ -140,6 +141,36 @@ export const createUpload = mutation({
     uploadedById: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    // PR1: enforce 50GB per-instructor storage limit inside the
+    // mutation so OCC catches concurrent uploads that race past a
+    // route-side check. The route still does a pre-check for a
+    // nicer error UX; this is the authoritative enforcement.
+    // PR1 (review): limit value lives in `convex/constants.ts` so
+    // changing it updates both the Next.js pre-check and this
+    // authoritative mutation in lockstep.
+    const stats = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_instructorId", (q) => q.eq("instructorId", args.instructorId))
+      .collect()
+      .then((rows) =>
+        rows.reduce(
+          (acc, r) => {
+            if (r.status !== "deleted" && r.status !== "deleting") {
+              acc.usedBytes += r.size;
+              acc.fileCount += 1;
+            }
+            return acc;
+          },
+          { usedBytes: 0, fileCount: 0 }
+        )
+      );
+
+    if (stats.usedBytes + args.size > STORAGE_LIMIT_BYTES) {
+      throw new Error(
+        `Storage limit exceeded: instructor has ${stats.usedBytes} bytes, attempting to add ${args.size} bytes, limit is ${STORAGE_LIMIT_BYTES} bytes`
+      );
+    }
+
     await ctx.db.insert("instructorUploads", {
       instructorId: args.instructorId,
       filename: args.filename,
@@ -635,6 +666,33 @@ export const deleteUploadRecord = internalMutation({
   },
 });
 
+type InstructorUploadStatus =
+  | "pending"
+  | "uploading"
+  | "completed"
+  | "archived"
+  | "failed"
+  | "deleted"
+  | "deleting";
+
+const INSTRUCTOR_UPLOAD_STATUSES: readonly InstructorUploadStatus[] = [
+  "pending",
+  "uploading",
+  "completed",
+  "archived",
+  "failed",
+  "deleted",
+  "deleting",
+];
+
+function narrowStatus(value: string | undefined): InstructorUploadStatus | undefined {
+  if (value === undefined) return undefined;
+  if ((INSTRUCTOR_UPLOAD_STATUSES as readonly string[]).includes(value)) {
+    return value as InstructorUploadStatus;
+  }
+  return undefined;
+}
+
 export const getAllUploads = query({
   args: {
     instructorId: v.optional(v.string()),
@@ -648,18 +706,57 @@ export const getAllUploads = query({
     const limit = Math.min(args.limit ?? 50, 100);
     const instructorId = args.instructorId;
     const uploadedById = args.uploadedById;
+    const status = narrowStatus(args.status);
 
+    // PR1: indexed reads for the common (instructor, status) and
+    // (uploader, status) pairings. Index chosen so we don't `.collect()`
+    // a multi-thousand-row table when a single instructor has only a
+    // few hundred uploads.
+    // PR1 (review): when both `instructorId` and `status` are supplied,
+    // narrow by instructor first (reads only that instructor's rows)
+    // then post-filter by status in memory. Same routing for the
+    // `uploadedById + status` pair below.
     let allUploads: Doc<"instructorUploads">[];
 
-    if (instructorId) {
+    if (instructorId && status) {
       allUploads = await ctx.db
         .query("instructorUploads")
-        .withIndex("by_instructorId", (q) => q.eq("instructorId", instructorId))
+        .withIndex("by_instructorId_createdAt", (q) =>
+          q.eq("instructorId", instructorId)
+        )
+        .order("desc")
         .collect();
+      allUploads = allUploads.filter((u) => u.status === status);
+    } else if (instructorId) {
+      allUploads = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_instructorId_createdAt", (q) =>
+          q.eq("instructorId", instructorId)
+        )
+        .order("desc")
+        .collect();
+    } else if (uploadedById && status) {
+      allUploads = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_uploadedById_createdAt", (q) =>
+          q.eq("uploadedById", uploadedById)
+        )
+        .order("desc")
+        .collect();
+      allUploads = allUploads.filter((u) => u.status === status);
     } else if (uploadedById) {
       allUploads = await ctx.db
         .query("instructorUploads")
-        .withIndex("by_uploadedById", (q) => q.eq("uploadedById", uploadedById))
+        .withIndex("by_uploadedById_createdAt", (q) =>
+          q.eq("uploadedById", uploadedById)
+        )
+        .order("desc")
+        .collect();
+    } else if (status) {
+      allUploads = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_status_createdAt", (q) => q.eq("status", status))
+        .order("desc")
         .collect();
     } else {
       allUploads = await ctx.db.query("instructorUploads").collect();
@@ -704,14 +801,20 @@ export const getVideoEditorUploads = query({
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 50, 100);
 
+    // PR1: ordered indexed read instead of unordered `by_uploadedById`
+    // + in-memory filter/sort. The video editor dashboard queries this
+    // frequently so the saved sort matters.
     const allUploads = await ctx.db
       .query("instructorUploads")
-      .withIndex("by_uploadedById", (q) => q.eq("uploadedById", args.videoEditorId))
+      .withIndex("by_uploadedById_createdAt", (q) =>
+        q.eq("uploadedById", args.videoEditorId)
+      )
+      .order("desc")
       .collect();
 
-    const sorted = allUploads
-      .filter((u) => u.status !== "deleted" && u.status !== "deleting")
-      .sort((a, b) => (b.createdAt ?? b._creationTime) - (a.createdAt ?? a._creationTime));
+    const sorted = allUploads.filter(
+      (u) => u.status !== "deleted" && u.status !== "deleting"
+    );
 
     const skipCount = args.cursor ?? 0;
     const paginatedResults = sorted.slice(skipCount, skipCount + limit);
@@ -935,15 +1038,21 @@ export const getSoftDeletedFiles = internalQuery({
 export const getExpiredSoftDeletions = query({
   args: {},
   handler: async (ctx) => {
-    const allUploads = await ctx.db.query("instructorUploads").collect();
+    // PR1: use `by_status_createdAt` to narrow the scan to deleted
+    // rows only. The 60-day window is applied in memory because the
+    // index orders by `createdAt`, not `deletedAt`; this keeps the
+    // existing semantics without needing a new index. Admin-triggered,
+    // so the in-memory filter on a smaller candidate set is acceptable.
     const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
     const now = Date.now();
 
-    return allUploads
-      .filter((u) => {
-        if (u.status !== "deleted" || !u.deletedAt) return false;
-        return now - u.deletedAt > sixtyDaysMs;
-      })
+    const deletedRows = await ctx.db
+      .query("instructorUploads")
+      .withIndex("by_status_createdAt", (q) => q.eq("status", "deleted"))
+      .collect();
+
+    return deletedRows
+      .filter((u) => u.deletedAt !== undefined && now - u.deletedAt > sixtyDaysMs)
       .map((u) => ({
         id: u.legacyId ?? u._id,
         _id: u._id,
@@ -995,18 +1104,78 @@ export const cleanupExpiredSoftDelete = action({
   },
 });
 
+// PR1: batched cleanup action. The storage cleanup route used to
+// serially call `cleanupExpiredSoftDelete` for every expired upload,
+// which meant N round-trips between the Next.js server and Convex.
+// This action processes a list of uploadIds in parallel within a
+// single Convex invocation.
+export const cleanupExpiredSoftDeletesBatch = action({
+  args: {
+    uploadIds: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (args.uploadIds.length === 0) {
+      return { results: [] };
+    }
+
+    const results = await Promise.all(
+      args.uploadIds.map(async (uploadId) => {
+        const upload = await ctx.runQuery(
+          internal.instructorUploads.getUploadByLegacyId,
+          { id: uploadId }
+        );
+
+        if (!upload || upload.status !== "deleted") {
+          return { uploadId, success: false, error: "not_found_or_not_deleted" as const };
+        }
+
+        const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+        if (upload.deletedAt && Date.now() - upload.deletedAt < sixtyDaysMs) {
+          return { uploadId, success: false, error: "grace_period_not_expired" as const };
+        }
+
+        try {
+          if (upload.filename) {
+            await deleteFromB2(upload.filename);
+          }
+          if (upload.s3Key) {
+            await deleteFromS3(upload.s3Key);
+          }
+
+          await ctx.runMutation(internal.instructorUploads.deleteUploadRecord, {
+            id: uploadId,
+          });
+
+          return { uploadId, success: true as const };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          console.error(`Cleanup failed for ${uploadId}:`, errorMessage);
+          return { uploadId, success: false as const, error: errorMessage };
+        }
+      })
+    );
+
+    return { results };
+  },
+});
+
 export const findOrphanedFiles = query({
   args: { b2Keys: v.array(v.string()) },
   handler: async (ctx, args) => {
     if (args.b2Keys.length === 0) return [];
 
-    const allUploads = await ctx.db.query("instructorUploads").collect();
+    // PR1: per-key indexed lookup via `by_filename` instead of a full
+    // table `.collect()` + Set construction. This scales O(N) instead
+    // of O(M+N) where M is the uploads table size and N is the B2
+    // listing size; for tenants with thousands of uploads this is a
+    // large win.
     const knownKeys = new Set<string>();
-
-    for (const upload of allUploads) {
-      if (upload.filename) {
-        knownKeys.add(upload.filename);
-      }
+    for (const key of args.b2Keys) {
+      const upload = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_filename", (q) => q.eq("filename", key))
+        .first();
+      if (upload) knownKeys.add(key);
     }
 
     return args.b2Keys

@@ -82,9 +82,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       throw error;
     }
 
-    await fetchMutation(api.instructorUploads.completeUpload, { 
-      id: fileId, 
-      b2FileId: result.versionId || result.etag.replace(/"/g, ""),
+    await fetchMutation(api.instructorUploads.completeUpload, {
+      id: fileId,
+      // PR1: guard against B2 returning neither a versionId nor an
+      // etag. Previously `result.etag.replace(...)` would crash the
+      // mutation when etag was undefined; falling back to the key
+      // gives a usable (if non-unique) identifier for storage
+      // accounting. The soft-delete path can still match by legacyId.
+      b2FileId: result.versionId ?? result.etag?.replace(/"/g, "") ?? `b2-key:${key}`,
     }, { token: convexToken });
 
     return NextResponse.json({
@@ -98,10 +103,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.error("Upload complete error:", error);
 
     if (error instanceof Error) {
-      const err = error as any;
+      // PR1 (review): narrow `code` at runtime instead of asserting
+      // `Error & { code?: string }`. Some upstream errors carry
+      // extra metadata (e.g. S3 `Code`, AWS `Error.Code`) on
+      // non-Error objects; the runtime guard keeps the response
+      // shape stable.
+      let code: string | undefined;
+      const maybeCode = (error as { code?: unknown }).code;
+      if (typeof maybeCode === "string") {
+        code = maybeCode;
+      }
       return NextResponse.json({
         error: error.message,
-        code: err.code
+        ...(code !== undefined ? { code } : {}),
       }, { status: 400 });
     }
 
