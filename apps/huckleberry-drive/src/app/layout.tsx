@@ -49,7 +49,11 @@ export default async function RootLayout({
   const token = await getToken({ template: "convex" }) ?? undefined;
   const dbUser = await fetchAction(api.users.getUserByClerkIdServer, { userId }, { token });
 
-  const userRole = dbUser?.role as "student" | "instructor" | "admin" | "video_editor" ?? "student";
+  const rawRole = dbUser?.role;
+  const userRole: "instructor" | "admin" | "video_editor" | null =
+    rawRole === "instructor" || rawRole === "admin" || rawRole === "video_editor"
+      ? rawRole
+      : null;
   const userName = dbUser?.email;
 
   return (

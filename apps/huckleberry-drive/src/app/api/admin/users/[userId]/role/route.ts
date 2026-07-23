@@ -6,7 +6,7 @@ import { api } from "@/convex/_generated/api";
 import { z } from "zod";
 
 const RoleUpdateSchema = z.object({
-  role: z.enum(["student", "instructor", "admin", "video_editor"]),
+  role: z.enum(["instructor", "admin", "video_editor"]),
 });
 
 interface Params {

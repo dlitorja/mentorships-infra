@@ -76,7 +76,7 @@ export interface BulkDownloadStatus {
 export interface HdInvitation {
   id: string;
   email: string;
-  role: "student" | "instructor" | "admin" | "video_editor";
+  role: PersistedUserRole;
   status: "pending" | "accepted" | "expired" | "cancelled";
   clerkInvitationId: string | null;
   invitedByUserId: string;
@@ -97,7 +97,24 @@ export interface InvitationStats {
   cancelled: number;
 }
 
-export type UserRole = "student" | "instructor" | "admin" | "video_editor";
+// Read-side: matches what Convex currently persists for `hdInvitations.role`
+// and `users.role`. Includes the legacy "student" literal so existing rows
+// keep rendering in admin views after the student role was dropped from
+// the write-side union (`UserRole`).
+export type PersistedUserRole = "student" | "instructor" | "admin" | "video_editor";
+
+// Write-side: roles the application accepts on role-update, invitation
+// creation, and other write paths. The "student" literal is rejected at the
+// API boundary; legacy persisted rows are displayed but cannot be edited
+// back to "student".
+export type UserRole = "instructor" | "admin" | "video_editor";
+
+export const ROLE_DISPLAY_LABELS: Record<PersistedUserRole, string> = {
+  student: "Student (legacy)",
+  instructor: "Instructor",
+  admin: "Admin",
+  video_editor: "Video Editor",
+};
 
 export interface ListFilesParams {
   instructorId?: string;
@@ -127,13 +144,6 @@ async function fetchApi<T>(
   }
 
   return response.json();
-}
-
-export async function listFiles(): Promise<FileItem[]> {
-  const data = await fetchApi<{ files: FileItem[]; pagination: { total: number; hasMore: boolean } }>(
-    "/api/files"
-  );
-  return data.files;
 }
 
 export async function listFilesWithParams(
@@ -290,7 +300,7 @@ export interface AdminUser {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: UserRole;
+  role: PersistedUserRole;
   timeZone?: string;
   clerkId: string;
   createdAt: number;

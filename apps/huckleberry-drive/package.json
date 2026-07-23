@@ -12,10 +12,6 @@
   "dependencies": {
     "@clerk/nextjs": "^6.36.5",
     "@mentorships/storage": "workspace:*",
-    "@mentorships/ui": "workspace:*",
-    "@uppy/core": "^4.0.0",
-    "@uppy/react": "^4.0.0",
-    "@uppy/tus": "^4.0.0",
     "convex": "^1.42.0",
     "next": "16.1.7",
     "react": "19.2.0",

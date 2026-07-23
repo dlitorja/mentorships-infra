@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { fetchAction, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import type { PersistedUserRole } from "@/lib/api";
 
 export class UnauthorizedError extends Error {
   constructor(message: string = "Unauthorized") {
@@ -22,7 +23,7 @@ interface User {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: "student" | "instructor" | "admin" | "video_editor";
+  role: PersistedUserRole;
   timeZone?: string;
   clerkId?: string;
 }

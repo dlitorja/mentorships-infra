@@ -4,9 +4,9 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, Mail, X, UserPlus, AlertCircle, CheckCircle2, Clock, XCircle, Trash2 } from "lucide-react";
 import { listHdInvitations, createHdInvitation, cancelHdInvitation, deleteHdInvitation, resendHdInvitation } from "@/lib/api";
 import type { HdInvitation, InvitationListResponse, UserRole } from "@/lib/api";
+import { ROLE_DISPLAY_LABELS } from "@/lib/api";
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  student: "Student",
   instructor: "Instructor",
   admin: "Admin",
   video_editor: "Video Editor",
@@ -30,7 +30,7 @@ export default function AdminInvitationsPage(): React.ReactElement {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [emailInput, setEmailInput] = useState("");
-  const [roleInput, setRoleInput] = useState<UserRole>("student");
+  const [roleInput, setRoleInput] = useState<UserRole>("instructor");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showConfirmCancel, setShowConfirmCancel] = useState<string | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
@@ -187,7 +187,6 @@ export default function AdminInvitationsPage(): React.ReactElement {
               disabled={isSending}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
             >
-              <option value="student">Student</option>
               <option value="instructor">Instructor</option>
               <option value="admin">Admin</option>
               <option value="video_editor">Video Editor</option>
@@ -355,7 +354,7 @@ export default function AdminInvitationsPage(): React.ReactElement {
                       <span className="font-medium text-slate-200">{invitation.email}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-slate-300">{ROLE_LABELS[invitation.role]}</span>
+                      <span className="text-slate-300">{ROLE_DISPLAY_LABELS[invitation.role]}</span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.color}`}>
@@ -394,9 +393,9 @@ export default function AdminInvitationsPage(): React.ReactElement {
                               <>
                                 <button
                                   onClick={() => handleResendInvitation(invitation.id)}
-                                  disabled={isResending !== null || isCancelling !== null}
+                                  disabled={isResending !== null || isCancelling !== null || invitation.role === "student"}
                                   className="p-2 rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
-                                  title={`Resend Invitation to ${invitation.email}`}
+                                  title={invitation.role === "student" ? "Cannot resend a legacy student invitation" : `Resend Invitation to ${invitation.email}`}
                                   aria-label={`Resend Invitation to ${invitation.email}`}
                                 >
                                   <Mail className="w-4 h-4" />

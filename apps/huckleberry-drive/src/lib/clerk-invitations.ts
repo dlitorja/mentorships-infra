@@ -4,7 +4,7 @@ const APP_URL = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https
 
 export interface CreateHdClerkInvitationOptions {
   emailAddress: string;
-  role: "student" | "instructor" | "admin" | "video_editor";
+  role: "instructor" | "admin" | "video_editor";
   redirectUrl?: string;
   expiresInDays?: number;
   ignoreExisting?: boolean;

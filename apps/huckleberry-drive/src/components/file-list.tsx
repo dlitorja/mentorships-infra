@@ -14,10 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { deleteFile, getDownloadUrl, restoreFile, hardDeleteFile, getStreamUrl } from "@/lib/api";
-import type { FileItem } from "@/lib/api";
+import type { FileItem, UserRole } from "@/lib/api";
 import { ShareFileButton } from "@/components/share-file-button";
-
-type UserRole = "student" | "instructor" | "admin" | "video_editor";
 
 interface FileListProps {
   files: FileItem[];
