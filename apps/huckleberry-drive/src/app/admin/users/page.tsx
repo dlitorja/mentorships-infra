@@ -20,13 +20,8 @@ import {
   type AdminUser,
   type DeletedUser,
   type UserRole,
+  ROLE_DISPLAY_LABELS,
 } from "@/lib/api";
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  instructor: "Instructor",
-  admin: "Admin",
-  video_editor: "Video Editor",
-};
 
 const VALID_ROLES: UserRole[] = ["instructor", "admin", "video_editor"];
 
@@ -267,15 +262,18 @@ export default function AdminUsersPage(): React.ReactElement {
                             const newRole = isValidUserRole(e.target.value) ? e.target.value : "instructor";
                             handleRoleChange(user.userId, newRole);
                           }}
-                          disabled={isProcessingThis || user.userId === currentUserId}
+                          disabled={isProcessingThis || user.userId === currentUserId || user.role === "student"}
                           className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                         >
+                          {user.role === "student" && (
+                            <option value="student" disabled>Student (legacy)</option>
+                          )}
                           <option value="instructor">Instructor</option>
                           <option value="admin">Admin</option>
                           <option value="video_editor">Video Editor</option>
                         </select>
                       ) : (
-                        <span className="text-slate-300">{ROLE_LABELS[user.role]}</span>
+                        <span className="text-slate-300">{ROLE_DISPLAY_LABELS[user.role]}</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-slate-400 text-sm">

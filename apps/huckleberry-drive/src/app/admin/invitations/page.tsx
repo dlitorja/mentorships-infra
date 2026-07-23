@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Loader2, Mail, X, UserPlus, AlertCircle, CheckCircle2, Clock, XCircle, Trash2 } from "lucide-react";
 import { listHdInvitations, createHdInvitation, cancelHdInvitation, deleteHdInvitation, resendHdInvitation } from "@/lib/api";
 import type { HdInvitation, InvitationListResponse, UserRole } from "@/lib/api";
+import { ROLE_DISPLAY_LABELS } from "@/lib/api";
 
 const ROLE_LABELS: Record<UserRole, string> = {
   instructor: "Instructor",
@@ -353,7 +354,7 @@ export default function AdminInvitationsPage(): React.ReactElement {
                       <span className="font-medium text-slate-200">{invitation.email}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-slate-300">{ROLE_LABELS[invitation.role]}</span>
+                      <span className="text-slate-300">{ROLE_DISPLAY_LABELS[invitation.role]}</span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${statusConfig.color}`}>
