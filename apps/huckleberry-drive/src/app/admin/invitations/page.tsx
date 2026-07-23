@@ -393,9 +393,9 @@ export default function AdminInvitationsPage(): React.ReactElement {
                               <>
                                 <button
                                   onClick={() => handleResendInvitation(invitation.id)}
-                                  disabled={isResending !== null || isCancelling !== null}
+                                  disabled={isResending !== null || isCancelling !== null || invitation.role === "student"}
                                   className="p-2 rounded-lg hover:bg-blue-500/20 text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50"
-                                  title={`Resend Invitation to ${invitation.email}`}
+                                  title={invitation.role === "student" ? "Cannot resend a legacy student invitation" : `Resend Invitation to ${invitation.email}`}
                                   aria-label={`Resend Invitation to ${invitation.email}`}
                                 >
                                   <Mail className="w-4 h-4" />
