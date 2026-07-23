@@ -14,6 +14,7 @@ import type * as adminWorkspaces from "../adminWorkspaces.js";
 import type * as audit_recordingRetentionAudit from "../audit/recordingRetentionAudit.js";
 import type * as audit_recordingTransferAudit from "../audit/recordingTransferAudit.js";
 import type * as audit_videoRoomNameAudit from "../audit/videoRoomNameAudit.js";
+import type * as auditLog from "../auditLog.js";
 import type * as bookings from "../bookings.js";
 import type * as cleanup from "../cleanup.js";
 import type * as clerkDeletion from "../clerkDeletion.js";
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   "audit/recordingRetentionAudit": typeof audit_recordingRetentionAudit;
   "audit/recordingTransferAudit": typeof audit_recordingTransferAudit;
   "audit/videoRoomNameAudit": typeof audit_videoRoomNameAudit;
+  auditLog: typeof auditLog;
   bookings: typeof bookings;
   cleanup: typeof cleanup;
   clerkDeletion: typeof clerkDeletion;
