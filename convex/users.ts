@@ -328,12 +328,25 @@ export const migrateUser = mutation({
 
 // Internal-only mutation to set a user's role. Intended to be called from
 // server-verified actions that have already authenticated the request.
+//
+// When `audit` is provided, the mutation writes a single audit row
+// using the caller-supplied action/target/details/metadata instead of
+// the default "set_user_role" row. This keeps the role change and its
+// audit record in the same transaction (no orphaned role change with a
+// missing audit row, no double audit rows).
 export const setUserRoleTrusted = internalMutation({
   args: {
     userId: v.string(),
     role: v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor")),
     actorId: v.optional(v.string()),
     actorRole: v.optional(v.union(v.literal("admin"), v.literal("support"), v.literal("instructor"), v.literal("student"), v.literal("system"))),
+    audit: v.optional(v.object({
+      action: v.string(),
+      targetType: v.string(),
+      targetId: v.string(),
+      details: v.optional(v.string()),
+      metadata: v.optional(v.record(v.string(), v.any())),
+    })),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -344,15 +357,27 @@ export const setUserRoleTrusted = internalMutation({
     if (existing) {
       const previousRole = existing.role;
       await ctx.db.patch(existing._id, { role: args.role, userId: args.userId });
-      await writeAuditLog(ctx, {
-        actorId: args.actorId ?? "system",
-        actorRole: args.actorRole ?? "system",
-        action: "set_user_role",
-        targetType: "user",
-        targetId: args.userId,
-        details: `Role changed from ${previousRole ?? "unset"} to ${args.role}`,
-        metadata: { previousRole, newRole: args.role },
-      });
+      if (args.audit) {
+        await writeAuditLog(ctx, {
+          actorId: args.actorId ?? "system",
+          actorRole: args.actorRole ?? "system",
+          action: args.audit.action,
+          targetType: args.audit.targetType,
+          targetId: args.audit.targetId,
+          details: args.audit.details,
+          metadata: args.audit.metadata,
+        });
+      } else {
+        await writeAuditLog(ctx, {
+          actorId: args.actorId ?? "system",
+          actorRole: args.actorRole ?? "system",
+          action: "set_user_role",
+          targetType: "user",
+          targetId: args.userId,
+          details: `Role changed from ${previousRole ?? "unset"} to ${args.role}`,
+          metadata: { previousRole, newRole: args.role },
+        });
+      }
       return await ctx.db.get(existing._id);
     }
 
@@ -366,15 +391,27 @@ export const setUserRoleTrusted = internalMutation({
     } as Partial<Doc<"users">> as any);
     const inserted = await ctx.db.get(id);
     if (!inserted) throw new Error("Failed to set role");
-    await writeAuditLog(ctx, {
-      actorId: args.actorId ?? "system",
-      actorRole: args.actorRole ?? "system",
-      action: "set_user_role",
-      targetType: "user",
-      targetId: args.userId,
-      details: `User created with role ${args.role}`,
-      metadata: { previousRole: null, newRole: args.role },
-    });
+    if (args.audit) {
+      await writeAuditLog(ctx, {
+        actorId: args.actorId ?? "system",
+        actorRole: args.actorRole ?? "system",
+        action: args.audit.action,
+        targetType: args.audit.targetType,
+        targetId: args.audit.targetId,
+        details: args.audit.details,
+        metadata: args.audit.metadata,
+      });
+    } else {
+      await writeAuditLog(ctx, {
+        actorId: args.actorId ?? "system",
+        actorRole: args.actorRole ?? "system",
+        action: "set_user_role",
+        targetType: "user",
+        targetId: args.userId,
+        details: `User created with role ${args.role}`,
+        metadata: { previousRole: null, newRole: args.role },
+      });
+    }
     return inserted;
   },
 });

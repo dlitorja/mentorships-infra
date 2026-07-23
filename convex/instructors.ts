@@ -4,6 +4,7 @@ import type { QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { resolveActiveWorkspaceForPair } from "./workspaces";
+import { writeAuditLog } from "./auditLog";
 
 /**
  * True if `id` matches the Clerk user ID format. Clerk user IDs always
@@ -2558,13 +2559,40 @@ export const createInstructorInternal = internalMutation({
 });
 
 export const deactivateInstructorInternal = internalMutation({
-  args: { instructorId: v.id("instructors") },
+  args: {
+    instructorId: v.id("instructors"),
+    actorId: v.optional(v.string()),
+    actorRole: v.optional(v.union(
+      v.literal("admin"),
+      v.literal("support"),
+      v.literal("instructor"),
+      v.literal("student"),
+      v.literal("system"),
+    )),
+    audit: v.optional(v.object({
+      action: v.string(),
+      targetType: v.string(),
+      targetId: v.string(),
+      details: v.optional(v.string()),
+      metadata: v.optional(v.record(v.string(), v.any())),
+    })),
+  },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.instructorId, {
       isActive: false,
       updatedAt: Date.now(),
     });
-    return { success: true };
+    if (args.audit) {
+      await writeAuditLog(ctx, {
+        actorId: args.actorId ?? "system",
+        actorRole: args.actorRole ?? "system",
+        action: args.audit.action,
+        targetType: args.audit.targetType,
+        targetId: args.audit.targetId,
+        details: args.audit.details,
+        metadata: args.audit.metadata,
+      });
+    }
   },
 });
 
@@ -2617,16 +2645,14 @@ export const createInstructorForClerkUser = action({
         role: "instructor",
         actorId,
         actorRole,
+        audit: {
+          action: "create_instructor_for_clerk_user",
+          targetType: "instructor",
+          targetId: existing._id,
+          details: `Instructor already existed for user ${args.userId}; role synced to instructor`,
+        },
       });
       console.log("createInstructorForClerkUser: Updated user role to instructor", args.userId);
-      await ctx.runMutation(internal.auditLog.recordAuditLog, {
-        actorId,
-        actorRole,
-        action: "create_instructor_for_clerk_user",
-        targetType: "instructor",
-        targetId: existing._id,
-        details: `Instructor already existed for user ${args.userId}; role synced to instructor`,
-      });
       return { success: true, instructorId: existing._id, reason: "Already exists" };
     }
 
@@ -2645,15 +2671,13 @@ export const createInstructorForClerkUser = action({
       role: "instructor",
       actorId,
       actorRole,
-    });
-    await ctx.runMutation(internal.auditLog.recordAuditLog, {
-      actorId,
-      actorRole,
-      action: "create_instructor_for_clerk_user",
-      targetType: "instructor",
-      targetId: instructorId,
-      details: `Created instructor profile for user ${args.userId}`,
-      metadata: { userId: args.userId, email: args.email, name: args.name },
+      audit: {
+        action: "create_instructor_for_clerk_user",
+        targetType: "instructor",
+        targetId: instructorId,
+        details: `Created instructor profile for user ${args.userId}`,
+        metadata: { userId: args.userId, email: args.email, name: args.name },
+      },
     });
     console.log("createInstructorForClerkUser: Set user role to instructor", args.userId);
 
@@ -2684,16 +2708,15 @@ export const deactivateInstructorByUserId = action({
 
     await ctx.runMutation(internal.instructors.deactivateInstructorInternal, {
       instructorId: instructor._id,
-    });
-
-    await ctx.runMutation(internal.auditLog.recordAuditLog, {
       actorId: "system",
       actorRole: "system",
-      action: "deactivate_instructor_by_user_id",
-      targetType: "instructor",
-      targetId: instructor._id,
-      details: `Deactivated instructor for user ${args.userId}`,
-      metadata: { userId: args.userId },
+      audit: {
+        action: "deactivate_instructor_by_user_id",
+        targetType: "instructor",
+        targetId: instructor._id,
+        details: `Deactivated instructor for user ${args.userId}`,
+        metadata: { userId: args.userId },
+      },
     });
 
     console.log("deactivateInstructorByUserId: Deactivated instructor", args.userId, instructor._id);
