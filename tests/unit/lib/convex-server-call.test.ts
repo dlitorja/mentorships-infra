@@ -133,10 +133,55 @@ describe("convexServerCall", () => {
 
   it("throws when CONVEX_URL is missing", async () => {
     delete process.env.CONVEX_URL;
+    delete process.env.NEXT_PUBLIC_CONVEX_URL;
     await expect(convexServerCall("/users/set-role", {})).rejects.toThrow(
       /CONVEX_URL/
     );
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("falls back to NEXT_PUBLIC_CONVEX_URL when CONVEX_URL is not set", async () => {
+    delete process.env.CONVEX_URL;
+    process.env.NEXT_PUBLIC_CONVEX_URL = "https://fallback.convex.cloud";
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+    );
+    await convexServerCall("/users/set-role", {});
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      "https://fallback.convex.cloud/users/set-role"
+    );
+  });
+
+  it("prefers CONVEX_URL over NEXT_PUBLIC_CONVEX_URL when both are set", async () => {
+    process.env.NEXT_PUBLIC_CONVEX_URL = "https://fallback.convex.cloud";
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+    );
+    await convexServerCall("/users/set-role", {});
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      "https://example.convex.cloud/users/set-role"
+    );
+  });
+
+  it("times out with 504 when fetch aborts past the configured timeout", async () => {
+    vi.mocked(fetch).mockImplementationOnce(
+      (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        })
+    );
+
+    await expect(
+      convexServerCall("/users/set-role", {}, { timeoutMs: 50 })
+    ).rejects.toMatchObject({
+      name: "ConvexServerCallError",
+      status: 504,
+      message: expect.stringContaining("timed out"),
+    });
   });
 
   it("throws when CONVEX_HTTP_KEY is missing", async () => {

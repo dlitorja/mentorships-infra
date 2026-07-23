@@ -11,8 +11,15 @@
  *     request shape transparent and easy to log / debug.
  *   - We don't need the SDK's reactive client features on the server.
  *
+ * Env vars:
+ *   - URL: prefers `CONVEX_URL` (Convex's server-only env for HTTP
+ *     actions, typically the `.convex.site` URL); falls back to
+ *     `NEXT_PUBLIC_CONVEX_URL` which is what the rest of
+ *     `apps/platform/lib/convex.ts` reads. Whichever is set wins.
+ *   - Auth: `CONVEX_HTTP_KEY`.
+ *
  * Caller responsibility:
- *   - Set `CONVEX_URL` and `CONVEX_HTTP_KEY` in env.
+ *   - Set the URL env var + `CONVEX_HTTP_KEY` in env.
  *   - Decide retry policy for 5xx (this helper does not retry).
  *   - Pass an args shape that matches the httpAction's expected body.
  *
@@ -29,14 +36,17 @@ export class ConvexServerCallError extends Error {
   }
 }
 
+const DEFAULT_TIMEOUT_MS = 10_000;
+
 export async function convexServerCall<T>(
   path: string,
-  body: unknown
+  body: unknown,
+  options: { timeoutMs?: number } = {}
 ): Promise<T> {
-  const url = process.env.CONVEX_URL;
+  const url = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!url) {
     throw new ConvexServerCallError(
-      "CONVEX_URL is not set; cannot reach Convex",
+      "CONVEX_URL (or NEXT_PUBLIC_CONVEX_URL) is not set; cannot reach Convex",
       500
     );
   }
@@ -57,6 +67,9 @@ export async function convexServerCall<T>(
   }
 
   let response: Response;
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     response = await fetch(`${url}${path}`, {
       method: "POST",
@@ -65,13 +78,22 @@ export async function convexServerCall<T>(
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new ConvexServerCallError(
+        `Convex HTTP ${path} timed out after ${timeoutMs}ms`,
+        504
+      );
+    }
     const message = err instanceof Error ? err.message : String(err);
     throw new ConvexServerCallError(
       `Network error reaching Convex at ${path}: ${message}`,
       502
     );
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (response.status === 401) {
