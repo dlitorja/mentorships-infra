@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { fetchAction } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { z } from "zod";
-import { fetchAction as convexAction } from "convex/nextjs";
 import { ConvexHttpClient } from "convex/browser";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 export const runtime = "nodejs";
 
@@ -59,17 +58,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const seedClient = new ConvexHttpClient(convexUrl);
       seedClient.setAuth(token);
       await seedClient.mutation(api.users.syncUser, {} as any);
-      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (secret && clerkAuth.userId) {
-        const ts = Date.now();
-        const msg = `${clerkAuth.userId}:admin:${ts}`;
-        const { createHmac } = await import("node:crypto");
-        const sig = createHmac("sha256", secret).update(msg).digest("hex");
-        await convexAction(
-          api.users_actions.serverVerifiedSetUserRole,
-          { userId: clerkAuth.userId, role: "admin", ts, sig },
-          { token, url: convexUrl }
-        );
+      if (clerkAuth.userId) {
+        await convexServerCall("/users/set-role", {
+          userId: clerkAuth.userId,
+          role: "admin",
+        });
       }
     } catch (e) {
       // Non-fatal; admin role might already be set
