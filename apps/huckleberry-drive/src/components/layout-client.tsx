@@ -3,11 +3,11 @@
 import React from "react";
 import { Sidebar } from "./sidebar";
 
-type UserRole = "student" | "instructor" | "admin" | "video_editor";
+type UserRole = "instructor" | "admin" | "video_editor";
 
 interface LayoutClientProps {
   children: React.ReactNode;
-  userRole: UserRole;
+  userRole: UserRole | null;
   userName?: string;
 }
 

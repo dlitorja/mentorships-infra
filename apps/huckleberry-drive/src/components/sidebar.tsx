@@ -16,10 +16,10 @@ import {
   Share2,
 } from "lucide-react";
 
-type UserRole = "student" | "instructor" | "admin" | "video_editor";
+type UserRole = "instructor" | "admin" | "video_editor";
 
 interface SidebarProps {
-  userRole: UserRole;
+  userRole: UserRole | null;
   userName?: string;
 }
 

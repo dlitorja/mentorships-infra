@@ -5,10 +5,8 @@ import { useUser } from "@clerk/nextjs";
 import { FileList } from "@/components/file-list";
 import { StorageUsage } from "@/components/storage-usage";
 import { listFilesWithParams, getStorageUsage } from "@/lib/api";
-import type { FileItem, StorageUsage as StorageUsageType, FileListResponse } from "@/lib/api";
+import type { FileItem, StorageUsage as StorageUsageType, FileListResponse, UserRole } from "@/lib/api";
 import { Loader2, Search } from "lucide-react";
-
-type UserRole = "student" | "instructor" | "admin" | "video_editor";
 
 export default function DashboardPage(): React.ReactElement {
   const { user, isLoaded } = useUser();

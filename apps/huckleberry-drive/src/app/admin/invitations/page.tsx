@@ -6,7 +6,6 @@ import { listHdInvitations, createHdInvitation, cancelHdInvitation, deleteHdInvi
 import type { HdInvitation, InvitationListResponse, UserRole } from "@/lib/api";
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  student: "Student",
   instructor: "Instructor",
   admin: "Admin",
   video_editor: "Video Editor",
@@ -30,7 +29,7 @@ export default function AdminInvitationsPage(): React.ReactElement {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [emailInput, setEmailInput] = useState("");
-  const [roleInput, setRoleInput] = useState<UserRole>("student");
+  const [roleInput, setRoleInput] = useState<UserRole>("instructor");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showConfirmCancel, setShowConfirmCancel] = useState<string | null>(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
@@ -187,7 +186,6 @@ export default function AdminInvitationsPage(): React.ReactElement {
               disabled={isSending}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
             >
-              <option value="student">Student</option>
               <option value="instructor">Instructor</option>
               <option value="admin">Admin</option>
               <option value="video_editor">Video Editor</option>

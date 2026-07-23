@@ -76,7 +76,7 @@ export interface BulkDownloadStatus {
 export interface HdInvitation {
   id: string;
   email: string;
-  role: "student" | "instructor" | "admin" | "video_editor";
+  role: "instructor" | "admin" | "video_editor";
   status: "pending" | "accepted" | "expired" | "cancelled";
   clerkInvitationId: string | null;
   invitedByUserId: string;
@@ -97,7 +97,7 @@ export interface InvitationStats {
   cancelled: number;
 }
 
-export type UserRole = "student" | "instructor" | "admin" | "video_editor";
+export type UserRole = "instructor" | "admin" | "video_editor";
 
 export interface ListFilesParams {
   instructorId?: string;
@@ -127,13 +127,6 @@ async function fetchApi<T>(
   }
 
   return response.json();
-}
-
-export async function listFiles(): Promise<FileItem[]> {
-  const data = await fetchApi<{ files: FileItem[]; pagination: { total: number; hasMore: boolean } }>(
-    "/api/files"
-  );
-  return data.files;
 }
 
 export async function listFilesWithParams(

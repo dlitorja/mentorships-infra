@@ -69,6 +69,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    if (invitation.role === "student") {
+      return NextResponse.json(
+        { error: "Cannot resend a student invitation; the student role is no longer supported" },
+        { status: 400 }
+      );
+    }
+
     const clerkResult = await createHdClerkInvitation({
       emailAddress: invitation.email,
       role: invitation.role,

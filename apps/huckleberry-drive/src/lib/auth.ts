@@ -22,7 +22,7 @@ interface User {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: "student" | "instructor" | "admin" | "video_editor";
+  role: "instructor" | "admin" | "video_editor";
   timeZone?: string;
   clerkId?: string;
 }
