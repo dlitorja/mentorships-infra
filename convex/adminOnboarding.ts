@@ -1116,6 +1116,26 @@ export const appendTimelineEntry = internalMutation({
       ) as Doc<"adminOnboardings">["emailsSent"];
     }
     await ctx.db.patch(args.onboardingId, updates);
+    // PR B: audit row written in the same mutation as the timeline
+    // entry, so the data write and the audit row commit atomically.
+    // Both the legacy `appendTimelineEntryAction` (still accepting a
+    // `secret` arg in the WIDEN window) and the new bearer-auth
+    // `/admin-onboarding/append-timeline` HTTP endpoint converge here,
+    // so this audit fires for both transport paths.
+    await writeAuditLog(ctx, {
+      actorId: "platform-server",
+      actorRole: "system",
+      action: "append_timeline_entry_admin_onboarding",
+      targetType: "adminOnboarding",
+      targetId: args.onboardingId,
+      details: `event=${args.event}` + (args.actorUserId ? ` actor=${args.actorUserId}` : ""),
+      metadata: {
+        event: args.event,
+        actorUserId: args.actorUserId ?? null,
+        expectedStatus: args.expectedStatus ?? null,
+        expectedAttemptCount: args.expectedAttemptCount ?? null,
+      },
+    });
     return entry;
   },
 });
@@ -1277,7 +1297,7 @@ export const markEmailSent = internalMutation({
     if (args.skipped !== undefined) detailsPayload.skipped = args.skipped;
     if (args.reason !== undefined) detailsPayload.reason = args.reason;
 
-    return await ctx.runMutation(internal.adminOnboarding.appendTimelineEntry, {
+    const entry = await ctx.runMutation(internal.adminOnboarding.appendTimelineEntry, {
       onboardingId: args.onboardingId,
       event: "email_sent",
       actorUserId: args.actorUserId,
@@ -1286,6 +1306,31 @@ export const markEmailSent = internalMutation({
       expectedStatus: args.expectedStatus,
       expectedAttemptCount: args.expectedAttemptCount,
     });
+    // PR B: audit row written after the timeline append succeeds.
+    // Both the legacy `markEmailSentAction` (still accepting a `secret`
+    // arg in the WIDEN window) and the new bearer-auth
+    // `/admin-onboarding/mark-email-sent` HTTP endpoint converge here,
+    // so this audit fires for both transport paths. The
+    // `append_timeline_entry_admin_onboarding` audit row written by the
+    // inner `appendTimelineEntry` mutation is the dual record of the
+    // same logical event.
+    await writeAuditLog(ctx, {
+      actorId: "platform-server",
+      actorRole: "system",
+      action: "mark_email_sent_admin_onboarding",
+      targetType: "adminOnboarding",
+      targetId: args.onboardingId,
+      details: `recipient=${recipient.kind}` + (args.skipped ? " skipped" : ""),
+      metadata: {
+        recipient: recipient.kind,
+        instructorId: recipient.kind === "instructor" ? recipient.instructorId : null,
+        adminEmail: recipient.kind === "adminSummary" ? recipient.email : null,
+        resendMessageId: args.resendMessageId ?? null,
+        skipped: args.skipped ?? false,
+        reason: args.reason ?? null,
+      },
+    });
+    return entry;
   },
 });
 
@@ -1466,6 +1511,35 @@ async function releaseInventoryForRow(
       ",skipped=" + skipped,
     expectedStatus: undefined,
     expectedAttemptCount: undefined,
+  });
+
+  // PR B: audit row written after the seat/workspace/pack patches
+  // and the timeline append succeed. The audit fires once per
+  // onboardingId, regardless of whether the caller is the single-row
+  // `releasePlaceholderInventoryInternal` or the batched
+  // `releasePlaceholderInventoryBatchInternal` (both call this
+  // helper). The `append_timeline_entry_admin_onboarding` audit row
+  // written by the inner `appendTimelineEntry` mutation is the dual
+  // record of the timeline event.
+  await writeAuditLog(ctx, {
+    actorId: "platform-server",
+    actorRole: "system",
+    action: "release_placeholder_inventory_admin_onboarding",
+    targetType: "adminOnboarding",
+    targetId: args.onboardingId,
+    details:
+      "seats=" + seatsReleased +
+      ",workspaces=" + workspacesEnded +
+      ",packs=" + packsExpired +
+      ",skipped=" + skipped,
+    metadata: {
+      seatsReleased,
+      workspacesEnded,
+      packsExpired,
+      skipped,
+      actorUserId: args.actorUserId ?? null,
+      source: args.details ?? null,
+    },
   });
 
   return {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
+import { convexServerCall } from "@/lib/convex-server-call";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
@@ -44,11 +45,12 @@ type CommitResult = {
 };
 
 /**
- * Mark the row as `failed` via the shared-secret action wrapper. Does
- * NOT require a Clerk token — `appendTimelineEntryAction` validates
- * exclusively against `CONVEX_SERVER_SHARED_SECRET`. Greptile cloud
- * finding: requiring a Clerk token here would silently abort the
- * recovery if the user session dropped between commit and recovery.
+ * Mark the row as `failed` via the bearer-auth HTTP endpoint. Does NOT
+ * require a Clerk token — the endpoint validates exclusively against
+ * `CONVEX_HTTP_KEY` (server-side shared bearer for trusted platform
+ * callers). Greptile cloud finding (PR A): requiring a Clerk token
+ * here would silently abort the recovery if the user session dropped
+ * between commit and recovery.
  */
 async function markOnboardingFailed(
   onboardingId: string,
@@ -56,20 +58,12 @@ async function markOnboardingFailed(
   reason: string
 ): Promise<void> {
   try {
-    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-    if (!secret) {
-      throw new Error(
-        "CONVEX_SERVER_SHARED_SECRET is not set; cannot mark onboarding as failed"
-      );
-    }
-    const convex = getConvexClient();
-    await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+    await convexServerCall("/admin-onboarding/append-timeline", {
       onboardingId: onboardingId as Id<"adminOnboardings">,
       event: "failed",
       details: reason,
       expectedStatus: "processing",
       expectedAttemptCount: attemptCount,
-      secret,
     });
   } catch (err) {
     await reportError({

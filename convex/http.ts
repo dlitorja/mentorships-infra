@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { api } from "./_generated/api";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import {
   getWorkspacesNeedingDeletion,
   getWorkspacesForNotification,
@@ -1064,6 +1065,422 @@ http.route({
   path: "/users/set-clerk-id",
   method: "POST",
   handler: httpServerVerifiedSetUserClerkId,
+});
+
+/**
+ * PR B: bearer-auth HTTP endpoints for the admin-onboarding flow. Each
+ * replaces a public action that previously required a `secret` arg
+ * authenticated against `CONVEX_SERVER_SHARED_SECRET`. Callers (Inngest
+ * workers, the two admin-onboarding API routes that mark-failed outside
+ * the Clerk session) now authenticate with the `CONVEX_HTTP_KEY` bearer
+ * header. The legacy public actions stay in place so in-flight callers do
+ * not break during the WIDEN phase.
+ *
+ * Audit rows: the 4 write endpoints (`append-timeline`, `mark-email-sent`,
+ * `release-placeholder`, `release-placeholder-batch`) all converge on
+ * internal mutations that write their own `auditLogs` row at the end of
+ * the handler — see the audit calls added in `convex/adminOnboarding.ts`
+ * alongside the existing internals. The HTTP layer does not pass audit
+ * metadata; the actor is always `platform-server`/`system` because the
+ * caller is a server-side worker, not a logged-in admin (admin UI paths
+ * still go through `convex.mutation(api.adminOnboarding.*)` with a Clerk
+ * session).
+ */
+
+const httpGetAdminOnboarding = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let id: string;
+  try {
+    ({ id } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!id || typeof id !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid id" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runQuery(
+      internal.adminOnboarding.getAdminOnboardingInternal,
+      { id: id as Id<"adminOnboardings"> }
+    );
+    return new Response(JSON.stringify(result ?? null), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpListAdminOnboardings = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let status: string | undefined;
+  let emailSearch: string | undefined;
+  let instructorSearch: string | undefined;
+  let limit: number | undefined;
+  try {
+    const body = (await request.json()) ?? {};
+    status = body.status;
+    emailSearch = body.emailSearch;
+    instructorSearch = body.instructorSearch;
+    limit = body.limit;
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (limit !== undefined && (typeof limit !== "number" || limit < 0)) {
+    return new Response(JSON.stringify({ error: "limit must be a non-negative number" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const rows = await ctx.runQuery(
+      internal.adminOnboarding.listAdminOnboardingsInternal,
+      { status, emailSearch, instructorSearch, limit }
+    );
+    return new Response(JSON.stringify({ rows }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpGetInstructorContacts = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let instructorIds: string[];
+  try {
+    const body = (await request.json()) ?? {};
+    instructorIds = body.instructorIds;
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!Array.isArray(instructorIds) || instructorIds.length === 0) {
+    return new Response(JSON.stringify({ error: "instructorIds must be a non-empty array" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const contacts = await ctx.runQuery(
+      internal.adminOnboarding.getInstructorContactsInternal,
+      { instructorIds: instructorIds as Id<"instructors">[] }
+    );
+    return new Response(JSON.stringify({ contacts }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpGetStaleOnboardings = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let cutoffMs: number;
+  let paginationOpts: { numItems?: number; cursor?: string | null };
+  try {
+    const body = (await request.json()) ?? {};
+    cutoffMs = body.cutoffMs;
+    paginationOpts = body.paginationOpts;
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (typeof cutoffMs !== "number") {
+    return new Response(JSON.stringify({ error: "cutoffMs must be a number" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!paginationOpts || typeof paginationOpts !== "object") {
+    return new Response(JSON.stringify({ error: "paginationOpts is required" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const page = await ctx.runQuery(
+      internal.adminOnboarding.getStaleOnboardingsInternal,
+      { cutoffMs, paginationOpts }
+    );
+    return new Response(JSON.stringify(page), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpAppendTimelineEntry = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (typeof body.onboardingId !== "string" || !body.onboardingId) {
+    return new Response(JSON.stringify({ error: "Missing or invalid onboardingId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (typeof body.event !== "string" || !body.event) {
+    return new Response(JSON.stringify({ error: "Missing or invalid event" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const entry = await ctx.runMutation(
+      internal.adminOnboarding.appendTimelineEntry,
+      {
+        onboardingId: body.onboardingId as Id<"adminOnboardings">,
+        event: body.event as any,
+        actorUserId: typeof body.actorUserId === "string" ? body.actorUserId : undefined,
+        details: typeof body.details === "string" ? body.details : undefined,
+        emailsSentPatch: body.emailsSentPatch as any,
+        expectedStatus: typeof body.expectedStatus === "string" ? body.expectedStatus : undefined,
+        expectedAttemptCount: typeof body.expectedAttemptCount === "number" ? body.expectedAttemptCount : undefined,
+      }
+    );
+    return new Response(JSON.stringify(entry), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpMarkEmailSent = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (typeof body.onboardingId !== "string" || !body.onboardingId) {
+    return new Response(JSON.stringify({ error: "Missing or invalid onboardingId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!body.recipient || typeof body.recipient !== "object") {
+    return new Response(JSON.stringify({ error: "Missing or invalid recipient" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const entry = await ctx.runMutation(
+      internal.adminOnboarding.markEmailSent,
+      {
+        onboardingId: body.onboardingId as Id<"adminOnboardings">,
+        recipient: body.recipient as any,
+        resendMessageId: typeof body.resendMessageId === "string" ? body.resendMessageId : undefined,
+        skipped: typeof body.skipped === "boolean" ? body.skipped : undefined,
+        reason: typeof body.reason === "string" ? body.reason : undefined,
+        actorUserId: typeof body.actorUserId === "string" ? body.actorUserId : undefined,
+        expectedStatus: body.expectedStatus as any,
+        expectedAttemptCount: typeof body.expectedAttemptCount === "number" ? body.expectedAttemptCount : undefined,
+      }
+    );
+    return new Response(JSON.stringify(entry), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpReleasePlaceholderInventory = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (typeof body.onboardingId !== "string" || !body.onboardingId) {
+    return new Response(JSON.stringify({ error: "Missing or invalid onboardingId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.adminOnboarding.releasePlaceholderInventoryInternal,
+      {
+        onboardingId: body.onboardingId as Id<"adminOnboardings">,
+        actorUserId: typeof body.actorUserId === "string" ? body.actorUserId : undefined,
+        details: typeof body.details === "string" ? body.details : undefined,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+const httpReleasePlaceholderInventoryBatch = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) ?? {};
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!Array.isArray(body.onboardingIds) || body.onboardingIds.length === 0) {
+    return new Response(JSON.stringify({ error: "onboardingIds must be a non-empty array" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (body.onboardingIds.length > 50) {
+    return new Response(JSON.stringify({ error: "onboardingIds capped at 50 per batch" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(
+      internal.adminOnboarding.releasePlaceholderInventoryBatchInternal,
+      {
+        onboardingIds: body.onboardingIds as Id<"adminOnboardings">[],
+        actorUserId: typeof body.actorUserId === "string" ? body.actorUserId : undefined,
+        details: typeof body.details === "string" ? body.details : undefined,
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+http.route({
+  path: "/admin-onboarding/get",
+  method: "POST",
+  handler: httpGetAdminOnboarding,
+});
+
+http.route({
+  path: "/admin-onboarding/list",
+  method: "POST",
+  handler: httpListAdminOnboardings,
+});
+
+http.route({
+  path: "/admin-onboarding/instructor-contacts",
+  method: "POST",
+  handler: httpGetInstructorContacts,
+});
+
+http.route({
+  path: "/admin-onboarding/stale",
+  method: "POST",
+  handler: httpGetStaleOnboardings,
+});
+
+http.route({
+  path: "/admin-onboarding/append-timeline",
+  method: "POST",
+  handler: httpAppendTimelineEntry,
+});
+
+http.route({
+  path: "/admin-onboarding/mark-email-sent",
+  method: "POST",
+  handler: httpMarkEmailSent,
+});
+
+http.route({
+  path: "/admin-onboarding/release-placeholder",
+  method: "POST",
+  handler: httpReleasePlaceholderInventory,
+});
+
+http.route({
+  path: "/admin-onboarding/release-placeholder-batch",
+  method: "POST",
+  handler: httpReleasePlaceholderInventoryBatch,
 });
 
 const httpGetImagesNeedingMigration = httpAction(async (ctx, request) => {

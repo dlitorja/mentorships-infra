@@ -1,9 +1,7 @@
 "use node";
 
 import { inngest } from "../client";
-import { api } from "../../../../convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
-import { Id } from "../../../../convex/_generated/dataModel";
+import type { Doc, Id } from "../../../../convex/_generated/dataModel";
 import { sendEmail } from "@/lib/email";
 import { reportError } from "@/lib/observability";
 import {
@@ -11,12 +9,7 @@ import {
   DEFAULT_STALE_MAX_ROWS,
   DEFAULT_STALE_PAGE_SIZE,
 } from "@/lib/paginate-stale-onboardings";
-
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  return new ConvexHttpClient(convexUrl);
-}
+import { convexServerCall } from "@/lib/convex-server-call";
 
 /**
  * PR 4 fix: HTML-escape user-supplied values before inserting them
@@ -46,19 +39,19 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
   { id: "admin-onboarding-stale-digest", name: "Admin Onboarding Stale Digest", retries: 0 },
   { cron: "0 9 * * *" },
   async ({ step }) => {
-    const convex = getConvexClient();
     const baseUrl = getBaseUrl();
 
     const scanResult = await step.run("scan-stale", async () => {
       // PR 4 fix: compute the cutoff INSIDE the step so a warm Lambda
       // doesn't drift toward "13 days after cold start".
       const staleCutoffMs = Date.now() - THIRTEEN_DAYS_MS;
-      // PR 4 cloud-review fix (CodeRabbit #9204): throw on missing secret
-      // instead of silently returning []. A misconfigured deployment must
-      // not look like "no stale invites found" — monitoring should detect
-      // this immediately via the failure.
-      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!secret) throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin-onboarding-stale-digest cannot authenticate against Convex");
+      // PR B: bearer-auth HTTP endpoint replaces the legacy
+      // `getStaleOnboardingsAction` shared-secret wrapper.
+      // `convexServerCall` throws with status 500 if CONVEX_URL or
+      // CONVEX_HTTP_KEY is missing, so a misconfigured deployment
+      // surfaces the failure in the Inngest run timeline instead of
+      // silently returning [] (CodeRabbit #9204 fix).
+      //
       // PR 4 cloud-review fix (CodeRabbit #9210 + #9214): delegate the
       // ownership-aware scan to a single Convex action. Server-side
       // verifies each placeholder pack is still owned by an "email:"
@@ -70,10 +63,13 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
       // can catch a sustained backlog (and the next cron run picks it up).
       return await paginateStaleOnboardings(
         async (cursor, numItems) =>
-          convex.action(api.adminOnboarding.getStaleOnboardingsAction, {
+          convexServerCall<{
+            rows: Doc<"adminOnboardings">[];
+            continueCursor: string | null;
+            isDone: boolean;
+          }>("/admin-onboarding/stale", {
             cutoffMs: staleCutoffMs,
             paginationOpts: { numItems, cursor },
-            secret,
           })
       );
     });
@@ -136,33 +132,34 @@ export const adminOnboardingStaleDigestFlow = inngest.createFunction(
     });
 
     await step.run("release-placeholders", async () => {
-      // PR 4 cloud-review fix (CodeRabbit #9204): throw on missing secret
-      // here too, mirroring the scan-stale behavior. Better to fail the
-      // scheduled cron than to silently skip releasing inventory.
-      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!secret) throw new Error("CONVEX_SERVER_SHARED_SECRET is not set; admin-onboarding-stale-digest cannot release placeholder inventory");
+      // PR B: bearer-auth HTTP endpoint replaces the legacy
+      // `releasePlaceholderInventoryBatchAction` shared-secret wrapper.
+      // The endpoint caps `onboardingIds` at 50 per batch; we chunk
+      // below that to match the pre-PR-B 20-row chunking (PR 16
+      // follow-up: 20 keeps even worst-case per-instructor counts
+      // safely under Convex mutation read/write limits).
       // PR 16 (R11) consolidation: one batched Convex transaction per chunk
       // instead of N per-row actions. The batch mutation handles per-row
       // errors internally (catches + skips + logs) and returns the
       // `failedOnboardingIds` list so we can surface each row's failure
       // through the existing observability path (matches the pre-PR-16
       // per-row `reportError` behavior).
-      //
-      // Chunk at 20 onboarding IDs per call (PR 16 follow-up: Greptile
-      // flagged that batch size should account for variable per-row work
-      // — each onboarding has up to N perInstructor entries, each
-      // touching 3 inventory records + a timeline append. Bounding at
-      // 20 onboarding IDs keeps even worst-case per-instructor counts
-      // safely under Convex mutation read/write limits.)
       const BATCH_SIZE = 20;
       for (let i = 0; i < staleOnboardings.length; i += BATCH_SIZE) {
         const chunk = staleOnboardings.slice(i, i + BATCH_SIZE);
         try {
-          const result = await convex.action(api.adminOnboarding.releasePlaceholderInventoryBatchAction, {
-            onboardingIds: chunk.map(function(row: any) { return row._id as Id<"adminOnboardings">; }),
+          const result = await convexServerCall<{
+            onboardingsProcessed: number;
+            onboardingsSkipped: number;
+            totalSeatsReleased: number;
+            totalWorkspacesEnded: number;
+            totalPacksExpired: number;
+            totalSkipped: number;
+            failedOnboardingIds: Id<"adminOnboardings">[];
+          }>("/admin-onboarding/release-placeholder-batch", {
+            onboardingIds: chunk.map(function(row: Doc<"adminOnboardings">) { return row._id; }),
             actorUserId: undefined,
             details: "stale-invite-digest auto-release: placeholder held > 13 days",
-            secret,
           });
           // Surface per-row failures through the existing observability
           // path — the batch mutation caught them internally so we have
