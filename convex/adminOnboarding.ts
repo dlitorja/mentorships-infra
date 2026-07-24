@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation, internalQuery, action } from "./_generated/server";
+import { query, mutation, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx, ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
@@ -729,10 +729,11 @@ export const getAdminOnboarding = query({
 
 /**
  * Auth-less read for server-to-server callers (Inngest stub + PR 3's
- * real workflow). Lives behind `getAdminOnboardingAction` so the
- * actual data access is in an `internalQuery` unreachable from the
- * browser (Greptile cloud finding: a public query with a secret
- * bypass would let any browser caller with the secret read rows).
+ * real workflow). Public surface is the bearer-auth HTTP endpoint at
+ * `GET /admin-onboarding/get` (CONVEX_HTTP_KEY bearer, see
+ * `convex/http.ts:httpGetAdminOnboarding`) so the actual data access
+ * is in an `internalQuery` unreachable from the browser. Clerk-gated
+ * browser callers use the public `getAdminOnboarding` query.
  */
 export const getAdminOnboardingInternal = internalQuery({
   args: { id: v.id("adminOnboardings") },
@@ -783,10 +784,11 @@ export const listAdminOnboardings: ReturnType<typeof query> = query({
 
 /**
  * Internal query: list admin onboarding rows for server-side callers
- * (e.g. the stale-digest Inngest cron). No auth-identity check — gated
- * by `CONVEX_SERVER_SHARED_SECRET` at the public-action wrapper layer.
- * Mirrors the pattern used by `getAdminOnboardingInternal` /
- * `getAdminOnboardingAction`.
+ * (e.g. the stale-digest Inngest cron, the admin list view). No
+ * auth-identity check — the public surface is the bearer-auth HTTP
+ * endpoint at `POST /admin-onboarding/list` (CONVEX_HTTP_KEY bearer,
+ * see `convex/http.ts:httpListAdminOnboardings`). Clerk-gated browser
+ * callers use the public `listAdminOnboardings` query.
  */
 export const listAdminOnboardingsInternal = internalQuery({
   args: {
@@ -874,44 +876,6 @@ export const listAdminOnboardingsInternal = internalQuery({
         : true;
       return emailHit || instructorHit;
     });
-  },
-});
-
-/**
- * Public action wrapper for `listAdminOnboardingsInternal`. Requires
- * `CONVEX_SERVER_SHARED_SECRET` (no Clerk session — Inngest workers
- * and other server-side callers don't have one). Returns the same
- * shape as the public `listAdminOnboardings` query.
- */
-export const listAdminOnboardingsAction: ReturnType<typeof action> = action({
-  args: {
-    status: v.optional(
-      v.union(
-        v.literal("queued"),
-        v.literal("processing"),
-        v.literal("completed"),
-        v.literal("failed"),
-        v.literal("cancelled")
-      )
-    ),
-    emailSearch: v.optional(v.string()),
-    instructorSearch: v.optional(v.string()),
-    limit: v.optional(v.number()),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    return await ctx.runQuery(
-      internal.adminOnboarding.listAdminOnboardingsInternal,
-      {
-        status: args.status,
-        emailSearch: args.emailSearch,
-        instructorSearch: args.instructorSearch,
-        limit: args.limit,
-      }
-    );
   },
 });
 
@@ -1023,9 +987,9 @@ export const lookupExistingStudent = query({
  * legs of the email fan-out succeeded without overwriting prior ticks.
  *
  * Internal because callers are server-side only — the public surface
- * is `appendTimelineEntryAction`, which validates the
- * `CONVEX_SERVER_SHARED_SECRET` and forwards into this mutation. The
- * mutation does not check Clerk auth because server-side Inngest
+ * is the bearer-auth HTTP endpoint at `POST /admin-onboarding/append-timeline`
+ * (CONVEX_HTTP_KEY bearer, see `convex/http.ts:httpAppendTimelineEntry`).
+ * The mutation does not check Clerk auth because server-side Inngest
  * handlers don't carry a Clerk session.
  */
 export const appendTimelineEntry = internalMutation({
@@ -1118,10 +1082,11 @@ export const appendTimelineEntry = internalMutation({
     await ctx.db.patch(args.onboardingId, updates);
     // PR B: audit row written in the same mutation as the timeline
     // entry, so the data write and the audit row commit atomically.
-    // Both the legacy `appendTimelineEntryAction` (still accepting a
-    // `secret` arg in the WIDEN window) and the new bearer-auth
-    // `/admin-onboarding/append-timeline` HTTP endpoint converge here,
-    // so this audit fires for both transport paths.
+    // The bearer-auth `/admin-onboarding/append-timeline` HTTP
+    // endpoint in `convex/http.ts` is the only caller of this mutation
+    // (the legacy `appendTimelineEntryAction` public wrapper was
+    // removed in PR C once all consumers had migrated to the HTTP
+    // bearer-auth transport during the PR B WIDEN window).
     await writeAuditLog(ctx, {
       actorId: "platform-server",
       actorRole: "system",
@@ -1137,66 +1102,6 @@ export const appendTimelineEntry = internalMutation({
       },
     });
     return entry;
-  },
-});
-
-/**
- * Public action wrapper for `appendTimelineEntry`. Mirrors the
- * `linkSessionPacksByEmailAction` pattern in `convex/sessionPacks.ts:626`:
- * requires `CONVEX_SERVER_SHARED_SECRET` in the args, then forwards to
- * the internal mutation via `ctx.runMutation`. This is the call the
- * Inngest stub (PR 2) and the real flow (PR 3) use.
- */
-const SERVER_SHARED_SECRET = process.env.CONVEX_SERVER_SHARED_SECRET;
-
-export const appendTimelineEntryAction = action({
-  args: {
-    onboardingId: v.id("adminOnboardings"),
-    event: v.union(
-      v.literal("queued"),
-      v.literal("processing_started"),
-      v.literal("email_sent"),
-      v.literal("discord_queued"),
-      v.literal("completed"),
-      v.literal("failed"),
-      v.literal("retrying"),
-      v.literal("cancelled"),
-      v.literal("capacity_override"),
-      v.literal("alias_set"),
-      v.literal("released")
-    ),
-    actorUserId: v.optional(v.string()),
-    details: v.optional(v.string()),
-    emailsSentPatch: v.optional(
-      v.object({
-        student: v.optional(v.boolean()),
-        instructors: v.optional(v.array(v.id("instructors"))), // Convex instructor IDs
-        adminSummary: v.optional(v.boolean()),
-        adminSummaryByEmail: v.optional(v.record(v.string(), v.boolean())),
-        stub: v.optional(v.boolean()),
-      })
-    ),
-    expectedStatus: v.optional(v.string()),
-    expectedAttemptCount: v.optional(v.number()),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    const result: Doc<"adminOnboardings">["timeline"][number] = await ctx.runMutation(
-      internal.adminOnboarding.appendTimelineEntry,
-      {
-        onboardingId: args.onboardingId,
-        event: args.event,
-        actorUserId: args.actorUserId,
-        details: args.details,
-        emailsSentPatch: args.emailsSentPatch,
-        expectedStatus: args.expectedStatus,
-        expectedAttemptCount: args.expectedAttemptCount,
-      }
-    );
-    return result;
   },
 });
 
@@ -1239,9 +1144,10 @@ export const appendTimelineEntryAction = action({
  *
  * `reason` arg:
  *   - For the no-email / no-config instructor-skip path, the previous
- *     `appendTimelineEntryAction` caller passed a bespoke
- *     `details.reason` ("no_email" / "missing_config"). `reason` is
- *     preserved here so the timeline stays informative for on-call.
+ *     public-action caller (now removed in PR C) used to pass a
+ *     bespoke `details.reason` ("no_email" / "missing_config").
+ *     `reason` is preserved here so the timeline stays informative
+ *     for on-call.
  *   - For other paths, leave `reason` unset (omitted from details JSON).
  */
 export const markEmailSent = internalMutation({
@@ -1307,10 +1213,11 @@ export const markEmailSent = internalMutation({
       expectedAttemptCount: args.expectedAttemptCount,
     });
     // PR B: audit row written after the timeline append succeeds.
-    // Both the legacy `markEmailSentAction` (still accepting a `secret`
-    // arg in the WIDEN window) and the new bearer-auth
-    // `/admin-onboarding/mark-email-sent` HTTP endpoint converge here,
-    // so this audit fires for both transport paths. The
+    // The bearer-auth `/admin-onboarding/mark-email-sent` HTTP
+    // endpoint in `convex/http.ts` is the only caller of this mutation
+    // (the legacy `markEmailSentAction` public wrapper was removed in
+    // PR C once all consumers had migrated to the HTTP bearer-auth
+    // transport during the PR B WIDEN window). The
     // `append_timeline_entry_admin_onboarding` audit row written by the
     // inner `appendTimelineEntry` mutation is the dual record of the
     // same logical event.
@@ -1335,84 +1242,12 @@ export const markEmailSent = internalMutation({
 });
 
 /**
- * R5 (PR 14): public action wrapper for `markEmailSent`. Mirrors the
- * `appendTimelineEntryAction` pattern (`CONVEX_SERVER_SHARED_SECRET`
- * gate, then forwards to the internal mutation via `ctx.runMutation`).
- * This is the call the per-recipient Inngest send steps use.
- */
-export const markEmailSentAction = action({
-  args: {
-    onboardingId: v.id("adminOnboardings"),
-    recipient: v.union(
-      v.object({ kind: v.literal("student") }),
-      v.object({ kind: v.literal("instructor"), instructorId: v.id("instructors") }),
-      v.object({ kind: v.literal("adminSummary"), email: v.string() }),
-    ),
-    resendMessageId: v.optional(v.string()),
-    skipped: v.optional(v.boolean()),
-    reason: v.optional(v.string()),
-    actorUserId: v.optional(v.string()),
-    expectedStatus: v.optional(v.literal("processing")),
-    expectedAttemptCount: v.optional(v.number()),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    const result: Doc<"adminOnboardings">["timeline"][number] = await ctx.runMutation(
-      internal.adminOnboarding.markEmailSent,
-      {
-        onboardingId: args.onboardingId,
-        recipient: args.recipient,
-        resendMessageId: args.resendMessageId,
-        skipped: args.skipped,
-        reason: args.reason,
-        actorUserId: args.actorUserId,
-        expectedStatus: args.expectedStatus,
-        expectedAttemptCount: args.expectedAttemptCount,
-      }
-    );
-    return result;
-  },
-});
-
-/**
- * Public action wrapper for `getAdminOnboardingInternal`. Mirrors the
- * `appendTimelineEntryAction` pattern (defined above): requires
- * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal query.
- *
- * The explicit `ReturnType<typeof action>` annotation breaks a
- * circular-inference cycle that arises when the action's return type
- * is inferred via `internal.adminOnboarding.getAdminOnboardingInternal`
- * — TypeScript gets stuck resolving the generated API types within
- * the same module context. The annotation erases the inner generic
- * but preserves the public type contract via the generated API.
- * Callable from external clients (Inngest worker, server-side fetch).
- */
-export const getAdminOnboardingAction: ReturnType<typeof action> = action({
-  args: {
-    id: v.id("adminOnboardings"),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    return await ctx.runQuery(
-      internal.adminOnboarding.getAdminOnboardingInternal,
-      { id: args.id }
-    );
-  },
-});
-
-/**
  * Shared per-row release logic used by both `releasePlaceholderInventoryInternal`
- * (single-row, public-action wrapper) and `releasePlaceholderInventoryBatchInternal`
- * (multi-row, batched-action wrapper). PR 16 (R11) extraction so the batch
- * caller doesn't duplicate the placeholder guards (seat.userId.startsWith("email:"),
- * workspace ownerId guard, sessionPack userId guard) or the timeline-append
- * bookkeeping.
+ * (single-row) and `releasePlaceholderInventoryBatchInternal`
+ * (multi-row, batched). PR 16 (R11) extraction so the batch caller
+ * doesn't duplicate the placeholder guards (seat.userId.startsWith("email:"),
+ * workspace ownerId guard, sessionPack userId guard) or the
+ * timeline-append bookkeeping.
  *
  * Returns per-row counters; the batch caller aggregates them.
  */
@@ -1655,68 +1490,6 @@ export const releasePlaceholderInventoryBatchInternal = internalMutation({
 });
 
 /**
- * Public action wrapper for `releasePlaceholderInventoryInternal`.
- * Mirrors the `appendTimelineEntryAction` pattern: requires
- * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal
- * mutation via `ctx.runMutation`. Called from the PR 4 stale-digest
- * Inngest flow after `scan-stale` identifies stale rows.
- */
-export const releasePlaceholderInventoryAction: ReturnType<typeof action> = action({
-  args: {
-    onboardingId: v.id("adminOnboardings"),
-    actorUserId: v.optional(v.string()),
-    details: v.optional(v.string()),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    return await ctx.runMutation(
-      internal.adminOnboarding.releasePlaceholderInventoryInternal,
-      {
-        onboardingId: args.onboardingId,
-        actorUserId: args.actorUserId,
-        details: args.details,
-      }
-    );
-  },
-});
-
-/**
- * Public action wrapper for `releasePlaceholderInventoryBatchInternal`.
- * PR 16 (R11) consolidation: replaces the per-row release loop in the
- * stale-digest Inngest flow with a single batched transaction. Mirrors
- * the `releasePlaceholderInventoryAction` pattern (CONVEX_SERVER_SHARED_SECRET
- * gate → `ctx.runMutation`).
- *
- * The Inngest caller is responsible for chunking the paginated stale-list
- * into batches of ≤50 onboarding IDs to stay under Convex mutation
- * read/write limits (each row touches up to 3 perInstructor entries).
- */
-export const releasePlaceholderInventoryBatchAction: ReturnType<typeof action> = action({
-  args: {
-    onboardingIds: v.array(v.id("adminOnboardings")),
-    actorUserId: v.optional(v.string()),
-    details: v.optional(v.string()),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    return await ctx.runMutation(
-      internal.adminOnboarding.releasePlaceholderInventoryBatchInternal,
-      {
-        onboardingIds: args.onboardingIds,
-        actorUserId: args.actorUserId,
-        details: args.details,
-      }
-    );
-  },
-});
-
-/**
  * Internal query: resolve contact info (email + name) for multiple
  * instructors. Used by the admin onboarding flow to fill in the
  * `instructorName` field on every email step (student, instructor,
@@ -1769,27 +1542,6 @@ export const getInstructorContactsInternal = internalQuery({
       result[id] = { email, name, reason };
     }
     return result;
-  },
-});
-
-/**
- * Public action wrapper for `getInstructorContactsInternal`.
- * Mirrors the `appendTimelineEntryAction` pattern: requires
- * `CONVEX_SERVER_SHARED_SECRET`, then delegates to the internal query.
- */
-export const getInstructorContactsAction: ReturnType<typeof action> = action({
-  args: {
-    instructorIds: v.array(v.id("instructors")),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    return await ctx.runQuery(
-      internal.adminOnboarding.getInstructorContactsInternal,
-      { instructorIds: args.instructorIds }
-    );
   },
 });
 
@@ -1861,31 +1613,5 @@ export const getStaleOnboardingsInternal = internalQuery({
       continueCursor: page.isDone ? null : page.continueCursor,
       isDone: page.isDone,
     };
-  },
-});
-
-/**
- * Public action wrapper for `getStaleOnboardingsInternal`. Requires
- * `CONVEX_SERVER_SHARED_SECRET` (Inngest workers have no Clerk session).
- * Mirrors the `listAdminOnboardingsAction` / `getAdminOnboardingAction` /
- * `releasePlaceholderInventoryAction` pattern.
- *
- * R3 (PR 7): returns `{ rows, continueCursor, isDone }` so the caller can
- * iterate past 1000 rows.
- */
-export const getStaleOnboardingsAction: ReturnType<typeof action> = action({
-  args: {
-    cutoffMs: v.number(),
-    paginationOpts: v.any(),
-    secret: v.string(),
-  },
-  handler: async (ctx, args) => {
-    if (!SERVER_SHARED_SECRET || args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: invalid secret");
-    }
-    return await ctx.runQuery(internal.adminOnboarding.getStaleOnboardingsInternal, {
-      cutoffMs: args.cutoffMs,
-      paginationOpts: args.paginationOpts,
-    });
   },
 });
