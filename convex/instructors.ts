@@ -2615,9 +2615,13 @@ export const backfillInstructorUserId = mutation({
 });
 
 /**
- * Internal action backing `createInstructorForClerkUser`. Contains the
- * full lookup/create/sync logic. Public action and HTTP endpoint both
- * delegate to this; auth is enforced by the caller.
+ * Internal action backing the bearer-auth HTTP endpoint
+ * `POST /instructors/create-for-clerk-user` (CONVEX_HTTP_KEY, see
+ * `convex/http.ts:httpCreateInstructorForClerkUser`). Contains the
+ * full lookup/create/sync logic. Auth is enforced by the HTTP endpoint;
+ * no Clerk session required (server-to-server caller). The legacy
+ * public `action` wrapper was removed in PR D once PR #669 confirmed
+ * all consumers had migrated to the HTTP transport.
  */
 export const createInstructorForClerkUserInternal = internalAction({
   args: {
@@ -2684,45 +2688,13 @@ export const createInstructorForClerkUserInternal = internalAction({
 });
 
 /**
- * @deprecated Back-compat wrapper. Kept so existing callers passing
- * `secret` still work. New callers should use the HTTP endpoint
- * `/instructors/create-for-clerk-user` (bearer-auth via
- * `CONVEX_HTTP_KEY`) which delegates to
- * `createInstructorForClerkUserInternal`.
- */
-export const createInstructorForClerkUser = action({
-  args: {
-    userId: v.string(),
-    email: v.optional(v.string()),
-    name: v.optional(v.string()),
-    secret: v.string(),
-  },
-  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
-    if (args.secret !== process.env.CONVEX_SERVER_SHARED_SECRET) {
-      console.error("createInstructorForClerkUser: Invalid secret");
-      return { success: false, reason: "Invalid secret" };
-    }
-
-    const callerIdentity = await ctx.auth.getUserIdentity();
-    const actorId = callerIdentity?.subject ?? "system";
-    const actorRole: "admin" | "instructor" | "system" = callerIdentity
-      ? "instructor"
-      : "system";
-
-    return await ctx.runAction(internal.instructors.createInstructorForClerkUserInternal, {
-      userId: args.userId,
-      email: args.email,
-      name: args.name,
-      actorId,
-      actorRole,
-    });
-  },
-});
-
-/**
- * Internal action backing `deactivateInstructorByUserId`. Public action
- * and HTTP endpoint both delegate to this; auth is enforced by the
- * caller.
+ * Internal action backing the bearer-auth HTTP endpoint
+ * `POST /instructors/deactivate-by-user-id` (CONVEX_HTTP_KEY, see
+ * `convex/http.ts:httpDeactivateInstructorByUserId`). Auth is enforced
+ * by the HTTP endpoint; no Clerk session required (server-to-server
+ * caller). The legacy public `action` wrapper was removed in PR D
+ * once PR #669 confirmed all consumers had migrated to the HTTP
+ * transport.
  */
 export const deactivateInstructorByUserIdInternal = internalAction({
   args: {
@@ -2757,27 +2729,6 @@ export const deactivateInstructorByUserIdInternal = internalAction({
     console.log("deactivateInstructorByUserId: Deactivated instructor", args.userId, instructor._id);
 
     return { success: true, instructorId: instructor._id };
-  },
-});
-
-/**
- * @deprecated Back-compat wrapper. New callers should use the HTTP
- * endpoint `/instructors/deactivate-by-user-id`.
- */
-export const deactivateInstructorByUserId = action({
-  args: {
-    userId: v.string(),
-    secret: v.string(),
-  },
-  handler: async (ctx, args): Promise<{ success: boolean; instructorId?: Id<"instructors">; reason?: string }> => {
-    if (args.secret !== process.env.CONVEX_SERVER_SHARED_SECRET) {
-      console.error("deactivateInstructorByUserId: Invalid secret");
-      return { success: false, reason: "Invalid secret" };
-    }
-
-    return await ctx.runAction(internal.instructors.deactivateInstructorByUserIdInternal, {
-      userId: args.userId,
-    });
   },
 });
 
