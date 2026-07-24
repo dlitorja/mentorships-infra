@@ -2,9 +2,10 @@
  * Server-to-server Convex HTTP call helper.
  *
  * Replaces the legacy pattern of calling Convex actions with a `secret`
- * arg authenticated by `CONVEX_SERVER_SHARED_SECRET`. Each call hits
- * an `httpAction` in `convex/http.ts` that authenticates the bearer
- * against `CONVEX_HTTP_KEY`.
+ * arg authenticated by a shared secret in both environments. Each call
+ * hits an `httpAction` in `convex/http.ts` that authenticates the bearer
+ * against `CONVEX_HTTP_KEY`. (The shared-secret auth path was removed in
+ * PRs #669–#675.)
  *
  * Why raw fetch instead of `ConvexHttpClient.action(...)`:
  *   - Bearer auth is not a feature of the SDK; raw fetch keeps the

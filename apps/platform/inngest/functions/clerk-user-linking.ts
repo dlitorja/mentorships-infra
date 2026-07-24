@@ -9,8 +9,8 @@ import { convexServerCall } from "@/lib/convex-server-call";
  * Authentication: the worker POSTs to the bearer-auth Convex HTTP
  * endpoints `/internal/link-session-packs` and
  * `/internal/link-seat-reservations` using `CONVEX_HTTP_KEY`. The
- * legacy `CONVEX_SERVER_SHARED_SECRET` auth path has been removed in
- * favour of the shared HTTP bearer (R14 secret-removal).
+ * legacy shared-secret auth path has been removed in favour of the
+ * shared HTTP bearer (R14 secret-removal; completed in PRs #669–#675).
  */
 export const linkClerkUserToSessionPacks = inngest.createFunction(
   {
