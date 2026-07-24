@@ -385,6 +385,19 @@ test("http /admin-onboarding/list: 200 returns the rows", async () => {
   expect(body.rows.some((row: any) => row.email === "aob-list-2@example.com")).toBe(true);
 });
 
+test("http /admin-onboarding/list: 400 on invalid status value", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await seedAdminOnboardingRow(t, "aob-list-bad@example.com");
+
+  const r = await t.fetch("/admin-onboarding/list", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ status: "not_a_real_status" }),
+  });
+  expect(r.status).toBe(400);
+});
+
 test("http /admin-onboarding/instructor-contacts: 401 without bearer", async () => {
   const t = convexTest(schema, modules);
   process.env.CONVEX_HTTP_KEY = VALID_KEY;
@@ -410,9 +423,12 @@ test("http /admin-onboarding/instructor-contacts: 200 returns contact map", asyn
   });
   expect(r.status).toBe(200);
   const body = await r.json();
-  expect(body.contacts[instructorId]).toBeDefined();
-  expect(body.contacts[instructorId].email).toBe("instructor@example.com");
-  expect(body.contacts[instructorId].name).toBe("Test Instructor");
+  // Greptile finding (PR B): the endpoint returns the contact map
+  // directly, NOT wrapped in `{ contacts: ... }`, so consumers can index
+  // by instructorId without an extra property hop.
+  expect(body[instructorId]).toBeDefined();
+  expect(body[instructorId].email).toBe("instructor@example.com");
+  expect(body[instructorId].name).toBe("Test Instructor");
 });
 
 test("http /admin-onboarding/stale: 401 without bearer", async () => {

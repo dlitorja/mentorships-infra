@@ -1126,7 +1126,7 @@ const httpGetAdminOnboarding = httpAction(async (ctx, request) => {
 const httpListAdminOnboardings = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
-  let status: string | undefined;
+  let status: "queued" | "processing" | "completed" | "failed" | "cancelled" | undefined;
   let emailSearch: string | undefined;
   let instructorSearch: string | undefined;
   let limit: number | undefined;
@@ -1143,6 +1143,19 @@ const httpListAdminOnboardings = httpAction(async (ctx, request) => {
     });
   }
 
+  if (
+    status !== undefined &&
+    status !== "queued" &&
+    status !== "processing" &&
+    status !== "completed" &&
+    status !== "failed" &&
+    status !== "cancelled"
+  ) {
+    return new Response(JSON.stringify({ error: "status must be one of queued|processing|completed|failed|cancelled" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (limit !== undefined && (typeof limit !== "number" || limit < 0)) {
     return new Response(JSON.stringify({ error: "limit must be a non-negative number" }), {
       status: 400,
@@ -1192,7 +1205,7 @@ const httpGetInstructorContacts = httpAction(async (ctx, request) => {
       internal.adminOnboarding.getInstructorContactsInternal,
       { instructorIds: instructorIds as Id<"instructors">[] }
     );
-    return new Response(JSON.stringify({ contacts }), {
+    return new Response(JSON.stringify(contacts), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
