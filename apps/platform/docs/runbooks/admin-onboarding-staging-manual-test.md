@@ -9,8 +9,7 @@ This runbook exercises **only the admin-onboarding path** — `adminOnboardingFl
 Staging environment must have:
 
 - `NEXT_PUBLIC_APP_URL` set to the staging URL (used in admin summary email links).
-- `CONVEX_SERVER_SHARED_SECRET` set (the admin-onboarding Inngest flow still authenticates against this; bearer-auth migration lands in a separate PR).
-- `CONVEX_HTTP_KEY` set (the low-risk Inngest workers + admin routes that already moved to bearer auth read this; see [`convex/http.ts`](../../../../convex/http.ts)).
+- `CONVEX_HTTP_KEY` set (the low-risk Inngest workers + admin routes + the admin-onboarding flow all authenticate against this bearer; see [`convex/http.ts`](../../../../convex/http.ts)).
 - `RESEND_API_KEY` and `EMAIL_FROM` set to a Resend staging API key (sends go to a `*.resend.dev` sandbox or to a verified test domain — never production recipients).
 - `EMAIL_USE_TEMPLATES` and the three `RESEND_TEMPLATE_ID_*` env vars if you want the template path; otherwise the `buildAdminPurchaseEmail` fallback renders a fully-formed HTML email.
 - `ADMIN_EMAILS` set to at least one staging admin mailbox (you control).

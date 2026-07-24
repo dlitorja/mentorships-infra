@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getConvexClient } from "@/lib/convex";
+import { convexServerCall } from "@/lib/convex-server-call";
 import { requireAdminOrSupportForApi } from "@/lib/auth-helpers";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
@@ -10,8 +11,8 @@ import { reportError } from "@/lib/observability";
 import { convexIdSchema } from "@/lib/validators";
 
 /**
- * Mark the row as `failed` via the shared-secret action wrapper. Does
- * NOT require a Clerk token — see the same helper in
+ * Mark the row as `failed` via the bearer-auth HTTP endpoint. Does NOT
+ * require a Clerk token — see the same helper in
  * apps/platform/app/api/admin/students/onboard/route.ts for context.
  */
 async function markOnboardingFailed(
@@ -20,20 +21,12 @@ async function markOnboardingFailed(
   reason: string
 ): Promise<void> {
   try {
-    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-    if (!secret) {
-      throw new Error(
-        "CONVEX_SERVER_SHARED_SECRET is not set; cannot mark onboarding as failed"
-      );
-    }
-    const convex = getConvexClient();
-    await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
+    await convexServerCall("/admin-onboarding/append-timeline", {
       onboardingId: onboardingId as Id<"adminOnboardings">,
       event: "failed",
       details: reason,
       expectedStatus: "processing",
       expectedAttemptCount: attemptCount,
-      secret,
     });
   } catch (err) {
     await reportError({

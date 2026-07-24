@@ -266,3 +266,328 @@ test("http /instructors/create-for-clerk-user: missing userId returns 400", asyn
   });
   expect(r.status).toBe(400);
 });
+
+/**
+ * PR B: bearer-auth HTTP endpoints for the admin-onboarding flow.
+ * Each endpoint:
+ *   - Returns 401 without the bearer header
+ *   - Returns 200 with a valid bearer (happy path body shape)
+ *
+ * The endpoints we test are:
+ *   - POST /admin-onboarding/get
+ *   - POST /admin-onboarding/list
+ *   - POST /admin-onboarding/instructor-contacts
+ *   - POST /admin-onboarding/stale
+ *   - POST /admin-onboarding/append-timeline
+ *   - POST /admin-onboarding/mark-email-sent
+ *   - POST /admin-onboarding/release-placeholder
+ *   - POST /admin-onboarding/release-placeholder-batch
+ */
+
+async function seedAdminOnboardingRow(
+  t: ReturnType<typeof convexTest>,
+  email: string,
+  status: "queued" | "processing" | "completed" | "failed" | "cancelled" = "processing",
+  attemptCount = 1,
+): Promise<{ onboardingId: string; instructorId: string }> {
+  let onboardingId = "";
+  let instructorId = "";
+  await t.run(async (ctx) => {
+    instructorId = await ctx.db.insert("instructors", {
+      name: "Test Instructor",
+      slug: "test-instructor",
+      email: "instructor@example.com",
+      isActive: true,
+      isNew: false,
+      oneOnOneInventory: 0,
+      groupInventory: 0,
+      maxActiveStudents: 10,
+    });
+    onboardingId = await ctx.db.insert("adminOnboardings", {
+      email,
+      flowVersion: 1,
+      source: "manual",
+      submittedByUserId: "user_submitter",
+      status,
+      attemptCount,
+      perInstructor: [
+        {
+          instructorId: instructorId as any,
+          isRenewal: false,
+          sessionsPerInstructor: 4,
+        },
+      ],
+      isSeparateStudentRecord: false,
+      existingWorkspaceIds: [],
+      timeline: [
+        { at: Date.now(), event: "queued" },
+      ],
+      createdAt: Date.now(),
+    });
+  });
+  return { onboardingId, instructorId };
+}
+
+test("http /admin-onboarding/get: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-test-1@example.com");
+
+  const r = await t.fetch("/admin-onboarding/get", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: onboardingId }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/get: 200 returns the row", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-test-2@example.com");
+
+  const r = await t.fetch("/admin-onboarding/get", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ id: onboardingId }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body?.email).toBe("aob-test-2@example.com");
+});
+
+test("http /admin-onboarding/list: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await seedAdminOnboardingRow(t, "aob-list-1@example.com");
+
+  const r = await t.fetch("/admin-onboarding/list", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/list: 200 returns the rows", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await seedAdminOnboardingRow(t, "aob-list-2@example.com");
+
+  const r = await t.fetch("/admin-onboarding/list", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ status: "processing" }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(Array.isArray(body.rows)).toBe(true);
+  expect(body.rows.some((row: any) => row.email === "aob-list-2@example.com")).toBe(true);
+});
+
+test("http /admin-onboarding/list: 400 on invalid status value", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await seedAdminOnboardingRow(t, "aob-list-bad@example.com");
+
+  const r = await t.fetch("/admin-onboarding/list", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ status: "not_a_real_status" }),
+  });
+  expect(r.status).toBe(400);
+});
+
+test("http /admin-onboarding/instructor-contacts: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { instructorId } = await seedAdminOnboardingRow(t, "aob-ic-1@example.com");
+
+  const r = await t.fetch("/admin-onboarding/instructor-contacts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instructorIds: [instructorId] }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/instructor-contacts: 200 returns contact map", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { instructorId } = await seedAdminOnboardingRow(t, "aob-ic-2@example.com");
+
+  const r = await t.fetch("/admin-onboarding/instructor-contacts", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ instructorIds: [instructorId] }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  // Greptile finding (PR B): the endpoint returns the contact map
+  // directly, NOT wrapped in `{ contacts: ... }`, so consumers can index
+  // by instructorId without an extra property hop.
+  expect(body[instructorId]).toBeDefined();
+  expect(body[instructorId].email).toBe("instructor@example.com");
+  expect(body[instructorId].name).toBe("Test Instructor");
+});
+
+test("http /admin-onboarding/stale: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await seedAdminOnboardingRow(t, "aob-stale-1@example.com", "completed");
+
+  const r = await t.fetch("/admin-onboarding/stale", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cutoffMs: Date.now(), paginationOpts: { numItems: 10 } }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/stale: 200 returns page", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  await seedAdminOnboardingRow(t, "aob-stale-2@example.com", "completed");
+
+  const r = await t.fetch("/admin-onboarding/stale", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ cutoffMs: Date.now(), paginationOpts: { numItems: 10 } }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(Array.isArray(body.rows)).toBe(true);
+});
+
+test("http /admin-onboarding/append-timeline: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-append-1@example.com");
+
+  const r = await t.fetch("/admin-onboarding/append-timeline", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ onboardingId, event: "processing_started" }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/append-timeline: 200 appends entry", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-append-2@example.com");
+
+  const r = await t.fetch("/admin-onboarding/append-timeline", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ onboardingId, event: "processing_started" }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.event).toBe("processing_started");
+
+  const row = await t.run(async (ctx) => await ctx.db.get(onboardingId as any));
+  expect(row?.timeline.some((e: any) => e.event === "processing_started")).toBe(true);
+});
+
+test("http /admin-onboarding/mark-email-sent: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-mail-1@example.com");
+
+  const r = await t.fetch("/admin-onboarding/mark-email-sent", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      onboardingId,
+      recipient: { kind: "student" },
+    }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/mark-email-sent: 200 appends email_sent entry", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-mail-2@example.com");
+
+  const r = await t.fetch("/admin-onboarding/mark-email-sent", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      onboardingId,
+      recipient: { kind: "student" },
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.event).toBe("email_sent");
+
+  const row = await t.run(async (ctx) => await ctx.db.get(onboardingId as any));
+  expect(row?.timeline.some((e: any) => e.event === "email_sent")).toBe(true);
+});
+
+test("http /admin-onboarding/release-placeholder: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-rel-1@example.com", "completed");
+
+  const r = await t.fetch("/admin-onboarding/release-placeholder", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ onboardingId }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/release-placeholder: 200 appends released entry", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-rel-2@example.com", "completed");
+
+  const r = await t.fetch("/admin-onboarding/release-placeholder", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({ onboardingId, details: "test-release" }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.releasedCount).toBeDefined();
+  expect(body.skipped).toBeDefined();
+
+  const row = await t.run(async (ctx) => await ctx.db.get(onboardingId as any));
+  expect(row?.timeline.some((e: any) => e.event === "released")).toBe(true);
+});
+
+test("http /admin-onboarding/release-placeholder-batch: 401 without bearer", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const { onboardingId } = await seedAdminOnboardingRow(t, "aob-batch-1@example.com", "completed");
+
+  const r = await t.fetch("/admin-onboarding/release-placeholder-batch", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ onboardingIds: [onboardingId] }),
+  });
+  expect(r.status).toBe(401);
+});
+
+test("http /admin-onboarding/release-placeholder-batch: 200 returns aggregate counters", async () => {
+  const t = convexTest(schema, modules);
+  process.env.CONVEX_HTTP_KEY = VALID_KEY;
+  const a = await seedAdminOnboardingRow(t, "aob-batch-2a@example.com", "completed");
+  const b = await seedAdminOnboardingRow(t, "aob-batch-2b@example.com", "completed");
+
+  const r = await t.fetch("/admin-onboarding/release-placeholder-batch", {
+    method: "POST",
+    headers: bearerHeaders(VALID_KEY),
+    body: JSON.stringify({
+      onboardingIds: [a.onboardingId, b.onboardingId],
+      details: "test-batch-release",
+    }),
+  });
+  expect(r.status).toBe(200);
+  const body = await r.json();
+  expect(body.onboardingsProcessed).toBeDefined();
+  expect(Array.isArray(body.failedOnboardingIds)).toBe(true);
+});

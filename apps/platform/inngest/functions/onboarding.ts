@@ -15,6 +15,7 @@ import {
 } from "../types";
 import { inngest } from "../client";
 import { workspaceUrlFor } from "@/lib/admin-onboarding/workspace-url";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -603,13 +604,6 @@ export const adminOnboardingFlow = inngest.createFunction(
       );
     }
 
-    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-    if (!secret) {
-      throw new NonRetriableError(
-        "CONVEX_SERVER_SHARED_SECRET is not set; admin onboarding flow cannot authenticate against Convex."
-      );
-    }
-
     const convex = getConvexClient();
 
     // PR 4: wrap the flow body in try/catch. Sidesteps the Turbopack
@@ -621,10 +615,10 @@ export const adminOnboardingFlow = inngest.createFunction(
     // digest email is sent, and the run is returned with success: false.
     try {
       const row = await step.run("load-onboarding", async () => {
-        return await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-          id: parsed.data.onboardingId as Id<"adminOnboardings">,
-          secret,
-        });
+        return await convexServerCall<Doc<"adminOnboardings"> | null>(
+          "/admin-onboarding/get",
+          { id: parsed.data.onboardingId as Id<"adminOnboardings"> }
+        );
       });
 
     if (!row) {
@@ -668,10 +662,10 @@ export const adminOnboardingFlow = inngest.createFunction(
       // current status + attemptCount. If a newer attempt is already
       // processing, or if the row has transitioned to a terminal state,
       // skip this step entirely.
-      const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-        id: row._id,
-        secret,
-      }) as Doc<"adminOnboardings"> | null;
+      const freshRow = await convexServerCall<Doc<"adminOnboardings"> | null>(
+        "/admin-onboarding/get",
+        { id: row._id as Id<"adminOnboardings"> }
+      );
       if (!freshRow) return { sent: false, skipped: "missing", id: null };
       if (freshRow.status !== "processing") return { sent: false, skipped: "non_processing", status: freshRow.status, id: null };
       if (freshRow.attemptCount !== parsed.data.attemptCount) return { sent: false, skipped: "attempt_mismatch", expected: parsed.data.attemptCount, actual: freshRow.attemptCount, id: null };
@@ -681,13 +675,13 @@ export const adminOnboardingFlow = inngest.createFunction(
       const useTemplates = process.env.EMAIL_USE_TEMPLATES === "true";
       const templateId = process.env.RESEND_TEMPLATE_ID_PURCHASE_ONBOARDING;
 
-      // PR 4 fix: look up instructor names via `getInstructorContactsAction`
+      // PR 4 fix: look up instructor names via the bearer-auth HTTP endpoint
       // so the email body shows the actual instructor name (previously
       // hardcoded to "" — Greptile P1).
-      const contacts = await convex.action(api.adminOnboarding.getInstructorContactsAction, {
-        instructorIds: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }),
-        secret,
-      });
+      const contacts = await convexServerCall<Record<string, { email: string | null; name: string; reason: string | null }>>(
+        "/admin-onboarding/instructor-contacts",
+        { instructorIds: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }) }
+      );
 
       // R6 (PR 15): each per-instructor row now links to the
       // per-workspace dashboard route (`/dashboard/workspaces/[id]`)
@@ -756,15 +750,14 @@ export const adminOnboardingFlow = inngest.createFunction(
       // the `emailsSentPatch` shape.
       const markSent = ok || skipped;
       if (markSent) {
-        await convex.action(api.adminOnboarding.markEmailSentAction, {
-          onboardingId: row._id,
+        await convexServerCall("/admin-onboarding/mark-email-sent", {
+          onboardingId: row._id as Id<"adminOnboardings">,
           recipient: { kind: "student" },
           resendMessageId: id ?? undefined,
           skipped: skipped || undefined,
           actorUserId: row.submittedByUserId,
           expectedStatus: "processing",
           expectedAttemptCount: parsed.data.attemptCount,
-          secret,
         });
       } else {
         reportError({
@@ -790,10 +783,10 @@ export const adminOnboardingFlow = inngest.createFunction(
       // already notified in the previous attempt.
       // PR 4 cloud-review fix (CodeRabbit #9234): also gate on the row's
       // current status + attemptCount.
-      const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-        id: row._id,
-        secret,
-      }) as Doc<"adminOnboardings"> | null;
+      const freshRow = await convexServerCall<Doc<"adminOnboardings"> | null>(
+        "/admin-onboarding/get",
+        { id: row._id as Id<"adminOnboardings"> }
+      );
       if (!freshRow) return { sent: 0, skipped: 0, failed: 0, noEmail: 0, reason: "missing" };
       if (freshRow.status !== "processing") return { sent: 0, skipped: 0, failed: 0, noEmail: 0, reason: "non_processing", status: freshRow.status };
       if (freshRow.attemptCount !== parsed.data.attemptCount) return { sent: 0, skipped: 0, failed: 0, noEmail: 0, reason: "attempt_mismatch", expected: parsed.data.attemptCount, actual: freshRow.attemptCount };
@@ -808,10 +801,10 @@ export const adminOnboardingFlow = inngest.createFunction(
 
       // PR 4 fix: batched lookup of email + name for all to-send instructors.
       // One Convex round-trip instead of one per instructor.
-      const contacts = await convex.action(api.adminOnboarding.getInstructorContactsAction, {
-        instructorIds: toSend.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }),
-        secret,
-      });
+      const contacts = await convexServerCall<Record<string, { email: string | null; name: string; reason: string | null }>>(
+        "/admin-onboarding/instructor-contacts",
+        { instructorIds: toSend.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }) }
+      );
 
       let sent = 0, skipped = 0, failed = 0, noEmail = 0;
       for (const pair of toSend) {
@@ -826,15 +819,14 @@ export const adminOnboardingFlow = inngest.createFunction(
         // `reason` so the timeline stays informative for on-call.
         if (!instructorEmail) {
           noEmail++;
-          await convex.action(api.adminOnboarding.markEmailSentAction, {
-            onboardingId: row._id,
+          await convexServerCall("/admin-onboarding/mark-email-sent", {
+            onboardingId: row._id as Id<"adminOnboardings">,
             recipient: { kind: "instructor", instructorId: pair.instructorId as Id<"instructors"> },
             skipped: true,
             reason: contact?.reason ?? "no_email",
             actorUserId: row.submittedByUserId,
             expectedStatus: "processing",
             expectedAttemptCount: parsed.data.attemptCount,
-            secret,
           });
           continue;
         }
@@ -890,15 +882,14 @@ export const adminOnboardingFlow = inngest.createFunction(
         // discriminated-union arg.
         const markSent = ok || (!ok && "skipped" in res && res.skipped);
         if (markSent) {
-          await convex.action(api.adminOnboarding.markEmailSentAction, {
-            onboardingId: row._id,
+          await convexServerCall("/admin-onboarding/mark-email-sent", {
+            onboardingId: row._id as Id<"adminOnboardings">,
             recipient: { kind: "instructor", instructorId: pair.instructorId as Id<"instructors"> },
             resendMessageId: ok && res.id ? res.id : undefined,
             skipped: !ok && "skipped" in res ? true : undefined,
             actorUserId: row.submittedByUserId,
             expectedStatus: "processing",
             expectedAttemptCount: parsed.data.attemptCount,
-            secret,
           });
         } else {
           reportError({
@@ -943,10 +934,10 @@ export const adminOnboardingFlow = inngest.createFunction(
       // (b) permanent skip of failed addresses after one retry.
       // PR 4 cloud-review fix (CodeRabbit #9234): also gate on the row's
       // current status + attemptCount.
-      const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-        id: row._id,
-        secret,
-      }) as Doc<"adminOnboardings"> | null;
+      const freshRow = await convexServerCall<Doc<"adminOnboardings"> | null>(
+        "/admin-onboarding/get",
+        { id: row._id as Id<"adminOnboardings"> }
+      );
       if (!freshRow) return { skip: "missing" as const };
       if (freshRow.status !== "processing") return { skip: "non_processing" as const, status: freshRow.status };
       if (freshRow.attemptCount !== parsed.data.attemptCount) {
@@ -978,10 +969,10 @@ export const adminOnboardingFlow = inngest.createFunction(
 
       // PR 4 fix: look up instructor names so the admin summary table shows
       // the actual instructor name per row (previously hardcoded to "").
-      const contacts = await convex.action(api.adminOnboarding.getInstructorContactsAction, {
-        instructorIds: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }),
-        secret,
-      });
+      const contacts = await convexServerCall<Record<string, { email: string | null; name: string; reason: string | null }>>(
+        "/admin-onboarding/instructor-contacts",
+        { instructorIds: row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) { return p.instructorId; }) }
+      );
       const instructorNames = row.perInstructor.map(function(p: Doc<"adminOnboardings">["perInstructor"][number]) {
         return contacts[p.instructorId]?.name ?? "";
       });
@@ -1153,8 +1144,8 @@ export const adminOnboardingFlow = inngest.createFunction(
 
         // Record the per-address results in the timeline and merge into
         // `adminSummaryByEmail` so future retries skip the successful ones.
-        await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-          onboardingId: row._id,
+        await convexServerCall("/admin-onboarding/append-timeline", {
+          onboardingId: row._id as Id<"adminOnboardings">,
           event: "email_sent",
           actorUserId: row.submittedByUserId,
           details: JSON.stringify({
@@ -1168,7 +1159,6 @@ export const adminOnboardingFlow = inngest.createFunction(
           emailsSentPatch: { adminSummaryByEmail: successfulPatches },
           expectedStatus: "processing",
           expectedAttemptCount: parsed.data.attemptCount,
-          secret,
         });
       });
 
@@ -1199,27 +1189,25 @@ export const adminOnboardingFlow = inngest.createFunction(
           },
         });
       }
-      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-        onboardingId: row._id,
+      await convexServerCall("/admin-onboarding/append-timeline", {
+        onboardingId: row._id as Id<"adminOnboardings">,
         event: "discord_queued",
         actorUserId: row.submittedByUserId,
         details: "Discord DM enqueued for " + row.perInstructor.length + " instructor(s)",
         expectedStatus: "processing",
         expectedAttemptCount: parsed.data.attemptCount,
-        secret,
       });
     });
 
     // ---- Step 6: mark completed ----
     await step.run("mark-completed", async function() {
-      await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-        onboardingId: row._id,
+      await convexServerCall("/admin-onboarding/append-timeline", {
+        onboardingId: row._id as Id<"adminOnboardings">,
         event: "completed",
         actorUserId: row.submittedByUserId,
         details: "Admin onboarding flow completed successfully",
         expectedStatus: "processing",
         expectedAttemptCount: parsed.data.attemptCount,
-        secret,
       });
     });
 
@@ -1254,14 +1242,13 @@ export const adminOnboardingFlow = inngest.createFunction(
       let markFailedExhausted = false;
       try {
         await step.run("mark-failed", async () => {
-          await convex.action(api.adminOnboarding.appendTimelineEntryAction, {
-            onboardingId,
+          await convexServerCall("/admin-onboarding/append-timeline", {
+            onboardingId: onboardingId as Id<"adminOnboardings">,
             event: "failed",
             actorUserId: undefined,
             details: reason,
             expectedStatus: "processing",
             expectedAttemptCount: parsed.data.attemptCount,
-            secret,
           });
         });
       } catch (markErr) {
@@ -1272,10 +1259,10 @@ export const adminOnboardingFlow = inngest.createFunction(
           // that owns processing.
           let newerAttemptInFlight = false;
           try {
-            const freshRow = await convex.action(api.adminOnboarding.getAdminOnboardingAction, {
-              id: onboardingId,
-              secret,
-            }) as Doc<"adminOnboardings"> | null;
+            const freshRow = await convexServerCall<Doc<"adminOnboardings"> | null>(
+              "/admin-onboarding/get",
+              { id: onboardingId as Id<"adminOnboardings"> }
+            );
             newerAttemptInFlight =
               !!freshRow &&
               freshRow.status === "processing" &&
