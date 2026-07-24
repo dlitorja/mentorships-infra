@@ -861,10 +861,10 @@ http.route({
 /**
  * R14: bearer-auth HTTP endpoints for the secret-removal migration.
  * Each replaces a public action that previously required a `secret` arg
- * authenticated against `CONVEX_SERVER_SHARED_SECRET`. Callers now
+ * authenticated against a shared secret in both environments. Callers now
  * authenticate with the `CONVEX_HTTP_KEY` bearer header. The legacy
- * public actions stay in place so in-flight callers do not break during
- * the WIDEN phase.
+ * public actions were deleted after the WIDEN phase confirmed zero
+ * remaining callers (PRs #669–#675).
  */
 
 export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) => {
@@ -1070,11 +1070,12 @@ http.route({
 /**
  * PR B: bearer-auth HTTP endpoints for the admin-onboarding flow. Each
  * replaces a public action that previously required a `secret` arg
- * authenticated against `CONVEX_SERVER_SHARED_SECRET`. Callers (Inngest
- * workers, the two admin-onboarding API routes that mark-failed outside
- * the Clerk session) now authenticate with the `CONVEX_HTTP_KEY` bearer
- * header. The legacy public actions stay in place so in-flight callers do
- * not break during the WIDEN phase.
+ * authenticated against a shared secret in both environments. Callers
+ * (Inngest workers, the two admin-onboarding API routes that mark-failed
+ * outside the Clerk session) now authenticate with the `CONVEX_HTTP_KEY`
+ * bearer header. The legacy public actions were deleted after the WIDEN
+ * phase confirmed zero remaining callers (PR #670 widened, PR #671
+ * deleted the wrappers).
  *
  * Audit rows: the 4 write endpoints (`append-timeline`, `mark-email-sent`,
  * `release-placeholder`, `release-placeholder-batch`) all converge on
