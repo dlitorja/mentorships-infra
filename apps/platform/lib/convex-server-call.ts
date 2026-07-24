@@ -44,20 +44,17 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 /**
  * Resolve the URL we POST server-to-server calls to. Convex exposes
  * queries/mutations on `<dep>.convex.cloud` and HTTP actions on
- * `<dep>.convex.site`. We want the latter; if the operator only set
- * `NEXT_PUBLIC_CONVEX_URL` (the client-facing one), we derive the
- * HTTP-actions host.
+ * `<dep>.convex.site`. We always want the latter: if either env var
+ * points at the `.convex.cloud` host we rewrite to `.convex.site`,
+ * since this helper exclusively talks to HTTP actions. The rewrite is
+ * a no-op when the value already targets `.convex.site`.
  */
 function resolveConvexBaseUrl(): string {
-  const explicit = process.env.CONVEX_URL;
-  if (explicit) return explicit.replace(/\/+$/, "");
-  const fallback = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (fallback) {
-    return fallback
-      .replace(/\/+$/, "")
-      .replace(/\.convex\.cloud$/, ".convex.site");
-  }
-  return "";
+  const explicit = process.env.CONVEX_URL ?? process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!explicit) return "";
+  return explicit
+    .replace(/\/+$/, "")
+    .replace(/\.convex\.cloud$/, ".convex.site");
 }
 
 export async function convexServerCall<T>(

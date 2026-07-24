@@ -8,7 +8,7 @@ const originalEnv = { ...process.env };
 
 describe("convexServerCall", () => {
   beforeEach(() => {
-    process.env.CONVEX_URL = "https://example.convex.cloud";
+    process.env.CONVEX_URL = "https://example.convex.site";
     process.env.CONVEX_HTTP_KEY = "test-key-do-not-log";
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -37,7 +37,7 @@ describe("convexServerCall", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [calledUrl, calledInit] = fetchMock.mock.calls[0];
     expect(calledUrl).toBe(
-      "https://example.convex.cloud/instructors/create-for-clerk-user"
+      "https://example.convex.site/instructors/create-for-clerk-user"
     );
     expect(calledInit).toMatchObject({
       method: "POST",
@@ -165,13 +165,13 @@ describe("convexServerCall", () => {
   });
 
   it("strips trailing slashes from the resolved URL", async () => {
-    process.env.CONVEX_URL = "https://example.convex.cloud/";
+    process.env.CONVEX_URL = "https://example.convex.site/";
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(JSON.stringify({ ok: true }), { status: 200 })
     );
     await convexServerCall("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
-      "https://example.convex.cloud/users/set-role"
+      "https://example.convex.site/users/set-role"
     );
   });
 
@@ -182,7 +182,19 @@ describe("convexServerCall", () => {
     );
     await convexServerCall("/users/set-role", {});
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
-      "https://example.convex.cloud/users/set-role"
+      "https://example.convex.site/users/set-role"
+    );
+  });
+
+  it("rewrites CONVEX_URL from .convex.cloud to .convex.site (the HTTP-actions host)", async () => {
+    process.env.CONVEX_URL = "https://example.convex.cloud";
+    delete process.env.NEXT_PUBLIC_CONVEX_URL;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true }), { status: 200 })
+    );
+    await convexServerCall("/users/set-role", {});
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
+      "https://example.convex.site/users/set-role"
     );
   });
 
