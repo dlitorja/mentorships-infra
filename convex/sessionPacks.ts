@@ -1,4 +1,4 @@
-import { query, mutation, internalMutation, action } from "./_generated/server";
+import { query, mutation, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -692,41 +692,5 @@ export const linkSessionPacksByEmail = internalMutation({
     }
 
     return { linked: packsToLink.length };
-  },
-});
-
-const SERVER_SHARED_SECRET = process.env.CONVEX_SERVER_SHARED_SECRET;
-
-function verifyServerAuth(request: { headers: Headers }): boolean {
-  const authHeader = request.headers.get("Authorization");
-  if (!authHeader) return false;
-  const expected = `Bearer ${SERVER_SHARED_SECRET}`;
-  return authHeader === expected;
-}
-
-export const linkSessionPacksByEmailAction = action({
-  args: {
-    clerkUserId: v.string(),
-    email: v.string(),
-    secret: v.string(),
-  },
-  handler: async (ctx, args): Promise<{ linked: number }> => {
-    if (args.secret !== SERVER_SHARED_SECRET) {
-      throw new Error("Unauthorized: Invalid secret");
-    }
-
-    if (!args.clerkUserId || typeof args.clerkUserId !== "string" || !args.clerkUserId.trim()) {
-      throw new Error("Missing or empty clerkUserId");
-    }
-    if (!args.email || typeof args.email !== "string" || !args.email.trim()) {
-      throw new Error("Missing or empty email");
-    }
-
-    const result = await ctx.runMutation(internal.sessionPacks.linkSessionPacksByEmail, {
-      clerkUserId: args.clerkUserId.trim(),
-      email: args.email.trim().toLowerCase(),
-    });
-
-    return result;
   },
 });
