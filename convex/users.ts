@@ -273,20 +273,6 @@ export const syncUser = mutation({
   },
 });
 
-/**
- * Sets a user's role, verified by a server-provided HMAC signature.
- *
- * Usage: Intended to be called only from trusted server code (e.g., Next.js API routes)
- * after performing external authorization (Clerk, etc.). The server generates an HMAC
- * over `${userId}:${role}:${ts}` using the shared secret in both environments.
- *
- * Security:
- * - Requires a valid HMAC signature derived from `process.env.CONVEX_SERVER_SHARED_SECRET`.
- * - Rejects requests older than 5 minutes to reduce replay risk.
- * - Allows elevating to admin only via valid signature.
- */
-// serverVerifiedSetUserRole moved to users_actions.ts (Node action)
-
 export const migrateUser = mutation({
   args: {
     userId: v.string(),
