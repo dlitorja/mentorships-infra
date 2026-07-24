@@ -1,7 +1,14 @@
 import { inngest } from "../client";
 import { reportInfo, reportError } from "@/lib/observability";
-import { ConvexHttpClient } from "convex/browser";
-import { api } from "@/convex/_generated/api";
+import { convexServerCall } from "@/lib/convex-server-call";
+import { z } from "zod";
+
+const instructorResultSchema = z.object({
+  success: z.boolean(),
+  instructorId: z.string().optional(),
+  reason: z.string().optional(),
+});
+type InstructorResult = z.infer<typeof instructorResultSchema>;
 
 type ClerkUserCreatedEventData = {
   userId: string;
@@ -58,19 +65,22 @@ export const handleClerkUserCreated = inngest.createFunction(
         return { processed: true, action: "skipped", reason: "Feature flag disabled" };
       }
 
-      const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!url || !secret) {
-        return { processed: false, action: "error", reason: "Convex env not configured" };
-      }
-
-      const convex = new ConvexHttpClient(url);
-
       try {
-        const result = await convex.action(
-          api.instructors.createInstructorForClerkUser,
-          { userId, email: normalizedEmail, name, secret }
+        const raw = await convexServerCall<unknown>(
+          "/instructors/create-for-clerk-user",
+          {
+            userId,
+            email: normalizedEmail,
+            name,
+          }
         );
+        const parsed = instructorResultSchema.safeParse(raw);
+        if (!parsed.success) {
+          throw new Error(
+            `Unexpected response shape from /instructors/create-for-clerk-user: ${parsed.error.message}`
+          );
+        }
+        const result: InstructorResult = parsed.data;
 
         if (!result.success) {
           await reportError({
@@ -165,19 +175,22 @@ export const handleClerkUserUpdated = inngest.createFunction(
           return { processed: true, action: "skipped", reason: "Feature flag disabled" };
         }
 
-        const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-        const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-        if (!url || !secret) {
-          return { processed: false, action: "error", reason: "Convex env not configured" };
-        }
-
-        const convex = new ConvexHttpClient(url);
-
         try {
-          const result = await convex.action(
-            api.instructors.createInstructorForClerkUser,
-            { userId, email: normalizedEmail, name, secret }
+          const raw = await convexServerCall<unknown>(
+            "/instructors/create-for-clerk-user",
+            {
+              userId,
+              email: normalizedEmail,
+              name,
+            }
           );
+          const parsed = instructorResultSchema.safeParse(raw);
+          if (!parsed.success) {
+            throw new Error(
+              `Unexpected response shape from /instructors/create-for-clerk-user: ${parsed.error.message}`
+            );
+          }
+          const result: InstructorResult = parsed.data;
 
           if (!result.success) {
             await reportError({
@@ -217,19 +230,18 @@ export const handleClerkUserUpdated = inngest.createFunction(
 
     if (wasInstructor && !isNowInstructor) {
       return await step.run("deactivate-instructor-on-role-removal", async () => {
-        const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-        const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-        if (!url || !secret) {
-          return { processed: false, action: "error", reason: "Convex env not configured" };
-        }
-
-        const convex = new ConvexHttpClient(url);
-
         try {
-          const result = await convex.action(
-            api.instructors.deactivateInstructorByUserId,
-            { userId, secret }
+          const raw = await convexServerCall<unknown>(
+            "/instructors/deactivate-by-user-id",
+            { userId }
           );
+          const parsed = instructorResultSchema.safeParse(raw);
+          if (!parsed.success) {
+            throw new Error(
+              `Unexpected response shape from /instructors/deactivate-by-user-id: ${parsed.error.message}`
+            );
+          }
+          const result: InstructorResult = parsed.data;
 
           if (!result.success) {
             await reportError({

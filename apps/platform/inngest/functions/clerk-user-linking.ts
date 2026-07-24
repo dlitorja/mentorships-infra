@@ -1,40 +1,16 @@
 import { inngest } from "../client";
 import { reportInfo } from "@/lib/observability";
-import { ConvexHttpClient } from "convex/browser";
-import { api } from "@/convex/_generated/api";
-
-/**
- * Gets the Convex URL from environment.
- * @throws Error if NEXT_PUBLIC_CONVEX_URL is not set
- */
-function getConvexUrl(): string {
-  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return url;
-}
-
-/**
- * Gets the Convex server shared secret from environment.
- * @throws Error if CONVEX_SERVER_SHARED_SECRET is not set
- */
-function getConvexSecret(): string {
-  const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-  if (!secret) {
-    throw new Error("CONVEX_SERVER_SHARED_SECRET is not set");
-  }
-  return secret;
-}
-
-function getConvexClient() {
-  const url = getConvexUrl();
-  return new ConvexHttpClient(url);
-}
+import { convexServerCall } from "@/lib/convex-server-call";
 
 /**
  * Links a Clerk user to their session packs and seat reservations
  * after the user is created in Clerk.
+ *
+ * Authentication: the worker POSTs to the bearer-auth Convex HTTP
+ * endpoints `/internal/link-session-packs` and
+ * `/internal/link-seat-reservations` using `CONVEX_HTTP_KEY`. The
+ * legacy `CONVEX_SERVER_SHARED_SECRET` auth path has been removed in
+ * favour of the shared HTTP bearer (R14 secret-removal).
  */
 export const linkClerkUserToSessionPacks = inngest.createFunction(
   {
@@ -72,19 +48,19 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
     const normalizedEmail = email.toLowerCase().trim();
     const emailDomain = normalizedEmail.split("@")[1] ?? "unknown";
-    const convex = getConvexClient();
-    const secret = getConvexSecret();
 
     let sessionPacksLinked = 0;
     let seatReservationsLinked = 0;
 
     const sessionPackResult = await step.run("link-session-packs", async () => {
       try {
-        const result = await convex.action(api.sessionPacks.linkSessionPacksByEmailAction, {
-          clerkUserId: userId,
-          email: normalizedEmail,
-          secret,
-        });
+        const result = await convexServerCall<{ linked?: number }>(
+          "/internal/link-session-packs",
+          {
+            clerkUserId: userId,
+            email: normalizedEmail,
+          }
+        );
 
         await reportInfo({
           source: "inngest:clerk-user-linking",
@@ -107,11 +83,13 @@ export const linkClerkUserToSessionPacks = inngest.createFunction(
 
     const seatReservationResult = await step.run("link-seat-reservations", async () => {
       try {
-        const result = await convex.action(api.seatReservations.linkSeatReservationsByEmailAction, {
-          clerkUserId: userId,
-          email: normalizedEmail,
-          secret,
-        });
+        const result = await convexServerCall<{ linked?: number }>(
+          "/internal/link-seat-reservations",
+          {
+            clerkUserId: userId,
+            email: normalizedEmail,
+          }
+        );
 
         await reportInfo({
           source: "inngest:clerk-user-linking",

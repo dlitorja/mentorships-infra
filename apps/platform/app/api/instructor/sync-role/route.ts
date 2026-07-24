@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 function getConvexClient() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -51,16 +52,10 @@ export async function POST() {
       const clerkUser = await client.users.getUser(userId);
       const email = clerkUser.emailAddresses[0]?.emailAddress;
       const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(" ") || undefined;
-      const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-      if (!secret) {
-        return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
-      }
-      const result = await convex.action(api.instructors.createInstructorForClerkUser, {
-        userId,
-        email,
-        name,
-        secret,
-      });
+      const result = await convexServerCall<{ success: boolean; reason?: string }>(
+        "/instructors/create-for-clerk-user",
+        { userId, email, name }
+      );
       if (!result.success) {
         console.error("sync-role: failed to create instructor:", result.reason);
         return NextResponse.json({ error: "Failed to create instructor profile" }, { status: 500 });

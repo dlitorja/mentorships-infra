@@ -4,7 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { auth } from "@clerk/nextjs/server";
-import { fetchAction } from "convex/nextjs";
+import { convexServerCall } from "@/lib/convex-server-call";
 
 export const runtime = "nodejs";
 
@@ -86,34 +86,23 @@ export async function POST(req: NextRequest) {
     }
     convex.setAuth(token);
 
-    // Ensure the current user exists in Convex, then perform a server-verified
-    // admin role seed using an HMAC signature so Convex recognizes admin callers.
+    // Ensure the current user exists in Convex, then elevate to admin
+    // via the bearer-auth /users/set-role HTTP endpoint (R14).
     // 1) Sync basic user record (idempotent, no elevation)
     await convex.mutation(api.users.syncUser, {});
 
-    // 2) Compute server-side HMAC and request admin role in Convex
-    const secret = process.env.CONVEX_SERVER_SHARED_SECRET;
-    if (secret) {
-      const ts = Date.now();
-      const { userId } = await auth();
-      if (userId) {
-        const msg = `${userId}:admin:${ts}`;
-        // Use Node crypto at the route level
-        const { createHmac } = await import("node:crypto");
-        const sig = createHmac("sha256", secret).update(msg).digest("hex");
-        try {
-          await fetchAction(
-            api.users_actions.serverVerifiedSetUserRole,
-            { userId, role: "admin", ts, sig },
-            { token, url: process.env.NEXT_PUBLIC_CONVEX_URL }
-          );
-        } catch (e) {
-          // Do not block the upload on elevation failures; admin operations may already work
-          console.warn("serverVerifiedSetUserRole failed:", e);
-        }
+    // 2) Request admin role in Convex using bearer auth.
+    const { userId } = await auth();
+    if (userId) {
+      try {
+        await convexServerCall("/users/set-role", {
+          userId,
+          role: "admin",
+        });
+      } catch (e) {
+        // Do not block the upload on elevation failures; admin operations may already work
+        console.warn("set-role failed:", e);
       }
-    } else {
-      console.warn("CONVEX_SERVER_SHARED_SECRET not set; skipping server-verified role seed");
     }
 
     const instructor = await convex.query(api.instructors.getInstructorById, {

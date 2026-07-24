@@ -857,6 +857,215 @@ http.route({
   handler: httpLinkSeatReservationsByEmail,
 });
 
+/**
+ * R14: bearer-auth HTTP endpoints for the secret-removal migration.
+ * Each replaces a public action that previously required a `secret` arg
+ * authenticated against `CONVEX_SERVER_SHARED_SECRET`. Callers now
+ * authenticate with the `CONVEX_HTTP_KEY` bearer header. The legacy
+ * public actions stay in place so in-flight callers do not break during
+ * the WIDEN phase.
+ */
+
+export const httpCreateInstructorForClerkUser = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let userId: string, email: string | undefined, name: string | undefined;
+  try {
+    ({ userId, email, name } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!userId || typeof userId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid userId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runAction(
+      internal.instructors.createInstructorForClerkUserInternal,
+      {
+        userId,
+        email,
+        name,
+        actorId: "platform-server",
+        actorRole: "system",
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpDeactivateInstructorByUserId = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let userId: string;
+  try {
+    ({ userId } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!userId || typeof userId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid userId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runAction(
+      internal.instructors.deactivateInstructorByUserIdInternal,
+      {
+        userId,
+        actorId: "platform-server",
+        actorRole: "system",
+      }
+    );
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpServerVerifiedSetUserRole = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let userId: string, role: "student" | "instructor" | "admin" | "video_editor";
+  try {
+    ({ userId, role } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!userId || typeof userId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid userId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (role !== "student" && role !== "instructor" && role !== "admin" && role !== "video_editor") {
+    return new Response(JSON.stringify({ error: "Invalid role" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(internal.users.setUserRoleTrusted, {
+      userId,
+      role,
+      actorId: "platform-server",
+      actorRole: "system",
+      audit: {
+        action: "set_user_role_http",
+        targetType: "user",
+        targetId: userId,
+        details: `Role set to ${role} via HTTP bearer-auth endpoint`,
+      },
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+export const httpServerVerifiedSetUserClerkId = httpAction(async (ctx, request) => {
+  if (!verifyAuth(request)) return unauthorizedResponse();
+
+  let userId: string, clerkId: string;
+  try {
+    ({ userId, clerkId } = await request.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (!userId || typeof userId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid userId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (!clerkId || typeof clerkId !== "string") {
+    return new Response(JSON.stringify({ error: "Missing or invalid clerkId" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const result = await ctx.runMutation(internal.users.setUserClerkId, {
+      userId,
+      clerkId,
+      actorId: "platform-server",
+      actorRole: "system",
+    });
+    return new Response(JSON.stringify(result), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+});
+
+http.route({
+  path: "/instructors/create-for-clerk-user",
+  method: "POST",
+  handler: httpCreateInstructorForClerkUser,
+});
+
+http.route({
+  path: "/instructors/deactivate-by-user-id",
+  method: "POST",
+  handler: httpDeactivateInstructorByUserId,
+});
+
+http.route({
+  path: "/users/set-role",
+  method: "POST",
+  handler: httpServerVerifiedSetUserRole,
+});
+
+http.route({
+  path: "/users/set-clerk-id",
+  method: "POST",
+  handler: httpServerVerifiedSetUserClerkId,
+});
+
 const httpGetImagesNeedingMigration = httpAction(async (ctx, request) => {
   if (!verifyAuth(request)) {
     return unauthorizedResponse();
