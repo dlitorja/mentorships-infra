@@ -730,7 +730,7 @@ export const getAdminOnboarding = query({
 /**
  * Auth-less read for server-to-server callers (Inngest stub + PR 3's
  * real workflow). Public surface is the bearer-auth HTTP endpoint at
- * `GET /admin-onboarding/get` (CONVEX_HTTP_KEY bearer, see
+ * `POST /admin-onboarding/get` (CONVEX_HTTP_KEY bearer, see
  * `convex/http.ts:httpGetAdminOnboarding`) so the actual data access
  * is in an `internalQuery` unreachable from the browser. Clerk-gated
  * browser callers use the public `getAdminOnboarding` query.
