@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -8,7 +9,10 @@ export async function GET(): Promise<NextResponse> {
   try {
     await requireAdmin();
 
-    const costData = await fetchQuery(api.monthlyStorageCosts.list, {});
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
+
+    const costData = await fetchQuery(api.monthlyStorageCosts.list, {}, { token: convexToken });
 
     const currentMonth: CostData = {
       month: costData.currentMonth.month,
