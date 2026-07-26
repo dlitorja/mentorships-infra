@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
-import { isUnauthorizedError } from "@/lib/auth";
+import { isUnauthorizedError } from "@/lib/errors";
 
 const ALLOWED_TYPES = [
   "image/jpeg",

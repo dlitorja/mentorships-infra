@@ -102,6 +102,9 @@ export async function GET(): Promise<NextResponse> {
       discordConnected,
     });
   } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Get user settings error:", error);
     return NextResponse.json(
       { error: "Failed to get settings" },

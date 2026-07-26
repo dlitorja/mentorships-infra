@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth-helpers";
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import { InstructorAvailabilityPreview } from "@/components/instructor/instructor-availability-preview";
@@ -7,6 +7,17 @@ import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
+  const token = await getConvexAuthToken();
+  if (!token) {
+    return (
+      <ProtectedLayout currentPath="/instructor/settings">
+        <div className="container mx-auto p-4 md:p-8">
+          <p className="text-muted-foreground">Authentication required. Please sign in again.</p>
+        </div>
+      </ProtectedLayout>
+    );
+  }
+
   const convex = await getAuthenticatedConvexClient();
   const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 
