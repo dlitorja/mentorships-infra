@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     name: Detect Changes
@@ -35,7 +39,7 @@ jobs:
             head_sha="${{ github.event.pull_request.head.sha }}"
           else
             base_sha="${{ github.event.before }}"
-            head_sha="${{ github.sha }}"
+            head_sha="${{ github.event.sha }}"
           fi
           # `git diff` may return non-zero if there are no changes; ignore that.
           changed_files=$(git diff --name-only "$base_sha" "$head_sha" 2>/dev/null || true)
@@ -60,26 +64,14 @@ jobs:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_DEPLOYMENT: production
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
           CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
-      
+
       - name: Lint
         run: pnpm lint
-      
+
       - name: Type check
         run: pnpm typecheck
 
@@ -91,30 +83,18 @@ jobs:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_DEPLOYMENT: production
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
           CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
-      
+
       - name: Run unit tests
         run: pnpm test:unit
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
-      
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         if: always()
@@ -134,34 +114,22 @@ jobs:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_DEPLOYMENT: production
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
           CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
-      
+
       - name: Cache Playwright browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-      
+
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps chromium
-      
+
       - name: Run E2E tests
         run: pnpm exec playwright test --config apps/web/playwright.config.mts --project=chromium
         env:
@@ -174,7 +142,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
@@ -192,23 +160,11 @@ jobs:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_DEPLOYMENT: production
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "pnpm"
-      
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-pnpm
         env:
           CONVEX_DEPLOY_KEY: ${{ env.CONVEX_DEPLOY_KEY }}
           CONVEX_DEPLOYMENT: ${{ env.CONVEX_DEPLOYMENT }}
-      
+
 
       - name: Build Web
         if: needs.changes.outputs.web == 'true' || needs.changes.outputs.packages == 'true' || needs.changes.outputs.convex == 'true'
@@ -226,7 +182,7 @@ jobs:
 
       - name: Build Platform
         if: needs.changes.outputs.platform == 'true' || needs.changes.outputs.packages == 'true' || needs.changes.outputs.convex == 'true'
-        run: pnpm --filter @mentorships/platform build
+        run: NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @mentorships/platform build
         env:
           NEXT_PUBLIC_APP_URL: ${{ secrets.NEXT_PUBLIC_APP_URL }}
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
