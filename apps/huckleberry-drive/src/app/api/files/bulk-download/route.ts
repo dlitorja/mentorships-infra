@@ -3,7 +3,9 @@ import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, Forbi
 import { tasks } from "@trigger.dev/sdk";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
+import { BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
 import {
+  BULK_DOWNLOAD_JOB_EXPIRY_HOURS,
   saveJobStatus,
   type BulkDownloadFile,
   type BulkDownloadJob,
@@ -55,6 +57,13 @@ export async function POST(
 
     if (!Array.isArray(fileIds) || fileIds.length === 0) {
       return NextResponse.json({ error: "fileIds must be a non-empty array" }, { status: 400 });
+    }
+
+    if (fileIds.length > BULK_DOWNLOAD_HARD_LIMIT) {
+      return NextResponse.json(
+        { error: `Too many files selected. Maximum is ${BULK_DOWNLOAD_HARD_LIMIT}` },
+        { status: 400 }
+      );
     }
 
     const accessibleInstructorIds = await getAccessibleInstructorIds();
@@ -122,6 +131,7 @@ export async function POST(
       chunkCount: 0,
       chunks: [],
       createdAt: Date.now(),
+      expiresAt: Date.now() + BULK_DOWNLOAD_JOB_EXPIRY_HOURS * 60 * 60 * 1000,
     };
 
     await saveJobStatus(job);

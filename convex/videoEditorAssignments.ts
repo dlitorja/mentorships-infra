@@ -12,6 +12,47 @@ function isActiveUpload(upload: Doc<"instructorUploads">): boolean {
   return upload.status !== "deleted" && upload.status !== "deleting";
 }
 
+async function requireAdminOrSelf(
+  ctx: GenericQueryCtx<DataModel>,
+  userId: string
+): Promise<void> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+
+  if (identity.subject === userId) {
+    return;
+  }
+
+  const caller = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+    .first();
+
+  if (!caller || caller.role !== "admin") {
+    throw new Error("Forbidden");
+  }
+}
+
+async function requireAdmin(
+  ctx: GenericQueryCtx<DataModel>
+): Promise<void> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+
+  const caller = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+    .first();
+
+  if (!caller || caller.role !== "admin") {
+    throw new Error("Forbidden");
+  }
+}
+
 async function computeVideoEditorStorageStats(
   ctx: GenericQueryCtx<DataModel>,
   videoEditorId: string,
@@ -83,6 +124,7 @@ export const migrateVideoEditorAssignment = mutation({
 export const getVideoEditorAssignments = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
     return await ctx.db
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
@@ -93,6 +135,7 @@ export const getVideoEditorAssignments = query({
 export const getVideoEditorAssignmentsWithStorage = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
     const assignments = await ctx.db
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
@@ -121,6 +164,7 @@ export const getVideoEditorAssignmentWithStorage = query({
     instructorId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
     const assignment = await ctx.db
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId_instructorId", (q) =>
@@ -152,6 +196,7 @@ export const getVideoEditorStorageStats = query({
     instructorId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
     return computeVideoEditorStorageStats(ctx, args.videoEditorId, args.instructorId);
   },
 });
@@ -159,6 +204,7 @@ export const getVideoEditorStorageStats = query({
 export const getAssignedInstructorIds = query({
   args: { videoEditorId: v.string() },
   handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
     const assignments = await ctx.db
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId", (q) => q.eq("videoEditorId", args.videoEditorId))
@@ -173,6 +219,7 @@ export const isVideoEditorAssignedToInstructor = query({
     instructorId: v.string(),
   },
   handler: async (ctx, args) => {
+    await requireAdminOrSelf(ctx, args.videoEditorId);
     const assignment = await ctx.db
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId_instructorId", (q) =>
@@ -186,9 +233,21 @@ export const isVideoEditorAssignedToInstructor = query({
 export const setVideoEditorAssignmentQuota = mutation({
   args: {
     assignmentId: v.id("videoEditorAssignments"),
-    storageQuotaBytes: v.optional(v.number()),
+    storageQuotaBytes: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const caller = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (!caller || caller.role !== "admin") {
+      throw new Error("Forbidden: only admins can manage quotas");
+    }
+
     const assignment = await ctx.db.get(args.assignmentId);
     if (!assignment) {
       throw new Error("Assignment not found");
@@ -196,7 +255,8 @@ export const setVideoEditorAssignmentQuota = mutation({
 
     const updates: Record<string, unknown> = {};
     if (args.storageQuotaBytes !== undefined) {
-      updates.storageQuotaBytes = args.storageQuotaBytes;
+      updates.storageQuotaBytes =
+        args.storageQuotaBytes === null ? undefined : args.storageQuotaBytes;
     } else {
       updates.storageQuotaBytes = undefined;
     }
@@ -210,9 +270,21 @@ export const setVideoEditorAssignmentQuotaByIds = mutation({
   args: {
     videoEditorId: v.string(),
     instructorId: v.string(),
-    storageQuotaBytes: v.optional(v.number()),
+    storageQuotaBytes: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+    const caller = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+    if (!caller || caller.role !== "admin") {
+      throw new Error("Forbidden: only admins can manage quotas");
+    }
+
     const assignment = await ctx.db
       .query("videoEditorAssignments")
       .withIndex("by_videoEditorId_instructorId", (q) =>
@@ -226,7 +298,9 @@ export const setVideoEditorAssignmentQuotaByIds = mutation({
 
     const updates: Record<string, unknown> = {};
     if (args.storageQuotaBytes !== undefined) {
-      updates.storageQuotaBytes = args.storageQuotaBytes;
+      // Convex stores optional numbers; persist null/undefined as unset.
+      updates.storageQuotaBytes =
+        args.storageQuotaBytes === null ? undefined : args.storageQuotaBytes;
     } else {
       updates.storageQuotaBytes = undefined;
     }

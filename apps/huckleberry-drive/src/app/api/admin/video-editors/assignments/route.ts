@@ -3,6 +3,13 @@ import { auth } from "@clerk/nextjs/server";
 import { fetchMutation } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { z } from "zod";
+
+const patchSchema = z.object({
+  videoEditorId: z.string().trim().min(1),
+  instructorId: z.string().trim().min(1),
+  storageQuotaBytes: z.number().nonnegative().nullish(),
+});
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
@@ -11,37 +18,22 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     const token = await getToken({ template: "convex" }) ?? undefined;
 
     const body = await request.json();
-    const { videoEditorId, instructorId, storageQuotaBytes } = body as {
-      videoEditorId: string;
-      instructorId: string;
-      storageQuotaBytes?: number | null;
-    };
-
-    if (!videoEditorId || !instructorId) {
+    const parsed = patchSchema.safeParse(body);
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "videoEditorId and instructorId are required" },
+        { error: "Invalid request", details: parsed.error.flatten() },
         { status: 400 }
       );
     }
 
-    const quota =
-      storageQuotaBytes === null || storageQuotaBytes === undefined
-        ? undefined
-        : Number(storageQuotaBytes);
-
-    if (quota !== undefined && (!Number.isFinite(quota) || quota < 0)) {
-      return NextResponse.json(
-        { error: "storageQuotaBytes must be a non-negative number" },
-        { status: 400 }
-      );
-    }
+    const { videoEditorId, instructorId, storageQuotaBytes } = parsed.data;
 
     await fetchMutation(
       api.videoEditorAssignments.setVideoEditorAssignmentQuotaByIds,
       {
         videoEditorId,
         instructorId,
-        storageQuotaBytes: quota,
+        storageQuotaBytes,
       },
       { token }
     );

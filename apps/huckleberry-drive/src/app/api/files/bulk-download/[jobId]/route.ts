@@ -45,7 +45,7 @@ export async function GET(
     } = {
       jobId: job.jobId,
       status: job.status,
-      fileCount: job.fileCount ?? 0,
+      fileCount: job.fileCount ?? job.files.length,
       chunkCount: job.chunkCount,
       completedChunks: job.chunks.filter((c) => c.status === "completed").length,
       createdAt: job.createdAt,

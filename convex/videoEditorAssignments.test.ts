@@ -54,7 +54,9 @@ test("video editor quotas: enforce per-assignment cap in createUpload", async ()
     uploadedById: editorId,
   });
 
-  const withStorage = await t.query(
+  const editorClient = t.withIdentity({ subject: editorId });
+
+  const withStorage = await editorClient.query(
     api.videoEditorAssignments.getVideoEditorAssignmentWithStorage,
     { videoEditorId: editorId, instructorId }
   );

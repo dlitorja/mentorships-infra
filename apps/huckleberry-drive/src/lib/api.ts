@@ -124,6 +124,10 @@ export const ROLE_DISPLAY_LABELS: Record<PersistedUserRole, string> = {
 // authoritative and will chunk large selections automatically.
 export const BULK_DOWNLOAD_SOFT_WARNING = 100;
 
+// Hard selection limit enforced at the API to keep request payloads and
+// Convex reads bounded. The server will chunk everything below this cap.
+export const BULK_DOWNLOAD_HARD_LIMIT = 1000;
+
 export interface ListFilesParams {
   instructorId?: string;
   uploadedById?: string;

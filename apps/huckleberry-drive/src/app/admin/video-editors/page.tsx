@@ -54,15 +54,32 @@ function QuotaInput({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setValue(
+      assignment.assignment.storageQuotaBytes === undefined
+        ? ""
+        : bytesToGB(assignment.assignment.storageQuotaBytes)
+    );
+  }, [assignment.assignment.storageQuotaBytes]);
+
   const handleSave = useCallback(async () => {
     setError(null);
     setIsSaving(true);
     try {
-      const quota = value.trim() === "" ? null : gbToBytes(value);
+      const trimmed = value.trim();
+      let quota: number | null;
+      if (trimmed === "") {
+        quota = null;
+      } else {
+        quota = gbToBytes(trimmed);
+        if (quota === null) {
+          throw new Error("Enter a valid non-negative number of GB");
+        }
+      }
       await updateVideoEditorAssignmentQuota(
         assignment.assignment.videoEditorId,
         assignment.assignment.instructorId,
-        quota === null ? null : quota
+        quota
       );
       onSaved();
     } catch (err) {

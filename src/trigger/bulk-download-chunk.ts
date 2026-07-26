@@ -16,6 +16,15 @@ function sanitizeFilename(filename: string): string {
   return filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
 }
 
+function isNodeReadableStream(value: unknown): value is NodeJS.ReadableStream {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "pipe" in value &&
+    typeof (value as { pipe: unknown }).pipe === "function"
+  );
+}
+
 function buildChunkJob(
   parentJobId: string,
   chunkIndex: number,
@@ -79,8 +88,6 @@ export const processBulkDownloadChunk = task({
     let uploadedBytes = 0;
 
     try {
-      const appendPromises: Promise<void>[] = [];
-
       for (const file of files) {
         const response = await client.send(
           new GetObjectCommand({
@@ -89,13 +96,13 @@ export const processBulkDownloadChunk = task({
           })
         );
 
-        if (!response.Body) {
-          logger.warn(`Empty response for file: ${file.fileId}`);
+        if (!response.Body || !isNodeReadableStream(response.Body)) {
+          logger.warn(`Empty or non-streamable response for file: ${file.fileId}`);
           continue;
         }
 
         const safeName = sanitizeFilename(file.originalName);
-        archive.append(response.Body as NodeJS.ReadableStream, {
+        archive.append(response.Body, {
           name: safeName,
         });
         uploadedBytes += file.size;

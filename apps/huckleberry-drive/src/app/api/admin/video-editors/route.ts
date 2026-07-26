@@ -4,55 +4,26 @@ import { requireAdmin, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 
-interface User {
-  _id: string;
-  userId: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-  role: string;
-}
-
-interface Assignment {
-  assignment: {
-    _id: string;
-    videoEditorId: string;
-    instructorId: string;
-    assignedAt?: number;
-    assignedBy?: string;
-    storageQuotaBytes?: number;
-  };
-  usedBytes: number;
-  fileCount: number;
-}
-
-interface Instructor {
-  userId: string;
-  email: string;
-  firstName?: string;
-  lastName?: string;
-}
-
 export async function GET(): Promise<NextResponse> {
   try {
     await requireAdmin();
     const { getToken } = await auth();
     const token = await getToken({ template: "convex" }) ?? undefined;
 
-    const editors = (await fetchQuery(
+    const editors = await fetchQuery(
       api.users.getUsersByRole,
       { role: "video_editor" },
       { token }
-    )) as User[];
+    );
 
     const instructorIds = new Set<string>();
     const editorAssignments = await Promise.all(
       editors.map(async (editor) => {
-        const assignments = (await fetchQuery(
+        const assignments = await fetchQuery(
           api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
           { videoEditorId: editor.userId },
           { token }
-        )) as Assignment[];
+        );
 
         for (const assignment of assignments) {
           instructorIds.add(assignment.assignment.instructorId);
@@ -64,11 +35,11 @@ export async function GET(): Promise<NextResponse> {
 
     const instructors =
       instructorIds.size > 0
-        ? ((await fetchQuery(
+        ? await fetchQuery(
             api.users.getUsersByUserIds,
             { userIds: Array.from(instructorIds) },
             { token }
-          )) as Instructor[])
+          )
         : [];
 
     const instructorById = new Map(instructors.map((i) => [i.userId, i]));

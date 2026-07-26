@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   chunkFiles,
   createChunkSummary,
+  isChunkCompleted,
+  isChunkFailed,
   updateChunkSummary,
   type BulkDownloadFile,
   type BulkDownloadJob,
@@ -97,5 +99,115 @@ describe("createChunkSummary / updateChunkSummary", () => {
     updateChunkSummary(job, 1, "failed");
     expect(job.chunks).toHaveLength(1);
     expect(job.chunks[0]).toEqual({ chunkIndex: 1, status: "failed", fileCount: 0 });
+  });
+});
+
+describe("isChunkFailed", () => {
+  it("returns false when no chunks exist", () => {
+    const job: BulkDownloadJob = {
+      jobId: "job-1",
+      userId: "user-1",
+      files: [],
+      status: "processing",
+      chunkCount: 0,
+      chunks: [],
+      createdAt: 0,
+    };
+    expect(isChunkFailed(job)).toBe(false);
+  });
+
+  it("returns true when any chunk is failed", () => {
+    const job: BulkDownloadJob = {
+      jobId: "job-1",
+      userId: "user-1",
+      files: [],
+      status: "processing",
+      chunkCount: 2,
+      chunks: [
+        createChunkSummary(0, "completed", 1),
+        createChunkSummary(1, "failed", 1),
+      ],
+      createdAt: 0,
+    };
+    expect(isChunkFailed(job)).toBe(true);
+  });
+
+  it("returns false when no chunks are failed", () => {
+    const job: BulkDownloadJob = {
+      jobId: "job-1",
+      userId: "user-1",
+      files: [],
+      status: "processing",
+      chunkCount: 2,
+      chunks: [
+        createChunkSummary(0, "completed", 1),
+        createChunkSummary(1, "processing", 1),
+      ],
+      createdAt: 0,
+    };
+    expect(isChunkFailed(job)).toBe(false);
+  });
+});
+
+describe("isChunkCompleted", () => {
+  it("returns false when no chunks exist", () => {
+    const job: BulkDownloadJob = {
+      jobId: "job-1",
+      userId: "user-1",
+      files: [],
+      status: "processing",
+      chunkCount: 0,
+      chunks: [],
+      createdAt: 0,
+    };
+    expect(isChunkCompleted(job)).toBe(false);
+  });
+
+  it("returns true when all chunks are completed", () => {
+    const job: BulkDownloadJob = {
+      jobId: "job-1",
+      userId: "user-1",
+      files: [],
+      status: "processing",
+      chunkCount: 2,
+      chunks: [
+        createChunkSummary(0, "completed", 1),
+        createChunkSummary(1, "completed", 1),
+      ],
+      createdAt: 0,
+    };
+    expect(isChunkCompleted(job)).toBe(true);
+  });
+
+  it("returns false when any chunk is not completed", () => {
+    const job: BulkDownloadJob = {
+      jobId: "job-1",
+      userId: "user-1",
+      files: [],
+      status: "processing",
+      chunkCount: 2,
+      chunks: [
+        createChunkSummary(0, "completed", 1),
+        createChunkSummary(1, "processing", 1),
+      ],
+      createdAt: 0,
+    };
+    expect(isChunkCompleted(job)).toBe(false);
+  });
+
+  it("returns false when one chunk failed", () => {
+    const job: BulkDownloadJob = {
+      jobId: "job-1",
+      userId: "user-1",
+      files: [],
+      status: "processing",
+      chunkCount: 2,
+      chunks: [
+        createChunkSummary(0, "completed", 1),
+        createChunkSummary(1, "failed", 1),
+      ],
+      createdAt: 0,
+    };
+    expect(isChunkCompleted(job)).toBe(false);
   });
 });

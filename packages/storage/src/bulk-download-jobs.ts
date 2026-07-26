@@ -67,11 +67,17 @@ function chunkKey(parentJobId: string, chunkIndex: number): string {
   return `${JOB_PREFIX}/${parentJobId}/chunks/${chunkIndex}.json`;
 }
 
-async function streamToBuffer(
-  body: AsyncIterable<Uint8Array> | unknown
-): Promise<Buffer> {
+function isAsyncIterable(value: unknown): value is AsyncIterable<Uint8Array> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { [Symbol.asyncIterator]: unknown })[Symbol.asyncIterator] === "function"
+  );
+}
+
+async function streamToBuffer(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
   const chunks: Buffer[] = [];
-  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+  for await (const chunk of body) {
     chunks.push(Buffer.from(chunk));
   }
   return Buffer.concat(chunks);
@@ -87,8 +93,8 @@ async function getJsonObject<T>(key: string): Promise<T | null> {
       })
     );
 
-    if (!response.Body) return null;
-    const body = await streamToBuffer(response.Body as AsyncIterable<Uint8Array>);
+    if (!response.Body || !isAsyncIterable(response.Body)) return null;
+    const body = await streamToBuffer(response.Body);
     return JSON.parse(body.toString()) as T;
   } catch (error: unknown) {
     if (

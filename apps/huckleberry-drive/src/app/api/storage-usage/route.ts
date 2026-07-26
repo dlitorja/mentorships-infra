@@ -1,63 +1,22 @@
 import { NextResponse } from "next/server";
-import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { auth } from "@clerk/nextjs/server";
+import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { STORAGE_LIMIT_BYTES } from "@/lib/limits";
 
-interface Upload {
-  _id: string;
-  instructorId: string;
-  filename: string;
-  size: number;
-  status: string;
-}
-
-interface User {
-  _id: string;
-  userId: string;
-  role: string;
-}
-
-interface StorageStats {
-  totalFiles: number;
-  totalBytes: number;
-  activeFiles: number;
-  activeBytes: number;
-  instructorCount: number;
-}
-
-interface VideoEditorAssignment {
-  _id: string;
-  videoEditorId: string;
-  instructorId: string;
-  storageQuotaBytes?: number;
-}
-
-async function getUploadsForInstructor(instructorId: string): Promise<Upload[]> {
-  return await fetchQuery(api.instructorUploads.getInstructorUploads, { instructorId }) as Upload[];
-}
-
-async function getEditorLimitBytes(videoEditorId: string): Promise<number | null> {
-  const assignments = (await fetchQuery(
-    api.videoEditorAssignments.getVideoEditorAssignments,
-    { videoEditorId }
-  )) as VideoEditorAssignment[];
-
-  const quotas = assignments
-    .map((a) => a.storageQuotaBytes)
-    .filter((q): q is number => q !== undefined && q !== null);
-
-  if (quotas.length === 0) return null;
-  return Math.min(...quotas);
-}
-
 export async function GET(): Promise<NextResponse> {
   try {
-    const dbUser = await requireInstructor() as User;
-    const accessibleIds = await getAccessibleInstructorIds();
+    const dbUser = await requireInstructor();
+    const { getToken } = await auth();
+    const convexToken = await getToken({ template: "convex" }) ?? undefined;
 
     if (dbUser.role === "admin") {
-      const stats = await fetchQuery(api.instructorUploads.getTotalStorageStats, {}) as StorageStats;
+      const stats = await fetchQuery(
+        api.instructorUploads.getTotalStorageStats,
+        {},
+        { token: convexToken }
+      );
 
       return NextResponse.json({
         usedBytes: stats.activeBytes,
@@ -67,40 +26,48 @@ export async function GET(): Promise<NextResponse> {
       });
     }
 
-    let usedBytes = 0;
-    let fileCount = 0;
-
-    if (accessibleIds === null || accessibleIds.length === 0) {
-      const uploads = await getUploadsForInstructor(dbUser.userId);
-      const nonDeleted = uploads.filter((u) => u.status !== "deleted");
-      usedBytes = nonDeleted.reduce((sum, u) => sum + u.size, 0);
-      fileCount = nonDeleted.length;
-    } else {
-      let totalSize = 0;
-      let totalCount = 0;
-
-      for (const instructorId of accessibleIds) {
-        const uploads = await getUploadsForInstructor(instructorId);
-        const nonDeleted = uploads.filter((u) => u.status !== "deleted");
-        totalSize += nonDeleted.reduce((sum, u) => sum + u.size, 0);
-        totalCount += nonDeleted.length;
-      }
-
-      usedBytes = totalSize;
-      fileCount = totalCount;
-    }
-
-    let limitBytes = STORAGE_LIMIT_BYTES;
     if (dbUser.role === "video_editor") {
-      const editorLimit = await getEditorLimitBytes(dbUser.userId);
-      if (editorLimit !== null) {
-        limitBytes = editorLimit;
+      const assignments = await fetchQuery(
+        api.videoEditorAssignments.getVideoEditorAssignmentsWithStorage,
+        { videoEditorId: dbUser.userId },
+        { token: convexToken }
+      );
+
+      let usedBytes = 0;
+      let fileCount = 0;
+      let limitBytes = 0;
+      let hasUnlimited = false;
+
+      for (const assignment of assignments) {
+        usedBytes += assignment.usedBytes;
+        fileCount += assignment.fileCount;
+        const quota = assignment.assignment.storageQuotaBytes;
+        if (quota === undefined || quota === null) {
+          hasUnlimited = true;
+        } else {
+          limitBytes += quota;
+        }
       }
+
+      return NextResponse.json({
+        usedBytes,
+        limitBytes: hasUnlimited ? null : limitBytes,
+        fileCount,
+      });
     }
+
+    const uploads = await fetchQuery(
+      api.instructorUploads.getInstructorUploads,
+      { instructorId: dbUser.userId },
+      { token: convexToken }
+    );
+    const nonDeleted = uploads.filter((u) => u.status !== "deleted");
+    const usedBytes = nonDeleted.reduce((sum, u) => sum + u.size, 0);
+    const fileCount = nonDeleted.length;
 
     return NextResponse.json({
       usedBytes,
-      limitBytes,
+      limitBytes: STORAGE_LIMIT_BYTES,
       fileCount,
     });
   } catch (error) {

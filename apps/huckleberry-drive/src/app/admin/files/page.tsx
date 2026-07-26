@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Loader2, Search, X, Trash2, Download, Play } from "lucide-react";
-import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl, BULK_DOWNLOAD_MAX_FILES } from "@/lib/api";
+import { listFilesWithParams, getAdminInstructors, hardDeleteFile, deleteFile, restoreFile, getDownloadUrl, getStreamUrl, BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
 import type { FileItem, InstructorOption, FileListResponse } from "@/lib/api";
 import { ShareFileButton } from "@/components/share-file-button";
 import { BulkDownloadProgress } from "@/components/bulk-download-progress";
@@ -324,13 +324,13 @@ setSelectedFileIds(new Set());
               disabled={
                 bulk.isInFlight ||
                 selectedFileIds.size === 0 ||
-                selectedFileIds.size > BULK_DOWNLOAD_MAX_FILES
+                selectedFileIds.size > BULK_DOWNLOAD_HARD_LIMIT
               }
               title={
                 bulk.isInFlight
                   ? "A download is already in progress"
-                  : selectedFileIds.size > BULK_DOWNLOAD_MAX_FILES
-                    ? `Maximum ${BULK_DOWNLOAD_MAX_FILES} files per ZIP`
+                  : selectedFileIds.size > BULK_DOWNLOAD_HARD_LIMIT
+                    ? `Maximum ${BULK_DOWNLOAD_HARD_LIMIT} files per ZIP`
                     : undefined
               }
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
