@@ -20,6 +20,7 @@ import WorkspaceNotes from "@/components/workspace/notes";
 import WorkspaceImages from "@/components/workspace/images";
 import WorkspaceLinks from "@/components/workspace/links";
 import WorkspaceResources from "@/components/workspace/resources";
+import WorkspaceCalls from "@/components/workspace/calls-tab";
 import { RetentionWarningBanner } from "@/components/workspace/retention-warning-banner";
 import { RecordingRetentionWarningBanner } from "@/components/workspace/recording-retention-warning-banner";
 import { SessionCountControls } from "@/components/workspace/session-count-controls";
@@ -470,6 +471,13 @@ export function TabContent({
         workspaceId={workspaceId}
         currentUserId={clerkUserId}
         activeSessionId={activeSessionId}
+      />
+    );
+  }
+  if (activeTab === "videos") {
+    return (
+      <WorkspaceCalls
+        workspaceId={workspaceId}
       />
     );
   }
