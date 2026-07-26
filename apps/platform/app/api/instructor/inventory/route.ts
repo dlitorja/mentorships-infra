@@ -32,7 +32,8 @@ const inventoryUpdateSchema = z.object({
 /**
  * GET /api/instructor/inventory?userId=...
  * Returns inventory counts (one-on-one and group) for a given instructor userId.
- * Public endpoint (no auth required). Any caller with a valid userId can access.
+ * Requires authentication. The underlying Convex query needs the caller's JWT,
+ * so unauthenticated requests return 401.
  * Intended for admin UI but not restricted to admin callers.
  */
 async function handleGet(
