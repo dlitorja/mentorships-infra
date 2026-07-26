@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError } from "@/lib/auth";
 
@@ -14,14 +14,6 @@ const ALLOWED_TYPES = [
 const ALLOWED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-function getConvexClient() {
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!convexUrl) {
-    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
-  }
-  return new ConvexHttpClient(convexUrl);
-}
-
 function getFileExtension(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
   return ext || ".jpg";
@@ -32,7 +24,7 @@ export async function POST(req: NextRequest) {
     const { requireDbUser } = await import("@/lib/auth");
     const user = await requireDbUser();
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserIdExternal, {
       userId: user.id,

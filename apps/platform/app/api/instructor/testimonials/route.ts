@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
@@ -18,7 +18,7 @@ const createTestimonialSchema = z.object({
 export async function GET(req: NextRequest) {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,

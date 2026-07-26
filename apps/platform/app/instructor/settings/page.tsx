@@ -3,11 +3,11 @@ import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { SchedulingSettingsForm } from "@/components/instructor/scheduling-settings-form";
 import { InstructorAvailabilityPreview } from "@/components/instructor/instructor-availability-preview";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 
 export default async function InstructorSettingsPage() {
   const user = await requireRole("instructor");
-  const convex = getConvexClient();
+  const convex = await getAuthenticatedConvexClient();
   const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 
   if (!instructorRecord) {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
 import { sendEmail } from "@/lib/email";
 import { buildBookingConfirmationEmail, buildInstructorNotificationEmail } from "@mentorships/emails/booking";
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!parsed.success) {
       return NextResponse.json({ error: "Invalid request", details: parsed.error.issues }, { status: 400 });
     }
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const booking = await convex.query(api.bookings.getBookingById, { id: parsed.data.bookingId as Id<"bookings"> });
     if (!booking) return NextResponse.json({ error: "Booking not found" }, { status: 404 });
 

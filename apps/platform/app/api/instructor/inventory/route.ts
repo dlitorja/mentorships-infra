@@ -3,7 +3,8 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { inngest } from "@/inngest/client";
 
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(",").map((e) => e.trim()) || [
@@ -44,7 +45,7 @@ async function handleGet(
     const userId = searchParams.get("userId");
 
     const validated = inventoryQuerySchema.parse({ userId });
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: validated.userId,
@@ -67,6 +68,12 @@ async function handleGet(
         { error: error.issues[0]?.message || "Invalid request", errorId },
         { status: 400 }
       );
+    }
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized", errorId }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden", errorId }, { status: 403 });
     }
     console.error(`Inventory GET error [${errorId}]:`, error);
     return NextResponse.json(
@@ -113,7 +120,7 @@ async function handlePut(
 
     const body = await request.json();
     const validated = inventoryUpdateSchema.parse(body);
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: validated.userId,
@@ -190,6 +197,12 @@ async function handlePut(
         { error: error.issues[0]?.message || "Invalid request data", errorId },
         { status: 400 }
       );
+    }
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized", errorId }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden", errorId }, { status: 403 });
     }
 
     console.error(`Inventory PUT error [${errorId}]:`, error);

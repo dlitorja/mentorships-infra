@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
@@ -15,7 +15,7 @@ export async function DELETE(
 ) {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,

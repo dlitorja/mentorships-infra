@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
@@ -69,7 +69,7 @@ function validateProfileRequirements(
 export async function GET(): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
@@ -119,7 +119,7 @@ export async function GET(): Promise<NextResponse> {
 export async function PATCH(req: NextRequest): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,

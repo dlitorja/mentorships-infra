@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireDbUser, getUser } from "@/lib/auth";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError } from "@/lib/errors";
 
 const updateTimeZoneSchema = z.object({
@@ -23,7 +23,7 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const body = await req.json();
     const parsed = updateTimeZoneSchema.safeParse(body);
@@ -89,7 +89,7 @@ export async function GET(): Promise<NextResponse> {
       (a) => a.provider?.toLowerCase?.().includes("discord")
     ) ?? false;
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const convexUser = await convex.query(api.users.getUserByEmail, {
       email: email!,

@@ -1,5 +1,5 @@
 import { requireRole } from "@/lib/auth-helpers";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
@@ -21,7 +21,7 @@ type InstructorAllSession = {
 
 export default async function InstructorSessionsPage() {
   const user = await requireRole("instructor");
-  const convex = getConvexClient();
+  const convex = await getAuthenticatedConvexClient();
 
   const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 

@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireAuth } from "@/lib/auth-helpers";
+import { isUnauthorizedError } from "@/lib/errors";
 import { getGoogleCalendarClient } from "@/lib/google";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid start/end" }, { status: 400 });
     }
 
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorById, {
       id: instructorId as Id<"instructors">,
@@ -203,6 +204,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
   } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Booking create error:", error);
     return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
   }

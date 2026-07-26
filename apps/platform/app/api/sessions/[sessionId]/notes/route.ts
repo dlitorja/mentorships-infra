@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
@@ -15,7 +15,7 @@ export async function PATCH(
 ) {
   try {
     const { id: userId } = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
     const { sessionId } = await params;
 
     const body = await req.json();

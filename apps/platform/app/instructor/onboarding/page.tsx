@@ -1,4 +1,4 @@
-import { requireRole } from "@/lib/auth-helpers";
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,28 @@ type PageProps = {
  */
 export default async function InstructorOnboardingPage({ searchParams }: PageProps) {
   const user = await requireRole("instructor");
-  const convexInstructor = await fetchQuery(api.instructors.getInstructorByUserId, { userId: user.id });
+  const token = await getConvexAuthToken();
+  if (!token) {
+    return (
+      <ProtectedLayout currentPath="/instructor/onboarding">
+        {/* Silent role sync for Convex */}
+        <EnsureInstructorRole />
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-muted-foreground">
+              Authentication required.
+            </p>
+          </CardContent>
+        </Card>
+      </ProtectedLayout>
+    );
+  }
+
+  const convexInstructor = await fetchQuery(
+    api.instructors.getInstructorByUserId,
+    { userId: user.id },
+    { token }
+  );
 
   if (!convexInstructor) {
     return (
@@ -52,9 +73,13 @@ export default async function InstructorOnboardingPage({ searchParams }: PagePro
     reviewedAt: number | undefined;
     userId: string;
     studentEmail: string;
-  }[] = await fetchQuery(api.studentOnboarding.listByInstructor, {
-    instructorId: convexInstructor._id,
-  });
+  }[] = await fetchQuery(
+    api.studentOnboarding.listByInstructor,
+    {
+      instructorId: convexInstructor._id,
+    },
+    { token }
+  );
 
   const selected =
     (submissionId ? submissions.find((s) => s.legacyId === submissionId || s._id === submissionId) : null) ?? submissions[0] ?? null;

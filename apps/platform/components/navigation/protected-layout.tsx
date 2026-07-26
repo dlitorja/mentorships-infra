@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAuth } from "@/lib/auth";
+import { getConvexAuthToken } from "@/lib/auth-helpers";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fetchQuery } from "convex/nextjs";
@@ -30,7 +31,10 @@ interface ProtectedLayoutProps {
  */
 export async function ProtectedLayout({ children, currentPath }: ProtectedLayoutProps) {
   const userId = await requireAuth();
-  const instructorRecord = await fetchQuery(api.instructors.getInstructorByUserId, { userId });
+  const token = await getConvexAuthToken();
+  const instructorRecord = token
+    ? await fetchQuery(api.instructors.getInstructorByUserId, { userId }, { token })
+    : null;
 
   // Common navigation items
   const commonItems: NavItem[] = [];

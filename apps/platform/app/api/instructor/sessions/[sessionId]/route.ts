@@ -9,7 +9,7 @@ import {
 } from "@/lib/errors";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { requireRoleForApi } from "@/lib/auth-helpers";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { inngest } from "@/inngest/client";
 import { getGoogleCalendarClient } from "@/lib/google";
 
@@ -25,7 +25,7 @@ export async function PATCH(
 ): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
