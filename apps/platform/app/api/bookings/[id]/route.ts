@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
-import { isUnauthorizedError } from "@/lib/errors";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { getGoogleCalendarClient } from "@/lib/google";
 
@@ -61,6 +61,9 @@ export async function DELETE(
   } catch (error) {
     if (isUnauthorizedError(error)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     console.error("Booking delete error:", error);
     return NextResponse.json({ error: "Failed to cancel booking" }, { status: 500 });
