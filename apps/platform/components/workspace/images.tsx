@@ -13,6 +13,7 @@ import { Loader2, Upload, Trash2, Image as ImageIcon, X, Download, AlertCircle, 
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
 import { validateImageFiles, createImagePreviews, uploadSingleImage, type UploadError } from '@/lib/workspace-image-upload';
+import { WORKSPACE_IMAGE_CAPS, PER_UPLOAD_CAP } from '@/lib/workspace-constants';
 
 interface Image {
   _id: Id<'workspaceImages'>;
@@ -29,13 +30,6 @@ interface FailedUpload {
   preview: string;
   error: string;
 }
-
-const IMAGE_CAPS = {
-  student: 500,
-  instructor: 500,
-} as const;
-
-const PER_UPLOAD_CAP = 5;
 
 interface WorkspaceImagesProps {
   workspaceId: Id<'workspaces'>;
@@ -70,7 +64,9 @@ export default function WorkspaceImages({ workspaceId, currentUserId, role, acti
 
   const isAdmin = role === 'admin';
   const currentCount = images?.filter((img: Image) => !img.deletedAt).length || 0;
-  const maxImages = isAdmin ? 9999 : (role === 'student' ? IMAGE_CAPS.student : IMAGE_CAPS.instructor);
+  const maxImages = isAdmin
+    ? WORKSPACE_IMAGE_CAPS.admin
+    : (role === 'student' ? WORKSPACE_IMAGE_CAPS.student : WORKSPACE_IMAGE_CAPS.instructor);
   const remainingSlots = maxImages - currentCount;
 
   const latestExport = exports?.[0];

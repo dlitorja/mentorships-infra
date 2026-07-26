@@ -4,24 +4,18 @@ import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
-const WORKSPACE_IMAGE_CAPS = {
-  student: 75,
-  instructor: 150,
-  admin: 9999,
-} as const;
-
-export const WORKSPACE_FILE_CAPS = {
-  student: 25,
-  instructor: 50,
-} as const;
-
-const MAX_WORKSPACE_FILE_BYTES = 50 * 1024 * 1024;
+import {
+  WORKSPACE_IMAGE_CAPS,
+  WORKSPACE_FILE_CAPS,
+  MAX_WORKSPACE_FILE_BYTES,
+} from "./workspaceConstants";
 
 const EIGHTEEN_MONTHS_MS = 18 * 30 * 24 * 60 * 60 * 1000;
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
+type WorkspaceCtx = QueryCtx | MutationCtx;
 
-async function isAdmin(ctx: any, userId: string): Promise<boolean> {
+async function isAdmin(ctx: WorkspaceCtx, userId: string): Promise<boolean> {
   const user = await ctx.db
     .query("users")
     .withIndex("by_userId", (q: any) => q.eq("userId", userId))
@@ -29,8 +23,8 @@ async function isAdmin(ctx: any, userId: string): Promise<boolean> {
   return user?.role === "admin";
 }
 
-async function getWorkspaceRole(
-  ctx: any,
+export async function getWorkspaceRole(
+  ctx: WorkspaceCtx,
   workspace: { instructorId?: any; ownerId: string; type?: string },
   userId: string
 ): Promise<WorkspaceRole> {
@@ -81,7 +75,70 @@ async function getWorkspaceRole(
   return null;
 }
 
-async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces">): Promise<number> {
+/**
+ * Returns the workspace only if it exists and is not soft-deleted.
+ * Ended workspaces are still accessible (18-month retention period).
+ */
+async function getWorkspaceIfNotDeleted(
+  ctx: WorkspaceCtx,
+  workspaceId: Id<"workspaces">
+): Promise<Doc<"workspaces"> | null> {
+  const workspace = await ctx.db.get(workspaceId);
+  if (!workspace) return null;
+  if (workspace.deletedAt !== undefined) return null;
+  return workspace;
+}
+
+/**
+ * Returns the workspace only if it exists and is not soft-deleted or ended.
+ * Use this for write/create mutations where no new content should be added
+ * after a workspace has ended.
+ */
+async function getWorkspaceIfActive(
+  ctx: WorkspaceCtx,
+  workspaceId: Id<"workspaces">
+): Promise<Doc<"workspaces"> | null> {
+  const workspace = await getWorkspaceIfNotDeleted(ctx, workspaceId);
+  if (!workspace) return null;
+  if (workspace.endedAt !== undefined) return null;
+  return workspace;
+}
+
+/**
+ * Resolves the caller's role for a workspace, returning null when the caller
+ * is not authenticated, the workspace does not exist, the workspace is
+ * soft-deleted, or the caller is not a participant. Ended workspaces remain
+ * accessible during the 18-month retention period.
+ */
+async function getCallerWorkspaceRole(
+  ctx: WorkspaceCtx,
+  workspaceId: Id<"workspaces">
+): Promise<{ role: WorkspaceRole; workspace: Doc<"workspaces"> } | null> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+  const workspace = await getWorkspaceIfNotDeleted(ctx, workspaceId);
+  if (!workspace) return null;
+  const role = await getWorkspaceRole(ctx, workspace, identity.subject);
+  if (!role) return null;
+  return { role, workspace };
+}
+
+/**
+ * Same as `getCallerWorkspaceRole` but throws when the caller is not an
+ * active participant. Use this for mutations.
+ */
+async function requireCallerWorkspaceRole(
+  ctx: WorkspaceCtx,
+  workspaceId: Id<"workspaces">
+): Promise<{ role: WorkspaceRole; workspace: Doc<"workspaces"> }> {
+  const result = await getCallerWorkspaceRole(ctx, workspaceId);
+  if (!result) {
+    throw new Error("Not authorized to access this workspace");
+  }
+  return result;
+}
+
+export async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces">): Promise<number> {
   const images = await ctx.db
     .query("workspaceImages")
     .withIndex("by_workspaceId_and_deletedAt", (q: any) =>
@@ -316,15 +373,19 @@ export const logViewWorkspaceAudit = mutation({
   },
 });
 
-/** Returns a workspace by ID. Requires auth. */
+/**
+ * Returns a workspace by ID. The caller must be an active participant
+ * (owner, instructor, or admin) and the workspace must not be
+ * soft-deleted/ended. Returns null otherwise.
+ */
 export const getWorkspaceById = query({
   args: { id: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const result = await getCallerWorkspaceRole(ctx, args.id);
+    if (!result) {
       return null;
     }
-    return await ctx.db.get(args.id);
+    return result.workspace;
   },
 });
 
@@ -532,49 +593,138 @@ export const getUserWorkspaceRole = query({
   },
 });
 
-/** Creates a new workspace with the given owner, instructor, and settings. */
+/**
+ * Requires an authenticated admin caller. Throws for unauthenticated or
+ * non-admin users.
+ */
+async function requireAdmin(ctx: WorkspaceCtx): Promise<void> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) {
+    throw new Error("Unauthorized");
+  }
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_userId", (q: any) => q.eq("userId", identity.subject))
+    .first();
+  if (user?.role !== "admin") {
+    throw new Error("Admin access required");
+  }
+}
+
+const createWorkspaceArgs = {
+  name: v.string(),
+  description: v.optional(v.string()),
+  ownerId: v.string(),
+  instructorId: v.optional(v.id("instructors")),
+  imageUrl: v.optional(v.string()),
+  isPublic: v.optional(v.boolean()),
+  seatReservationId: v.optional(v.id("seatReservations")),
+} as const;
+
+const updateWorkspaceArgs = {
+  id: v.id("workspaces"),
+  name: v.optional(v.string()),
+  description: v.optional(v.string()),
+  imageUrl: v.optional(v.string()),
+  isPublic: v.optional(v.boolean()),
+  ownerId: v.optional(v.string()),
+} as const;
+
+const deleteWorkspaceArgs = {
+  id: v.id("workspaces"),
+} as const;
+
+async function createWorkspaceImpl(
+  ctx: MutationCtx,
+  args: {
+    name: string;
+    description?: string;
+    ownerId: string;
+    instructorId?: Id<"instructors">;
+    imageUrl?: string;
+    isPublic?: boolean;
+    seatReservationId?: Id<"seatReservations">;
+  }
+) {
+  return await ctx.db.insert("workspaces", {
+    ...args,
+    isPublic: args.isPublic ?? false,
+    studentImageCount: 0,
+    instructorImageCount: 0,
+  });
+}
+
+async function updateWorkspaceImpl(
+  ctx: MutationCtx,
+  args: {
+    id: Id<"workspaces">;
+    name?: string;
+    description?: string;
+    imageUrl?: string;
+    isPublic?: boolean;
+    ownerId?: string;
+  }
+) {
+  const { id, ...updates } = args;
+  await ctx.db.patch(id, updates);
+  return await ctx.db.get(id);
+}
+
+async function deleteWorkspaceImpl(
+  ctx: MutationCtx,
+  args: { id: Id<"workspaces"> }
+) {
+  await ctx.db.patch(args.id, { deletedAt: Date.now() });
+}
+
+/** Creates a new workspace with the given owner, instructor, and settings. Admin-only. */
 export const createWorkspace = mutation({
-  args: {
-    name: v.string(),
-    description: v.optional(v.string()),
-    ownerId: v.string(),
-    instructorId: v.optional(v.id("instructors")),
-    imageUrl: v.optional(v.string()),
-    isPublic: v.optional(v.boolean()),
-    seatReservationId: v.optional(v.id("seatReservations")),
-  },
+  args: createWorkspaceArgs,
   handler: async (ctx, args) => {
-    return await ctx.db.insert("workspaces", {
-      ...args,
-      isPublic: args.isPublic ?? false,
-      studentImageCount: 0,
-      instructorImageCount: 0,
-    });
+    await requireAdmin(ctx);
+    return await createWorkspaceImpl(ctx, args);
   },
 });
 
-/** Updates a workspace's name, description, image, visibility, or owner. */
+/** Updates a workspace's name, description, image, visibility, or owner. Admin-only. */
 export const updateWorkspace = mutation({
-  args: {
-    id: v.id("workspaces"),
-    name: v.optional(v.string()),
-    description: v.optional(v.string()),
-    imageUrl: v.optional(v.string()),
-    isPublic: v.optional(v.boolean()),
-    ownerId: v.optional(v.string()),
-  },
+  args: updateWorkspaceArgs,
   handler: async (ctx, args) => {
-    const { id, ...updates } = args;
-    await ctx.db.patch(id, updates);
-    return await ctx.db.get(id);
+    await requireAdmin(ctx);
+    return await updateWorkspaceImpl(ctx, args);
   },
 });
 
-/** Soft-deletes a workspace by setting the deletedAt timestamp. */
+/** Soft-deletes a workspace by setting the deletedAt timestamp. Admin-only. */
 export const deleteWorkspace = mutation({
-  args: { id: v.id("workspaces") },
+  args: deleteWorkspaceArgs,
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, { deletedAt: Date.now() });
+    await requireAdmin(ctx);
+    return await deleteWorkspaceImpl(ctx, args);
+  },
+});
+
+/** Internal variant of createWorkspace for trusted scripts and other Convex functions. */
+export const createWorkspaceInternal = internalMutation({
+  args: createWorkspaceArgs,
+  handler: async (ctx, args) => {
+    return await createWorkspaceImpl(ctx, args);
+  },
+});
+
+/** Internal variant of updateWorkspace for trusted scripts and other Convex functions. */
+export const updateWorkspaceInternal = internalMutation({
+  args: updateWorkspaceArgs,
+  handler: async (ctx, args) => {
+    return await updateWorkspaceImpl(ctx, args);
+  },
+});
+
+/** Internal variant of deleteWorkspace for trusted scripts and other Convex functions. */
+export const deleteWorkspaceInternal = internalMutation({
+  args: deleteWorkspaceArgs,
+  handler: async (ctx, args) => {
+    return await deleteWorkspaceImpl(ctx, args);
   },
 });
 
@@ -590,7 +740,7 @@ export const getWorkspaceNotes = query({
       return [];
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
     if (!workspace) {
       return [];
     }
@@ -642,7 +792,7 @@ export const createWorkspaceNote = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -695,7 +845,7 @@ export const updateWorkspaceNote = mutation({
       throw new Error("Note not found");
     }
 
-    const workspace = await ctx.db.get(note.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, note.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -742,7 +892,7 @@ export const deleteWorkspaceNote = mutation({
       throw new Error("Note not found");
     }
 
-    const workspace = await ctx.db.get(note.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, note.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -939,12 +1089,15 @@ export const embedImageInNote = mutation({
   },
 });
 
-/** Returns all links for a workspace. Requires auth. */
+/**
+ * Returns all links for a workspace.
+ * Returns an empty array for callers who are not active participants.
+ */
 export const getWorkspaceLinks = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
       return [];
     }
     return await ctx.db
@@ -1033,7 +1186,7 @@ export const createWorkspaceLink = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1071,7 +1224,7 @@ export const deleteWorkspaceLink = mutation({
       throw new Error("Link not found");
     }
 
-    const workspace = await ctx.db.get(link.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, link.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1093,11 +1246,14 @@ export const getWorkspaceImages = query({
     if (!user) {
       return [];
     }
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
     if (!workspace) {
       return [];
     }
     const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return [];
+    }
     const images = await ctx.db
       .query("workspaceImages")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
@@ -1156,7 +1312,7 @@ export const createWorkspaceImage = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1227,7 +1383,7 @@ export const createWorkspaceImageAndMessage = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1318,20 +1474,12 @@ export const createWorkspaceImageAndMessage = mutation({
 export const getWorkspaceExportData = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
       return null;
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
-    if (!workspace) {
-      return null;
-    }
-
-    const role = await getWorkspaceRole(ctx, workspace, user.subject);
-    if (!role) {
-      return null;
-    }
+    const { workspace } = result;
 
     const notes = await ctx.db
       .query("workspaceNotes")
@@ -1380,37 +1528,47 @@ export const getWorkspaceExportData = query({
 export const deleteWorkspaceImage = mutation({
   args: { id: v.id("workspaceImages") },
   handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      throw new Error("Unauthorized");
+    }
+
     const image = await ctx.db.get(args.id);
     if (!image) return;
 
+    const { role, workspace } = await requireCallerWorkspaceRole(ctx, image.workspaceId);
+    if (role !== "admin" && role !== "instructor" && image.createdBy !== user.subject) {
+      throw new Error("Access denied");
+    }
+
     await ctx.db.patch(args.id, { deletedAt: Date.now() });
 
-    const workspace = await ctx.db.get(image.workspaceId);
-    if (!workspace) return;
-
-    const isStudent = image.createdBy === workspace.ownerId;
-    const instructor = workspace.instructorId ? await ctx.db.get(workspace.instructorId) : null;
-    const isInstructor = instructor && image.createdBy === instructor.userId;
-
-    if (isStudent) {
-      const cur = ((workspace as any).studentImageCount ?? 1) as number;
+    // Derive the creator's role at deletion time using the same helper
+    // used during creation. This correctly handles admin workspaces
+    // where the owner is an admin (not a student).
+    const imageCreatorRole = await getWorkspaceRole(ctx, workspace, image.createdBy);
+    if (imageCreatorRole === "student") {
+      const cur = workspace.studentImageCount ?? 0;
       await ctx.db.patch(workspace._id, {
         studentImageCount: Math.max(0, cur - 1),
       });
-    } else if (isInstructor) {
+    } else if (imageCreatorRole === "instructor") {
       await ctx.db.patch(workspace._id, {
-        instructorImageCount: Math.max(0, (workspace.instructorImageCount ?? 1) - 1),
+        instructorImageCount: Math.max(0, (workspace.instructorImageCount ?? 0) - 1),
       });
     }
   },
 });
 
-/** Returns all messages for a workspace in chronological order. Requires auth. */
+/**
+ * Returns all messages for a workspace in chronological order.
+ * Returns an empty array for callers who are not active participants.
+ */
 export const getWorkspaceMessages = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
       return [];
     }
     return await ctx.db
@@ -1421,11 +1579,14 @@ export const getWorkspaceMessages = query({
   },
 });
 
-/** Creates a message in a workspace with automatic sender role detection. Requires auth. */
+/**
+ * Creates a message in a workspace with automatic sender role detection.
+ * The caller's user id is derived from the auth identity; never pass it
+ * from the client.
+ */
 export const createWorkspaceMessage = mutation({
   args: {
     workspaceId: v.id("workspaces"),
-    userId: v.string(),
     content: v.string(),
     type: v.optional(v.union(v.literal("text"), v.literal("image"), v.literal("file"))),
     // Optional — set when a chat message is posted while a video
@@ -1440,7 +1601,7 @@ export const createWorkspaceMessage = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1476,6 +1637,7 @@ export const createWorkspaceMessage = mutation({
     const messageId = await ctx.db.insert("workspaceMessages", {
       ...rest,
       type: args.type ?? "text",
+      userId: user.subject,
       senderRole,
       sessionId,
     });
@@ -1505,7 +1667,7 @@ export const createWorkspaceFileMessage = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1568,7 +1730,7 @@ export const createWorkspaceExport = mutation({
       throw new Error("Unauthorized");
     }
 
-    const workspace = await ctx.db.get(args.workspaceId);
+    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1683,6 +1845,9 @@ export const cancelWorkspaceExport = mutation({
       throw new Error("Export not found");
     }
     if (exportDoc.userId !== user.subject) {
+      // Allow cancellation even if the workspace is soft-deleted/ended — the
+      // export record may still exist and a participant may need to clean
+      // it up. The role check below still enforces authorization.
       const workspace = await ctx.db.get(exportDoc.workspaceId);
       if (!workspace) {
         throw new Error("Export's workspace not found");
@@ -1696,7 +1861,10 @@ export const cancelWorkspaceExport = mutation({
   },
 });
 
-/** Returns the 10 most recent exports for a workspace. Requires auth. */
+/**
+ * Returns the 10 most recent exports for a workspace.
+ * Returns an empty array for callers who are not active participants.
+ */
 export const getWorkspaceExports = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
@@ -1704,6 +1872,19 @@ export const getWorkspaceExports = query({
     if (!user) {
       return [];
     }
+
+    // Allow participants to see exports even after a workspace is
+    // soft-deleted/ended, so they can monitor or cancel in-flight exports.
+    // Mirrors the co-participant path in `cancelWorkspaceExport`.
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      return [];
+    }
+    const role = await getWorkspaceRole(ctx, workspace, user.subject);
+    if (!role) {
+      return [];
+    }
+
     return await ctx.db
       .query("workspaceExports")
       .withIndex("by_workspaceId", (q) => q.eq("workspaceId", args.workspaceId))
@@ -1712,12 +1893,15 @@ export const getWorkspaceExports = query({
   },
 });
 
-/** Returns all retention notifications for a workspace. Requires auth. */
+/**
+ * Returns all retention notifications for a workspace.
+ * Returns an empty array for callers who are not active participants.
+ */
 export const getWorkspaceRetentionNotifications = query({
   args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
-    const user = await ctx.auth.getUserIdentity();
-    if (!user) {
+    const result = await getCallerWorkspaceRole(ctx, args.workspaceId);
+    if (!result) {
       return [];
     }
     return await ctx.db

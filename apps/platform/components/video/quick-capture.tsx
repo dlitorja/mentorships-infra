@@ -22,11 +22,8 @@ import {
 import { useConvexAction } from "@convex-dev/react-query";
 import { api } from "@/convex/_generated/api";
 import { useQuickCaptureShortcut } from "@/lib/hooks/use-quick-capture-shortcut";
-import {
-  uploadImageForChat,
-  MAX_CHAT_FILE_BYTES,
-  type UploadError,
-} from "@/lib/workspace-image-upload";
+import { uploadImageForChat, type UploadError } from "@/lib/workspace-image-upload";
+import { MAX_CHAT_FILE_BYTES } from "@/lib/workspace-constants";
 import { clsx } from "clsx";
 import { toast } from "sonner";
 

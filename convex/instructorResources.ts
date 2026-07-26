@@ -5,58 +5,18 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   assertParticipantForSession,
   assertSessionBelongsToWorkspace,
-  WORKSPACE_FILE_CAPS,
   countWorkspaceFilesByRole,
+  countActiveWorkspaceImages,
+  getWorkspaceRole,
 } from "./workspaces";
-
-const MAX_WORKSPACE_FILE_BYTES = 50 * 1024 * 1024;
-const WORKSPACE_IMAGE_CAPS = {
-  student: 75,
-  instructor: 150,
-  admin: 9999,
-} as const;
+import {
+  WORKSPACE_FILE_CAPS,
+  WORKSPACE_IMAGE_CAPS,
+  MAX_WORKSPACE_FILE_BYTES,
+} from "./workspaceConstants";
 
 type WorkspaceRole = "instructor" | "student" | "admin" | null;
 type WorkspaceRoleNonNull = Exclude<WorkspaceRole, null>;
-
-async function isAdmin(ctx: any, userId: string): Promise<boolean> {
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_userId", (q: any) => q.eq("userId", userId))
-    .first();
-  return user?.role === "admin";
-}
-
-async function getWorkspaceRole(
-  ctx: any,
-  workspace: { instructorId?: Id<"instructors">; ownerId: string; type?: string },
-  userId: string
-): Promise<WorkspaceRole> {
-  const userIsAdmin = await isAdmin(ctx, userId);
-  if (userIsAdmin) {
-    return "admin";
-  }
-
-  if (workspace.instructorId) {
-    const instructor = await ctx.db
-      .query("instructors")
-      .withIndex("by_userId", (q: any) => q.eq("userId", userId))
-      .first();
-    if (instructor && instructor._id === workspace.instructorId) {
-      return "instructor";
-    }
-  }
-
-  return null;
-}
-
-async function countActiveWorkspaceImages(ctx: any, workspaceId: Id<"workspaces">): Promise<number> {
-  let count = 0;
-  for await (const img of ctx.db.query("workspaceImages").withIndex("by_workspaceId", (q: any) => q.eq("workspaceId", workspaceId))) {
-    if (!img.deletedAt) count++;
-  }
-  return count;
-}
 
 /**
  * PR #5: typed helper for resource-ownership checks. Mirrors the

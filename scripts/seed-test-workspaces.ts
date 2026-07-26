@@ -135,7 +135,7 @@ async function createInstructor(userId: string, email: string, name: string): Pr
 async function createMentorshipWorkspace(ownerId: string, instructorId: string, name: string): Promise<string> {
   console.log(`  Creating mentorship workspace for ${ownerId}...`);
   try {
-    const result = await runConvexMutation("workspaces:createWorkspace", {
+    const result = await runConvexMutation("workspaces:createWorkspaceInternal", {
       name,
       description: "Workspace for testing workspace features",
       ownerId,

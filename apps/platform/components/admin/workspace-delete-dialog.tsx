@@ -47,7 +47,7 @@ export function WorkspaceDeleteDialog({
       }
 
       setOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["admin-workspaces"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-workspaces"], exact: false });
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete workspace");

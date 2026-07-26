@@ -9,6 +9,7 @@ import Underline from '@tiptap/extension-underline';
 import { Id } from '../../../../convex/_generated/dataModel';
 import {
   useWorkspaceNotes,
+  useCreateWorkspaceNote,
   useUpdateWorkspaceNote,
   useDeleteWorkspaceNote,
   useEmbedImageInNote,
@@ -18,7 +19,8 @@ import {
   useLiveSessionNote,
   type NoteComment,
 } from '@/lib/queries/convex/use-workspaces';
-import { uploadImageForChat, uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
+import { uploadImageForChat, uploadFileForChat } from '@/lib/workspace-image-upload';
+import { MAX_CHAT_FILE_BYTES, MAX_IMAGE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -145,6 +147,7 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
   const [clearedSessionIdByNote, setClearedSessionIdByNote] = useState<
     Set<Id<'workspaceNotes'>>
   >(new Set());
+  const createNote = useCreateWorkspaceNote();
   const updateNote = useUpdateWorkspaceNote();
   const deleteNote = useDeleteWorkspaceNote();
   const embedImageInNote = useEmbedImageInNote();
@@ -401,27 +404,16 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     if (!newTitle.trim() || !workspaceId) return;
 
     try {
-      const response = await fetch('/api/workspace/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspaceId,
-          title: newTitle.trim(),
-          content: '',
-          // PR #4b: forward the active sessionId when the user keeps
-          // the "Tag to current call" toggle ON (default). Falls
-          // through to the API route which forwards it to Convex.
-          sessionId:
-            tagNewNoteToCall && activeSessionId ? activeSessionId : undefined,
-        }),
+      const noteId = await createNote.mutateAsync({
+        workspaceId,
+        title: newTitle.trim(),
+        content: '',
+        // PR #4b: forward the active sessionId when the user keeps
+        // the "Tag to current call" toggle ON (default).
+        sessionId:
+          tagNewNoteToCall && activeSessionId ? activeSessionId : undefined,
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create note');
-      }
-
-      const { noteId } = await response.json();
       setNewTitle('');
       setIsCreating(false);
       setTagNewNoteToCall(activeSessionId !== null);
@@ -586,8 +578,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     const currentEditor = editorRef.current;
     if (!noteIdForUpload || !currentEditor) return;
 
-    if (file.size > MAX_CHAT_FILE_BYTES) {
-      toast.error('Image is too large. Maximum size is 50MB.');
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast.error('Image is too large. Maximum size is 5MB.');
       return;
     }
     if (file.size > LARGE_CHAT_FILE_BYTES) {

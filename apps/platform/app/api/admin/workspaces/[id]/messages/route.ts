@@ -60,6 +60,12 @@ export async function POST(
     }
 
     const convex = getConvexClient();
+    const clerkAuth = await auth();
+    const token = await clerkAuth.getToken({ template: "convex" });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    convex.setAuth(token);
 
     const workspace = await convex.query(api.adminWorkspaces.getWorkspaceByIdAdmin, {
       id: validatedId,
@@ -74,7 +80,6 @@ export async function POST(
 
     const messageId = await convex.mutation(api.workspaces.createWorkspaceMessage, {
       workspaceId: validatedId,
-      userId: clerkUserId,
       content: parsedBody.data.content,
       type: "text",
     });

@@ -48,6 +48,7 @@ type UserWorkspace = {
   instructorId?: Id<"instructors">;
   sessionPackId?: Id<"sessionPacks">;
   endedAt?: number;
+  type?: "mentorship" | "admin_student" | "admin_instructor";
 };
 
 function WorkspaceContent({
@@ -256,7 +257,11 @@ function WorkspaceInner({
                         <WorkspaceRowBadge workspaceId={workspace._id} />
                       </div>
                       <div className="text-xs opacity-70 truncate">
-                        Instructor workspace
+                        {workspace.type === "admin_student"
+                          ? "Admin workspace"
+                          : workspace.type === "admin_instructor"
+                            ? "Instructor workspace"
+                            : "Mentorship workspace"}
                       </div>
                     </button>
                   ))}

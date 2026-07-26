@@ -1,6 +1,12 @@
 'use client';
 
 import { Id } from '@/convex/_generated/dataModel';
+import {
+  MAX_IMAGE_BYTES,
+  PER_UPLOAD_CAP,
+  LARGE_CHAT_FILE_BYTES,
+  MAX_CHAT_FILE_BYTES,
+} from './workspace-constants';
 
 export interface UploadResult {
   storageId: string;
@@ -13,12 +19,6 @@ export interface UploadError {
 }
 
 export type UploadResponse = UploadResult | UploadError;
-
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
-const PER_UPLOAD_CAP = 5;
-
-export const LARGE_CHAT_FILE_BYTES = 10 * 1024 * 1024;
-export const MAX_CHAT_FILE_BYTES = 50 * 1024 * 1024;
 
 export interface ImageValidationResult {
   valid: File[];

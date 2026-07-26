@@ -130,7 +130,7 @@ async function createInstructor(): Promise<string> {
 async function createWorkspace(instructorId: string): Promise<void> {
   console.log(`  Creating mentorship workspace...`);
   try {
-    await runConvexMutation("workspaces:createWorkspace", {
+    await runConvexMutation("workspaces:createWorkspaceInternal", {
       name: "Test Student-Instructor Workspace",
       description: "Workspace for testing workspace features",
       ownerId: TEST_STUDENT.userId,

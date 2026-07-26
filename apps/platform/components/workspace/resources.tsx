@@ -4,7 +4,8 @@ import { useState, useRef } from 'react';
 import { Id } from '../../../../convex/_generated/dataModel';
 import type { UserRole } from '@/lib/auth-helpers';
 import { useInstructorResources, useUploadInstructorResource, useDeleteInstructorResource, useShareResourceToChat, useEmbedResourceInNote, useUpdateInstructorResource, useWorkspaceNotes, InstructorResource } from '@/lib/queries/convex/use-workspaces';
-import { uploadFileForChat, MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-image-upload';
+import { uploadFileForChat } from '@/lib/workspace-image-upload';
+import { MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -445,7 +446,7 @@ function EmbedNoteDialog({ open, onOpenChange, workspaceId, onEmbed, isPending, 
               {!notes || notes.length === 0 ? (
                 <div className="p-2 text-sm text-muted-foreground">No notes available. Create a note first.</div>
               ) : (
-                notes.map((note: any) => (
+                notes.map((note) => (
                   <SelectItem key={note._id} value={note._id}>
                     {note.title}
                   </SelectItem>
