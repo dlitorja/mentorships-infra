@@ -13,15 +13,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Loader2, Send, Paperclip, X, Upload, AlertCircle, RefreshCw, FileText, Download, Link as LinkIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
-import { createImagePreviews, uploadImageForChat, uploadFileForChat, LARGE_CHAT_FILE_BYTES, MAX_CHAT_FILE_BYTES, type UploadError } from '@/lib/workspace-image-upload';
+import { createImagePreviews, uploadImageForChat, uploadFileForChat, type UploadError } from '@/lib/workspace-image-upload';
 import { ChatImageLightbox, type ChatImageDownloadItem } from './chat-lightbox';
-
-const MAX_CHAT_IMAGES_PER_UPLOAD = 5;
-
-const WORKSPACE_FILE_CAPS = {
-  student: 25,
-  instructor: 50,
-} as const;
+import {
+  MAX_CHAT_FILE_BYTES,
+  LARGE_CHAT_FILE_BYTES,
+  WORKSPACE_IMAGE_CAPS,
+  WORKSPACE_FILE_CAPS,
+  MAX_CHAT_IMAGES_PER_UPLOAD,
+} from '@/lib/workspace-constants';
 
 interface Message {
   _id: Id<'workspaceMessages'>;
@@ -353,7 +353,9 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
 
   const isAdmin = role === 'admin';
   const currentCount = (existingImages as WorkspaceImageDoc[] | undefined)?.filter((img) => !img.deletedAt).length || 0;
-  const remainingSlots = isAdmin ? 999 : 500 - currentCount;
+  const remainingSlots = isAdmin
+    ? WORKSPACE_IMAGE_CAPS.admin
+    : (role === 'instructor' ? WORKSPACE_IMAGE_CAPS.instructor : WORKSPACE_IMAGE_CAPS.student) - currentCount;
   const currentFileCount = messages?.filter(
     (msg) => msg.type === 'file' && (msg.senderRole === role || msg.senderRole === undefined)
   ).length || 0;
@@ -408,7 +410,6 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
     try {
       await createMessage.mutateAsync({
         workspaceId,
-        userId: currentUserId,
         content: message.trim(),
         type: 'text',
         // PR #4b: tag to active call when present.
@@ -417,6 +418,7 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       setMessage('');
     } catch (error) {
       console.error('Failed to send message:', error);
+      toast.error('Failed to send message. Please try again.');
     }
   };
 

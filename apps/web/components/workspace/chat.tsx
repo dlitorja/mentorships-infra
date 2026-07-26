@@ -44,7 +44,6 @@ export default function WorkspaceChat({ workspaceId, currentUserId }: WorkspaceC
     try {
       await createMessage.mutateAsync({
         workspaceId,
-        userId: currentUserId,
         content: message.trim(),
         type: 'text',
       });

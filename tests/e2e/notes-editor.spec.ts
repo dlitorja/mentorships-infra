@@ -55,34 +55,19 @@ test.beforeAll(async ({}, testInfo) => {
 
 /**
  * Mute the notes autosave so the test does not mutate real Convex
- * note content. Two transport paths exist:
+ * note content. Notes are created and updated via the Convex HTTP
+ * transport at `<NEXT_PUBLIC_CONVEX_URL>/api/...` (used by
+ * `useConvexMutation(api.workspaces.createWorkspaceNote)` and
+ * `useConvexMutation(api.workspaces.updateWorkspaceNote)`).
  *
- *   1. REST create-note endpoint at `/api/workspace/notes` (POST).
- *   2. Convex HTTP transport at `<NEXT_PUBLIC_CONVEX_URL>/api/...`
- *      used by `useConvexMutation(api.workspaces.updateWorkspaceNote)`
- *      for the debounced autosave after the user types.
- *
- * Stubbing both keeps the test hermetic — the editor's `onUpdate`
- * fires, the mutation promise resolves, but no real database write
- * happens. The point of this spec is to verify rendering of editor
- * blocks, not persistence; persistence is covered by the unit tests
- * in `convex/workspaces.test.ts` and integration smoke tests
+ * Stubbing the Convex transport keeps the test hermetic — the
+ * editor's `onUpdate` fires, the mutation promise resolves, but no real
+ * database write happens. The point of this spec is to verify rendering
+ * of editor blocks, not persistence; persistence is covered by the unit
+ * tests in `convex/workspaces.test.ts` and integration smoke tests
  * elsewhere.
  */
 async function mockNotesAutosave(page: Page): Promise<void> {
-  await page.route("**/api/workspace/notes", async (route) => {
-    const req = route.request();
-    if (req.method() === "POST" || req.method() === "PATCH") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ success: true }),
-      });
-      return;
-    }
-    await route.continue();
-  });
-
   // Stub any Convex HTTP transport call so the debounced autosave
   // (1s after the user types) doesn't reach the real deployment.
   // Convex's HTTP API returns JSON on `POST /api/...` endpoints;
