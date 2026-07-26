@@ -7,6 +7,10 @@ on:
   push:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   convex-codegen:
     runs-on: ubuntu-latest
@@ -14,18 +18,8 @@ jobs:
       CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
       CONVEX_DEPLOYMENT: production
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-      - name: Enable corepack
-        run: corepack enable
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-pnpm
       - name: Convex codegen
         if: ${{ env.CONVEX_DEPLOY_KEY != '' }}
         run: npx convex codegen
@@ -49,18 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: convex-codegen
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-      - name: Enable corepack
-        run: corepack enable
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-pnpm
       - name: Typecheck Convex server
         run: pnpm run typecheck
 
@@ -68,22 +52,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [convex-codegen]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-      - name: Enable corepack
-        run: corepack enable
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-pnpm
       - name: Typecheck apps/web
         run: pnpm --filter @mentorships/web run typecheck
       - name: Typecheck apps/platform
-        run: pnpm --filter @mentorships/platform run typecheck
+        run: NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @mentorships/platform run typecheck
 
   build-apps:
     runs-on: ubuntu-latest
@@ -96,18 +70,8 @@ jobs:
       NEXT_PUBLIC_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }}
       NEXT_PUBLIC_CONVEX_URL: ${{ vars.NEXT_PUBLIC_CONVEX_URL || 'http://localhost:3210' }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-      - name: Enable corepack
-        run: corepack enable
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-      - name: Install deps
-        run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-pnpm
       - name: Build apps/web
         run: pnpm --filter @mentorships/web run build
       - name: Build apps/platform

@@ -17,12 +17,8 @@ jobs:
       CONVEX_DEPLOYMENT: production
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup-pnpm
         with:
-          node-version: '20'
-          cache: 'pnpm'
-      - name: Install deps (allow convex codegen in postinstall)
-        run: pnpm install
+          install-args: ""
       - name: Deploy Convex
         run: pnpm exec convex deploy --yes
