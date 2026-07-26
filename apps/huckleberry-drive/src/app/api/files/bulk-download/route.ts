@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireInstructor, canAccessFile, UnauthorizedError, ForbiddenError } from "@/lib/auth";
+import { requireInstructor, getAccessibleInstructorIds, UnauthorizedError, ForbiddenError } from "@/lib/auth";
 import { tasks } from "@trigger.dev/sdk";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
-import { getB2Client, B2_BUCKET_NAME } from "@mentorships/storage/src/client";
+import { BULK_DOWNLOAD_HARD_LIMIT } from "@/lib/api";
+import {
+  BULK_DOWNLOAD_JOB_EXPIRY_HOURS,
+  saveJobStatus,
+  type BulkDownloadFile,
+  type BulkDownloadJob,
+} from "@mentorships/storage";
 
 interface Upload {
   _id: string;
@@ -23,39 +28,22 @@ interface User {
   role: string;
 }
 
-interface BulkDownloadFile {
-  fileId: string;
-  b2Key: string;
-  originalName: string;
-  contentType: string;
-  size: number;
-}
-
-interface BulkDownloadJob {
-  jobId: string;
-  userId: string;
-  files: BulkDownloadFile[];
-  status: "pending" | "processing" | "completed" | "failed";
-  downloadUrl?: string;
-  error?: string;
-  createdAt: number;
-  expiresAt?: number;
-}
-
-const MAX_FILES_PER_REQUEST = 20;
-
-async function saveJobStatus(job: BulkDownloadJob): Promise<void> {
-  const client = getB2Client();
-  const key = `bulk-download-jobs/${job.jobId}.json`;
-
-  await client.send(
-    new PutObjectCommand({
-      Bucket: B2_BUCKET_NAME,
-      Key: key,
-      Body: JSON.stringify(job),
-      ContentType: "application/json",
-    })
-  );
+function canAccessUpload(
+  upload: Upload,
+  dbUser: User,
+  accessibleInstructorIds: string[] | null
+): boolean {
+  if (dbUser.role === "admin") return true;
+  if (upload.uploadedById === dbUser.userId) return true;
+  if (upload.instructorId === dbUser.userId) return true;
+  if (
+    dbUser.role === "video_editor" &&
+    accessibleInstructorIds !== null &&
+    accessibleInstructorIds.includes(upload.instructorId)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export async function POST(
@@ -71,17 +59,26 @@ export async function POST(
       return NextResponse.json({ error: "fileIds must be a non-empty array" }, { status: 400 });
     }
 
-    if (fileIds.length > MAX_FILES_PER_REQUEST) {
+    if (fileIds.length > BULK_DOWNLOAD_HARD_LIMIT) {
       return NextResponse.json(
-        { error: `Too many files. Maximum is ${MAX_FILES_PER_REQUEST}` },
+        { error: `Too many files selected. Maximum is ${BULK_DOWNLOAD_HARD_LIMIT}` },
         { status: 400 }
       );
     }
 
+    const accessibleInstructorIds = await getAccessibleInstructorIds();
+
+    const uploads = await fetchQuery(
+      api.instructorUploads.getUploadsByIds,
+      { ids: fileIds }
+    ) as Upload[];
+
+    const uploadById = new Map(uploads.map((u) => [u._id, u]));
+
     const files: BulkDownloadFile[] = [];
 
     for (const fileId of fileIds) {
-      const upload = await fetchQuery(api.instructorUploads.getUploadById, { id: fileId }) as Upload | null;
+      const upload = uploadById.get(fileId);
 
       if (!upload) {
         return NextResponse.json({ error: `File not found: ${fileId}` }, { status: 404 });
@@ -101,11 +98,7 @@ export async function POST(
         );
       }
 
-      const hasAccess = await canAccessFile(upload.instructorId);
-      const isUploader = upload.instructorId === dbUser.userId || upload.uploadedById === dbUser.userId;
-      const isAdmin = dbUser.role === "admin";
-
-      if (!hasAccess && !isUploader && !isAdmin) {
+      if (!canAccessUpload(upload, dbUser, accessibleInstructorIds)) {
         return NextResponse.json(
           { error: "Not authorized to download this file" },
           { status: 403 }
@@ -135,7 +128,10 @@ export async function POST(
       userId: dbUser.userId,
       files,
       status: "pending",
+      chunkCount: 0,
+      chunks: [],
       createdAt: Date.now(),
+      expiresAt: Date.now() + BULK_DOWNLOAD_JOB_EXPIRY_HOURS * 60 * 60 * 1000,
     };
 
     await saveJobStatus(job);

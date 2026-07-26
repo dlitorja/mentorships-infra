@@ -49,6 +49,26 @@ export {
 } from "./archive";
 
 export {
+  BULK_DOWNLOAD_JOB_EXPIRY_HOURS,
+  MAX_BYTES_PER_CHUNK,
+  MAX_FILES_PER_CHUNK,
+  chunkFiles,
+  createChunkSummary,
+  getChunkStatus,
+  getJobStatus,
+  isChunkCompleted,
+  isChunkFailed,
+  saveChunkStatus,
+  saveJobStatus,
+  updateChunkSummary,
+  type BulkDownloadChunk,
+  type BulkDownloadChunkSummary,
+  type BulkDownloadFile,
+  type BulkDownloadJob,
+  type BulkDownloadJobStatus,
+} from "./bulk-download-jobs";
+
+export {
   fetchMonthlyCosts,
   checkCostThreshold,
   formatCost,

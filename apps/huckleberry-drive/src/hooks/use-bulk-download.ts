@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getBulkDownloadStatus,
   requestBulkDownload,
-  BULK_DOWNLOAD_MAX_FILES,
 } from "@/lib/api";
 import type { BulkDownloadStatus } from "@/lib/api";
 
@@ -55,12 +54,6 @@ export function useBulkDownload(): UseBulkDownloadResult {
   const submit = useCallback(
     (fileIds: string[]) => {
       if (fileIds.length === 0) return;
-      if (fileIds.length > BULK_DOWNLOAD_MAX_FILES) {
-        setError(
-          `Too many files selected. Maximum is ${BULK_DOWNLOAD_MAX_FILES}.`
-        );
-        return;
-      }
 
       clearTimers();
       setError(null);
@@ -95,7 +88,9 @@ export function useBulkDownload(): UseBulkDownloadResult {
         setIsSubmitting(false);
 
         if (next.status === "completed") {
-          if (next.downloadUrl) {
+          // Auto-open a single-part download. Multi-part downloads are
+          // surfaced as buttons in the UI.
+          if (next.downloadUrl && !next.downloadUrls?.length) {
             window.open(next.downloadUrl, "_blank", "noopener,noreferrer");
           }
           dismissTimerRef.current = setTimeout(() => {
@@ -158,7 +153,8 @@ export function useBulkDownload(): UseBulkDownloadResult {
   }, [clearTimers]);
 
   const isInFlight =
-    isSubmitting || (status?.status === "pending" || status?.status === "processing");
+    isSubmitting ||
+    (status?.status === "pending" || status?.status === "processing");
 
   return {
     isSubmitting,

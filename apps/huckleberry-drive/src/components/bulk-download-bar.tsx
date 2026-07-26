@@ -1,8 +1,8 @@
 "use client";
 
 import type { ReactElement } from "react";
-import { Download, X, Loader2 } from "lucide-react";
-import { BULK_DOWNLOAD_MAX_FILES } from "@/lib/api";
+import { Download, X, Loader2, AlertTriangle } from "lucide-react";
+import { BULK_DOWNLOAD_SOFT_WARNING } from "@/lib/api";
 import type { BulkDownloadStatus } from "@/lib/api";
 
 interface BulkDownloadBarProps {
@@ -25,7 +25,7 @@ export function BulkDownloadBar({
   if (selectedIds.size === 0 && !status) return null;
 
   const count = selectedIds.size;
-  const isOverLimit = count > BULK_DOWNLOAD_MAX_FILES;
+  const isLargeSelection = count > BULK_DOWNLOAD_SOFT_WARNING;
   const isCompleted = status?.status === "completed";
   const showCompletedLabel = isCompleted && count === 0;
 
@@ -37,10 +37,6 @@ export function BulkDownloadBar({
     buttonLabel = "Preparing ZIP…";
     disabled = true;
     title = "A download is already in progress";
-  } else if (isOverLimit) {
-    buttonLabel = `Download ${count} as ZIP`;
-    disabled = true;
-    title = `Maximum ${BULK_DOWNLOAD_MAX_FILES} files per ZIP`;
   } else if (showCompletedLabel) {
     buttonLabel = "Downloaded";
     disabled = true;
@@ -67,9 +63,10 @@ export function BulkDownloadBar({
             <Download className="w-4 h-4 text-emerald-400" />
             <span>
               {count} file{count === 1 ? "" : "s"} selected
-              {isOverLimit && (
-                <span className="ml-2 text-amber-400">
-                  (max {BULK_DOWNLOAD_MAX_FILES})
+              {isLargeSelection && (
+                <span className="ml-2 inline-flex items-center gap-1 text-amber-400">
+                  <AlertTriangle className="w-3 h-3" />
+                  (large selection — will be split into multiple ZIP parts)
                 </span>
               )}
             </span>

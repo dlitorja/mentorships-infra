@@ -1,6 +1,7 @@
 import { mutation, query, internalMutation, internalQuery, internalAction, action } from "./_generated/server";
+import type { GenericQueryCtx } from "convex/server";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { DataModel, Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { STORAGE_LIMIT_BYTES } from "./constants";
 
@@ -104,6 +105,23 @@ export const getUploadById = query({
   },
 });
 
+export const getUploadsByIds = query({
+  args: { ids: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const uploads: Doc<"instructorUploads">[] = [];
+    for (const id of args.ids) {
+      const upload = await ctx.db
+        .query("instructorUploads")
+        .withIndex("by_legacyId", (q) => q.eq("legacyId", id))
+        .first();
+      if (upload) {
+        uploads.push(upload);
+      }
+    }
+    return uploads;
+  },
+});
+
 export const getInstructorUploads = query({
   args: { instructorId: v.string() },
   handler: async (ctx, args) => {
@@ -129,6 +147,41 @@ export const getUploadsForInstructors = query({
     return allUploads.sort((a, b) => (b.createdAt ?? b._creationTime) - (a.createdAt ?? a._creationTime));
   },
 });
+
+async function getVideoEditorAssignmentQuota(
+  ctx: GenericQueryCtx<DataModel>,
+  videoEditorId: string,
+  instructorId: string
+): Promise<number | undefined> {
+  const assignment = await ctx.db
+    .query("videoEditorAssignments")
+    .withIndex("by_videoEditorId_instructorId", (q) =>
+      q.eq("videoEditorId", videoEditorId).eq("instructorId", instructorId)
+    )
+    .first();
+  return assignment?.storageQuotaBytes;
+}
+
+async function getVideoEditorStorageUsed(
+  ctx: GenericQueryCtx<DataModel>,
+  videoEditorId: string,
+  instructorId: string
+): Promise<number> {
+  const uploads = await ctx.db
+    .query("instructorUploads")
+    .withIndex("by_uploadedById_instructorId", (q) =>
+      q.eq("uploadedById", videoEditorId).eq("instructorId", instructorId)
+    )
+    .collect();
+
+  let usedBytes = 0;
+  for (const upload of uploads) {
+    if (upload.status !== "deleted" && upload.status !== "deleting") {
+      usedBytes += upload.size;
+    }
+  }
+  return usedBytes;
+}
 
 export const createUpload = mutation({
   args: {
@@ -169,6 +222,29 @@ export const createUpload = mutation({
       throw new Error(
         `Storage limit exceeded: instructor has ${stats.usedBytes} bytes, attempting to add ${args.size} bytes, limit is ${STORAGE_LIMIT_BYTES} bytes`
       );
+    }
+
+    // PR-quotas: enforce a per-editor per-instructor quota when one is set.
+    // The route does a pre-check for friendly UX; this is the authoritative
+    // OCC-protected enforcement.
+    if (args.uploadedById) {
+      const quota = await getVideoEditorAssignmentQuota(
+        ctx,
+        args.uploadedById,
+        args.instructorId
+      );
+      if (quota !== undefined) {
+        const editorUsed = await getVideoEditorStorageUsed(
+          ctx,
+          args.uploadedById,
+          args.instructorId
+        );
+        if (editorUsed + args.size > quota) {
+          throw new Error(
+            `Video editor storage quota exceeded: editor has ${editorUsed} bytes, attempting to add ${args.size} bytes, quota is ${quota} bytes`
+          );
+        }
+      }
     }
 
     await ctx.db.insert("instructorUploads", {
