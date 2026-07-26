@@ -34,11 +34,6 @@ type InstructorProfileData = {
 
 async function getProfileData(): Promise<InstructorProfileData | null> {
   const user = await requireRole("instructor");
-  const token = await getConvexAuthToken();
-  if (!token) {
-    return null;
-  }
-
   const convex = await getAuthenticatedConvexClient();
 
   const instructor = await convex.query(api.instructors.getInstructorByUserId, {
