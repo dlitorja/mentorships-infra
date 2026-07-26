@@ -167,7 +167,7 @@ Use `getConvexAuthToken()` from `lib/auth-helpers.ts` and `convex.setAuth(token)
 
 | PR | Branch | Status | Merged | Notes |
 |---|---|---|---|---|
-| 1 | `fix/dashboard-auth-tokens` | Not started | | Blocker for most instructor/student functionality |
+| 1 | `fix/dashboard-auth-tokens` | In review | https://github.com/dlitorja/mentorships-infra/pull/685 | Blocker for most instructor/student functionality |
 | 2 | `fix/instructor-self-service` | Not started | | Depends on PR 1 |
 | 3 | `fix/student-booking-navigation` | Not started | | Depends on PR 1 |
 | 4 | `fix/session-actions-notifications` | Not started | | Depends on PR 1 |
@@ -175,4 +175,4 @@ Use `getConvexAuthToken()` from `lib/auth-helpers.ts` and `convex.setAuth(token)
 | 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-26*
+*Last updated: 2026-07-26 — PR 1 opened*
