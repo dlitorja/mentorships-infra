@@ -41,12 +41,10 @@ export function generateShareToken(): string {
 }
 
 export function buildShareUrl(token: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL;
-  if (!base) {
-    throw new Error(
-      "NEXT_PUBLIC_APP_URL is not set. Configure it to the public origin where recipients will open share links (e.g. https://drive.huckleberry.art)."
-    );
-  }
+  const base =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    "https://drive.huckleberry.art";
   const trimmed = base.replace(/\/+$/, "");
   return `${trimmed}/shared/${token}`;
 }
