@@ -1,21 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { convexQuery, useConvexMutation } from "@convex-dev/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { convexQuery } from "@convex-dev/react-query";
 import { Play, Download, Video, Loader2, AlertCircle, RefreshCw } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { getRetentionUrgency, summarizeRetention } from "@/lib/recording-retention";
+import { useRecordingRetry } from "@/lib/hooks/use-recording-retry";
 import RecordingPlayerModal from "./recording-player-modal";
 
 type CallRecording = FunctionReturnType<
   typeof api.sessions.getCallRecordingsForWorkspace
 >[number];
-
-type TransferStatus = CallRecording["recordingTransferStatus"];
 
 /**
  * PR #4c-1 + video-recording-to-b2: Calls sub-section at the top of
@@ -183,7 +182,6 @@ function RecordingRow({
   recording,
   onPlay,
 }: RecordingRowProps): React.ReactElement {
-  const queryClient = useQueryClient();
   const dateLabel = recording.callStartedAt
     ? new Date(recording.callStartedAt).toLocaleString(undefined, {
       dateStyle: "medium",
@@ -213,38 +211,9 @@ function RecordingRow({
   const isPurged = status === "purged";
 
   const downloadHref = `/api/video/recording/${recording.sessionId}?kind=download`;
-
-  const retryMutation = useMutation({
-    mutationFn: async (): Promise<void> => {
-      const response = await fetch(
-        `/api/video/recording/${recording.sessionId}/retry`,
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      );
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as
-          | { error?: string }
-          | null;
-        throw new Error(
-          body?.error ?? `Retry failed (HTTP ${response.status})`
-        );
-      }
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["recordings", String(recording.sessionId)],
-      });
-    },
-  });
-
-  const retryErrorMessage =
-    retryMutation.error instanceof Error
-      ? retryMutation.error.message
-      : retryMutation.error
-        ? "Retry failed"
-        : null;
+  const { retry, isPending: isRetryPending, error: retryError } =
+    useRecordingRetry(recording.sessionId);
+  const retryErrorMessage = retryError ? retryError.message : null;
 
   return (
     <li className="flex items-center gap-3 py-2 px-1">
@@ -338,16 +307,16 @@ function RecordingRow({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => retryMutation.mutate()}
-            disabled={retryMutation.isPending}
+            onClick={() => retry()}
+            disabled={isRetryPending}
             aria-label={`Retry transfer for recording from ${dateLabel}`}
           >
-            {retryMutation.isPending ? (
+            {isRetryPending ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
             ) : (
               <RefreshCw className="h-4 w-4 mr-1" aria-hidden="true" />
             )}
-            {retryMutation.isPending ? "Retrying…" : "Retry transfer"}
+            {isRetryPending ? "Retrying…" : "Retry transfer"}
           </Button>
         ) : null}
       </div>
@@ -380,7 +349,7 @@ function RecordingRow({
  *   - Transient network blip on the Trigger task → `network`
  *   - Anything else → `unknown`
  */
-function summarizeTransferError(
+export function summarizeTransferError(
   code: NonNullable<CallRecording["recordingTransferErrorCode"]>
 ): string {
   switch (code) {
@@ -409,7 +378,7 @@ function summarizeTransferError(
  * would not auto-refresh as the user keeps the page open.
  */
 
-function formatDuration(totalSeconds: number): string {
+export function formatDuration(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
     return "0:00";
   }

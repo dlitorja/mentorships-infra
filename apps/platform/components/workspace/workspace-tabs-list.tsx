@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, FileText, Image as ImageIcon, Link as LinkIcon, FolderArchive } from "lucide-react";
+import { MessageSquare, FileText, Image as ImageIcon, Link as LinkIcon, FolderArchive, Video } from "lucide-react";
 
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -25,8 +25,9 @@ export type WorkspaceTabsListProps = {
  * from drifting (a tab added in one place but forgotten in the other).
  *
  * Resources is gated on `role !== "student"` to match the historical
- * instructor-only access. Chat / Notes / Images / Links are always
- * visible.
+ * instructor-only access. Chat / Notes / Images / Links / Videos are
+ * always visible; the Videos tab's server query is authorized for both
+ * the workspace instructor and the workspace owner (student).
  */
 export function WorkspaceTabsList({
   role,
@@ -49,6 +50,10 @@ export function WorkspaceTabsList({
       <TabsTrigger value="links" className="gap-2">
         <LinkIcon className="h-4 w-4" />
         Links
+      </TabsTrigger>
+      <TabsTrigger value="videos" className="gap-2">
+        <Video className="h-4 w-4" />
+        Videos
       </TabsTrigger>
       {role !== "student" && (
         <TabsTrigger value="resources" className="gap-2">
