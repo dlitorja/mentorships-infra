@@ -49,6 +49,21 @@ export {
 } from "./archive";
 
 export {
+  chunkFiles,
+  createChunkSummary,
+  getChunkStatus,
+  getJobStatus,
+  saveChunkStatus,
+  saveJobStatus,
+  updateChunkSummary,
+  type BulkDownloadChunk,
+  type BulkDownloadChunkSummary,
+  type BulkDownloadFile,
+  type BulkDownloadJob,
+  type BulkDownloadJobStatus,
+} from "./bulk-download-jobs";
+
+export {
   fetchMonthlyCosts,
   checkCostThreshold,
   formatCost,

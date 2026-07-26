@@ -22,6 +22,7 @@ export default defineSchema({
   }).index("by_email", ["email"])
     .index("by_clerkId", ["clerkId"])
     .index("by_userId", ["userId"])
+    .index("by_role", ["role"])
     .index("by_deletedAt", ["deletedAt"])
     .index("by_onboardingAlias", ["onboardingAlias"]),
 
@@ -635,6 +636,7 @@ export default defineSchema({
     instructorId: v.string(),
     assignedAt: v.optional(v.number()),
     assignedBy: v.optional(v.string()),
+    storageQuotaBytes: v.optional(v.number()),
     legacyId: v.optional(v.string()),
   }).index("by_videoEditorId", ["videoEditorId"])
     .index("by_instructorId", ["instructorId"])
@@ -675,6 +677,8 @@ export default defineSchema({
     // dashboard queries (`getAllUploads`, `getVideoEditorUploads`).
     .index("by_instructorId_createdAt", ["instructorId", "createdAt"])
     .index("by_uploadedById_createdAt", ["uploadedById", "createdAt"])
+    // PR-quotas: per-editor quota enforcement scoped to the assigned instructor.
+    .index("by_uploadedById_instructorId", ["uploadedById", "instructorId"])
     // PR1: per-filename lookup for `findOrphanedFiles` so the admin
     // orphan-cleanup page does one indexed read per B2 key instead
     // of a full table `.collect()`.

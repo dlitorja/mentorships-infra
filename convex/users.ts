@@ -105,6 +105,23 @@ export const listUsers = query({
   },
 });
 
+/** Returns all users with the given role. */
+export const getUsersByRole = query({
+  args: { role: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return [];
+    }
+    return await ctx.db
+      .query("users")
+      .withIndex("by_role", (q) =>
+        q.eq("role", args.role as Doc<"users">["role"])
+      )
+      .collect();
+  },
+});
+
 /** Returns the currently authenticated user based on their auth identity. */
 export const getCurrentUser = query({
   handler: async (ctx) => {

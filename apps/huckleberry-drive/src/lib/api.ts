@@ -67,10 +67,14 @@ export interface BulkDownloadStatus {
   jobId: string;
   status: "pending" | "processing" | "completed" | "failed";
   fileCount: number;
+  chunkCount: number;
+  completedChunks: number;
   downloadUrl?: string;
+  downloadUrls?: string[];
   error?: string;
   createdAt: number;
   expiresAt?: number;
+  totalBytes?: number;
 }
 
 export interface HdInvitation {
@@ -116,10 +120,9 @@ export const ROLE_DISPLAY_LABELS: Record<PersistedUserRole, string> = {
   video_editor: "Video Editor",
 };
 
-// Maximum files per bulk-download request. Mirrors the server-side
-// MAX_FILES_PER_REQUEST in apps/huckleberry-drive/src/app/api/files/bulk-download/route.ts
-// and src/trigger/bulk-download.ts. Keep all three in sync.
-export const BULK_DOWNLOAD_MAX_FILES = 20;
+// Soft warning threshold for bulk download selection. The server is
+// authoritative and will chunk large selections automatically.
+export const BULK_DOWNLOAD_SOFT_WARNING = 100;
 
 export interface ListFilesParams {
   instructorId?: string;
@@ -457,5 +460,57 @@ export async function extendShare(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ expiresInDays }),
+  });
+}
+
+export interface VideoEditorAssignmentRow {
+  _id: string;
+  videoEditorId: string;
+  instructorId: string;
+  assignedAt?: number;
+  assignedBy?: string;
+  storageQuotaBytes?: number;
+}
+
+export interface InstructorInfo {
+  userId: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+export interface VideoEditorAssignmentWithStorage {
+  assignment: VideoEditorAssignmentRow;
+  instructor: InstructorInfo | null;
+  usedBytes: number;
+  fileCount: number;
+}
+
+export interface VideoEditorWithAssignments {
+  editor: AdminUser;
+  assignments: VideoEditorAssignmentWithStorage[];
+}
+
+export interface VideoEditorsResponse {
+  editors: VideoEditorWithAssignments[];
+}
+
+export async function getVideoEditors(): Promise<VideoEditorsResponse> {
+  return fetchApi<VideoEditorsResponse>("/api/admin/video-editors");
+}
+
+export async function updateVideoEditorAssignmentQuota(
+  videoEditorId: string,
+  instructorId: string,
+  storageQuotaBytes?: number | null
+): Promise<{ success: boolean }> {
+  return fetchApi<{ success: boolean }>("/api/admin/video-editors/assignments", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      videoEditorId,
+      instructorId,
+      storageQuotaBytes,
+    }),
   });
 }

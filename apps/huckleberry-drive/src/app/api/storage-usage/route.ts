@@ -26,8 +26,29 @@ interface StorageStats {
   instructorCount: number;
 }
 
+interface VideoEditorAssignment {
+  _id: string;
+  videoEditorId: string;
+  instructorId: string;
+  storageQuotaBytes?: number;
+}
+
 async function getUploadsForInstructor(instructorId: string): Promise<Upload[]> {
   return await fetchQuery(api.instructorUploads.getInstructorUploads, { instructorId }) as Upload[];
+}
+
+async function getEditorLimitBytes(videoEditorId: string): Promise<number | null> {
+  const assignments = (await fetchQuery(
+    api.videoEditorAssignments.getVideoEditorAssignments,
+    { videoEditorId }
+  )) as VideoEditorAssignment[];
+
+  const quotas = assignments
+    .map((a) => a.storageQuotaBytes)
+    .filter((q): q is number => q !== undefined && q !== null);
+
+  if (quotas.length === 0) return null;
+  return Math.min(...quotas);
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -69,9 +90,17 @@ export async function GET(): Promise<NextResponse> {
       fileCount = totalCount;
     }
 
+    let limitBytes = STORAGE_LIMIT_BYTES;
+    if (dbUser.role === "video_editor") {
+      const editorLimit = await getEditorLimitBytes(dbUser.userId);
+      if (editorLimit !== null) {
+        limitBytes = editorLimit;
+      }
+    }
+
     return NextResponse.json({
       usedBytes,
-      limitBytes: STORAGE_LIMIT_BYTES,
+      limitBytes,
       fileCount,
     });
   } catch (error) {

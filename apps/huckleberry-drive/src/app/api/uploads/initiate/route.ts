@@ -47,15 +47,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
       if (dbUser.role === "video_editor") {
-        const isAssigned = await fetchQuery(
-          api.videoEditorAssignments.isVideoEditorAssignedToInstructor,
+        const assignmentWithStorage = await fetchQuery(
+          api.videoEditorAssignments.getVideoEditorAssignmentWithStorage,
           { videoEditorId: dbUser.userId, instructorId: targetInstructorId }
         );
-        if (!isAssigned) {
+        if (!assignmentWithStorage?.assignment) {
           return NextResponse.json(
             { error: "You are not assigned to this instructor" },
             { status: 403 }
           );
+        }
+        const quota = assignmentWithStorage.assignment.storageQuotaBytes;
+        if (quota !== undefined && quota !== null) {
+          if (assignmentWithStorage.usedBytes + size > quota) {
+            return NextResponse.json(
+              { error: "Video editor storage quota exceeded for this instructor" },
+              { status: 403 }
+            );
+          }
         }
       }
     }

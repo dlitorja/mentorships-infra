@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireInstructor, UnauthorizedError, ForbiddenError } from "@/lib/auth";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { getB2Client, B2_BUCKET_NAME } from "@mentorships/storage/src/client";
+import { getJobStatus } from "@mentorships/storage";
 
 interface User {
   _id: string;
@@ -9,55 +8,8 @@ interface User {
   role: string;
 }
 
-interface BulkDownloadJob {
-  jobId: string;
-  userId: string;
-  files: BulkDownloadFile[];
-  status: "pending" | "processing" | "completed" | "failed";
-  downloadUrl?: string;
-  error?: string;
-  createdAt: number;
-  expiresAt?: number;
-}
-
-interface BulkDownloadFile {
-  fileId: string;
-  b2Key: string;
-  originalName: string;
-  contentType: string;
-  size: number;
-}
-
 interface Params {
   params: Promise<{ jobId: string }>;
-}
-
-async function getJobStatus(jobId: string): Promise<BulkDownloadJob | null> {
-  const client = getB2Client();
-  const key = `bulk-download-jobs/${jobId}.json`;
-
-  try {
-    const response = await client.send(
-      new GetObjectCommand({
-        Bucket: B2_BUCKET_NAME,
-        Key: key,
-      })
-    );
-
-    if (!response.Body) return null;
-
-    const chunks: Buffer[] = [];
-    const body: AsyncIterable<Uint8Array> = response.Body as AsyncIterable<Uint8Array>;
-    for await (const chunk of body) {
-      chunks.push(Buffer.from(chunk));
-    }
-    return JSON.parse(Buffer.concat(chunks).toString());
-  } catch (error: unknown) {
-    if (error instanceof Error && (error.name === "NoSuchKey" || (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404)) {
-      return null;
-    }
-    throw error;
-  }
 }
 
 export async function GET(
@@ -82,20 +34,33 @@ export async function GET(
       jobId: string;
       status: string;
       fileCount: number;
+      chunkCount: number;
+      completedChunks: number;
       downloadUrl?: string;
+      downloadUrls?: string[];
       error?: string;
       createdAt: number;
       expiresAt?: number;
+      totalBytes?: number;
     } = {
       jobId: job.jobId,
       status: job.status,
-      fileCount: job.files.length,
+      fileCount: job.fileCount ?? 0,
+      chunkCount: job.chunkCount,
+      completedChunks: job.chunks.filter((c) => c.status === "completed").length,
       createdAt: job.createdAt,
     };
 
-    if (job.status === "completed" && job.downloadUrl) {
-      response.downloadUrl = job.downloadUrl;
+    if (job.status === "completed") {
+      if (job.downloadUrl) {
+        response.downloadUrl = job.downloadUrl;
+      }
+      if (job.downloadUrls && job.downloadUrls.length > 0) {
+        response.downloadUrls = job.downloadUrls;
+      }
       response.expiresAt = job.expiresAt;
+      response.totalBytes = job.totalBytes;
+      response.fileCount = job.fileCount ?? job.files.length;
     }
 
     if (job.status === "failed" && job.error) {

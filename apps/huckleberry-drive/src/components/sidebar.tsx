@@ -14,6 +14,7 @@ import {
   Mail,
   Users,
   Share2,
+  Video,
 } from "lucide-react";
 
 type UserRole = "instructor" | "admin" | "video_editor";
@@ -40,6 +41,7 @@ const navItems: NavItem[] = [
 const adminNavItems: NavItem[] = [
   { href: "/admin", label: "Admin", icon: <Shield className="w-5 h-5" />, adminOnly: true, isSection: true },
   { href: "/admin/users", label: "Users", icon: <Users className="w-5 h-5" />, adminOnly: true },
+  { href: "/admin/video-editors", label: "Video Editors", icon: <Video className="w-5 h-5" />, adminOnly: true },
   { href: "/admin/files", label: "Files", icon: <FolderOpen className="w-5 h-5" />, adminOnly: true },
   { href: "/admin/invitations", label: "Invitations", icon: <Mail className="w-5 h-5" />, adminOnly: true },
   { href: "/admin/costs", label: "Costs", icon: <DollarSign className="w-5 h-5" />, adminOnly: true },

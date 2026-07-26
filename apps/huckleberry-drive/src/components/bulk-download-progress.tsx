@@ -11,18 +11,33 @@ interface BulkDownloadProgressProps {
   onDismiss: () => void;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+
 function formatMessage(
   status: BulkDownloadStatus | null,
-  isSubmitting: boolean,
-  fileCount: number
+  isSubmitting: boolean
 ): string {
   if (isSubmitting && !status) return "Preparing ZIP…";
   if (!status) return "Preparing ZIP…";
   if (status.status === "pending") return "Preparing ZIP…";
   if (status.status === "processing") {
-    return `Bundling ${fileCount || status.fileCount} file${(fileCount || status.fileCount) === 1 ? "" : "s"}…`;
+    if (status.chunkCount > 1) {
+      return `Bundling ZIP parts (${status.completedChunks} of ${status.chunkCount} ready)…`;
+    }
+    return "Bundling files into ZIP…";
   }
-  if (status.status === "completed") return "ZIP ready";
+  if (status.status === "completed") {
+    if (status.chunkCount > 1) {
+      return `${status.chunkCount} ZIP parts ready (${status.fileCount} files, ${status.totalBytes ? formatBytes(status.totalBytes) : "unknown size"})`;
+    }
+    return "ZIP ready";
+  }
   return "";
 }
 
@@ -56,12 +71,14 @@ export function BulkDownloadProgress({
   const isCompleted = status?.status === "completed";
   const isFailed = status?.status === "failed";
   const hasDownloadUrl = isCompleted && Boolean(status?.downloadUrl);
+  const hasDownloadUrls =
+    isCompleted && status?.downloadUrls && status.downloadUrls.length > 0;
 
   if (!showProgress && !isCompleted && !isFailed) return null;
 
   const message = isFailed
     ? (error ?? "Download failed")
-    : formatMessage(status, isSubmitting, 0);
+    : formatMessage(status, isSubmitting);
 
   const Icon = isCompleted ? CheckCircle2 : isFailed ? AlertCircle : Loader2;
   const colorClass = isCompleted
@@ -93,6 +110,22 @@ export function BulkDownloadProgress({
             <Download className="w-3 h-3" />
             Download ZIP
           </a>
+        )}
+        {hasDownloadUrls && (
+          <div className="flex items-center gap-1">
+            {status?.downloadUrls?.map((url, index) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
+              >
+                <Download className="w-3 h-3" />
+                Part {index + 1}
+              </a>
+            ))}
+          </div>
         )}
         {(isCompleted || isFailed || error) && (
           <button
