@@ -75,21 +75,40 @@ export async function getWorkspaceRole(
   return null;
 }
 
-/** Returns the workspace only if it exists and is not soft-deleted/ended. */
-async function getWorkspaceIfActive(
+/**
+ * Returns the workspace only if it exists and is not soft-deleted.
+ * Ended workspaces are still accessible (18-month retention period).
+ */
+async function getWorkspaceIfNotDeleted(
   ctx: WorkspaceCtx,
   workspaceId: Id<"workspaces">
 ): Promise<Doc<"workspaces"> | null> {
   const workspace = await ctx.db.get(workspaceId);
   if (!workspace) return null;
-  if (workspace.deletedAt !== undefined || workspace.endedAt !== undefined) return null;
+  if (workspace.deletedAt !== undefined) return null;
+  return workspace;
+}
+
+/**
+ * Returns the workspace only if it exists and is not soft-deleted or ended.
+ * Use this for write/create mutations where no new content should be added
+ * after a workspace has ended.
+ */
+async function getWorkspaceIfActive(
+  ctx: WorkspaceCtx,
+  workspaceId: Id<"workspaces">
+): Promise<Doc<"workspaces"> | null> {
+  const workspace = await getWorkspaceIfNotDeleted(ctx, workspaceId);
+  if (!workspace) return null;
+  if (workspace.endedAt !== undefined) return null;
   return workspace;
 }
 
 /**
  * Resolves the caller's role for a workspace, returning null when the caller
  * is not authenticated, the workspace does not exist, the workspace is
- * soft-deleted/ended, or the caller is not a participant.
+ * soft-deleted, or the caller is not a participant. Ended workspaces remain
+ * accessible during the 18-month retention period.
  */
 async function getCallerWorkspaceRole(
   ctx: WorkspaceCtx,
@@ -97,7 +116,7 @@ async function getCallerWorkspaceRole(
 ): Promise<{ role: WorkspaceRole; workspace: Doc<"workspaces"> } | null> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
-  const workspace = await getWorkspaceIfActive(ctx, workspaceId);
+  const workspace = await getWorkspaceIfNotDeleted(ctx, workspaceId);
   if (!workspace) return null;
   const role = await getWorkspaceRole(ctx, workspace, identity.subject);
   if (!role) return null;
@@ -721,7 +740,7 @@ export const getWorkspaceNotes = query({
       return [];
     }
 
-    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
     if (!workspace) {
       return [];
     }
@@ -826,7 +845,7 @@ export const updateWorkspaceNote = mutation({
       throw new Error("Note not found");
     }
 
-    const workspace = await getWorkspaceIfActive(ctx, note.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, note.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -873,7 +892,7 @@ export const deleteWorkspaceNote = mutation({
       throw new Error("Note not found");
     }
 
-    const workspace = await getWorkspaceIfActive(ctx, note.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, note.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1205,7 +1224,7 @@ export const deleteWorkspaceLink = mutation({
       throw new Error("Link not found");
     }
 
-    const workspace = await getWorkspaceIfActive(ctx, link.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, link.workspaceId);
     if (!workspace) {
       throw new Error("Workspace not found");
     }
@@ -1227,7 +1246,7 @@ export const getWorkspaceImages = query({
     if (!user) {
       return [];
     }
-    const workspace = await getWorkspaceIfActive(ctx, args.workspaceId);
+    const workspace = await getWorkspaceIfNotDeleted(ctx, args.workspaceId);
     if (!workspace) {
       return [];
     }

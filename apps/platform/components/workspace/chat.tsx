@@ -17,6 +17,7 @@ import { createImagePreviews, uploadImageForChat, uploadFileForChat, type Upload
 import { ChatImageLightbox, type ChatImageDownloadItem } from './chat-lightbox';
 import {
   MAX_CHAT_FILE_BYTES,
+  MAX_IMAGE_BYTES,
   LARGE_CHAT_FILE_BYTES,
   WORKSPACE_IMAGE_CAPS,
   WORKSPACE_FILE_CAPS,
@@ -439,8 +440,8 @@ export default function WorkspaceChat({ workspaceId, currentUserId, role = 'stud
       let availableImageSlots = isAdmin ? 9999 : remainingSlots - attachments.filter((attachment) => attachment.isImage).length;
 
       for (const file of imageFiles) {
-        if (file.size > MAX_CHAT_FILE_BYTES) {
-          toast.error(`${file.name}: Image is too large. Maximum size is 50MB.`);
+        if (file.size > MAX_IMAGE_BYTES) {
+          toast.error(`${file.name}: Image is too large. Maximum size is 5MB.`);
           continue;
         }
 

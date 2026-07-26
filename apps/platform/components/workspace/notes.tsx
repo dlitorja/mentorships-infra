@@ -20,7 +20,7 @@ import {
   type NoteComment,
 } from '@/lib/queries/convex/use-workspaces';
 import { uploadImageForChat, uploadFileForChat } from '@/lib/workspace-image-upload';
-import { MAX_CHAT_FILE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
+import { MAX_CHAT_FILE_BYTES, MAX_IMAGE_BYTES, LARGE_CHAT_FILE_BYTES } from '@/lib/workspace-constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -578,8 +578,8 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
     const currentEditor = editorRef.current;
     if (!noteIdForUpload || !currentEditor) return;
 
-    if (file.size > MAX_CHAT_FILE_BYTES) {
-      toast.error('Image is too large. Maximum size is 50MB.');
+    if (file.size > MAX_IMAGE_BYTES) {
+      toast.error('Image is too large. Maximum size is 5MB.');
       return;
     }
     if (file.size > LARGE_CHAT_FILE_BYTES) {
