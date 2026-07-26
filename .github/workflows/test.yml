@@ -39,7 +39,7 @@ jobs:
             head_sha="${{ github.event.pull_request.head.sha }}"
           else
             base_sha="${{ github.event.before }}"
-            head_sha="${{ github.event.sha }}"
+            head_sha="${{ github.sha }}"
           fi
           # `git diff` may return non-zero if there are no changes; ignore that.
           changed_files=$(git diff --name-only "$base_sha" "$head_sha" 2>/dev/null || true)
