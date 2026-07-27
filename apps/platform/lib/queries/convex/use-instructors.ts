@@ -156,7 +156,13 @@ export function useUpdateInstructor() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.updateInstructor),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -171,7 +177,13 @@ export function useCreateInstructor() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.createInstructor),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -186,7 +198,13 @@ export function useDeleteInstructor() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.deleteInstructor),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -202,7 +220,13 @@ export function useHardDeleteInstructor() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.hardDeleteInstructor),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -217,7 +241,13 @@ export function useCreateTestimonial() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.createTestimonial),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructorTestimonials"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -232,7 +262,13 @@ export function useDeleteTestimonial() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.deleteTestimonial),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructorTestimonials"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -247,7 +283,13 @@ export function useCreateStudentResult() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.createStudentResult),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["studentResults"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -262,7 +304,13 @@ export function useDeleteStudentResult() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.deleteStudentResult),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["studentResults"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -277,7 +325,13 @@ export function useUpdateInstructorInventory() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.updateInstructorInventory),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -292,7 +346,13 @@ export function useUploadInstructorProfileImage() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.uploadInstructorProfileImage),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -307,7 +367,13 @@ export function useAddInstructorPortfolioImage() {
   return useMutation({
     mutationFn: useConvexMutation(api.instructors.uploadInstructorPortfolioImage),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["instructors"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("instructors:"),
+        refetchType: "all",
+      });
     },
   });
 }

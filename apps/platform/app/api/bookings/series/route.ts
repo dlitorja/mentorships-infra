@@ -10,6 +10,13 @@ import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk";
+import {
+  addDays,
+  addMinutes,
+  getLocalDateTime,
+  localDateTimeToUtcMillis,
+  utcMillisToIsoString,
+} from "@/lib/timezone";
 import type { bookingSeriesNotifications } from "../../../../../../src/trigger/booking-series-notifications";
 
 const createSeriesSchema = z.object({
@@ -83,22 +90,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid start" }, { status: 400 });
     }
 
-    const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-    const ONE_HOUR_MS = 60 * 60 * 1000; // 60-minute sessions only
+    // Decompose the base start into the target timezone so we can add weeks
+    // while preserving the same local wall time across DST boundaries.
+    const baseStartLocal = getLocalDateTime(new Date(start), timezone);
+    const baseEndLocal = addMinutes(baseStartLocal, 60);
 
     const results: ResultItem[] = [];
     const createdTimes: number[] = [];
 
     for (let i = 1; i <= weeks; i++) {
-      const slotStartUtc = baseStartMs + i * ONE_WEEK_MS;
-      const slotEndUtc = slotStartUtc + ONE_HOUR_MS;
+      // Add i weeks to the local calendar components, then convert each local
+      // wall time back to a UTC timestamp. This keeps 3pm as 3pm even when
+      // the UTC offset changes due to DST.
+      const targetStartLocal = addDays(baseStartLocal, i * 7);
+      const targetEndLocal = addDays(baseEndLocal, i * 7);
+      const slotStartUtc = localDateTimeToUtcMillis(targetStartLocal, timezone);
+      const slotEndUtc = localDateTimeToUtcMillis(targetEndLocal, timezone);
 
       try {
         // Freebusy check
         const fb = await calendar.freebusy.query({
           requestBody: {
-            timeMin: new Date(slotStartUtc).toISOString(),
-            timeMax: new Date(slotEndUtc).toISOString(),
+            timeMin: utcMillisToIsoString(slotStartUtc),
+            timeMax: utcMillisToIsoString(slotEndUtc),
             items: availabilityCalendars.map((id) => ({ id })),
           },
         });
@@ -168,8 +182,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 return lines.join("\n");
               })(),
               location: instructor.discordVoiceChannelUrl || undefined,
-              start: { dateTime: new Date(slotStartUtc).toISOString(), timeZone: timezone },
-              end: { dateTime: new Date(slotEndUtc).toISOString(), timeZone: timezone },
+              start: { dateTime: utcMillisToIsoString(slotStartUtc), timeZone: timezone },
+              end: { dateTime: utcMillisToIsoString(slotEndUtc), timeZone: timezone },
               attendees: sessionEmail ? [{ email: sessionEmail }] : undefined,
               extendedProperties: { private: { idempotencyKey } },
             },

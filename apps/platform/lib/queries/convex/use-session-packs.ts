@@ -87,8 +87,14 @@ export function useCreateSessionPack() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessionPacks.createSessionPack),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
-      queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          (q.queryKey[1].startsWith("sessionPacks:") ||
+            q.queryKey[1].startsWith("workspaces:")),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -103,7 +109,13 @@ export function useUpdateSessionPack() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessionPacks.updateSessionPack),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessionPacks:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -118,7 +130,13 @@ export function useUseSession() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessionPacks.useSession),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessionPacks:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -133,7 +151,13 @@ export function useProcessExpiredSessionPacks() {
   return useMutation({
     mutationFn: useConvexMutation(api.sessionPacks.processExpiredSessionPacks),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessionPacks"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("sessionPacks:"),
+        refetchType: "all",
+      });
     },
   });
 }

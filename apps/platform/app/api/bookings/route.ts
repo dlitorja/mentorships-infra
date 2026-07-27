@@ -148,6 +148,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     let confirmed = null as any;
     let didConfirm = false;
+    let googleEventId: string | null = null;
     try {
       const insert = await calendar.events.insert({
         calendarId: eventCalendarId,
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
       });
 
-      const googleEventId = insert.data.id;
+      googleEventId = insert.data.id ?? null;
       if (!googleEventId) {
         return NextResponse.json({ error: "Failed to create calendar event" }, { status: 502 });
       }
@@ -192,14 +193,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       return NextResponse.json({ success: true, booking: confirmed });
     } catch (e) {
-      console.error("Google Calendar insert error:", e);
-      return NextResponse.json({ error: "Failed to create calendar event" }, { status: 502 });
+      console.error("Google Calendar insert or confirm error:", e);
+      return NextResponse.json({ error: "Failed to create calendar event or confirm booking" }, { status: 502 });
     } finally {
       if (!didConfirm) {
+        // Roll back the pending booking lock so the slot is not permanently held.
         try {
           await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
         } catch (rollbackErr) {
           console.error("Failed to rollback pending booking:", rollbackErr, { bookingId: pending.bookingId });
+        }
+        // If we created a calendar event but never confirmed the booking in
+        // Convex, delete the orphaned calendar event so it doesn't clutter the
+        // instructor's Google Calendar.
+        if (googleEventId) {
+          try {
+            await calendar.events.delete({
+              calendarId: eventCalendarId,
+              eventId: googleEventId,
+              sendUpdates: "all",
+            });
+          } catch (deleteErr) {
+            console.error("Failed to rollback orphaned calendar event:", deleteErr, {
+              eventCalendarId,
+              googleEventId,
+            });
+          }
         }
       }
     }

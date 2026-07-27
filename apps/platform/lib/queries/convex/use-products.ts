@@ -114,7 +114,13 @@ export function useCreateProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.createProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -129,7 +135,13 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.updateProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
@@ -144,7 +156,13 @@ export function useDeleteProduct() {
   return useMutation({
     mutationFn: useConvexMutation(api.products.deleteProduct),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+      queryClient.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey[0] === "convexQuery" &&
+          typeof q.queryKey[1] === "string" &&
+          q.queryKey[1].startsWith("products:"),
+        refetchType: "all",
+      });
     },
   });
 }
