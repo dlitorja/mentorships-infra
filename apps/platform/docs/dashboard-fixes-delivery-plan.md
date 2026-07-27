@@ -209,11 +209,11 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 | 2 | `fix/instructor-self-service` | Merged | https://github.com/dlitorja/mentorships-infra/pull/686 | Depends on PR 1 |
 | 3 | `fix/student-booking-navigation` | Merged | https://github.com/dlitorja/mentorships-infra/pull/687 | Depends on PR 1 |
 | 4 | `fix/session-actions-notifications` | Merged | https://github.com/dlitorja/mentorships-infra/pull/688 | Depends on PR 1 |
-| 5 | `fix/data-refresh-reliability` | In review | | Depends on PR 1 and 3 |
+| 5 | `fix/data-refresh-reliability` | Merged | https://github.com/dlitorja/mentorships-infra/pull/689 | Depends on PR 1 and 3 |
 | 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, and PR 4 are merged; PR 5 (`fix/data-refresh-reliability`) is open for review.*
+*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, PR 4, and PR 5 are merged; PR 6 (`fix/security-api-hardening`) is the next P1 blocker.*
 
 ---
 
