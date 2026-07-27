@@ -29,31 +29,49 @@ const createSchema = z.object({
  * confirm call throws, we query the booking state; if it is already confirmed,
  * we treat the booking as successfully confirmed.
  */
+type ConfirmResult =
+  | { type: "confirmed"; booking: any }
+  | { type: "unverifiable"; reason: string };
+
 async function confirmBookingSafely(
   convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>,
   bookingId: string,
   eventCalendarId: string,
   googleEventId: string
-): Promise<{ booking: any; confirmed: true }> {
+): Promise<ConfirmResult> {
   try {
     const booking = await convex.mutation(api.bookings.confirm, {
       id: bookingId as Id<"bookings">,
       eventCalendarId,
       googleEventId,
     });
-    return { booking, confirmed: true };
+    return { type: "confirmed", booking };
   } catch (confirmErr) {
     // Confirm is idempotent, so a lost response may have still committed.
     // Query the booking to resolve the ambiguity before rolling back.
+    let existing: any = null;
     try {
-      const existing = await convex.query(api.bookings.getBookingById, {
-        id: bookingId as Id<"bookings">,
-      });
-      if (existing && existing.status === "confirmed") {
-        return { booking: existing, confirmed: true };
-      }
+      existing = await withRetries(
+        () =>
+          convex.query(api.bookings.getBookingById, {
+            id: bookingId as Id<"bookings">,
+          }),
+        3,
+        250
+      );
     } catch (statusErr) {
       console.error("Failed to query booking status after confirm error:", statusErr);
+      await reportError({
+        source: "api.bookings.confirm.statusQuery",
+        error: statusErr instanceof Error ? statusErr : new Error(String(statusErr)),
+        level: "error",
+        message: "Could not verify booking status after confirm failure; manual reconciliation may be needed",
+        context: { bookingId, eventCalendarId, googleEventId },
+      });
+      return { type: "unverifiable", reason: "Could not verify booking status" };
+    }
+    if (existing && existing.status === "confirmed") {
+      return { type: "confirmed", booking: existing };
     }
     throw confirmErr;
   }
@@ -208,6 +226,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
 
       const confirmResult = await confirmBookingSafely(convex, pending.bookingId, eventCalendarId, googleEventId);
+      if (confirmResult.type === "unverifiable") {
+        // Confirm failed and we could not verify the booking state. Preserve the
+        // pending booking and calendar event so a confirmed booking is not
+        // accidentally rolled back; report for manual reconciliation.
+        didConfirm = true;
+        await reportError({
+          source: "api.bookings.create.unverifiable",
+          error: new Error(confirmResult.reason),
+          level: "error",
+          message: "Booking confirmation state unverifiable; manual reconciliation may be needed",
+          context: { bookingId: pending.bookingId, eventCalendarId, googleEventId },
+        });
+        return NextResponse.json(
+          {
+            success: true,
+            booking: null,
+            reconciliationNeeded: true,
+            message: "Booking could not be confirmed automatically. Please check your calendar and booking list.",
+          },
+          { status: 202 }
+        );
+      }
       confirmed = confirmResult.booking;
       didConfirm = true;
       if (!suppressNotifications) {

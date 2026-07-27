@@ -29,7 +29,13 @@ const createSeriesSchema = z.object({
   studentName: z.string().min(1),
 });
 
-type ResultItem = { weekOffset: number; status: "created" | "skipped"; reason?: string; bookingId?: string };
+type ResultItem = {
+  weekOffset: number;
+  status: "created" | "skipped";
+  reason?: string;
+  bookingId?: string;
+  reconciliationNeeded?: boolean;
+};
 
 /**
  * POST /api/bookings/series
@@ -173,7 +179,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
         let didConfirm = false;
         let insertedGoogleEventId: string | null = null;
-        let cancelAlready = false;
         try {
           const insert = await calendar.events.insert({
             calendarId: eventCalendarId,
@@ -203,13 +208,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           insertedGoogleEventId = insert.data.id ?? null;
           if (!insertedGoogleEventId) {
             results.push({ weekOffset: i, status: "skipped", reason: "Failed to create calendar event" });
-            // rollback
-            try {
-              await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
-            } catch (rollbackErr) {
-              console.error("Rollback failed for api.bookings.cancel", { bookingId: pending.bookingId, error: rollbackErr });
-            }
-            cancelAlready = true;
             continue;
           }
 
@@ -226,13 +224,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           } catch (confirmErr) {
             // Confirm is idempotent; a lost response may still have committed.
             // Resolve the ambiguity by checking the booking state.
-            let existing = null;
+            let existing: any = null;
             try {
-              existing = await convex.query(api.bookings.getBookingById, {
-                id: pending.bookingId as Id<"bookings">,
-              });
+              existing = await withRetries(
+                () =>
+                  convex.query(api.bookings.getBookingById, {
+                    id: pending.bookingId as Id<"bookings">,
+                  }),
+                3,
+                250
+              );
             } catch (statusErr) {
               console.error("Failed to query booking status after confirm error:", statusErr);
+              await reportError({
+                source: "api.bookings.series.confirm.statusQuery",
+                error: statusErr instanceof Error ? statusErr : new Error(String(statusErr)),
+                level: "error",
+                message: "Could not verify series booking status after confirm failure; manual reconciliation may be needed",
+                context: {
+                  bookingId: pending.bookingId,
+                  eventCalendarId,
+                  googleEventId: insertedGoogleEventId,
+                  weekOffset: i,
+                },
+              });
+              // Do not roll back: we cannot tell whether confirm committed. Mark
+              // the slot as created so the calendar event and pending booking are
+              // preserved; manual reconciliation will handle the mismatch.
+              didConfirm = true;
+              results.push({
+                weekOffset: i,
+                status: "created",
+                bookingId: String(pending.bookingId),
+                reconciliationNeeded: true,
+              });
+              continue;
             }
             if (existing && existing.status === "confirmed") {
               confirmedBooking = existing;
@@ -275,26 +301,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 });
               }
             }
-            if (!cancelAlready) {
-              try {
-                await withRetries(
-                  () => convex.mutation(api.bookings.cancel, { id: pending.bookingId }),
-                  3,
-                  250
-                );
-              } catch (rollbackErr) {
-                console.error("Rollback failed for api.bookings.cancel after retries:", {
-                  bookingId: pending.bookingId,
-                  error: rollbackErr,
-                });
-                await reportError({
-                  source: "api.bookings.series.rollback.cancel",
-                  error: rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr)),
-                  level: "error",
-                  message: "Failed to cancel pending booking after multiple retries",
-                  context: { bookingId: pending.bookingId },
-                });
-              }
+            try {
+              await withRetries(
+                () => convex.mutation(api.bookings.cancel, { id: pending.bookingId }),
+                3,
+                250
+              );
+            } catch (rollbackErr) {
+              console.error("Rollback failed for api.bookings.cancel after retries:", {
+                bookingId: pending.bookingId,
+                error: rollbackErr,
+              });
+              await reportError({
+                source: "api.bookings.series.rollback.cancel",
+                error: rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr)),
+                level: "error",
+                message: "Failed to cancel pending booking after multiple retries",
+                context: { bookingId: pending.bookingId },
+              });
             }
           }
         }
