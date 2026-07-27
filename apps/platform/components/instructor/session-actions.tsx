@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { useRouter } from "next/navigation";
 import { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -56,7 +55,7 @@ type RescheduleDialogProps = {
 export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess }: RescheduleDialogProps) {
   const [newDateTime, setNewDateTime] = useState(() => formatDateForInput(session.scheduledAt));
   const [isPending, startTransition] = useTransition();
-  const reschedule = useMutation(api.sessions.rescheduleSession);
+  const router = useRouter();
 
   useEffect(() => {
     if (open) {
@@ -73,12 +72,18 @@ export function RescheduleSessionDialog({ session, open, onOpenChange, onSuccess
 
     startTransition(async () => {
       try {
-        await reschedule({ 
-          id: session.id, 
-          newScheduledAt,
+        const res = await fetch(`/api/sessions/${session.id}/reschedule`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ newScheduledAt }),
         });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || "Failed to reschedule");
+        }
         toast.success("Session rescheduled.");
         onOpenChange(false);
+        router.refresh();
         onSuccess?.();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to reschedule session");
@@ -151,7 +156,7 @@ type CancelDialogProps = {
 export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: CancelDialogProps) {
   const [reason, setReason] = useState("");
   const [isPending, startTransition] = useTransition();
-  const cancel = useMutation(api.sessions.cancelSession);
+  const router = useRouter();
 
   useEffect(() => {
     if (open) {
@@ -162,13 +167,19 @@ export function CancelSessionDialog({ session, open, onOpenChange, onSuccess }: 
   async function handleCancel() {
     startTransition(async () => {
       try {
-        await cancel({ 
-          id: session.id, 
-          reason: reason.trim() || undefined,
+        const res = await fetch(`/api/sessions/${session.id}/cancel`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() || undefined }),
         });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || "Failed to cancel");
+        }
         toast.success("Session canceled.");
         onOpenChange(false);
         setReason("");
+        router.refresh();
         onSuccess?.();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to cancel session");
@@ -240,7 +251,7 @@ type NotesDialogProps = {
 export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: NotesDialogProps) {
   const [notes, setNotes] = useState(session.notes ?? "");
   const [isPending, startTransition] = useTransition();
-  const updateNotes = useMutation(api.sessions.updateSessionNotes);
+  const router = useRouter();
 
   useEffect(() => {
     if (open) {
@@ -251,12 +262,18 @@ export function SessionNotesDialog({ session, open, onOpenChange, onSuccess }: N
   async function handleSave() {
     startTransition(async () => {
       try {
-        await updateNotes({ 
-          id: session.id, 
-          notes: notes.trim(),
+        const res = await fetch(`/api/sessions/${session.id}/notes`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ notes: notes.trim() }),
         });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || "Failed to save notes");
+        }
         toast.success("Notes saved");
         onOpenChange(false);
+        router.refresh();
         onSuccess?.();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Failed to save notes");
