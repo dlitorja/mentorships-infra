@@ -164,6 +164,16 @@ export const migrateGuestSessionPacks = inngest.createFunction(
             throw new Error(`Failed to link seat reservations: ${message}`);
           }
 
+          try {
+            await convexServerCall("/internal/link-workspaces", {
+              clerkUserId,
+              email,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to link workspaces: ${message}`);
+          }
+
           await reportInfo({
             source: "inngest:migrate-guest-session-packs",
             message: `Migrated ${packs.length} session pack(s) for user`,

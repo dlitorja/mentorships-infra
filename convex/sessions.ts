@@ -305,7 +305,7 @@ export const getUpcomingSessions = query({
     if (!user || user.subject !== args.studentId) {
       return [];
     }
-    const limit = args.limit ?? 50;
+    const limit = Math.min(Math.max(1, args.limit ?? 50), 100);
     const now = Date.now();
     const sessions = await ctx.db
       .query("sessions")

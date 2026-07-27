@@ -55,14 +55,12 @@ export function useSessionPacksByInstructor(instructorId: string) {
 
 /**
  * Resolves the active workspace ID for a given session pack ID.
- * @param {string} sessionPackId - The session pack ID
+ * @param {Id<"sessionPacks">} sessionPackId - The session pack ID
  * @returns {UseQueryResult} Query result containing the workspace ID or null
  */
-export function useWorkspaceBySessionPack(sessionPackId: string) {
+export function useWorkspaceBySessionPack(sessionPackId: Id<"sessionPacks">) {
   return useQuery({
-    ...convexQuery(api.workspaces.getWorkspaceBySessionPackId, {
-      sessionPackId: sessionPackId as Id<"sessionPacks">,
-    }),
+    ...convexQuery(api.workspaces.getWorkspaceBySessionPackId, { sessionPackId }),
     enabled: !!sessionPackId,
   });
 }
