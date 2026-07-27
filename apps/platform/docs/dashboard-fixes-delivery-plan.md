@@ -12,8 +12,8 @@ Fixes are grouped into the smallest number of PRs that still share a single them
 | **2** | Instructor self-service: profile, images, onboarding review | All fix instructor-owned record mutations/UI | Merged | P0 — profile editing and onboarding are non-functional |
 | **3** | Student booking navigation & calendar ID mismatch | Both break the student booking → workspace flow | Merged | P0 — links go to wrong IDs and calendar uses wrong ID types |
 | **4** | Session actions, notifications, and email preview | All fix how sessions are cancelled/rescheduled/notified | Merged | P1 — notifications and calendar cleanup are skipped |
-| **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | In review | P1 — UI stays stale and booking edge cases are unreliable |
-| **6** | Security & API hardening | Public API leaks, waitlist auth, empty `catch` lint errors | Not started | P1 — security and lint failures |
+| **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | Merged | P1 — UI stays stale and booking edge cases are unreliable |
+| **6** | Security & API hardening | Public API leaks, waitlist auth, empty `catch` lint errors plus remaining lint errors | In review | P1 — security and lint failures |
 | **7** | Admin dashboard & code quality | Naming, unused code, `<img>` tags, console noise, alerts | Not started | P2 — cleanup and convention compliance |
 
 ---
@@ -155,20 +155,81 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 
 ## PR 6: Security & API hardening
 
-**Goal:** close API leaks and fix the lint errors caused by empty `catch` blocks.
+**Goal:** close API leaks and fix all current lint errors so `npm run lint` reaches zero errors.
 
-### Scope
-- `app/api/products/route.ts` — remove `stripePriceId`/`paypalProductId` from the public response or gate the endpoint behind auth.
-- `app/api/waitlist/route.ts` — require authentication for waitlist membership lookup.
-- `app/api/user/settings/route.ts` — ensure the Convex call is authenticated and scoped to the caller.
-- `app/api/bookings/notify/route.ts`, `app/api/checkout/stripe/route.ts`, `app/api/checkout/paypal/route.ts`, `components/calendar/book-with-google.tsx` — replace empty `catch` blocks with proper logging/error handling.
+### Branch
+`fix/security-api-hardening`
+
+### Security fixes
+
+#### 1. Close public product API leaks
+Payment-provider IDs (`stripePriceId`, `paypalProductId`) are sensitive and should never be returned by public endpoints.
+
+- `app/api/products/route.ts`
+  - Remove `stripePriceId` and `paypalProductId` from the mapped response.
+  - Optionally add public booleans (`hasStripePayment`, `hasPayPalPayment`) if the UI needs to show available payment methods, but the endpoint is currently unused.
+- `app/api/products/[id]/route.ts`
+  - Already gated by `requireAuth()`; remove `stripePriceId` from the response as well.
+- `app/api/products/by-stripe-price/route.ts`
+  - This endpoint is intended for payment-provider webhooks; confirm it is not public and document why it needs the raw ID.
+- `app/lib/queries/api-client.ts`
+  - Update `fetchProduct` and `fetchProducts` response types to drop the payment-provider IDs.
+  - Note: `fetchProducts` and `fetchProduct` are unused in the app; consider deprecating them, but keep minimal changes.
+
+#### 2. Require authentication for waitlist lookup
+- `app/api/waitlist/route.ts`
+  - `GET`: add `requireAuth()` / `auth()` check.
+  - Derive the email from the Clerk session instead of accepting it from query params.
+  - Return 401 for unauthenticated requests.
+  - Keep the existing POST flow public (anyone can join a waitlist), but harden the GET lookup to self-only.
+- `app/lib/queries/api-client.ts`
+  - Update `fetchWaitlistStatus` type if needed; the function is currently unused.
+
+#### 3. Authenticate the user-settings Convex call
+- `app/api/user/settings/route.ts`
+  - Already authenticates via Clerk; no change needed unless the route leaks the Convex user ID.
+- `convex/users.ts`
+  - Add `ctx.auth.getUserIdentity()` to the `updateUser` mutation.
+  - Look up the authenticated user's record by email / subject.
+  - Only allow the mutation if `args.id` matches the authenticated user's own document `_id`.
+  - Throw `Unauthorized` for cross-user updates.
+  - This also hardens the exposed `useUpdateUser` hooks in `lib/queries/convex/use-users.ts` and `lib/queries/convex/use-mutations.ts` (both currently unused but public).
+
+### Lint fixes (all current errors)
+
+Current `npm run lint` reports **13 errors**. The PR must close all of them.
+
+#### Empty `catch` blocks in checkout/booking routes
+- `app/api/checkout/stripe/route.ts` (4 errors, lines 93, 148, 160, 290)
+  - Remove the inner `try { console.error(...) } catch {}` wrappers.
+  - Log the Clerk error details directly; `console.error` failing in Next.js is not a realistic failure mode.
+- `app/api/checkout/paypal/route.ts` (3 errors, lines 76, 119, 130)
+  - Same pattern as Stripe route.
+- `app/api/bookings/notify/route.ts` (1 error, line 41)
+  - Replace `catch {}` with `catch (err) { console.error("Failed to check admin role for notify", err); }` or similar.
+- `components/calendar/book-with-google.tsx` (1 error, line 115)
+  - Replace empty catch with a `console.error` log (or `reportError` if available) and keep the fallback behavior.
+
+#### Remaining lint errors required for zero
+- `app/instructor/students/page.tsx` (3 errors)
+  - Move `filteredAndSortedStudents = useMemo(...)` before the `isLoading` and `error` early returns so the hook is always called in the same order.
+  - Wrap the `case "lastSession":` block in braces to fix `no-case-declarations` errors.
+- `components/workspace/notes.tsx` (1 error, line 194)
+  - Remove the `return` statement from the `finally` block of `flushAutosave`; restructure the conditional so the function does not return from `finally`.
 
 ### Verification
-- [ ] Public product list no longer exposes payment provider IDs.
-- [ ] Waitlist lookup requires authentication.
-- [ ] `npm run lint` reports zero errors.
-- [ ] `npm run typecheck` passes.
-- [ ] Greptile review has no new issues.
+- [x] `GET /api/products` and `GET /api/products/[id]` no longer return `stripePriceId`/`paypalProductId`.
+- [x] `GET /api/waitlist` returns 401 without a Clerk session and only returns the current user's own waitlist status.
+- [x] `convex/users.updateUser` rejects cross-user updates with `Unauthorized` and no longer accepts `role`.
+- [x] `npm run lint` reports **zero errors** (warnings remain acceptable).
+- [x] `npm run typecheck` passes.
+- [x] Greptile review has no new issues.
+- [ ] `pnpm vitest run apps/platform/lib/timezone.test.ts` still passes (regression check).
+
+### Risks and mitigations
+- **Checkout page still needs payment method info**: The checkout page uses `useProductsByInstructorId`/`usePublicActiveProducts` (direct Convex queries), not the REST products API, so removing the IDs from the REST response does not affect checkout.
+- **Waitlist GET self-lookup**: If the frontend later re-enables `fetchWaitlistStatus`, it must call the endpoint without an `email` query param.
+- **updateUser auth**: If any internal/admin code calls `api.users.updateUser` for another user, it will break. We will verify no such callers exist; admin role changes should use `updateUserRole` instead.
 
 ---
 
@@ -210,10 +271,10 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 | 3 | `fix/student-booking-navigation` | Merged | https://github.com/dlitorja/mentorships-infra/pull/687 | Depends on PR 1 |
 | 4 | `fix/session-actions-notifications` | Merged | https://github.com/dlitorja/mentorships-infra/pull/688 | Depends on PR 1 |
 | 5 | `fix/data-refresh-reliability` | Merged | https://github.com/dlitorja/mentorships-infra/pull/689 | Depends on PR 1 and 3 |
-| 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
+| 6 | `fix/security-api-hardening` | In review | https://github.com/dlitorja/mentorships-infra/pull/690 | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, PR 4, and PR 5 are merged; PR 6 (`fix/security-api-hardening`) is the next P1 blocker.*
+*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, PR 4, PR 5 are merged; PR 6 (`fix/security-api-hardening`) is in review at https://github.com/dlitorja/mentorships-infra/pull/690.*
 
 ---
 

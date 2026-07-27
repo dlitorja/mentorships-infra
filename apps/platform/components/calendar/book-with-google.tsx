@@ -99,20 +99,30 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
           } else if (seriesRes.status !== 404) {
             toast.error(seriesJson?.error || "Failed to create weekly reservations");
           }
-        } catch {
-          // ignore network errors here; we'll fallback notify below
+        } catch (e) {
+          console.error("Failed to create weekly series; falling back to single notification:", e);
         }
         if (!seriesOk) {
           // Fallback: ensure at least one confirmation email goes out
           const bookingId = json?.booking?._id || json?.booking?.id;
           if (bookingId) {
             try {
-              await fetch("/api/bookings/notify", {
+              const notifyRes = await fetch("/api/bookings/notify", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ bookingId }),
               });
-            } catch {}
+              if (!notifyRes.ok) {
+                const notifyJson = await notifyRes.json().catch(() => ({}));
+                console.error(
+                  "Fallback booking notification request failed:",
+                  notifyRes.status,
+                  notifyJson
+                );
+              }
+            } catch (e) {
+              console.error("Failed to send fallback booking notification:", e);
+            }
           }
         }
         // Refetch availability to reflect booking

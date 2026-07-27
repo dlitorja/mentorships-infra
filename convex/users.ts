@@ -169,17 +169,34 @@ export const createUser = mutation({
   },
 });
 
-/** Updates the specified user's fields and returns the updated document. */
+/** Updates the authenticated user's own profile fields and returns the updated document.
+ *  Requires the caller to be authenticated and the target user to be their own record.
+ *  Does not accept role changes; use updateUserRole for admin-managed role changes.
+ */
 export const updateUser = mutation({
   args: {
     id: v.id("users"),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
-    role: v.optional(v.union(v.literal("student"), v.literal("instructor"), v.literal("admin"), v.literal("video_editor"))),
     timeZone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { id, ...updates } = args;
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Unauthorized");
+    }
+
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_userId", (q) => q.eq("userId", identity.subject))
+      .first();
+
+    if (!currentUser || currentUser._id !== id) {
+      throw new Error("Unauthorized");
+    }
+
     await ctx.db.patch(id, updates);
     return await ctx.db.get(id);
   },

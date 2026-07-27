@@ -37,7 +37,6 @@ export async function GET(
       price: product.price,
       sessionsPerPack: product.sessionsPerPack,
       validityDays: product.validityDays,
-      stripePriceId: product.stripePriceId,
       instructorId: product.instructorId,
     });
   } catch (error) {

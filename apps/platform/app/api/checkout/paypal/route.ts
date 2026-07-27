@@ -71,9 +71,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     } catch (e: any) {
       const status = e?.status ?? e?.statusCode;
       const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
-      try {
-        console.error("Clerk auth failed; proceeding as guest", { status, code });
-      } catch {}
+      console.error("Clerk auth failed; proceeding as guest", { status, code });
       authedUserId = null;
     }
     let userIdForOrder: string | null = authedUserId ?? null;
@@ -114,9 +112,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               // Clerk failure or validation -> proceed as guest
               const status = e?.status ?? e?.statusCode;
               const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
-              try {
-                console.error("Clerk create/find user failed; proceeding as guest", { status, code });
-              } catch {}
+              console.error("Clerk create/find user failed; proceeding as guest", { status, code });
               userIdForOrder = "guest";
               createdNewUser = false;
             }
@@ -125,9 +121,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       } catch (e: any) {
         const status = e?.status ?? e?.statusCode;
         const code = e?.code ?? (typeof e?.message === "string" ? e.message : undefined);
-        try {
-          console.error("Clerk user lookup failed; proceeding as guest", { status, code });
-        } catch {}
+        console.error("Clerk user lookup failed; proceeding as guest", { status, code });
         userIdForOrder = "guest";
         createdNewUser = false;
       }

@@ -42,7 +42,6 @@ export async function fetchProduct(id: string) {
     price: string;
     sessionsPerPack: number;
     validityDays: number;
-    stripePriceId: string | null;
     instructor: {
       id: string;
       userId: string;
@@ -61,8 +60,6 @@ export async function fetchProducts() {
       price: string;
       sessionsPerPack: number;
       validityDays: number;
-      stripePriceId: string | null;
-      paypalProductId: string | null;
       instructorId: string;
     }>;
   }>("/api/products");

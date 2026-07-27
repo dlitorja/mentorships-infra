@@ -19,8 +19,6 @@ export async function GET(req: NextRequest) {
       price: product.price,
       sessionsPerPack: product.sessionsPerPack,
       validityDays: product.validityDays,
-      stripePriceId: product.stripePriceId,
-      paypalProductId: product.paypalProductId,
       instructorId: product.instructorId,
     }));
 
