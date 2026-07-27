@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "@tanstack/react-form";
 import { useMutation } from "@tanstack/react-query";
@@ -99,7 +99,7 @@ export function ProductForm({
 
   const createProductMutation = useMutation({
     mutationFn: async (data: ProductData) => createProduct(data),
-    onSuccess: (data) => {
+    onSuccess: () => {
       // After successful creation, return to products list
       router.push("/admin/products");
     },
@@ -201,7 +201,7 @@ export function ProductForm({
             </h1>
             <p className="text-muted-foreground mt-1">
               {mode === "create"
-                ? "Create a new mentorship session pack or import from Stripe"
+                ? "Create a new session pack or import from Stripe"
                 : "Update the product details below"}
             </p>
           </div>
@@ -473,7 +473,7 @@ function ProductFieldsForm({
         <CardTitle>{mode === "create" ? "Create New Product" : "Edit Product"}</CardTitle>
         <CardDescription>
           {mode === "create"
-            ? "Create a new mentorship session pack with full customization"
+            ? "Create a new session pack with full customization"
             : "Update the product details below"}
         </CardDescription>
       </CardHeader>
@@ -522,7 +522,7 @@ function ProductFieldsForm({
             <form.Field name="mentorshipType">
               {(field) => (
                 <div className="space-y-2">
-                  <Label htmlFor={field.name}>Mentorship Type *</Label>
+                  <Label htmlFor={field.name}>Session Type *</Label>
                   <Select
                     value={field.state.value}
                     onValueChange={(v) => {
@@ -534,12 +534,12 @@ function ProductFieldsForm({
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="one-on-one">1-on-1 Mentorship</SelectItem>
-                      <SelectItem value="group">Group Mentorship</SelectItem>
+                      <SelectItem value="one-on-one">1-on-1 Session</SelectItem>
+                      <SelectItem value="group">Group Session</SelectItem>
                     </SelectContent>
                   </Select>
                   {field.state.meta.isTouched && (!field.state.value || (field.state.value !== "one-on-one" && field.state.value !== "group")) && (
-                    <p className="text-sm text-red-600">Please select a mentorship type.</p>
+                    <p className="text-sm text-red-600">Please select a session type.</p>
                   )}
                 </div>
               )}
@@ -555,7 +555,7 @@ function ProductFieldsForm({
                   value={field.state.value}
                   onChange={(e) => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
-                  placeholder="e.g., 4-Session Mentorship Pack"
+                  placeholder="e.g., 4-Session Pack"
                   disabled={isSubmitting}
                 />
                 {field.state.meta.isTouched && (!field.state.value || field.state.value.trim().length === 0) && (
@@ -600,7 +600,7 @@ function ProductFieldsForm({
                   />
                   {field.state.meta.isTouched && (() => {
                     const v = field.state.value;
-                    const num = parseFloat(v as any);
+                    const num = parseFloat(String(v));
                     if (!v || v.toString().trim().length === 0) {
                       return <p className="text-sm text-red-600">Price is required.</p>;
                     }
@@ -932,7 +932,7 @@ function ImportFromStripeForm({
             <h3 className="font-semibold mb-3">How to use:</h3>
             <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
               <li>Go to your Stripe Dashboard → Products</li>
-              <li>Find your product (e.g., &quot;Ash Kirk 1-on-1 Mentorship&quot;)</li>
+              <li>Find your product (e.g., &quot;Ash Kirk 1-on-1 Session&quot;)</li>
               <li>Copy the Product ID (starts with <code className="bg-muted px-1 py-0.5 rounded">prod_</code>)</li>
               <li>Paste it above and click &quot;Import Product&quot;</li>
               <li>Use the Database ID for checkout</li>

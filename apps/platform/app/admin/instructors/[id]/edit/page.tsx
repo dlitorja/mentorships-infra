@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, ArrowLeft, Plus, X, Trash2, Upload } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, X, Trash2 } from "lucide-react";
 import { z } from "zod";
 import { apiFetch } from "@/lib/queries/api-client";
 import { ImageUploadField } from "@/components/admin/image-upload-field";
@@ -279,7 +280,6 @@ async function deleteStudentResult(instructorId: string, resultId: string) {
 }
 
 export default function EditInstructorPage() {
-  const router = useRouter();
   const params = useParams();
   const instructorId = params.id as string;
 
@@ -316,6 +316,7 @@ export default function EditInstructorPage() {
   const [showProductDeactivationDialog, setShowProductDeactivationDialog] = useState(false);
   const [activeProducts, setActiveProducts] = useState<ActiveProduct[]>([]);
 
+  const [error, setError] = useState<string | null>(null);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [deactivationResults, setDeactivationResults] = useState<{
@@ -365,6 +366,7 @@ export default function EditInstructorPage() {
     mutationFn: ({ data, deactivateProducts }: { data: Partial<InstructorFormData>; deactivateProducts: boolean }) =>
       updateInstructor(instructorId, data, deactivateProducts),
     onSuccess: (result) => {
+      setError(null);
       if (result.productsDeactivated) {
         setDeactivationResults(result.productsDeactivated);
         setSuccessMessage(
@@ -381,20 +383,20 @@ export default function EditInstructorPage() {
       refetch();
     },
     onError: (error: Error) => {
-      const apiError = error as ApiError;
-      const response = apiError.response;
+      const response = error instanceof ApiError ? error.response : undefined;
       if (response?.requiresProductDeactivation) {
         setActiveProducts((response.activeProducts as ActiveProduct[]) || []);
         setShowProductDeactivationDialog(true);
       } else if (response?.activeStudentCount) {
-        alert(`Cannot deactivate instructor: ${response.activeStudentCount} active student(s) with remaining sessions.`);
+        setError(`Cannot deactivate instructor: ${response.activeStudentCount} active student(s) with remaining sessions.`);
       } else {
-        alert(error.message || "Failed to update instructor");
+        setError(error.message || "Failed to update instructor");
       }
     },
   });
 
   const handleSave = () => {
+    setError(null);
     updateMutation.mutate({
       data: formData,
       deactivateProducts: false,
@@ -409,40 +411,48 @@ export default function EditInstructorPage() {
   const addTestimonialMutation = useMutation({
     mutationFn: (data: { name: string; text: string }) => addTestimonial(instructorId, data),
     onSuccess: () => {
+      setError(null);
       setShowTestimonialDialog(false);
       setTestimonialForm({ name: "", text: "" });
       refetch();
     },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to add testimonial");
+      setError(error instanceof Error ? error.message : "Failed to add testimonial");
     },
   });
 
   const deleteTestimonialMutation = useMutation({
     mutationFn: (testimonialId: string) => deleteTestimonial(instructorId, testimonialId),
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      setError(null);
+      refetch();
+    },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to delete testimonial");
+      setError(error instanceof Error ? error.message : "Failed to delete testimonial");
     },
   });
 
   const addStudentResultMutation = useMutation({
     mutationFn: (data: { imageUrl: string; studentName: string }) => addStudentResult(instructorId, data),
     onSuccess: () => {
+      setError(null);
       setShowStudentResultDialog(false);
       setStudentResultForm({ imageUrl: "", studentName: "" });
       refetch();
     },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to add student result");
+      setError(error instanceof Error ? error.message : "Failed to add student result");
     },
   });
 
   const deleteStudentResultMutation = useMutation({
     mutationFn: (resultId: string) => deleteStudentResult(instructorId, resultId),
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      setError(null);
+      refetch();
+    },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "Failed to delete student result");
+      setError(error instanceof Error ? error.message : "Failed to delete student result");
     },
   });
 
@@ -542,6 +552,12 @@ export default function EditInstructorPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-6 p-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">
+          {error}
+        </div>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-7">
@@ -701,8 +717,15 @@ export default function EditInstructorPage() {
                 {formData.portfolioImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {formData.portfolioImages.map((url, i) => (
-                      <div key={i} className="relative group">
-                        <img src={url} alt={`Portfolio ${i + 1}`} className="w-full h-24 object-cover rounded" />
+                      <div key={i} className="relative group h-24">
+                        <Image
+                          src={url}
+                          alt={`Portfolio ${i + 1}`}
+                          fill
+                          sizes="(max-width: 768px) 25vw, 15vw"
+                          unoptimized
+                          className="object-cover rounded"
+                        />
                         <button
                           onClick={() => removePortfolioImage(i)}
                           className="absolute top-1 right-1 bg-destructive text-white rounded-full p-1 opacity-0 group-hover:opacity-100"
@@ -901,9 +924,16 @@ export default function EditInstructorPage() {
               ) : (
                 <div className="grid grid-cols-4 gap-4">
                   {data.studentResults.map((r) => (
-                    <div key={r.id} className="relative group">
+                    <div key={r.id} className="relative group h-32">
                       {r.imageUrl && (
-                        <img src={r.imageUrl} alt="Student result" className="w-full h-32 object-cover rounded" />
+                        <Image
+                          src={r.imageUrl}
+                          alt="Student result"
+                          fill
+                          sizes="(max-width: 768px) 25vw, 15vw"
+                          unoptimized
+                          className="object-cover rounded"
+                        />
                       )}
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <Button
@@ -933,7 +963,7 @@ export default function EditInstructorPage() {
           <Card>
             <CardHeader>
               <CardTitle>Inventory & Bookings</CardTitle>
-              <CardDescription>Configure mentorship availability and booking settings</CardDescription>
+              <CardDescription>Configure session availability and booking settings</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-3 gap-4">
@@ -951,7 +981,7 @@ export default function EditInstructorPage() {
                       setFormData((prev) => ({ ...prev, oneOnOneInventory: clamped }));
                     }}
                   />
-                  <p className="text-sm text-muted-foreground mt-1">Available 1-on-1 mentorship slots</p>
+                  <p className="text-sm text-muted-foreground mt-1">Available 1-on-1 session slots</p>
                 </div>
                 <div>
                   <Label htmlFor="groupInventory">Group Inventory</Label>
@@ -967,7 +997,7 @@ export default function EditInstructorPage() {
                       setFormData((prev) => ({ ...prev, groupInventory: clamped }));
                     }}
                   />
-                  <p className="text-sm text-muted-foreground mt-1">Available group mentorship slots</p>
+                  <p className="text-sm text-muted-foreground mt-1">Available group session slots</p>
                 </div>
                 <div>
                   <Label htmlFor="maxActiveStudents">Max Active Students</Label>
