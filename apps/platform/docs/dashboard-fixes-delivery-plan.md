@@ -12,7 +12,7 @@ Fixes are grouped into the smallest number of PRs that still share a single them
 | **2** | Instructor self-service: profile, images, onboarding review | All fix instructor-owned record mutations/UI | Merged | P0 — profile editing and onboarding are non-functional |
 | **3** | Student booking navigation & calendar ID mismatch | Both break the student booking → workspace flow | Merged | P0 — links go to wrong IDs and calendar uses wrong ID types |
 | **4** | Session actions, notifications, and email preview | All fix how sessions are cancelled/rescheduled/notified | Merged | P1 — notifications and calendar cleanup are skipped |
-| **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | Not started | P1 — UI stays stale and booking edge cases are unreliable |
+| **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | In review | P1 — UI stays stale and booking edge cases are unreliable |
 | **6** | Security & API hardening | Public API leaks, waitlist auth, empty `catch` lint errors | Not started | P1 — security and lint failures |
 | **7** | Admin dashboard & code quality | Naming, unused code, `<img>` tags, console noise, alerts | Not started | P2 — cleanup and convention compliance |
 
@@ -139,11 +139,17 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 - `app/api/bookings/route.ts` — delete the Google Calendar event if the Convex `confirm` mutation fails after the calendar event was created.
 
 ### Verification
-- [ ] After booking/cancelling/rescheduling, dashboard and sessions lists refresh automatically.
-- [ ] Recurring weekly series preserves the same local time across DST boundaries.
-- [ ] Failed booking confirmation does not leave an orphan event on the instructor’s Google Calendar.
-- [ ] `npm run lint` and `npm run typecheck` pass.
-- [ ] Greptile review has no new issues.
+- [x] After booking/cancelling/rescheduling, dashboard and sessions lists refresh automatically.
+- [x] Recurring weekly series preserves the same local time across DST boundaries.
+- [x] Failed booking confirmation does not leave an orphan event on the instructor’s Google Calendar.
+- [x] `npm run lint` and `npm run typecheck` pass.
+- [x] Greptile review has no new issues.
+
+### Improvements applied during PR 5
+- Migrated `use-mutations.ts` in addition to the originally planned hooks because it exported the same broken invalidation keys.
+- Added `lib/timezone.ts` with unit tests so the DST-safe arithmetic is isolated and verifiable, rather than inline in the booking route.
+- Normalized `addDays`/`addMinutes` to valid calendar components so the `localDateTimeToUtcMillis` brute-force search is the real code path, not a silent fallback.
+- Noted and fixed that `useCompleteSession` in `use-sessions.ts` omitted `sessionPacks:` invalidation compared to the parallel hook in `use-mutations.ts`.
 
 ---
 
@@ -203,11 +209,11 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 | 2 | `fix/instructor-self-service` | Merged | https://github.com/dlitorja/mentorships-infra/pull/686 | Depends on PR 1 |
 | 3 | `fix/student-booking-navigation` | Merged | https://github.com/dlitorja/mentorships-infra/pull/687 | Depends on PR 1 |
 | 4 | `fix/session-actions-notifications` | Merged | https://github.com/dlitorja/mentorships-infra/pull/688 | Depends on PR 1 |
-| 5 | `fix/data-refresh-reliability` | Not started | | Depends on PR 1 and 3 |
+| 5 | `fix/data-refresh-reliability` | In review | | Depends on PR 1 and 3 |
 | 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, and PR 4 are merged; PR 5 (`fix/data-refresh-reliability`) is the next one to implement.*
+*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, and PR 4 are merged; PR 5 (`fix/data-refresh-reliability`) is open for review.*
 
 ---
 
