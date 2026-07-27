@@ -128,28 +128,6 @@ export default function InstructorStudentsPage() {
     });
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="container mx-auto py-8">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-destructive text-center">
-              Failed to load students: {error instanceof Error ? error.message : "Unknown error"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   const students = data?.items || [];
 
   const filteredAndSortedStudents = useMemo(() => {
@@ -172,17 +150,40 @@ export default function InstructorStudentsPage() {
         case "remaining":
           comparison = a.remainingSessions - b.remainingSessions;
           break;
-        case "lastSession":
+        case "lastSession": {
           const aTime = a.lastSessionCompletedAt ? new Date(a.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
           const bTime = b.lastSessionCompletedAt ? new Date(b.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
           comparison = aTime - bTime;
           break;
+        }
       }
       return sortOrder === "asc" ? comparison : -comparison;
     });
 
     return result;
   }, [students, searchQuery, sortBy, sortOrder]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto py-8">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-destructive text-center">
+              Failed to load students: {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto py-8">

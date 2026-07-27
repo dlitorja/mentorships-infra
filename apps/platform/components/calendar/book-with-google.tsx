@@ -99,8 +99,8 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
           } else if (seriesRes.status !== 404) {
             toast.error(seriesJson?.error || "Failed to create weekly reservations");
           }
-        } catch {
-          // ignore network errors here; we'll fallback notify below
+        } catch (e) {
+          console.error("Failed to create weekly series; falling back to single notification:", e);
         }
         if (!seriesOk) {
           // Fallback: ensure at least one confirmation email goes out
@@ -112,7 +112,9 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ bookingId }),
               });
-            } catch {}
+            } catch (e) {
+              console.error("Failed to send fallback booking notification:", e);
+            }
           }
         }
         // Refetch availability to reflect booking

@@ -191,13 +191,13 @@ export default function WorkspaceNotes({ workspaceId, currentUserId, activeSessi
       console.error('Failed to auto-save note:', error);
     } finally {
       const current = autosavesRef.current.get(noteId);
-      if (!current) return;
-
-      current.inFlight = false;
-      if (current.sequence !== sequence) {
-        void flushAutosave(noteId);
-      } else if (!current.timeout) {
-        autosavesRef.current.delete(noteId);
+      if (current) {
+        current.inFlight = false;
+        if (current.sequence !== sequence) {
+          void flushAutosave(noteId);
+        } else if (!current.timeout) {
+          autosavesRef.current.delete(noteId);
+        }
       }
     }
   }

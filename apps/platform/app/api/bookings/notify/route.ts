@@ -38,7 +38,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     try {
       const user = await convex.query(api.users.getUserByUserId as any, { userId });
       isAdmin = (user as any)?.role === "admin";
-    } catch {}
+    } catch (err) {
+      console.error("Failed to check admin role for booking notify:", err);
+    }
     if (!isAdmin && !(booking.createdByUserId === userId || instructor.userId === userId)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }

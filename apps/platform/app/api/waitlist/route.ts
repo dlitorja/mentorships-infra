@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { getConvexClient } from "@/lib/convex";
+import { auth } from "@clerk/nextjs/server";
+import { getClerkUserEmail } from "@/lib/auth-helpers";
+import { isUnauthorizedError } from "@/lib/errors";
 
 const postSchema = z.object({
   email: z.string().email().transform((e) => e.trim().toLowerCase()),
@@ -37,20 +40,29 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 }
 
-// Check waitlist status for a specific email + instructorSlug (both required)
+// Check waitlist status for the authenticated user's email + instructorSlug.
+// Requires authentication to prevent arbitrary email lookup.
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    const { searchParams } = new URL(req.url);
-    const email = searchParams.get("email");
-    const instructorSlug = searchParams.get("instructorSlug");
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    if (!email || !instructorSlug) {
+    const email = await getClerkUserEmail(userId);
+    if (!email) {
+      return NextResponse.json({ error: "No email found" }, { status: 400 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const instructorSlug = searchParams.get("instructorSlug");
+    if (!instructorSlug) {
       return NextResponse.json({ onWaitlist: false, entries: [] });
     }
 
     const convex = getConvexClient();
     const status = await convex.query(api.waitlist.getWaitlistStatus, {
-      email: email.trim().toLowerCase(),
+      email,
       instructorSlug,
     } as any);
 
@@ -68,6 +80,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         : [],
     });
   } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     console.error("Waitlist GET error:", error);
     return NextResponse.json({ error: "Failed to fetch waitlist status" }, { status: 500 });
   }
