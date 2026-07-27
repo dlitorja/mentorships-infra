@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +35,7 @@ export default function CreateInstructorPage() {
     maxActiveStudents: "10",
   });
   const [profileImage, setProfileImage] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const discordUrl = formData.discordVoiceChannelUrl?.trim() || "";
   const isDiscordUrlInvalid = !isValidDiscordUrl(discordUrl);
@@ -55,7 +55,8 @@ export default function CreateInstructorPage() {
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+      setIsSubmitting(true);
+      setError(null);
 
     try {
       // Defensive guard to prevent programmatic bypass
@@ -111,17 +112,13 @@ export default function CreateInstructorPage() {
           body: form,
         });
         if (!uploadRes.ok) {
-          const err = await uploadRes.json().catch(() => ({}));
-          console.error("Profile image upload failed:", err);
           // Non-fatal: instructor exists; let user proceed and fix image later
         }
       }
 
       router.push("/admin/instructors");
-    } catch (error) {
-      console.error("Error creating instructor:", error);
-      const message = error instanceof Error ? error.message : "Failed to create instructor";
-      alert(message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create instructor");
     } finally {
       setIsSubmitting(false);
     }
@@ -310,6 +307,11 @@ export default function CreateInstructorPage() {
           </CardContent>
         </Card>
 
+        {error && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">
+            {error}
+          </div>
+        )}
         <div className="flex gap-4">
           <Button
             type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { use, useState } from "react";
+import { use, useState } from "react";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -43,7 +43,7 @@ function isStudentItem(item: SelectableItem): item is StudentItem {
   return item.kind === "student";
 }
 
-/** Fetches mentees from the admin API, optionally filtered by search. */
+/** Fetches students from the admin API, optionally filtered by search. */
 async function fetchUsers(search?: string): Promise<{ items: StudentItem[] }> {
   const params = new URLSearchParams();
   if (search) params.set("search", search);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Search,
@@ -244,7 +244,7 @@ export default function AdminOrdersPage() {
   const pageSize = 20;
   const totalPages = Math.ceil(total / pageSize);
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -258,7 +258,6 @@ export default function AdminOrdersPage() {
           router.push("/dashboard?error=unauthorized");
           return;
         }
-        console.error("Failed to fetch orders:", res.status);
         setOrders([]);
         setTotal(0);
         return;
@@ -268,16 +267,17 @@ export default function AdminOrdersPage() {
 
       setOrders(data.items);
       setTotal(data.total);
-    } catch (error) {
-      console.error("Error fetching orders:", error);
+    } catch {
+      setOrders([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, statusFilter, router]);
 
   useEffect(() => {
     fetchOrders();
-  }, [page, statusFilter]);
+  }, [fetchOrders]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

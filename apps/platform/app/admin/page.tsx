@@ -73,18 +73,6 @@ function formatDate(dateString: string | null): string {
   });
 }
 
-function formatDateTime(dateString: string | null): string {
-  if (!dateString) return "N/A";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 function getStatusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
     case "active":
@@ -321,7 +309,6 @@ export default function AdminDashboard() {
 
         if (!statsRes.ok || !instructorsRes.ok) {
           const status = !statsRes.ok ? statsRes.status : instructorsRes.status;
-          console.error(`Auth check failed - status: ${status}`);
           setError(status === 401 ? "Session expired. Please refresh." : "Failed to load admin data.");
           return;
         }
@@ -336,8 +323,7 @@ export default function AdminDashboard() {
         if (instructorsData.instructors) {
           setInstructors(instructorsData.instructors);
         }
-      } catch (err) {
-        console.error("Error fetching dashboard data:", err);
+      } catch {
         setError("Failed to load admin data. Please try again.");
       } finally {
         setLoading(false);
@@ -382,7 +368,6 @@ export default function AdminDashboard() {
         const StudentsPayload = z.object({ students: z.array(StudentSchema).optional() });
 
         if (!res.ok) {
-          console.error(`Failed to load students for ${instructorId}: HTTP ${res.status}`);
           setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
         } else {
           const json = await res.json();
@@ -390,8 +375,7 @@ export default function AdminDashboard() {
           const students: AdminStudent[] = parsed.success && parsed.data.students ? parsed.data.students : [];
           setExpandedStudents((prev) => ({ ...prev, [instructorId]: students }));
         }
-      } catch (error) {
-        console.error("Error loading students:", error);
+      } catch {
         setExpandedStudents((prev) => ({ ...prev, [instructorId]: [] }));
       } finally {
         setLoadingStudents(null);
@@ -423,7 +407,6 @@ export default function AdminDashboard() {
           const StudentsPayload = z.object({ students: z.array(StudentSchema).optional() });
 
           if (!res.ok) {
-            console.error(`Failed to load students for ${instructor.instructorId}: HTTP ${res.status}`);
             setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
           } else {
             const json = await res.json();
@@ -431,8 +414,7 @@ export default function AdminDashboard() {
             const students: AdminStudent[] = parsed.success && parsed.data.students ? parsed.data.students : [];
             setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: students }));
           }
-        } catch (error) {
-          console.error("Error loading students:", error);
+        } catch {
           setExpandedStudents((prev) => ({ ...prev, [instructor.instructorId]: [] }));
         }
       }
@@ -468,7 +450,7 @@ export default function AdminDashboard() {
         <div>
           <h1 className="text-3xl font-bold">Admin Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            Overview of your mentorship platform
+            Overview of your platform
           </p>
         </div>
 

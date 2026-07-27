@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { z } from "zod";
 import { ExternalLink, CreditCard, Wallet, Search, ChevronLeft, ChevronRight, Loader2, Trash2, AlertTriangle } from "lucide-react";
@@ -93,7 +94,7 @@ export default function ProductsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [instructorId, setInstructorId] = useState("");
-  const [mentorshipType, setMentorshipType] = useState("");
+  const [sessionTypeFilter, setSessionTypeFilter] = useState("");
   const [activeFilter, setActiveFilter] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -103,7 +104,7 @@ export default function ProductsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const fetchInstructors = async () => {
+  const fetchInstructors = useCallback(async () => {
     try {
       const res = await fetch("/api/admin/instructors?pageSize=100");
       const json = await res.json();
@@ -111,16 +112,16 @@ export default function ProductsPage() {
       if (res.ok && parsed.success) {
         setInstructors(parsed.data);
       }
-    } catch (err) {
-      console.error("Error fetching instructors:", err);
+    } catch {
+      // Instructor filter is optional; leave the list empty on failure.
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchInstructors();
-  }, []);
+  }, [fetchInstructors]);
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -129,7 +130,7 @@ export default function ProductsPage() {
       params.set("pageSize", pageSize.toString());
       if (search) params.set("search", search);
       if (instructorId) params.set("instructorId", instructorId);
-      if (mentorshipType) params.set("mentorshipType", mentorshipType);
+      if (sessionTypeFilter) params.set("mentorshipType", sessionTypeFilter);
       if (activeFilter) params.set("active", activeFilter);
 
       const res = await fetch(`/api/admin/products?${params}`);
@@ -141,7 +142,6 @@ export default function ProductsPage() {
       }
       
       if (!parsed.success) {
-        console.error("Invalid API response:", parsed.error);
         throw new Error("Invalid API response");
       }
       
@@ -153,15 +153,15 @@ export default function ProductsPage() {
       setLoading(false);
       setInitialLoading(false);
     }
-  };
+  }, [page, instructorId, sessionTypeFilter, activeFilter, search, pageSize]);
 
   useEffect(() => {
     fetchProducts();
-  }, [page, instructorId, mentorshipType, activeFilter]);
+  }, [fetchProducts]);
 
   useEffect(() => {
     setPage(1);
-  }, [search, instructorId, mentorshipType, activeFilter]);
+  }, [search, instructorId, sessionTypeFilter, activeFilter]);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -218,7 +218,7 @@ export default function ProductsPage() {
     );
   };
 
-  const getMentorshipTypeBadge = (type: string) => {
+  const getSessionTypeBadge = (type: string) => {
     const isOneOnOne = type === "one-on-one";
     return (
       <span
@@ -294,7 +294,7 @@ export default function ProductsPage() {
       <div>
         <h1 className="text-3xl font-bold">Products</h1>
         <p className="text-muted-foreground mt-1">
-          Manage mentorship products and pricing
+          Manage products and pricing
         </p>
       </div>
 
@@ -330,7 +330,7 @@ export default function ProductsPage() {
               </SelectContent>
             </Select>
 
-            <Select value={mentorshipType || "__all__"} onValueChange={(v) => { setMentorshipType(v === "__all__" ? "" : v); setPage(1); }}>
+            <Select value={sessionTypeFilter || "__all__"} onValueChange={(v) => { setSessionTypeFilter(v === "__all__" ? "" : v); setPage(1); }}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="All Types" />
               </SelectTrigger>
@@ -404,9 +404,12 @@ export default function ProductsPage() {
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">
                       {product.imageUrl && (
-                        <img
+                        <Image
                           src={product.imageUrl}
                           alt={product.title}
+                          width={40}
+                          height={40}
+                          unoptimized
                           className="h-10 w-10 rounded object-cover"
                         />
                       )}
@@ -421,7 +424,7 @@ export default function ProductsPage() {
                     </div>
                   </td>
                   <td className="py-3 px-4">
-                    {getMentorshipTypeBadge(product.mentorshipType)}
+                    {getSessionTypeBadge(product.mentorshipType)}
                   </td>
                   <td className="py-3 px-4">{product.instructorName}</td>
                   <td className="py-3 px-4">
