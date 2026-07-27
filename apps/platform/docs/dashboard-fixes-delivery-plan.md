@@ -13,7 +13,7 @@ Fixes are grouped into the smallest number of PRs that still share a single them
 | **3** | Student booking navigation & calendar ID mismatch | Both break the student booking → workspace flow | Merged | P0 — links go to wrong IDs and calendar uses wrong ID types |
 | **4** | Session actions, notifications, and email preview | All fix how sessions are cancelled/rescheduled/notified | Merged | P1 — notifications and calendar cleanup are skipped |
 | **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | Merged | P1 — UI stays stale and booking edge cases are unreliable |
-| **6** | Security & API hardening | Public API leaks, waitlist auth, empty `catch` lint errors plus remaining lint errors | In review | P1 — security and lint failures |
+| **6** | Security & API hardening | Public API leaks, waitlist auth, empty `catch` lint errors plus remaining lint errors | Merged | P1 — security and lint failures |
 | **7** | Admin dashboard & code quality | Naming, unused code, `<img>` tags, console noise, alerts | Not started | P2 — cleanup and convention compliance |
 
 ---
@@ -271,10 +271,10 @@ Current `npm run lint` reports **13 errors**. The PR must close all of them.
 | 3 | `fix/student-booking-navigation` | Merged | https://github.com/dlitorja/mentorships-infra/pull/687 | Depends on PR 1 |
 | 4 | `fix/session-actions-notifications` | Merged | https://github.com/dlitorja/mentorships-infra/pull/688 | Depends on PR 1 |
 | 5 | `fix/data-refresh-reliability` | Merged | https://github.com/dlitorja/mentorships-infra/pull/689 | Depends on PR 1 and 3 |
-| 6 | `fix/security-api-hardening` | In review | https://github.com/dlitorja/mentorships-infra/pull/690 | Can be done in parallel after PR 1 |
+| 6 | `fix/security-api-hardening` | Merged | https://github.com/dlitorja/mentorships-infra/pull/690 | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, PR 4, PR 5 are merged; PR 6 (`fix/security-api-hardening`) is in review at https://github.com/dlitorja/mentorships-infra/pull/690.*
+*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, PR 4, PR 5, and PR 6 are merged; PR 7 (`fix/admin-quality-cleanup`) is the next and final PR.*
 
 ---
 
