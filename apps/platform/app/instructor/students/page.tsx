@@ -151,9 +151,19 @@ export default function InstructorStudentsPage() {
           comparison = a.remainingSessions - b.remainingSessions;
           break;
         case "lastSession": {
-          const aTime = a.lastSessionCompletedAt ? new Date(a.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
-          const bTime = b.lastSessionCompletedAt ? new Date(b.lastSessionCompletedAt).getTime() : Number.MAX_SAFE_INTEGER;
-          comparison = aTime - bTime;
+          const aSession = a.lastSessionCompletedAt;
+          const bSession = b.lastSessionCompletedAt;
+          if (aSession === null && bSession === null) {
+            comparison = 0;
+          } else if (aSession === null) {
+            comparison = 1;
+          } else if (bSession === null) {
+            comparison = -1;
+          } else {
+            const aTime = new Date(aSession).getTime();
+            const bTime = new Date(bSession).getTime();
+            comparison = aTime - bTime;
+          }
           break;
         }
       }

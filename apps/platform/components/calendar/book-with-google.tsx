@@ -107,11 +107,19 @@ export function BookWithGoogle({ instructorId, packs }: { instructorId?: Id<"ins
           const bookingId = json?.booking?._id || json?.booking?.id;
           if (bookingId) {
             try {
-              await fetch("/api/bookings/notify", {
+              const notifyRes = await fetch("/api/bookings/notify", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ bookingId }),
               });
+              if (!notifyRes.ok) {
+                const notifyJson = await notifyRes.json().catch(() => ({}));
+                console.error(
+                  "Fallback booking notification request failed:",
+                  notifyRes.status,
+                  notifyJson
+                );
+              }
             } catch (e) {
               console.error("Failed to send fallback booking notification:", e);
             }
