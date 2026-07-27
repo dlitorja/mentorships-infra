@@ -234,37 +234,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             continue;
           }
 
+          let confirmedBooking: any = null;
           try {
-            const confirmed = await convex.mutation(api.bookings.confirm, {
+            confirmedBooking = await convex.mutation(api.bookings.confirm, {
               id: pending.bookingId,
               eventCalendarId,
               googleEventId: insertedGoogleEventId,
             });
-            if (!confirmed) {
+            if (!confirmedBooking) {
               throw new Error("Confirm returned null");
             }
-            didConfirm = true;
-            createdTimes.push(confirmed.startUtc);
-            results.push({ weekOffset: i, status: "created", bookingId: String(confirmed._id) });
           } catch (confirmErr) {
             // Confirm is idempotent; a lost response may still have committed.
             // Resolve the ambiguity by checking the booking state.
+            let existing = null;
             try {
-              const existing = await convex.query(api.bookings.getBookingById, {
+              existing = await convex.query(api.bookings.getBookingById, {
                 id: pending.bookingId as Id<"bookings">,
               });
-              if (existing && existing.status === "confirmed") {
-                didConfirm = true;
-                createdTimes.push(existing.startUtc);
-                results.push({ weekOffset: i, status: "created", bookingId: String(existing._id) });
-              } else {
-                throw confirmErr;
-              }
             } catch (statusErr) {
-              console.error("Failed to resolve ambiguous confirm status:", statusErr);
+              console.error("Failed to query booking status after confirm error:", statusErr);
+            }
+            if (existing && existing.status === "confirmed") {
+              confirmedBooking = existing;
+            } else {
               throw confirmErr;
             }
           }
+          didConfirm = true;
+          createdTimes.push(confirmedBooking.startUtc);
+          results.push({ weekOffset: i, status: "created", bookingId: String(confirmedBooking._id) });
         } catch (e) {
           console.error("Booking creation failed for series slot:", e);
           results.push({ weekOffset: i, status: "skipped", reason: "Booking creation failed" });
