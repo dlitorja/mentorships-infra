@@ -272,9 +272,9 @@ Current `npm run lint` reports **13 errors**. The PR must close all of them.
 | 4 | `fix/session-actions-notifications` | Merged | https://github.com/dlitorja/mentorships-infra/pull/688 | Depends on PR 1 |
 | 5 | `fix/data-refresh-reliability` | Merged | https://github.com/dlitorja/mentorships-infra/pull/689 | Depends on PR 1 and 3 |
 | 6 | `fix/security-api-hardening` | Merged | https://github.com/dlitorja/mentorships-infra/pull/690 | Can be done in parallel after PR 1 |
-| 7 | `fix/admin-quality-cleanup` | In progress | | Independent cleanup PR |
+| 7 | `fix/admin-quality-cleanup` | Open | https://github.com/dlitorja/mentorships-infra/pull/691 | Independent cleanup PR |
 
-*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, PR 4, PR 5, and PR 6 are merged; PR 7 (`fix/admin-quality-cleanup`) is in progress.*
+*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, PR 4, PR 5, and PR 6 are merged; PR 7 (`fix/admin-quality-cleanup`) is open at https://github.com/dlitorja/mentorships-infra/pull/691.*
 
 ---
 
