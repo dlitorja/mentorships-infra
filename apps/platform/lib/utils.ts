@@ -16,6 +16,9 @@ export async function withRetries<T>(
   attempts: number,
   delayMs: number
 ): Promise<T> {
+  if (attempts <= 0) {
+    throw new Error("withRetries requires attempts >= 1");
+  }
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
