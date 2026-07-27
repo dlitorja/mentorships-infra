@@ -55,8 +55,8 @@ export default function CreateInstructorPage() {
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-      setIsSubmitting(true);
-      setError(null);
+    setIsSubmitting(true);
+    setError(null);
 
     try {
       // Defensive guard to prevent programmatic bypass

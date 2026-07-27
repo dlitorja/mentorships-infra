@@ -366,6 +366,7 @@ export default function EditInstructorPage() {
     mutationFn: ({ data, deactivateProducts }: { data: Partial<InstructorFormData>; deactivateProducts: boolean }) =>
       updateInstructor(instructorId, data, deactivateProducts),
     onSuccess: (result) => {
+      setError(null);
       if (result.productsDeactivated) {
         setDeactivationResults(result.productsDeactivated);
         setSuccessMessage(
@@ -410,6 +411,7 @@ export default function EditInstructorPage() {
   const addTestimonialMutation = useMutation({
     mutationFn: (data: { name: string; text: string }) => addTestimonial(instructorId, data),
     onSuccess: () => {
+      setError(null);
       setShowTestimonialDialog(false);
       setTestimonialForm({ name: "", text: "" });
       refetch();
@@ -421,7 +423,10 @@ export default function EditInstructorPage() {
 
   const deleteTestimonialMutation = useMutation({
     mutationFn: (testimonialId: string) => deleteTestimonial(instructorId, testimonialId),
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      setError(null);
+      refetch();
+    },
     onError: (error) => {
       setError(error instanceof Error ? error.message : "Failed to delete testimonial");
     },
@@ -430,6 +435,7 @@ export default function EditInstructorPage() {
   const addStudentResultMutation = useMutation({
     mutationFn: (data: { imageUrl: string; studentName: string }) => addStudentResult(instructorId, data),
     onSuccess: () => {
+      setError(null);
       setShowStudentResultDialog(false);
       setStudentResultForm({ imageUrl: "", studentName: "" });
       refetch();
@@ -441,7 +447,10 @@ export default function EditInstructorPage() {
 
   const deleteStudentResultMutation = useMutation({
     mutationFn: (resultId: string) => deleteStudentResult(instructorId, resultId),
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      setError(null);
+      refetch();
+    },
     onError: (error) => {
       setError(error instanceof Error ? error.message : "Failed to delete student result");
     },
@@ -708,7 +717,7 @@ export default function EditInstructorPage() {
                 {formData.portfolioImages.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {formData.portfolioImages.map((url, i) => (
-                      <div key={i} className="relative group">
+                      <div key={i} className="relative group h-24">
                         <Image
                           src={url}
                           alt={`Portfolio ${i + 1}`}
@@ -915,7 +924,7 @@ export default function EditInstructorPage() {
               ) : (
                 <div className="grid grid-cols-4 gap-4">
                   {data.studentResults.map((r) => (
-                    <div key={r.id} className="relative group">
+                    <div key={r.id} className="relative group h-32">
                       {r.imageUrl && (
                         <Image
                           src={r.imageUrl}
