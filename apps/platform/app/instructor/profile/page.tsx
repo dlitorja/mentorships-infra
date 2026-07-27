@@ -1,6 +1,6 @@
-import { requireRole } from "@/lib/auth-helpers";
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
 import { ProfileForm } from "./profile-form";
 import { z } from "zod";
@@ -34,7 +34,7 @@ type InstructorProfileData = {
 
 async function getProfileData(): Promise<InstructorProfileData | null> {
   const user = await requireRole("instructor");
-  const convex = getConvexClient();
+  const convex = await getAuthenticatedConvexClient();
 
   const instructor = await convex.query(api.instructors.getInstructorByUserId, {
     userId: user.id,
@@ -64,6 +64,19 @@ async function getProfileData(): Promise<InstructorProfileData | null> {
 }
 
 export default async function InstructorProfilePage() {
+  const token = await getConvexAuthToken();
+  if (!token) {
+    return (
+      <ProtectedLayout currentPath="/instructor/profile">
+        <div className="container mx-auto p-4 md:p-8">
+          <p className="text-muted-foreground">
+            Authentication required. Please sign in again.
+          </p>
+        </div>
+      </ProtectedLayout>
+    );
+  }
+
   const profileData = await getProfileData();
 
   if (!profileData) {

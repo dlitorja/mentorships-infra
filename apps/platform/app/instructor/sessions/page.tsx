@@ -1,5 +1,5 @@
-import { requireRole } from "@/lib/auth-helpers";
-import { getConvexClient } from "@/lib/convex";
+import { requireRole, getConvexAuthToken } from "@/lib/auth-helpers";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { ProtectedLayout } from "@/components/navigation/protected-layout";
@@ -21,7 +21,24 @@ type InstructorAllSession = {
 
 export default async function InstructorSessionsPage() {
   const user = await requireRole("instructor");
-  const convex = getConvexClient();
+  const token = await getConvexAuthToken();
+  if (!token) {
+    return (
+      <ProtectedLayout currentPath="/instructor/sessions">
+        <div className="container mx-auto p-4 md:p-8">
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-center text-muted-foreground">
+                Authentication required. Please sign in again.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </ProtectedLayout>
+    );
+  }
+
+  const convex = await getAuthenticatedConvexClient();
 
   const instructorRecord = await convex.query(api.instructors.getInstructorByUserId, { userId: user.id });
 

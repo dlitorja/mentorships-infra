@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { requireRoleForApi } from "@/lib/auth-helpers";
+import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { getGoogleCalendarClient } from "@/lib/google";
 
@@ -25,7 +26,7 @@ export async function DELETE(
     if (!parseId.success) {
       return NextResponse.json({ error: "Invalid booking id" }, { status: 400 });
     }
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const booking = await convex.query(api.bookings.getBookingById, { id: id as Id<"bookings"> });
     if (!booking) {
@@ -58,6 +59,12 @@ export async function DELETE(
     await convex.mutation(api.bookings.cancel, { id: booking._id as Id<"bookings"> });
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (isUnauthorizedError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (isForbiddenError(error)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     console.error("Booking delete error:", error);
     return NextResponse.json({ error: "Failed to cancel booking" }, { status: 500 });
   }

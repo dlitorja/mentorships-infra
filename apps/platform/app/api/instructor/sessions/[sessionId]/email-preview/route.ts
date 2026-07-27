@@ -7,7 +7,7 @@ import {
   isForbiddenError,
 } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import {
   buildSessionCanceledEmail,
   buildSessionRescheduledEmail,
@@ -27,7 +27,7 @@ export async function POST(
 ): Promise<NextResponse> {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,

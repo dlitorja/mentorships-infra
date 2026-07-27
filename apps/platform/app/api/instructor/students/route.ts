@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
-import { getConvexClient } from "@/lib/convex";
+import { getAuthenticatedConvexClient } from "@/lib/convex";
 import { Id } from "@/convex/_generated/dataModel";
 import { isUnauthorizedError, isForbiddenError } from "@/lib/errors";
 import { requireRoleForApi } from "@/lib/auth-helpers";
 
 /**
- * GET /api/instructor/mentees
- * Get all mentees for the authenticated instructor
+ * GET /api/instructor/students
+ * Get all students for the authenticated instructor
  */
 export async function GET(req: NextRequest) {
   try {
     const user = await requireRoleForApi("instructor");
-    const convex = getConvexClient();
+    const convex = await getAuthenticatedConvexClient();
 
     const instructor = await convex.query(api.instructors.getInstructorByUserId, {
       userId: user.id,
@@ -25,12 +25,12 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const mentees = await convex.query(api.instructors.getInstructorStudentsWithSessionInfo, {
+    const students = await convex.query(api.instructors.getInstructorStudentsWithSessionInfo, {
       instructorId: instructor._id,
     }) as any[];
 
     return NextResponse.json({
-      items: mentees.map((m: any) => ({
+      items: students.map((m: any) => ({
         userId: m.userId,
         email: m.email,
         sessionPackId: m.sessionPackId,
@@ -51,9 +51,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden: Instructor role required" }, { status: 403 });
     }
 
-    console.error("Error fetching instructor mentees:", error);
+    console.error("Error fetching instructor students:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed to fetch mentees" },
+      { error: error instanceof Error ? error.message : "Failed to fetch students" },
       { status: 500 }
     );
   }
