@@ -9,8 +9,8 @@ Fixes are grouped into the smallest number of PRs that still share a single them
 | PR | Theme | Why bundled | Status | Risk |
 |---|---|---|---|---|
 | **1** | Convex auth tokens for instructor & student routes | Same pattern, same blocker, huge blast radius | Merged | P0 — most instructor/student features are broken without this |
-| **2** | Instructor self-service: profile, images, onboarding review | All fix instructor-owned record mutations/UI | In review | P0 — profile editing and onboarding are non-functional |
-| **3** | Student booking navigation & calendar ID mismatch | Both break the student booking → workspace flow | Not started | P0 — links go to wrong IDs and calendar uses wrong ID types |
+| **2** | Instructor self-service: profile, images, onboarding review | All fix instructor-owned record mutations/UI | Merged | P0 — profile editing and onboarding are non-functional |
+| **3** | Student booking navigation & calendar ID mismatch | Both break the student booking → workspace flow | Next | P0 — links go to wrong IDs and calendar uses wrong ID types |
 | **4** | Session actions, notifications, and email preview | All fix how sessions are cancelled/rescheduled/notified | Not started | P1 — notifications and calendar cleanup are skipped |
 | **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | Not started | P1 — UI stays stale and booking edge cases are unreliable |
 | **6** | Security & API hardening | Public API leaks, waitlist auth, empty `catch` lint errors | Not started | P1 — security and lint failures |
@@ -58,16 +58,23 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 **Goal:** make the instructor profile page and onboarding review actually functional.
 
 ### Scope
-- `app/api/instructor/profile/route.ts` — fix the `updateInstructor` call so non-admin instructors can update their own profile fields (name, bio, specialties, portfolio, etc.), or introduce an instructor-specific mutation.
-- `app/instructor/profile/profile-form.tsx` and `components/admin/instructor-image-upload.tsx` — switch image upload to the dedicated `uploadInstructorProfileImage` / `uploadInstructorPortfolioImage` Convex mutations.
-- `app/instructor/onboarding/page.tsx` — implement the missing `/api/instructor/onboarding/review` POST handler or change the form to use the correct existing endpoint.
+- `convex/instructors.ts` — add self-service `updateInstructorProfile` mutation with a `userId` ownership check.
+- `convex/instructors.ts` — add `addInstructorProfileImage`, `addInstructorPortfolioImage`, and `generateAuthenticatedInstructorUploadUrl` for authenticated, instructor-owned image uploads.
+- `app/api/instructor/profile/route.ts` — switch to `updateInstructorProfile`.
+- `app/api/instructor/upload-image/route.ts` — new POST handler for profile/portfolio images with file-type and size validation.
+- `app/api/instructor/onboarding/review/route.ts` — new POST handler that calls `studentOnboarding.markReviewed`.
+- `app/instructor/profile/profile-form.tsx` — switch image uploads to the new API endpoints and replace forbidden "Mentee" wording with "Student".
+- `convex/schema.ts` — add `by_legacyId` index on `studentOnboardingSubmissions`.
+- `convex/studentOnboarding.ts` — use `withIndex("by_legacyId")` for `getByLegacyId` and `markReviewed`.
 
 ### Verification
 - [ ] Instructor can edit and save profile fields; values persist after refresh.
 - [ ] Instructor can upload profile and portfolio images.
 - [ ] “Mark reviewed” onboarding action succeeds without 404.
-- [ ] `npm run lint` and `npm run typecheck` pass.
-- [ ] Greptile review has no new issues.
+- [x] `npm run lint` reports no new issues (165 pre-existing issues remain).
+- [x] `npm run typecheck` passes.
+- [x] Greptile review passed at 5/5 confidence.
+- [ ] End-to-end functional verification pending deployment.
 
 ---
 
@@ -180,23 +187,20 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 | PR | Branch | Status | Merged | Notes |
 |---|---|---|---|---|
 | 1 | `fix/dashboard-auth-tokens` | Merged | https://github.com/dlitorja/mentorships-infra/pull/685 | Blocker for most instructor/student functionality |
-| 2 | `fix/instructor-self-service` | In review | | Rebased onto main after PR 1 merged |
-| 3 | `fix/student-booking-navigation` | Not started | | Depends on PR 1 |
+| 2 | `fix/instructor-self-service` | Merged | https://github.com/dlitorja/mentorships-infra/pull/686 | Depends on PR 1 |
+| 3 | `fix/student-booking-navigation` | Next | | Depends on PR 1 |
 | 4 | `fix/session-actions-notifications` | Not started | | Depends on PR 1 |
 | 5 | `fix/data-refresh-reliability` | Not started | | Depends on PR 1 and 3 |
 | 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-26 — PR 2 implemented; `fix/instructor-self-service` is ready for review and should be rebased onto main after PR 1 merges.*
+*Last updated: 2026-07-27 — PR 1 and PR 2 are merged; PR 3 (`fix/student-booking-navigation`) is the next one to implement.*
 
 ---
 
 ## Summaries for new sessions
 
-The following one-paragraph summaries are meant to quickly orient a new agent (or a future session) to each remaining PR.
-
-### PR 2: Instructor self-service
-Make the instructor profile and onboarding review flows actually save data. The profile edit page calls an admin-only Convex mutation today, so non-admin instructors cannot update their own bio/specialties/portfolio. Add a self-service `updateInstructorProfile` mutation with an ownership check, route image uploads through new authenticated `addInstructorProfileImage` / `addInstructorPortfolioImage` mutations (and an authenticated upload-URL generator), and implement the missing `/api/instructor/onboarding/review` POST endpoint so the "Mark reviewed" action stops returning 404.
+The following one-paragraph summaries are meant to quickly orient a new agent (or a future session) to the remaining PRs.
 
 ### PR 3: Student booking navigation & calendar ID mismatch
 Fix the student dashboard and sessions list so their "Workspace" links use the real Convex workspace ID instead of a session-pack UUID. Then migrate the calendar booking flow (`/calendar` and `book-session-form`) so it passes Convex IDs (`instructorId`, `sessionPackId`) to the booking API rather than Postgres UUIDs.
