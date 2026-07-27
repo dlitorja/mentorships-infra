@@ -11,7 +11,7 @@ Fixes are grouped into the smallest number of PRs that still share a single them
 | **1** | Convex auth tokens for instructor & student routes | Same pattern, same blocker, huge blast radius | Merged | P0 — most instructor/student features are broken without this |
 | **2** | Instructor self-service: profile, images, onboarding review | All fix instructor-owned record mutations/UI | Merged | P0 — profile editing and onboarding are non-functional |
 | **3** | Student booking navigation & calendar ID mismatch | Both break the student booking → workspace flow | Merged | P0 — links go to wrong IDs and calendar uses wrong ID types |
-| **4** | Session actions, notifications, and email preview | All fix how sessions are cancelled/rescheduled/notified | Not started | P1 — notifications and calendar cleanup are skipped |
+| **4** | Session actions, notifications, and email preview | All fix how sessions are cancelled/rescheduled/notified | Merged | P1 — notifications and calendar cleanup are skipped |
 | **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | Not started | P1 — UI stays stale and booking edge cases are unreliable |
 | **6** | Security & API hardening | Public API leaks, waitlist auth, empty `catch` lint errors | Not started | P1 — security and lint failures |
 | **7** | Admin dashboard & code quality | Naming, unused code, `<img>` tags, console noise, alerts | Not started | P2 — cleanup and convention compliance |
@@ -115,11 +115,11 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 - `app/api/instructor/sessions/[sessionId]/email-preview/route.ts` — fix the user lookup to use `userId` (Clerk string) rather than a Convex document ID.
 
 ### Verification
-- [ ] Rescheduling a session sends the notification and updates the calendar.
-- [ ] Cancelling a session sends the notification and removes the calendar event.
-- [ ] Email preview endpoint returns a preview for the correct student.
-- [ ] `npm run lint` and `npm run typecheck` pass.
-- [ ] Greptile review has no new issues.
+- [x] Rescheduling a session sends the notification and updates the calendar.
+- [x] Cancelling a session sends the notification and removes the calendar event.
+- [x] Email preview endpoint returns a preview for the correct student.
+- [x] `npm run lint` and `npm run typecheck` pass.
+- [x] Greptile review has no new issues.
 
 ---
 
@@ -196,12 +196,12 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 | 1 | `fix/dashboard-auth-tokens` | Merged | https://github.com/dlitorja/mentorships-infra/pull/685 | Blocker for most instructor/student functionality |
 | 2 | `fix/instructor-self-service` | Merged | https://github.com/dlitorja/mentorships-infra/pull/686 | Depends on PR 1 |
 | 3 | `fix/student-booking-navigation` | Merged | https://github.com/dlitorja/mentorships-infra/pull/687 | Depends on PR 1 |
-| 4 | `fix/session-actions-notifications` | Not started | | Depends on PR 1 |
+| 4 | `fix/session-actions-notifications` | Merged | https://github.com/dlitorja/mentorships-infra/pull/688 | Depends on PR 1 |
 | 5 | `fix/data-refresh-reliability` | Not started | | Depends on PR 1 and 3 |
 | 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-27 — PR 1, PR 2, and PR 3 are merged; PR 4 (`fix/session-actions-notifications`) is the next one to implement.*
+*Last updated: 2026-07-27 — PR 1, PR 2, PR 3, and PR 4 are merged; PR 5 (`fix/data-refresh-reliability`) is the next one to implement.*
 
 ---
 
