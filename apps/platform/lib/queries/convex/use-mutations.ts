@@ -206,7 +206,8 @@ export function useCreateSessionPack() {
         predicate: (q) =>
           q.queryKey[0] === "convexQuery" &&
           typeof q.queryKey[1] === "string" &&
-          q.queryKey[1].startsWith("sessionPacks:"),
+          (q.queryKey[1].startsWith("sessionPacks:") ||
+            q.queryKey[1].startsWith("workspaces:")),
         refetchType: "all",
       });
     },

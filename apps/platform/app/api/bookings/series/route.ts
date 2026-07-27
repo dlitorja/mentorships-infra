@@ -266,8 +266,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             }
           }
         } catch (e) {
-          console.error("Google Calendar insert or confirm error (series):", e);
-          results.push({ weekOffset: i, status: "skipped", reason: "Calendar provider error" });
+          console.error("Booking creation failed for series slot:", e);
+          results.push({ weekOffset: i, status: "skipped", reason: "Booking creation failed" });
         } finally {
           if (!didConfirm) {
             const eventIdToDelete = insertedGoogleEventId;
