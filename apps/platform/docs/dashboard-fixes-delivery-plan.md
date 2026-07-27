@@ -29,15 +29,27 @@ Fixes are grouped into the smallest number of PRs that still share a single them
 - Student API routes: `app/api/bookings/*`, `app/api/sessions/*`, `app/api/user/settings/route.ts`.
 
 ### Pattern to follow
-Use `getConvexAuthToken()` from `lib/auth-helpers.ts` and `convex.setAuth(token)` before `fetchQuery`/`fetchMutation`. Example already exists in `app/api/instructor/session-packs/[sessionPackId]/route.ts`.
+Use `getAuthenticatedConvexClient()` from `lib/convex.ts`. The helper:
+1. Fetches the Clerk "convex" JWT via `getConvexAuthToken()`.
+2. Creates a `ConvexHttpClient` and calls `client.setAuth(token)`.
+3. Throws a typed `UnauthorizedError` when no token is available so callers can return 401 or render a graceful fallback.
+
+API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(error)` (and `isForbiddenError(error)` where the route also calls `requireRoleForApi`). Server pages should call `getConvexAuthToken()` first and render a fallback UI when the token is missing, then call `getAuthenticatedConvexClient()` for the actual data fetch.
 
 ### Verification
-- [ ] Instructor dashboard loads instructor record and shows instructor nav.
-- [ ] Instructor settings, availability, profile, and onboarding pages load data.
-- [ ] Student bookings endpoint `/api/bookings/me` returns real data.
-- [ ] Session cancel/reschedule/notes endpoints work without `Unauthorized`.
-- [ ] `npm run lint` and `npm run typecheck` pass.
-- [ ] Greptile review has no new issues.
+- [x] Instructor dashboard loads instructor record and shows instructor nav.
+- [x] Instructor settings, availability, profile, and onboarding pages load data.
+- [x] Student bookings endpoint `/api/bookings/me` returns real data.
+- [x] Session cancel/reschedule/notes endpoints work without `Unauthorized`.
+- [x] `npm run typecheck` passes.
+- [x] `npm run lint` reports no new issues (165 pre-existing issues remain).
+- [x] Greptile review passed at 5/5 confidence.
+
+### Improvements applied during PR 1
+- Centralized token acquisition in a single `getAuthenticatedConvexClient()` helper instead of duplicating `getConvexAuthToken()` + `setAuth()` in every route/page.
+- Standardized API error handling on `isUnauthorizedError` / `isForbiddenError` so every route returns a deterministic 401/403 rather than a 500.
+- Added graceful "Authentication required" fallbacks to all server pages instead of letting `UnauthorizedError` surface as an unhandled error.
+- Removed one forbidden `mentee` reference in `app/api/instructor/students/route.ts` while the file was already being edited.
 
 ---
 
@@ -175,4 +187,28 @@ Use `getConvexAuthToken()` from `lib/auth-helpers.ts` and `convex.setAuth(token)
 | 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-26 — PR 1 opened*
+*Last updated: 2026-07-26 — PR 1 in review, no PR comments requiring fixes*
+
+---
+
+## Summaries for new sessions
+
+The following one-paragraph summaries are meant to quickly orient a new agent (or a future session) to each remaining PR.
+
+### PR 2: Instructor self-service
+Make the instructor profile and onboarding review flows actually save data. The profile edit page calls an admin-only Convex mutation today, so non-admin instructors cannot update their own bio/specialties/portfolio. Switch image uploads to the dedicated `uploadInstructorProfileImage` / `uploadInstructorPortfolioImage` mutations, and implement the missing onboarding review POST endpoint so the "Mark reviewed" action stops returning 404.
+
+### PR 3: Student booking navigation & calendar ID mismatch
+Fix the student dashboard and sessions list so their "Workspace" links use the real Convex workspace ID instead of a session-pack UUID. Then migrate the calendar booking flow (`/calendar` and `book-session-form`) so it passes Convex IDs (`instructorId`, `sessionPackId`) to the booking API rather than Postgres UUIDs.
+
+### PR 4: Session actions, notifications, and email preview
+Replace direct `useMutation(api.sessions.*)` calls in the instructor session-action components with calls to the authenticated `/api/sessions/[sessionId]/reschedule|cancel|notes` routes. Make the reschedule/cancel endpoints use an instructor-accessible user lookup instead of the admin-only one, and fix the email-preview endpoint so it looks up the student by Clerk `userId` rather than a Convex document ID.
+
+### PR 5: Data refresh & booking reliability
+Fix React Query invalidation so dashboards refresh after mutations (use the `@convex-dev/react-query` key shape). Fix recurring series booking so it preserves the same local time across DST changes, and make the booking confirmation endpoint delete the Google Calendar event if the Convex mutation fails, preventing orphaned calendar events.
+
+### PR 6: Security & API hardening
+Close public API leaks: remove `stripePriceId`/`paypalProductId` from the public products response, require authentication for waitlist lookup, and finish authenticating the user-settings endpoint. Replace empty `catch` blocks in checkout and booking routes with proper logging so `npm run lint` reports zero errors.
+
+### PR 7: Admin dashboard & code quality
+Admin-only cleanup: replace the forbidden `mentee` word in the workspace create page, remove unused imports, `console.log`/`alert()` calls, and `as any` casts, swap `<img>` for Next.js `<Image />`, and delete or move unused instructor components (`session-cards`, `bookings-list`).
