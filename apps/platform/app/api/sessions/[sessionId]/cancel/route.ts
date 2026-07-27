@@ -41,7 +41,7 @@ export async function POST(
       convex.query(api.instructors.getInstructorById, {
         id: session.instructorId,
       }),
-      convex.query(api.users.getUserByUserId, {
+      convex.query(api.users.getUserByClerkIdPublic, {
         userId: session.studentId,
       }),
     ]);

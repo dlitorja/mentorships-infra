@@ -13,8 +13,6 @@ import {
   buildSessionRescheduledEmail,
 } from "@mentorships/emails/session-changes";
 
-type PreviewType = "reschedule" | "cancel";
-
 const previewSchema = z.object({
   type: z.enum(["reschedule", "cancel"]),
   newScheduledAt: z.number().optional(),
@@ -83,8 +81,8 @@ export async function POST(
     }
 
     const student = session.studentId
-      ? await convex.query(api.users.getUserById, {
-          id: session.studentId as Id<"users">,
+      ? await convex.query(api.users.getUserByClerkIdPublic, {
+          userId: session.studentId,
         })
       : null;
 
