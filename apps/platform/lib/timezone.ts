@@ -20,6 +20,18 @@ export type LocalDateTime = {
 
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 
+/**
+ * Returns true if `timeZone` is a recognized IANA timezone name.
+ */
+export function isValidTimeZone(timeZone: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getFormatter(timeZone: string): Intl.DateTimeFormat {
   let formatter = formatterCache.get(timeZone);
   if (!formatter) {
@@ -92,15 +104,20 @@ export function addMinutes(local: LocalDateTime, minutes: number): LocalDateTime
   });
 }
 
+
+
 /**
  * Convert a local wall-clock date/time expressed in `timeZone` into the
- * corresponding UTC timestamp. Uses an offset estimate followed by a
- * bounded brute-force search to handle DST transitions correctly.
+ * corresponding UTC timestamp, or `null` if the local wall time does not
+ * exist in that timezone (e.g. a spring-forward DST gap).
+ *
+ * Uses an offset estimate followed by a bounded brute-force search to handle
+ * DST transitions correctly.
  */
 export function localDateTimeToUtcMillis(
   local: LocalDateTime,
   timeZone: string
-): number {
+): number | null {
   // Build a naive UTC timestamp from the target local components.
   // This is the instant the local time would represent if the zone were UTC.
   const naiveUtc = Date.UTC(
@@ -149,20 +166,24 @@ export function localDateTimeToUtcMillis(
     }
   }
 
-  // Fallback: should not happen for valid timezones and short offsets.
-  return candidate;
+  // No UTC instant maps to this local wall time — the wall time is inside a
+  // DST gap (spring-forward) or otherwise invalid.
+  return null;
 }
 
 /**
- * Add `weeks` weekly recurrences to `isoStart`, preserving the same
- * local wall time in `timeZone`. This is the DST-safe replacement for
+ * Add `weeks` weekly recurrences to `isoStart`, preserving the same local wall
+ * time in `timeZone`. Returns `null` if the target local wall time does not
+ * exist (e.g. lands in a spring-forward DST gap).
+ *
+ * This is the DST-safe replacement for
  * `baseMs + weeks * 7 * 24 * 60 * 60 * 1000`.
  */
 export function addWeeksInTimeZone(
   isoStart: string,
   timeZone: string,
   weeks: number
-): number {
+): number | null {
   const base = new Date(isoStart);
   const baseLocal = getLocalDateTime(base, timeZone);
   const targetLocal = addDays(baseLocal, weeks * 7);

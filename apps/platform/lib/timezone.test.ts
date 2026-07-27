@@ -3,6 +3,7 @@ import {
   addDays,
   addMinutes,
   getLocalDateTime,
+  isValidTimeZone,
   localDateTimeToUtcMillis,
   addWeeksInTimeZone,
   utcMillisToIsoString,
@@ -66,6 +67,19 @@ describe("timezone helpers", () => {
     });
   });
 
+  describe("isValidTimeZone", () => {
+    it("returns true for valid IANA timezones", () => {
+      expect(isValidTimeZone("America/New_York")).toBe(true);
+      expect(isValidTimeZone("UTC")).toBe(true);
+      expect(isValidTimeZone("Europe/London")).toBe(true);
+    });
+
+    it("returns false for invalid timezone strings", () => {
+      expect(isValidTimeZone("NotAZone")).toBe(false);
+      expect(isValidTimeZone("")).toBe(false);
+    });
+  });
+
   describe("localDateTimeToUtcMillis", () => {
     it("converts a local wall time back to the correct UTC instant", () => {
       const local = { year: 2026, month: 7, day: 15, hour: 14, minute: 0, second: 0 };
@@ -79,8 +93,16 @@ describe("timezone helpers", () => {
       const millis = localDateTimeToUtcMillis(local, "America/New_York");
       expect(millis).toBe(new Date("2026-11-08T05:30:00Z").getTime());
       // Verify round-trip
-      const roundTripped = getLocalDateTime(new Date(millis), "America/New_York");
+      expect(millis).not.toBeNull();
+      const roundTripped = getLocalDateTime(new Date(millis as number), "America/New_York");
       expect(roundTripped).toEqual(local);
+    });
+
+    it("returns null for a nonexistent spring-forward DST wall time", () => {
+      // DST starts in NY on 2026-03-08 at 2am; clocks jump to 3am. 02:30 does not exist.
+      const local = { year: 2026, month: 3, day: 8, hour: 2, minute: 30, second: 0 };
+      const millis = localDateTimeToUtcMillis(local, "America/New_York");
+      expect(millis).toBeNull();
     });
   });
 
@@ -89,9 +111,10 @@ describe("timezone helpers", () => {
       // 2026-10-25 15:00 EDT (UTC-4)
       const start = "2026-10-25T19:00:00Z";
       const week1 = addWeeksInTimeZone(start, "America/New_York", 1);
+      expect(week1).not.toBeNull();
 
       // The local time one week later should still be 15:00, but now EST (UTC-5)
-      const local = getLocalDateTime(new Date(week1), "America/New_York");
+      const local = getLocalDateTime(new Date(week1 as number), "America/New_York");
       expect(local).toEqual({
         year: 2026,
         month: 11,
@@ -105,11 +128,19 @@ describe("timezone helpers", () => {
     it("does not match the naive millisecond add when DST changes", () => {
       const start = "2026-10-25T19:00:00Z";
       const dstAware = addWeeksInTimeZone(start, "America/New_York", 1);
+      expect(dstAware).not.toBeNull();
       const naive = new Date(start).getTime() + 7 * 24 * 60 * 60 * 1000;
-      expect(dstAware).not.toBe(naive);
       // DST-aware result should be 1 hour later in UTC because the offset
       // increased by 1 hour when clocks fell back (same local time = later UTC).
       expect(dstAware).toBe(naive + 60 * 60 * 1000);
+    });
+
+    it("returns null when the target local time falls in a DST gap", () => {
+      // 2026-03-01 02:30 EST (UTC-5) is valid. Adding 7 days lands on
+      // 2026-03-08 02:30, which is in the spring-forward gap.
+      const start = "2026-03-01T07:30:00Z";
+      const week1 = addWeeksInTimeZone(start, "America/New_York", 1);
+      expect(week1).toBeNull();
     });
   });
 

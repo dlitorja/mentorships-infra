@@ -10,10 +10,12 @@ import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk";
+import { reportError } from "@/lib/observability";
 import {
   addDays,
   addMinutes,
   getLocalDateTime,
+  isValidTimeZone,
   localDateTimeToUtcMillis,
   utcMillisToIsoString,
 } from "@/lib/timezone";
@@ -28,6 +30,25 @@ const createSeriesSchema = z.object({
 });
 
 type ResultItem = { weekOffset: number; status: "created" | "skipped"; reason?: string; bookingId?: string };
+
+async function withRetries<T>(
+  fn: () => Promise<T>,
+  attempts: number,
+  delayMs: number
+): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 /**
  * POST /api/bookings/series
@@ -89,6 +110,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!Number.isFinite(baseStartMs)) {
       return NextResponse.json({ error: "Invalid start" }, { status: 400 });
     }
+    if (!isValidTimeZone(timezone)) {
+      return NextResponse.json({ error: "Invalid timezone" }, { status: 400 });
+    }
 
     // Decompose the base start into the target timezone so we can add weeks
     // while preserving the same local wall time across DST boundaries.
@@ -101,11 +125,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     for (let i = 1; i <= weeks; i++) {
       // Add i weeks to the local calendar components, then convert each local
       // wall time back to a UTC timestamp. This keeps 3pm as 3pm even when
-      // the UTC offset changes due to DST.
+      // the UTC offset changes due to DST. If the target wall time does not
+      // exist (spring-forward gap), skip the slot.
       const targetStartLocal = addDays(baseStartLocal, i * 7);
       const targetEndLocal = addDays(baseEndLocal, i * 7);
       const slotStartUtc = localDateTimeToUtcMillis(targetStartLocal, timezone);
       const slotEndUtc = localDateTimeToUtcMillis(targetEndLocal, timezone);
+      if (slotStartUtc === null || slotEndUtc === null) {
+        results.push({ weekOffset: i, status: "skipped", reason: "Selected time does not exist due to DST" });
+        continue;
+      }
+      if (slotEndUtc <= slotStartUtc) {
+        results.push({ weekOffset: i, status: "skipped", reason: "Invalid slot duration" });
+        continue;
+      }
 
       try {
         // Freebusy check
@@ -201,34 +234,88 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             continue;
           }
 
-          const confirmed = await convex.mutation(api.bookings.confirm, {
-            id: pending.bookingId,
-            eventCalendarId,
-            googleEventId: insertedGoogleEventId,
-          });
-          if (!confirmed) {
-            throw new Error("Confirm returned null");
+          try {
+            const confirmed = await convex.mutation(api.bookings.confirm, {
+              id: pending.bookingId,
+              eventCalendarId,
+              googleEventId: insertedGoogleEventId,
+            });
+            if (!confirmed) {
+              throw new Error("Confirm returned null");
+            }
+            didConfirm = true;
+            createdTimes.push(confirmed.startUtc);
+            results.push({ weekOffset: i, status: "created", bookingId: String(confirmed._id) });
+          } catch (confirmErr) {
+            // Confirm is idempotent; a lost response may still have committed.
+            // Resolve the ambiguity by checking the booking state.
+            try {
+              const existing = await convex.query(api.bookings.getBookingById, {
+                id: pending.bookingId as Id<"bookings">,
+              });
+              if (existing && existing.status === "confirmed") {
+                didConfirm = true;
+                createdTimes.push(existing.startUtc);
+                results.push({ weekOffset: i, status: "created", bookingId: String(existing._id) });
+              } else {
+                throw confirmErr;
+              }
+            } catch (statusErr) {
+              console.error("Failed to resolve ambiguous confirm status:", statusErr);
+              throw confirmErr;
+            }
           }
-          didConfirm = true;
-          createdTimes.push(confirmed.startUtc);
-          results.push({ weekOffset: i, status: "created", bookingId: String(confirmed._id) });
         } catch (e) {
-          console.error("Google Calendar insert error (series):", e);
+          console.error("Google Calendar insert or confirm error (series):", e);
           results.push({ weekOffset: i, status: "skipped", reason: "Calendar provider error" });
         } finally {
           if (!didConfirm) {
-            if (insertedGoogleEventId) {
+            const eventIdToDelete = insertedGoogleEventId;
+            if (eventIdToDelete) {
               try {
-                await calendar.events.delete({ calendarId: eventCalendarId, eventId: insertedGoogleEventId, sendUpdates: "all" });
+                await withRetries(
+                  () =>
+                    calendar.events.delete({
+                      calendarId: eventCalendarId,
+                      eventId: eventIdToDelete,
+                      sendUpdates: "all",
+                    }),
+                  3,
+                  250
+                );
               } catch (deleteErr) {
-                console.error("Rollback failed for calendar.events.delete", { eventId: insertedGoogleEventId, error: deleteErr });
+                console.error("Rollback failed for calendar.events.delete after retries:", {
+                  eventId: insertedGoogleEventId,
+                  error: deleteErr,
+                });
+                await reportError({
+                  source: "api.bookings.series.rollback.calendarDelete",
+                  error: deleteErr instanceof Error ? deleteErr : new Error(String(deleteErr)),
+                  level: "error",
+                  message: "Failed to delete orphaned calendar event after multiple retries",
+                  context: { eventCalendarId, eventId: eventIdToDelete, bookingId: pending.bookingId },
+                });
               }
             }
             if (!cancelAlready) {
               try {
-                await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
+                await withRetries(
+                  () => convex.mutation(api.bookings.cancel, { id: pending.bookingId }),
+                  3,
+                  250
+                );
               } catch (rollbackErr) {
-                console.error("Rollback failed for api.bookings.cancel", { bookingId: pending.bookingId, error: rollbackErr });
+                console.error("Rollback failed for api.bookings.cancel after retries:", {
+                  bookingId: pending.bookingId,
+                  error: rollbackErr,
+                });
+                await reportError({
+                  source: "api.bookings.series.rollback.cancel",
+                  error: rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr)),
+                  level: "error",
+                  message: "Failed to cancel pending booking after multiple retries",
+                  context: { bookingId: pending.bookingId },
+                });
               }
             }
           }
