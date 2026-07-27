@@ -10,10 +10,11 @@ import { fetchInstructorAvailability } from "@/lib/queries/api-client";
 import { useCreateSession } from "@/lib/queries/convex";
 import { useForm } from "@tanstack/react-form";
 import { z } from "zod";
+import { Id } from "@/convex/_generated/dataModel";
 
 type PackOption = {
-  id: string;
-  instructorId: string;
+  id: Id<"sessionPacks">;
+  instructorId: Id<"instructors">;
   remainingSessions: number;
   expiresAt: string | Date | null;
   status: string;
@@ -132,9 +133,9 @@ export function BookSessionForm({ packs, userId }: { packs: PackOption[]; userId
     if (!selectedPack || !userId) return;
     try {
       await createSession.mutateAsync({
-        instructorId: selectedPack.instructorId as any,
+        instructorId: selectedPack.instructorId,
         studentId: userId,
-        sessionPackId: selectedPack.id as any,
+        sessionPackId: selectedPack.id,
         scheduledAt: new Date(scheduledAtIso).getTime(),
         recordingConsent: true,
       });

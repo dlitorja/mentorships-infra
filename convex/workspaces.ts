@@ -529,6 +529,29 @@ export const getWorkspaceBySeatReservation = query({
   },
 });
 
+/** Returns the active workspace ID for a session pack, or null if none exists. Requires auth. */
+export const getWorkspaceBySessionPackId = query({
+  args: { sessionPackId: v.id("sessionPacks") },
+  handler: async (ctx, args) => {
+    const user = await ctx.auth.getUserIdentity();
+    if (!user) {
+      return null;
+    }
+    const pack = await ctx.db.get(args.sessionPackId);
+    if (!pack) {
+      return null;
+    }
+    if (user.subject !== pack.userId) {
+      return null;
+    }
+    const workspace = await resolveActiveWorkspaceForPair(ctx, {
+      instructorId: pack.instructorId,
+      studentUserId: pack.userId,
+    });
+    return workspace?._id ?? null;
+  },
+});
+
 /** Returns workspaces past the 18-month retention period that are pending deletion. */
 export const getWorkspacesNeedingRetentionDeletion = query({
   args: {},

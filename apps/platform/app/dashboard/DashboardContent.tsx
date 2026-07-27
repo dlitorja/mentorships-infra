@@ -45,6 +45,7 @@ interface SessionPackData {
   expiresAt?: number;
   purchasedAt: number;
   mentorshipType?: string;
+  workspaceId: string | null;
 }
 
 interface SessionData {
@@ -53,6 +54,7 @@ interface SessionData {
   sessionPackId: string;
   scheduledAt: number;
   status: string;
+  workspaceId: string | null;
 }
 
 function InstructorBadge({ instructorId }: { instructorId: string }) {
@@ -98,10 +100,10 @@ function SessionPackCard({ pack }: { pack: SessionPackData }) {
           </span>
         </div>
       </div>
-      {pack.mentorshipType && (
+      {pack.mentorshipType && pack.workspaceId && (
         <div className="pt-2">
           <Link
-            href={`/workspace/${pack._id}`}
+            href={`/workspace/${pack.workspaceId}`}
             className="text-sm text-primary hover:underline"
           >
             Open workspace →
@@ -124,14 +126,16 @@ function UpcomingSessionCard({ session }: { session: SessionData }) {
         </div>
         <Badge variant="outline">Scheduled</Badge>
       </div>
-      <div className="pt-2">
-        <Link
-          href={`/workspace/${session.sessionPackId}`}
-          className="text-sm text-primary hover:underline"
-        >
-          Open workspace →
-        </Link>
-      </div>
+      {session.workspaceId && (
+        <div className="pt-2">
+          <Link
+            href={`/workspace/${session.workspaceId}`}
+            className="text-sm text-primary hover:underline"
+          >
+            Open workspace →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

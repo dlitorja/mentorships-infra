@@ -126,6 +126,14 @@ export function SessionsContent() {
                       View Recording
                     </a>
                   )}
+                  {session.workspaceId && (
+                    <Link
+                      href={`/workspace/${session.workspaceId}`}
+                      className="text-sm text-primary hover:underline"
+                    >
+                      Open workspace →
+                    </Link>
+                  )}
                   {session.notes && (
                     <div className="mt-2">
                       <p className="text-sm font-medium">Notes:</p>

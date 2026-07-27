@@ -53,8 +53,18 @@ export function useSessionPacksByInstructor(instructorId: string) {
   });
 }
 
-export function useWorkspaceBySessionPack(_sessionPackId: string) {
-  return { data: null };
+/**
+ * Resolves the active workspace ID for a given session pack ID.
+ * @param {string} sessionPackId - The session pack ID
+ * @returns {UseQueryResult} Query result containing the workspace ID or null
+ */
+export function useWorkspaceBySessionPack(sessionPackId: string) {
+  return useQuery({
+    ...convexQuery(api.workspaces.getWorkspaceBySessionPackId, {
+      sessionPackId: sessionPackId as Id<"sessionPacks">,
+    }),
+    enabled: !!sessionPackId,
+  });
 }
 
 /**
