@@ -10,6 +10,8 @@ import { decryptInstructorRefreshToken } from "@/lib/crypto";
 import { calendar_v3 } from "googleapis";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk";
+import { reportError } from "@/lib/observability";
+import { withRetries } from "@/lib/utils";
 
 const createSchema = z.object({
   instructorId: z.string().min(1),
@@ -20,6 +22,60 @@ const createSchema = z.object({
   studentName: z.string().min(1),
   suppressNotifications: z.boolean().optional(),
 });
+
+/**
+ * Confirm the booking in Convex, resolving the ambiguous-transport case where
+ * the mutation commits server-side but the HTTP response is lost. If the
+ * confirm call throws, we query the booking state; if it is already confirmed,
+ * we treat the booking as successfully confirmed.
+ */
+type ConfirmResult =
+  | { type: "confirmed"; booking: any }
+  | { type: "unverifiable"; reason: string };
+
+async function confirmBookingSafely(
+  convex: Awaited<ReturnType<typeof getAuthenticatedConvexClient>>,
+  bookingId: string,
+  eventCalendarId: string,
+  googleEventId: string
+): Promise<ConfirmResult> {
+  try {
+    const booking = await convex.mutation(api.bookings.confirm, {
+      id: bookingId as Id<"bookings">,
+      eventCalendarId,
+      googleEventId,
+    });
+    return { type: "confirmed", booking };
+  } catch (confirmErr) {
+    // Confirm is idempotent, so a lost response may have still committed.
+    // Query the booking to resolve the ambiguity before rolling back.
+    let existing: any = null;
+    try {
+      existing = await withRetries(
+        () =>
+          convex.query(api.bookings.getBookingById, {
+            id: bookingId as Id<"bookings">,
+          }),
+        3,
+        250
+      );
+    } catch (statusErr) {
+      console.error("Failed to query booking status after confirm error:", statusErr);
+      await reportError({
+        source: "api.bookings.confirm.statusQuery",
+        error: statusErr instanceof Error ? statusErr : new Error(String(statusErr)),
+        level: "error",
+        message: "Could not verify booking status after confirm failure; manual reconciliation may be needed",
+        context: { bookingId, eventCalendarId, googleEventId },
+      });
+      return { type: "unverifiable", reason: "Could not verify booking status" };
+    }
+    if (existing && existing.status === "confirmed") {
+      return { type: "confirmed", booking: existing };
+    }
+    throw confirmErr;
+  }
+}
 
 /**
  * POST /api/bookings
@@ -148,6 +204,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     let confirmed = null as any;
     let didConfirm = false;
+    let googleEventId: string | null = null;
     try {
       const insert = await calendar.events.insert({
         calendarId: eventCalendarId,
@@ -163,16 +220,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         },
       });
 
-      const googleEventId = insert.data.id;
+      googleEventId = insert.data.id ?? null;
       if (!googleEventId) {
         return NextResponse.json({ error: "Failed to create calendar event" }, { status: 502 });
       }
 
-      confirmed = await convex.mutation(api.bookings.confirm, {
-        id: pending.bookingId,
-        eventCalendarId,
-        googleEventId,
-      });
+      const confirmResult = await confirmBookingSafely(convex, pending.bookingId, eventCalendarId, googleEventId);
+      if (confirmResult.type === "unverifiable") {
+        // Confirm failed and we could not verify the booking state. Preserve the
+        // pending booking and calendar event so a confirmed booking is not
+        // accidentally rolled back; report for manual reconciliation.
+        didConfirm = true;
+        await reportError({
+          source: "api.bookings.create.unverifiable",
+          error: new Error(confirmResult.reason),
+          level: "error",
+          message: "Booking confirmation state unverifiable; manual reconciliation may be needed",
+          context: { bookingId: pending.bookingId, eventCalendarId, googleEventId },
+        });
+        return NextResponse.json(
+          {
+            success: true,
+            booking: null,
+            reconciliationNeeded: true,
+            message: "Booking could not be confirmed automatically. Please check your calendar and booking list.",
+          },
+          { status: 202 }
+        );
+      }
+      confirmed = confirmResult.booking;
       didConfirm = true;
       if (!suppressNotifications) {
         // Trigger notifications task (student + instructor) when not suppressed
@@ -192,14 +268,58 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       return NextResponse.json({ success: true, booking: confirmed });
     } catch (e) {
-      console.error("Google Calendar insert error:", e);
-      return NextResponse.json({ error: "Failed to create calendar event" }, { status: 502 });
+      console.error("Google Calendar insert or confirm error:", e);
+      return NextResponse.json({ error: "Failed to create calendar event or confirm booking" }, { status: 502 });
     } finally {
       if (!didConfirm) {
+        // Roll back the pending booking lock so the slot is not permanently held.
         try {
-          await convex.mutation(api.bookings.cancel, { id: pending.bookingId });
+          await withRetries(
+            () => convex.mutation(api.bookings.cancel, { id: pending.bookingId }),
+            3,
+            250
+          );
         } catch (rollbackErr) {
-          console.error("Failed to rollback pending booking:", rollbackErr, { bookingId: pending.bookingId });
+          console.error("Failed to rollback pending booking after retries:", rollbackErr, {
+            bookingId: pending.bookingId,
+          });
+          await reportError({
+            source: "api.bookings.create.rollback.cancel",
+            error: rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr)),
+            level: "error",
+            message: "Failed to cancel pending booking after multiple retries",
+            context: { bookingId: pending.bookingId },
+          });
+        }
+        // If we created a calendar event but never confirmed the booking in
+        // Convex, delete the orphaned calendar event so it doesn't clutter the
+        // instructor's Google Calendar.
+        const eventIdToDelete = googleEventId;
+        if (eventIdToDelete) {
+          try {
+            await withRetries(
+              () =>
+                calendar.events.delete({
+                  calendarId: eventCalendarId,
+                  eventId: eventIdToDelete,
+                  sendUpdates: "all",
+                }),
+              3,
+              250
+            );
+          } catch (deleteErr) {
+            console.error("Failed to rollback orphaned calendar event after retries:", deleteErr, {
+              eventCalendarId,
+              googleEventId,
+            });
+            await reportError({
+              source: "api.bookings.create.rollback.calendarDelete",
+              error: deleteErr instanceof Error ? deleteErr : new Error(String(deleteErr)),
+              level: "error",
+              message: "Failed to delete orphaned calendar event after multiple retries",
+              context: { eventCalendarId, googleEventId, bookingId: pending.bookingId },
+            });
+          }
         }
       }
     }
