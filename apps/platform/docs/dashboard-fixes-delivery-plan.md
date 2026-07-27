@@ -248,7 +248,7 @@ Current `npm run lint` reports **13 errors**. The PR must close all of them.
 - [x] No forbidden `mentor`/`mentee` words remain in changed files.
 - [x] `npm run lint` and `npm run typecheck` pass.
 - [x] Admin pages render without console warnings.
-- [ ] Greptile review has no new issues.
+- [x] Greptile review has no new issues.
 
 ---
 
