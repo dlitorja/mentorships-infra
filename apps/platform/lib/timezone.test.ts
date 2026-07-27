@@ -27,7 +27,27 @@ describe("timezone helpers", () => {
     it("adds days to local date components", () => {
       const local = { year: 2026, month: 7, day: 15, hour: 14, minute: 0, second: 0 };
       const result = addDays(local, 7);
-      expect(result.day).toBe(22);
+      expect(result).toEqual({
+        year: 2026,
+        month: 7,
+        day: 22,
+        hour: 14,
+        minute: 0,
+        second: 0,
+      });
+    });
+
+    it("normalizes month rollovers", () => {
+      const local = { year: 2026, month: 1, day: 31, hour: 10, minute: 0, second: 0 };
+      const result = addDays(local, 1);
+      expect(result).toEqual({
+        year: 2026,
+        month: 2,
+        day: 1,
+        hour: 10,
+        minute: 0,
+        second: 0,
+      });
     });
   });
 
@@ -35,8 +55,14 @@ describe("timezone helpers", () => {
     it("adds minutes to local time components", () => {
       const local = { year: 2026, month: 7, day: 15, hour: 14, minute: 0, second: 0 };
       const result = addMinutes(local, 60);
-      expect(result.hour).toBe(14);
-      expect(result.minute).toBe(60);
+      expect(result).toEqual({
+        year: 2026,
+        month: 7,
+        day: 15,
+        hour: 15,
+        minute: 0,
+        second: 0,
+      });
     });
   });
 

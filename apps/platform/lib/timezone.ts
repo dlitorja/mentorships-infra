@@ -61,18 +61,35 @@ export function getLocalDateTime(
   };
 }
 
-export function addDays(local: LocalDateTime, days: number): LocalDateTime {
+function normalizeLocalDateTime(local: LocalDateTime): LocalDateTime {
+  // Use UTC date arithmetic purely for calendar normalization. The timezone
+  // does not matter here because we are only normalizing fields, not
+  // converting between UTC and local time.
+  const normalized = new Date(
+    Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second)
+  );
   return {
-    ...local,
-    day: local.day + days,
+    year: normalized.getUTCFullYear(),
+    month: normalized.getUTCMonth() + 1,
+    day: normalized.getUTCDate(),
+    hour: normalized.getUTCHours(),
+    minute: normalized.getUTCMinutes(),
+    second: normalized.getUTCSeconds(),
   };
 }
 
+export function addDays(local: LocalDateTime, days: number): LocalDateTime {
+  return normalizeLocalDateTime({
+    ...local,
+    day: local.day + days,
+  });
+}
+
 export function addMinutes(local: LocalDateTime, minutes: number): LocalDateTime {
-  return {
+  return normalizeLocalDateTime({
     ...local,
     minute: local.minute + minutes,
-  };
+  });
 }
 
 /**
