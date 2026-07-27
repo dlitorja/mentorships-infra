@@ -1241,6 +1241,40 @@ export const updateInstructor = mutation({
   },
 });
 
+/** Updates an instructor's own profile fields. Requires the caller to be the instructor (userId match). Passing undefined for an optional field removes it from the document. */
+export const updateInstructorProfile = mutation({
+  args: {
+    id: v.id("instructors"),
+    name: v.optional(v.string()),
+    tagline: v.optional(v.string()),
+    bio: v.optional(v.string()),
+    specialties: v.optional(v.array(v.string())),
+    background: v.optional(v.array(v.string())),
+    profileImageUrl: v.optional(v.string()),
+    profileImageUploadPath: v.optional(v.string()),
+    portfolioImages: v.optional(v.array(v.string())),
+    socials: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const instructor = await ctx.db.get(args.id);
+    if (!instructor) throw new Error("Instructor not found");
+    if (instructor.userId !== identity.subject) {
+      throw new Error("Forbidden");
+    }
+
+    const { id, ...updates } = args;
+    if (Object.keys(updates).length === 0) {
+      return await ctx.db.get(id);
+    }
+
+    await ctx.db.patch(id, { ...updates, updatedAt: Date.now() });
+    return await ctx.db.get(id);
+  },
+});
+
 /** Soft-deletes an instructor by setting deletedAt to the current timestamp. Requires admin role. */
 export const deleteInstructor = mutation({
   args: { id: v.id("instructors") },
@@ -1539,6 +1573,16 @@ export const generateInstructorUploadUrl = mutation({
   },
 });
 
+/** Generates a Convex storage upload URL for an authenticated instructor. */
+export const generateAuthenticatedInstructorUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
 export const uploadInstructorProfileImage = mutation({
   args: {
     instructorId: v.id("instructors"),
@@ -1604,6 +1648,76 @@ export const uploadInstructorPortfolioImage = mutation({
     });
 
     return { storageId: args.storageId, url, index: args.index };
+  },
+});
+
+/** Appends a portfolio image to an instructor's portfolio. The index is determined inside the mutation so concurrent appends are handled transactionally. Requires the caller to be the instructor. */
+export const addInstructorPortfolioImage = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageId: v.string(),
+    contentType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || !instructor.slug) {
+      throw new Error("Instructor not found or missing slug");
+    }
+    if (instructor.userId !== identity.subject) {
+      throw new Error("Forbidden");
+    }
+
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
+
+    const currentPortfolioImages = instructor.portfolioImages ?? [];
+    const currentStorageIds = instructor.portfolioImageStorageIds ?? [];
+    const index = currentPortfolioImages.length;
+
+    await ctx.db.patch(args.instructorId, {
+      portfolioImages: [...currentPortfolioImages, url],
+      portfolioImageStorageIds: [...currentStorageIds, args.storageId],
+    });
+
+    return { storageId: args.storageId, url, index };
+  },
+});
+
+/** Sets an instructor's profile image. Requires the caller to be the instructor. */
+export const addInstructorProfileImage = mutation({
+  args: {
+    instructorId: v.id("instructors"),
+    storageId: v.string(),
+    contentType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const instructor = await ctx.db.get(args.instructorId);
+    if (!instructor || !instructor.slug) {
+      throw new Error("Instructor not found or missing slug");
+    }
+    if (instructor.userId !== identity.subject) {
+      throw new Error("Forbidden");
+    }
+
+    const url = await ctx.storage.getUrl(args.storageId as Id<"_storage">);
+    if (!url) {
+      throw new Error("Failed to get URL for storage ID");
+    }
+
+    await ctx.db.patch(args.instructorId, {
+      profileImageUrl: url,
+      profileImageStorageId: args.storageId,
+    });
+
+    return { storageId: args.storageId, url };
   },
 });
 

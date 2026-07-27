@@ -9,11 +9,10 @@ import type { Id } from "./_generated/dataModel";
 export const getByLegacyId = query({
   args: { legacyId: v.string() },
   handler: async (ctx, args) => {
-    const docs = await ctx.db
+    return await ctx.db
       .query("studentOnboardingSubmissions")
-      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
-      .collect();
-    return docs[0] ?? null;
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.legacyId))
+      .first();
   },
 });
 
@@ -78,7 +77,7 @@ export const markReviewed = mutation({
   handler: async (ctx, args) => {
     const sub = await ctx.db
       .query("studentOnboardingSubmissions")
-      .filter((q) => q.eq(q.field("legacyId"), args.legacyId))
+      .withIndex("by_legacyId", (q) => q.eq("legacyId", args.legacyId))
       .first();
     if (!sub) return { ok: false as const, error: "not_found" };
     if (sub.instructorId !== args.instructorId) return { ok: false as const, error: "forbidden" };

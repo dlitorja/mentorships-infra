@@ -8,8 +8,8 @@ Fixes are grouped into the smallest number of PRs that still share a single them
 
 | PR | Theme | Why bundled | Status | Risk |
 |---|---|---|---|---|
-| **1** | Convex auth tokens for instructor & student routes | Same pattern, same blocker, huge blast radius | Not started | P0 — most instructor/student features are broken without this |
-| **2** | Instructor self-service: profile, images, onboarding review | All fix instructor-owned record mutations/UI | Not started | P0 — profile editing and onboarding are non-functional |
+| **1** | Convex auth tokens for instructor & student routes | Same pattern, same blocker, huge blast radius | Merged | P0 — most instructor/student features are broken without this |
+| **2** | Instructor self-service: profile, images, onboarding review | All fix instructor-owned record mutations/UI | In review | P0 — profile editing and onboarding are non-functional |
 | **3** | Student booking navigation & calendar ID mismatch | Both break the student booking → workspace flow | Not started | P0 — links go to wrong IDs and calendar uses wrong ID types |
 | **4** | Session actions, notifications, and email preview | All fix how sessions are cancelled/rescheduled/notified | Not started | P1 — notifications and calendar cleanup are skipped |
 | **5** | Data refresh & booking reliability | React Query invalidation, DST bug, orphaned calendar events | Not started | P1 — UI stays stale and booking edge cases are unreliable |
@@ -179,15 +179,15 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 
 | PR | Branch | Status | Merged | Notes |
 |---|---|---|---|---|
-| 1 | `fix/dashboard-auth-tokens` | In review | https://github.com/dlitorja/mentorships-infra/pull/685 | Blocker for most instructor/student functionality |
-| 2 | `fix/instructor-self-service` | Not started | | Depends on PR 1 |
+| 1 | `fix/dashboard-auth-tokens` | Merged | https://github.com/dlitorja/mentorships-infra/pull/685 | Blocker for most instructor/student functionality |
+| 2 | `fix/instructor-self-service` | In review | | Rebased onto main after PR 1 merged |
 | 3 | `fix/student-booking-navigation` | Not started | | Depends on PR 1 |
 | 4 | `fix/session-actions-notifications` | Not started | | Depends on PR 1 |
 | 5 | `fix/data-refresh-reliability` | Not started | | Depends on PR 1 and 3 |
 | 6 | `fix/security-api-hardening` | Not started | | Can be done in parallel after PR 1 |
 | 7 | `fix/admin-quality-cleanup` | Not started | | Independent cleanup PR |
 
-*Last updated: 2026-07-26 — PR 1 in review, no PR comments requiring fixes*
+*Last updated: 2026-07-26 — PR 2 implemented; `fix/instructor-self-service` is ready for review and should be rebased onto main after PR 1 merges.*
 
 ---
 
@@ -196,7 +196,7 @@ API routes should wrap the call in a `try/catch` and check `isUnauthorizedError(
 The following one-paragraph summaries are meant to quickly orient a new agent (or a future session) to each remaining PR.
 
 ### PR 2: Instructor self-service
-Make the instructor profile and onboarding review flows actually save data. The profile edit page calls an admin-only Convex mutation today, so non-admin instructors cannot update their own bio/specialties/portfolio. Switch image uploads to the dedicated `uploadInstructorProfileImage` / `uploadInstructorPortfolioImage` mutations, and implement the missing onboarding review POST endpoint so the "Mark reviewed" action stops returning 404.
+Make the instructor profile and onboarding review flows actually save data. The profile edit page calls an admin-only Convex mutation today, so non-admin instructors cannot update their own bio/specialties/portfolio. Add a self-service `updateInstructorProfile` mutation with an ownership check, route image uploads through new authenticated `addInstructorProfileImage` / `addInstructorPortfolioImage` mutations (and an authenticated upload-URL generator), and implement the missing `/api/instructor/onboarding/review` POST endpoint so the "Mark reviewed" action stops returning 404.
 
 ### PR 3: Student booking navigation & calendar ID mismatch
 Fix the student dashboard and sessions list so their "Workspace" links use the real Convex workspace ID instead of a session-pack UUID. Then migrate the calendar booking flow (`/calendar` and `book-session-form`) so it passes Convex IDs (`instructorId`, `sessionPackId`) to the booking API rather than Postgres UUIDs.
